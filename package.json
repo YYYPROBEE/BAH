@@ -13,6 +13,7 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:snapshot": "vitest run --config vitest.snapshot.config.ts",
     "test:web": "vitest run --config vitest.web.config.ts",
+    "check": "tsx scripts/ci.ts",
     "gate": "tsx scripts/run-gates.ts",
     "bah": "tsx packages/cli/src/main.ts"
   },

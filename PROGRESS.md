@@ -109,3 +109,30 @@
 | R19 | T-CORE-001 语义按人工决议实现 | 决议：install 阶段禁止 `parallel` 广播（此时后续插件的监听器尚未安装），错误文案含「有监听器未完成」；`start` 完成后广播正常（有测试覆盖） |
 | R20 | `verify-event-modes` 门禁 | **已落地骨架**：`scripts/verify-event-modes.ts` 并入 `pnpm gate`（现 4 项）。已有真实比对逻辑（声明点向前 20 行找 `@mode`、派发点取字面量事件名，不一致即失败）；当前零声明点、零字面量派发点 → 骨架通过。**负控已验证**：临时注入「声明 emit / 按 waterfall 派发」→ `✘ event-modes` 且 exit 1 |
 | R21 | 底部提示词 README 的抽查点笔误 | **已更正**：`BAH-底座提示词/README.md` §3 阶段 2 行改为「T-CORE-003（effect 逆序回滚）+ T-CORE-020（同名覆盖后回滚），waterfall 短路见 T-CORE-007」。该文件在 `MonoRepo/` 之外，不入本仓库提交 |
+
+## 7. 测试地基（阶段 2 追加，按人工要求「把测试框架详细补上」）
+
+| 交付 | 文件 | 内容 |
+|---|---|---|
+| 测试上下文 | `packages/test-support/src/mock-ctx/index.ts` | `createTestContext` / `withTestContext` / `record(name, mode)` / `flush` / `waitFor`（超时必抛，绝不无限等） |
+| 确定性夹具 | `packages/test-support/src/fixtures/index.ts` | `asSessionId` / `asTicketId` / `fixedClock` / `seededRandom`（mulberry32） |
+| 错误断言 | `packages/test-support/src/assertions/index.ts` | `captureThrown` / `captureRejection`：验 `code` 与前缀，不只验「抛了」 |
+| 快照 fixture | `packages/test-support/src/session-snapshot/fixtures.ts` | `parseSnapshotName` / `selectSnapshot`：`session[.序号][.vN].jsonl` 解析、同组最高代、冲突 fail-loud |
+| llm-mock-server | `packages/test-support/src/llm-mock-server/index.ts` | 占位 + TODO（依赖阶段 4 的 wire 形态与阶段 7 的 harness） |
+| 测试面解析 | `vitest.shared.ts` | `@bah/<pkg>` → `packages/<pkg>/src/index.ts`（四个面共用，避免跑构建产物） |
+| 三类真实用例 | `snapshots/fixtures.test.ts`、`apps/web/src/main.test.js`、`packages/cli/src/main.smoke.test.ts` | 快照通道 2 例、jsdom 入口 2 例、CLI 进程冒烟 1 例 |
+| 全链命令 | `scripts/ci.ts` + `pnpm check` | typecheck → test → coverage → gate → e2e → snapshot → web，fail-fast + 耗时汇总 |
+| 覆盖率产物 | `vitest.config.ts` | `text` + `lcov` + `json-summary` → `coverage/`（已 gitignore） |
+| 操作手册 | `docs/testing.md` | 四个面 / 用例 ID 纪律 / 覆盖率政策 / 别名边界 / 确定性纪律 / fixture 命名 / 常见坑 |
+
+**验收证据**：`pnpm check` → 7/7 全绿（typecheck 1.3s、unit 1.6s、coverage 1.8s、gate 0.6s、e2e 0.7s、snapshot 1.3s、web 2.1s）；
+`pnpm test` → **83 用例 / 10 文件**全绿；`pnpm test:coverage` → 名单内 **100 / 100 / 100 / 100**；
+`pnpm test:snapshot` / `pnpm test:web` 由「No test files found」变为真用例（各 2 例）。
+
+| ID | 项 | 处理 |
+|---|---|---|
+| R22 | `@bah/test-support` 结构与依赖扩展 | 模块目录按 00 §6 / 12 §3 改名：`snapshot/`→`session-snapshot/`、`mock-server/`→`llm-mock-server/`（阶段 1 用了缩写）；新增 `fixtures/`、`assertions/` 两个模块目录（00 §6 只列三个）。依赖方向 `test-support → core / runtime / util`：01 §3 的依赖表未列该包，属**追加**；本包只服务测试，不得被运行时包依赖 |
+| R23 | 全链命令叫 `pnpm check` 而非 `pnpm ci` | `ci` 是 pnpm 内建命令（`ERR_PNPM_CI_NOT_IMPLEMENTED`），脚本会被它遮蔽；`check` 无冲突 |
+| R24 | 测试面把 `@bah/*` 解析到 `src` | 包 `exports` 指向 `dist/`，测试若走包名会静默跑构建产物（改了 src 忘了 build 就假绿）。仅在四个测试配置里 alias，包间真实运行时依赖不变（02 §8 第 1 条） |
+| R25 | 测试覆盖面边界 | `snapshots/**` 与 `apps/web/src/*.test.js` 不在 `tsc -b` 覆盖内（只经 vitest 转译），阶段 7 扩快照 harness 时补 `snapshots/tsconfig.json`；e2e 面**零用例是设计**（真实 API 密钥门控），不需要密钥的进程冒烟放 unit 面 |
+| R26 | CLI 占位文案去阶段号 | 原文案写死「阶段 1」，已改为「底座骨架」，避免每阶段都要改占位文本（冒烟用例只断言 `^bah: ` 前缀） |
