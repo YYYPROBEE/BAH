@@ -118,6 +118,9 @@ importers:
       '@bah/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@bah/util':
+        specifier: workspace:*
+        version: link:../util
 
   packages/util: {}
 
@@ -583,6 +586,11 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [musl]
+
+  '@rollup/rollup-openbsd-x64@4.64.9':
+    resolution: {integrity: sha512-4dnxKQ8GHARyjqAU87q5UWhywZTpIbR2VWhtACdC37GD1SGszmvb3TaBFVA4n+fnDHSKMut4ZJ63hVFwgnxVtg==}
+    cpu: [x64]
+    os: [openbsd]
 
   '@rollup/rollup-openharmony-arm64@4.64.9':
     resolution: {integrity: sha512-1qdQj6IrNoR0xFvrCQHmhBXe9HMbBGNTFi+3n4jKMt2rTx4k0aeAdraZU4WDOMfL9tAwS8/TRSuquvNuPQ+Gpw==}
@@ -1599,6 +1607,9 @@ snapshots:
   '@rollup/rollup-linux-x64-musl@4.64.9':
     optional: true
 
+  '@rollup/rollup-openbsd-x64@4.64.9':
+    optional: true
+
   '@rollup/rollup-openharmony-arm64@4.64.9':
     optional: true
 
@@ -2084,6 +2095,7 @@ snapshots:
       '@rollup/rollup-linux-s390x-gnu': 4.64.9
       '@rollup/rollup-linux-x64-gnu': 4.64.9
       '@rollup/rollup-linux-x64-musl': 4.64.9
+      '@rollup/rollup-openbsd-x64': 4.64.9
       '@rollup/rollup-openharmony-arm64': 4.64.9
       '@rollup/rollup-win32-arm64-msvc': 4.64.9
       '@rollup/rollup-win32-ia32-msvc': 4.64.9

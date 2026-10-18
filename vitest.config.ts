@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config'
 
 import { COVERAGE_ALLOWLIST } from './scripts/coverage-allowlist.ts'
+import { bahSourceAlias } from './vitest.shared.ts'
 
 /**
  * 强制 100% 名单 → coverage include 模式（施工单 01 §7：CI 读取名单，
@@ -21,8 +22,10 @@ const allowlistedSources = COVERAGE_ALLOWLIST.map(({ package: pkg, scope }) =>
  * （施工单 00 §11：每文件 100% 只对内核与治理平面强制）。
  */
 export default defineConfig({
+  resolve: { alias: bahSourceAlias },
   test: {
     include: ['packages/*/src/**/*.test.ts'],
+    exclude: ['packages/*/src/**/*.e2e.test.ts'],
     passWithNoTests: true,
     coverage: {
       provider: 'v8',
@@ -35,6 +38,9 @@ export default defineConfig({
       ],
       // 名单内文件的行覆盖必须 100%（按文件强制的兜底执行口）
       thresholds: { lines: 100 },
+      // text 给人看；lcov 给 CI / 答辩材料；json-summary 给脚本读
+      reporter: ['text', 'lcov', 'json-summary'],
+      reportsDirectory: 'coverage',
     },
   },
 })
