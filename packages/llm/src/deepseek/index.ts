@@ -1,7 +1,8 @@
 /**
- * @bah/llm · 逻辑模块 deepseek（M0 占位）。
+ * `@bah/llm` · 逻辑模块 deepseek（施工单 05 §2.1，子路径导出 `@bah/llm/deepseek`）。
  *
- * 本文件只声明模块位置，不实现任何运行逻辑；
- * 实装见施工单 05。
+ * `wire.ts` 是纯映射（可无网单测），`adapter.ts` 只做网络与生命周期。
  */
-export {}
+
+export * from './adapter.ts'
+export * from './wire.ts'

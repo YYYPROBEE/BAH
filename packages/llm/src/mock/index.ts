@@ -1,7 +1,8 @@
 /**
- * @bah/llm · 逻辑模块 mock（M0 占位）。
+ * `@bah/llm` · 逻辑模块 mock（施工单 05 §2.2，子路径导出 `@bah/llm/mock`）。
  *
- * 本文件只声明模块位置，不实现任何运行逻辑；
- * 实装见施工单 05。
+ * 离线演示、无密钥测主循环、回放快照三处共用同一实现。
  */
-export {}
+
+export * from './adapter.ts'
+export * from './script.ts'

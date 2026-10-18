@@ -37,6 +37,10 @@ export default defineConfig({
         'packages/core/src/api.ts',
         // 纯类型模块（只有 export type / 类型别名），零可执行行
         'packages/runtime/src/tools/types.ts',
+        // provider-neutral 词汇表：只有联合类型与接口，零可执行行
+        'packages/llm/src/llm/types.ts',
+        // 压缩的配置/计划形状：只有接口，零可执行行
+        'packages/runtime/src/compaction/types.ts',
       ],
       // 名单内文件的行覆盖必须 100%（按文件强制的兜底执行口）
       thresholds: { lines: 100 },

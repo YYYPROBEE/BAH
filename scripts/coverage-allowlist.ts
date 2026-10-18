@@ -40,6 +40,21 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
     why: '会话 append-only 日志与 deriveMessages 投影（施工单 03）',
   },
   {
+    package: 'runtime',
+    scope: 'system-prompt/',
+    why: '系统提示词六段装配、能力位裁剪、运行时上下文 reconcile（施工单 05 §4）',
+  },
+  {
+    package: 'runtime',
+    scope: 'compaction/',
+    why: '上下文压缩：阈值判定、结构化摘要、金融字段保留、折叠投影（施工单 05 §5）',
+  },
+  {
+    package: 'llm',
+    scope: '',
+    why: '模型适配层：分片装配（参数整体 parse）、参数三级防线、降级链、成本账本（施工单 05 §1–§3）',
+  },
+  {
     package: 'persistence',
     scope: 'jsonl/',
     why: 'JSONL append-only 后端：分代命名与排他发布、尾截断容忍、版本拒绝（施工单 03 §1.5）',
