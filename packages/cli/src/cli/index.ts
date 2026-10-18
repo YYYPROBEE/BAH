@@ -1,7 +1,17 @@
 /**
- * @bah/cli · 逻辑模块 cli（M0 占位）。
+ * @bah/cli · 逻辑模块 cli（施工单 06 §5 第 1 / 4 / 6 步的入口面）。
  *
- * 本文件只声明模块位置，不实现任何运行逻辑；
- * 实装见施工单 06。
+ * 实现全在 `run.ts`（可单测）；`process` 相关的事只在 `../main.ts`。
  */
-export {}
+export {
+  HELP,
+  USAGE,
+  describeReason,
+  lastAssistantText,
+  lastTurnEnd,
+  parseArgs,
+  runCli,
+  type CliIo,
+  type CliOptions,
+  type ParseResult,
+} from './run.ts'

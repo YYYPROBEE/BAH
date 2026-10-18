@@ -14,7 +14,7 @@
 | 03 | 会话日志与工具管线 | 阶段 3 · M1 | [x] | 会话日志 + JSONL 后端 + 七段管线；出口清单见 §8，偏差见 §9 |
 | 04 | 主循环 agent-loop | 阶段 5 | [x] | turn/step 状态机 + 四接缝 + 回退分叉；出口清单见 §14，偏差见 §15 |
 | 05 | 模型层与提示词装配 | 阶段 4 | [x] | 词汇表 + Adapter seam + 六段装配 + reconcile + 压缩；出口清单见 §11，偏差见 §12 |
-| 06 | 组合系统 profile | 阶段 6 | [ ] | `bah.yml` 与本文件同批落地 |
+| 06 | 组合系统 profile | 阶段 6 | [x] | 三层概念（profile/bundle/patch）+ 四层层序 + config-only HMR + CLI 出口；出口清单见 §17，偏差见 §18 |
 | 07 | 仿真银行 bank | 插件线 | [ ] | 接缝冻结后才可开工 |
 | 08 | 银行工具族 | 插件线 | [ ] | |
 | 09 | 三级权限审批票据 | 插件线 | [ ] | `ToolDefinition.tier` 已预留 |
@@ -304,4 +304,78 @@
 | 3 | 压缩只在 turn 边界判定 | 配置了 `compaction` 才跑；长 turn（多 step）内不会压缩 | 阶段 6 决定是否在 attempt 前也判一次（会引入"同一 turn 内折叠"的审计复杂度） |
 | 4 | 分叉的宿主模型（R52） | 一应用一会话，分叉需新 `Context` | 若阶段 6 要"同应用多会话"，`runtime:session` 需改成按会话键寻址（破坏性变更流程 + 全量快照） |
 | 5 | 真实 provider 的流式中断未在本机实跑（无 key） | `adapter.e2e.test.ts` 仍按设计 skip | 有 key 时跑 `pnpm test:e2e`，并手工验证一次"流到一半按停"（断言无 `assistant/message`、`turn/end.reason=aborted`） |
+
+## 17. 阶段 6 出口清单（施工单 06 §0 + §7）
+
+> 本阶段完成 = **底座出口达成**。
+
+| # | 出口标准（§0） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | `bah --profile headless` 可启动：base bundle + headless patch，用 llm-mock 跑通完整 turn | ✓ | `pnpm bah --profile headless --prompt 你好 --session s-demo` → 回复「已为你在模拟环境完成查询。」+ `sessions/s-demo/session.jsonl`（20 条事件，header + 逐事件行）。进程内同链路：`host/src/boot/plugins.test.ts`（真实 `HOST_PLUGINS`，工具调用 → 结果 → 收尾）；真仓库端到端：`cli/src/cli/run.test.ts`（JSONL 行数 = `lastSeq()+1`、`deriveMessages` 重建出 tool/assistant） |
+| 2 | `--dump-config` 打印实际生效的插件树，任何一行可被上层 patch 替换 | ✓ | 三列 `id / 来源层 / 配置`，来源层形如 `bundle:base`、`profile-patch:profiles/headless/patch.yml`、`home-patch:…`、`overlay:…`。手工验收：`--patch` 覆盖 `core:model` 后该行来源层变 `overlay`，**旧 `chunkSize` 与旧脚本整体消失**（整块替换） |
+| 3 | 四层层序正确（profile bundles → profile patch → home patch → `--patch` overlay），整块替换不深合并 | ✓ | `T-PRF-001`（home 盖 profile）、`T-PRF-002`（只写一个字段 → 旧字段整体消失、其余走插件默认值）、`T-PRF-003`（插入新行）；`cli/run.test.ts` 用真实四层文件端到端断言四种来源标注 |
+| 4 | config-only 热重载：改配置不重启进程（base 开、headless 关） | ✓ | `T-PRF-007`（真实 `fs.watchFile` + 注入 watcher 两条路径：配置换新、`apply` 次数不变、派发 `bah/config-reload`、非法配置保留旧值并告警）、`T-PRF-008`（`hmr: false` → 不装任何监听） |
+| 5 | `verify-plugin-config` 门禁通过 | ✓ | 门禁从骨架版升级为**四方一致**校验（`bah.yml` ↔ `packages/cli/package.json` 的 `bah.profile.bundles` ↔ `bundles/<name>/index.ts` ↔ `HOST_PLUGINS`），并校验 profile 清单与 patch 行（含 `use` 必须命中依赖清单）；`pnpm gate` 5/5 |
+
+**底座出口（本阶段一并验收）**：`pnpm typecheck && pnpm test && pnpm gate` 全绿 ✓；headless mock turn 的 JSONL 可派生重建 ✓（`deriveMessages` 从文件重建出 user/assistant/tool 三类消息）。
+
+| # | 验收清单（§7） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | §0 五条逐条核对 | ✓ | 见上表 |
+| 2 | `verify-plugin-config` 门禁通过 | ✓ | `pnpm gate` 5/5；两次负控（见下）均 exit 1 |
+| 3 | headless profile 端到端（配合 04/05 的 M1 出口） | ✓ | 真实进程冒烟 `cli/src/main.smoke.test.ts`（`--profile headless --dump-config` 退出码 0、stderr 干净）；真仓库 turn 端到端见 §17 第 1 条 |
+| 4 | dump-config 输出与文档示例一致（文档不腐） | ✓ | [docs/profile.md](docs/profile.md) §3 的示例与 `pnpm bah --profile headless --dump-config` 逐列一致（列宽自适应） |
+
+**门禁负控实跑**（改完即还原，`git status` 无残留）：
+
+- `bah.yml` 的 `profile.bundles` 加一个未声明的 `ghost` → 两条 findings（未在 package.json 声明 / 缺 `bundles/ghost/index.ts`），exit 1；
+- `profiles/headless/patch.yml` 加一行 `use: ghost` → findings「`use` 指向的插件 `ghost` 不在依赖清单中（packages/host 的 `HOST_PLUGINS`）」并带行号，exit 1。
+
+**规格用例落点（T-PRF-001~008，编号与期望逐条一致）**
+
+| ID | 用例 | 文件 |
+|---|---|---|
+| T-PRF-001 | 层序覆盖（home patch 盖 profile patch 同 id 行） | `host/src/boot/profile-plugins.test.ts` |
+| T-PRF-002 | 整块替换（patch 只写一个字段，其余走插件默认值） | 同上 |
+| T-PRF-003 | 插入新行（无 id 冲突时生效） | 同上 |
+| T-PRF-004 | 未知键 → 载入即抛 `bah-boot: ` | `host/src/boot/boot.test.ts` |
+| T-PRF-005 | 引用缺失插件 → 载入即抛（同 verify-plugin-config 检查） | 同上（bundle 行与 patch 插入行两种形态） |
+| T-PRF-006 | dump-config 含来源层标注 | `cli/src/dump-config.test.ts` + `cli/src/cli/run.test.ts` |
+| T-PRF-007 | config HMR：改 patch → config 重载、插件代码不重载 | `host/src/boot/hmr.test.ts`（3 例） |
+| T-PRF-008 | headless HMR 关闭：改文件无反应 | 同上（2 例） |
+
+**补充用例（无编号）**：`profile-plugins.test.ts`（17：合并/插入/结构校验/差异比较/插件管理器）、`config.test.ts`（10：配置原语逐条 fail-loud）、`boot.test.ts`（13：装配顺序与 `inject`、boot injection、逆序回滚、启动失败回滚、reload 四种结局）、`plugins.test.ts`（10：真实插件集跑通 turn + 逐行配置校验表）、`cli/src/profile.test.ts`（17：profile/patch 解析、四层层序、BOM 容忍、bundle 加载）、`cli/src/cli/run.test.ts`（19：参数解析、退出码 0/1/2、真仓库端到端、事件流辅助函数）、`main.smoke.test.ts`（2：真实进程 `--help` / `--dump-config`）。
+
+**规模**：`pnpm check` **7/7 全绿**；`pnpm test` **424 用例 / 47 文件**（阶段 5 为 330 / 39）；`pnpm gate` 5/5；`pnpm build` 12 包全绿；`pnpm test:coverage` → **All files 100% 行 / 95.99% 分支 / 98.6% 函数**，新增强制名单：`host/src/boot`（100/99.34/100/100）、`host/src/plugin-manager`、`cli/src/cli`、`cli/src/profile.ts`、`cli/src/bundles.ts`、`cli/src/dump-config.ts`（行覆盖均 100%）。文档：新增 [docs/profile.md](docs/profile.md)。
+
+**人工抽查点实跑**（README §3 阶段 6：亲手 `--dump-config` + 改一行 patch 验证整块替换）：
+
+- `pnpm bah --profile headless --dump-config` → 7 行，四层来源标注正确；
+- `pnpm bah --profile headless --dump-config --patch .tmp-overlay.yml`（只写 `core:model` 的三个字段）→ 该行来源层 `overlay`，`chunkSize` 与旧脚本消失（整块替换生效）。
+
+## 18. 已知偏差与残留风险（阶段 6）
+
+| ID | 项 | 处理 |
+|---|---|---|
+| R55 | 根 `tsconfig.json` 增加 `compilerOptions.paths`（12 包 → `packages/*/src/index.ts`） | 让 `pnpm bah` 直接跑源码、**不依赖构建产物**——否则改完 `src` 忘了 `pnpm build` 会静默跑旧 `dist`（vitest 侧早有同类教训，见 `vitest.shared.ts` 的注释）。只影响 tsx / 编辑器解析；`tsc -b` 仍走各包 project references，发布面（`dist/`）不变 |
+| R56 | `runtime/src/seams.ts` 追加 1 条**纯声明**（`bah/config-reload` + `ConfigReloadEvent` 类型） | "通知受影响插件重载 config"只能走事件系统；而 `verify-session-events` 只认 `seams.ts` / `session/types.ts` 的声明。**零逻辑改动**（无派发器、无管线改动、无 `api.ts` 改动），但仍越出"本阶段只动 cli/host/profiles/scripts"的字面范围 → 需签认（§19 第 1 条） |
+| R57 | `packages/cli/tsconfig.json`：`rootDir: "."` + `include: ["src","bundles"]`；`exports.types` 改指 `dist-types/src/index.d.ts` | bundle 数据（`bundles/<name>/index.ts`）也要进 typecheck。副作用是声明产物多一层 `src/`；已实跑"删掉 `dist-types` 后重建"确认布局正确 |
+| R58 | 施单 06 §5 第 3 步写 `host/src/plugin-manager.ts`，本仓落为 `host/src/plugin-manager/index.ts` | 遵循 00 §6「每个逻辑模块占一个 `src/<模块>/` 目录并从包入口导出」 |
+| R59 | "profile 是 home 中的命名组合"在 M1 落地为仓库内 `profiles/<name>/` 模板；home 的 `bah.patch.yml` 只作第 3 层 | 本阶段不做 `bah profile add` 之类安装命令（属插件线/后续）；`--home` 可指向任意目录，层语义一致 |
+| R60 | 依赖清单里带一个 `demo:echo` 示例工具（非银行业务） | headless 验收要证明"完整 turn 包含工具七段管线"，而银行工具族属插件线（08）。插件线可用自己的 bundle 覆盖/移除它 |
+| R61 | 插入新行必须写 `use`（施单 06 §2 的示例只写 `id`） | 未知 id 无法绑定插件实现 → `row-without-plugin` 载入即抛；bundle 行可省略 `use`（默认 = `id`） |
+| R62 | `core:model` 的 mock **必须**写 `script`；`core:agent` 的 `loop` 缺省 = `{model:'deepseek:deepseek-chat'}` | 前者：mock 没有真实模型，没脚本必然在第一次请求时炸，提前到载入期（`mock-script-missing`）；后者：profile 只写 `channel` 时主循环仍有可用默认值 |
+| R63 | YAML / JSON 读入会去掉 UTF-8 BOM | Windows 记事本默认写 BOM，`yaml` 与 `JSON.parse` 都会直接报错；属"平台差异"，不是配置错误 |
+
+## 19. 阶段 6 待人工确认项
+
+| # | 项 | 现状 | 建议 |
+|---|---|---|---|
+| 1 | `seams.ts` 的事件声明增量（R56） | 已加 `bah/config-reload`（`@mode emit`）+ 类型 `ConfigReloadEvent` | 请确认接受；若不接受，替代方案是 host 侧回调（`BootOptions.onConfigReload`），代价是"插件无法自行订阅" |
+| 2 | 根 `tsconfig.json` 的 `paths`（R55） | 已加，`pnpm bah` 因此免构建 | 请确认接受为常态；否则 `pnpm bah` 必须先 `pnpm build`，且存在"跑旧产物"风险 |
+| 3 | `demo:echo` 是否留在 base 依赖清单（R60） | 已留 | 若插件线不希望底座带示例工具，可在插件线开工时从 `HOST_PLUGINS` 移除并同步 headless patch |
+| 4 | profile 的"安装"模型（R59） | 仓库内模板 + `--home` 覆盖 | 若要"用户级安装 profile"，需在插件线定 `$BAH_HOME` 目录结构与版本策略 |
+| 5 | 阶段 5 §16 的五条仍未闭环（T-LOOP-001 顺序 R44、`stop()` 语义 R46、压缩时机、一应用一会话 R52、真实 provider 中断） | 本阶段实现不依赖这些决议 | 建议插件线开工前一并拍板（尤其 R44 与 R46 会影响审计导出与 guard 判停的形状） |
+| 6 | 真实 provider（`provider: deepseek`）只做了启动期验证 | 无 `DEEPSEEK_API_KEY`，`pnpm test:e2e` 仍按设计 skip | 有 key 时跑 `pnpm bah --profile <真实 provider profile> --prompt …` 并保留 JSONL 作为验收证据 |
+
 

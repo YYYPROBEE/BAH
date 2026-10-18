@@ -1,0 +1,46 @@
+/**
+ * 依赖清单（施工单 06 §2 的 `bah` 字段在代码里的对应物）。
+ *
+ * bundle 里的行只写 `use: '<id>'`；**实现**在这里。两者分开的好处：
+ * patch 文件永远不 import 任何代码（纯数据），而"这一行到底装了什么"由这份清单唯一定义。
+ */
+
+import type { HostPlugin, PluginCatalog } from '../../plugin-manager/index.ts'
+import { bootError } from '../config.ts'
+
+import { agentPlugin } from './agent.ts'
+import { echoPlugin } from './echo.ts'
+import { modelPlugin } from './model.ts'
+import { persistencePlugin } from './persistence.ts'
+import { promptPlugin } from './prompt.ts'
+import { sessionPlugin } from './session.ts'
+import { toolsPlugin } from './tools.ts'
+
+/** base bundle 的插件集（施工单 06 §3：内核 + 主循环 + 模型层 + 工具管线 + 持久化）。 */
+export const HOST_PLUGINS: readonly HostPlugin<any>[] = [
+  sessionPlugin,
+  toolsPlugin,
+  promptPlugin,
+  modelPlugin,
+  agentPlugin,
+  persistencePlugin,
+  echoPlugin,
+]
+
+export { agentPlugin, echoPlugin, modelPlugin, persistencePlugin, promptPlugin, sessionPlugin, toolsPlugin }
+
+/**
+ * 造依赖清单。
+ *
+ * @throws `BahError('duplicate-plugin')` 清单内 id 重复（会让"use 指向谁"依赖声明顺序）
+ */
+export function createCatalog(plugins: readonly HostPlugin<any>[] = HOST_PLUGINS): PluginCatalog {
+  const catalog: Record<string, HostPlugin<any>> = {}
+  for (const item of plugins) {
+    if (catalog[item.id] !== undefined) {
+      throw bootError('duplicate-plugin', `依赖清单里插件 id ${item.id} 重复`, { id: item.id })
+    }
+    catalog[item.id] = item
+  }
+  return catalog
+}

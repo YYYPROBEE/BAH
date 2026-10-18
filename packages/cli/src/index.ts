@@ -1,7 +1,10 @@
 /**
- * @bah/cli 包入口（M0 骨架，阶段 1）。
+ * @bah/cli 包入口（阶段 6：profile 组合 + 底座出口）。
  *
- * 逻辑模块子目录（施工单 00 §6）：src/cli/
- * 实装见施工单 06；各模块的公开导出在其落地时从本入口补齐。
+ * 逻辑模块子目录（施工单 00 §6）：`src/cli/`。
+ * `bundle-*` 是**数据**（`bundles/<name>/index.ts` + patch 文件），不是本入口的导出面。
  */
-export {}
+export * from './bundles.ts'
+export * from './cli/index.ts'
+export * from './dump-config.ts'
+export * from './profile.ts'

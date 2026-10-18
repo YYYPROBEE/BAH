@@ -26,6 +26,14 @@ export interface SessionEventEnvelope {
   readonly event: AnySessionEvent
 }
 
+/** `bah/config-reload` 的载荷：哪一次的组合、哪些行的配置变了。 */
+export interface ConfigReloadEvent {
+  /** profile 名（`headless` / `web` / …）。 */
+  readonly profile: string
+  /** 配置真的变了的行 id（空数组不会派发）。 */
+  readonly changed: readonly string[]
+}
+
 /**
  * `tools/pre-execute` 的载荷：待判决的调用 + 判决候选（默认 `allow`）。
  *
@@ -164,5 +172,15 @@ declare module '@bah/core' {
      * @mode serial
      */
     'agent/turn-stopping': AgentTurnStoppingInput
+
+    /**
+     * 配置已重载（config-only HMR；施工单 06 §4）。
+     *
+     * 只报"哪些行的配置变了"：插件行的增删不在热重载范围内（需重启进程）。
+     * 派发点是 `@bah/host` 的 `boot.reload`——组合系统只通知，具体重读由插件自己决定。
+     *
+     * @mode emit
+     */
+    'bah/config-reload': ConfigReloadEvent
   }
 }

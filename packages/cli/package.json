@@ -4,7 +4,7 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist-types/index.d.ts",
+      "types": "./dist-types/src/index.d.ts",
       "import": "./dist/index.js"
     }
   },
@@ -12,6 +12,18 @@
     "build:bundle": "tsdown src/index.ts --dts"
   },
   "dependencies": {
-    "@bah/host": "workspace:*"
+    "@bah/core": "workspace:*",
+    "@bah/host": "workspace:*",
+    "@bah/runtime": "workspace:*",
+    "@bah/util": "workspace:*",
+    "yaml": "^2"
+  },
+  "bah": {
+    "profile": {
+      "bundles": ["base"]
+    }
+  },
+  "devDependencies": {
+    "@bah/test-support": "workspace:*"
   }
 }

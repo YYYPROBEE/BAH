@@ -49,9 +49,25 @@ importers:
 
   packages/cli:
     dependencies:
+      '@bah/core':
+        specifier: workspace:*
+        version: link:../core
       '@bah/host':
         specifier: workspace:*
         version: link:../host
+      '@bah/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@bah/util':
+        specifier: workspace:*
+        version: link:../util
+      yaml:
+        specifier: ^2
+        version: 2.9.1
+    devDependencies:
+      '@bah/test-support':
+        specifier: workspace:*
+        version: link:../test-support
 
   packages/core:
     dependencies:
@@ -67,6 +83,9 @@ importers:
       '@bah/bank':
         specifier: workspace:*
         version: link:../bank
+      '@bah/core':
+        specifier: workspace:*
+        version: link:../core
       '@bah/interaction':
         specifier: workspace:*
         version: link:../interaction
@@ -79,6 +98,13 @@ importers:
       '@bah/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@bah/util':
+        specifier: workspace:*
+        version: link:../util
+    devDependencies:
+      '@bah/test-support':
+        specifier: workspace:*
+        version: link:../test-support
 
   packages/interaction:
     dependencies:
