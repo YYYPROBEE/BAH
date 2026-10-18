@@ -112,6 +112,15 @@ describe('deriveMessages', () => {
     expect(KNOWN_SESSION_EVENT_TYPES.has('user/message')).toBe(true)
   })
 
+  it('request/context 不进模型历史（reconcile 归 05 §5，投影不另塞消息）', () => {
+    // 钉住有意的语义：运行时上下文不是"消息"，它由提示词装配按 reconcile 规则并入请求
+    // （施工单 05 §5）。若有人把它当 user 消息塞进历史，会污染模型可见序列。
+    const store = new SessionStore()
+    store.append('request/context', { turn: 1, step: 1, texts: ['运行时上下文'] })
+
+    expect(deriveMessages(store.events())).toEqual([])
+  })
+
   it('表内新增键但未接投影 → fail-loud（不许静默丢消息）', () => {
     const unprojected = {
       seq: 1,

@@ -168,3 +168,12 @@
 | R33 | 两个 M0 门禁的误报修复 | `tiers` 原来把纯类型引用（`Map<string, ToolDefinition>`）算成声明点 → 误报；改为只认 `satisfies X` 与 `: X = {`。`session-events` 跳过注释行（文档里提到 `deriveMessages` 不算调用）。两者都重新做过负控 |
 | R34 | 覆盖率排除 `runtime/src/tools/types.ts` | 纯类型模块（只有 `export type`），与 `core/api.ts` 同理；`session/types.ts` 有运行时常量，**不**排除 |
 | R35 | 依赖面变化 | `runtime` / `persistence` 新增 `@bah/util`（BahError / assertNever）与 `devDependency @bah/test-support`；`test-support` 去掉未使用的 `@bah/runtime`（否则 `runtime → test-support → runtime` 形成 project reference 环）。01 §3 的依赖表未列这些边，属追加 |
+
+## 10. 阶段 3 残留风险闭环（人工要求「残留风险解决」）
+
+| # | 原风险 | 处理 | 证据 |
+|---|---|---|---|
+| 1 | 事件名拼错在编译期拦不住（R27） | **已闭环**：session 侧本就由 `append<S extends SessionEventType>` 收窄，补 `@ts-expect-error` 编译期断言把它钉住；派发侧（`ctx.events.<mode>` 仍是 string）由 `verify-session-events` 门禁兜住。api.ts 的索引签名收窄仍留给「接缝总表冻结」时一次做完（避免阶段 4/5 反复触发破坏性流程） | `session/types.test.ts`（3 条断言）；负控：去掉 `@ts-expect-error` → `error TS2345: '"ghost/event"' is not assignable to ...` |
+| 2 | `tools/execute` 的「函数中间件」形态需插件作者理解（R28 相关） | **已闭环**：新增 [docs/pipeline.md](docs/pipeline.md)（七段 + 四个 waterfall 载荷 + 超时/重试/指标三种环绕写法 + 审批流 + 补记 + 铁律）；`seams.ts` 的 `ToolExecutor` 加最小示例 | 新增用例「超时包裹可用」：环绕层抛错经管线归一化为 `isError / tool-failed`，不冒泡 |
+| 3 | `deriveMessages` 尚未包含 `request/context` reconcile 与压缩重建 | **已定性并钉住**：`request/context` **有意**不进模型历史（reconcile 归施工单 05 §5 的提示词装配），JSDoc 写明理由 + 一条用例锁语义；压缩重建属施工单 05 的独立模块 | `derive.test.ts`「request/context 不进模型历史」 |
+| 4 | 阶段 3 的两处人工抽查未实跑 | **已实跑**：① `pnpm test -t T-SESS-001` → `1 passed / 132 skipped`；② 手工把真实 `session.jsonl` 尾行砍半 → `open` 只告警不抛错 | ② 的现场输出：`jsonl: 丢弃截断的尾行（第 3 行）…`，`open 成功，读到事件数 = 1`，`seq 列表 = [1]` |

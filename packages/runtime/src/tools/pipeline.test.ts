@@ -385,6 +385,39 @@ describe('tools/execute 环绕', () => {
     })
   })
 
+  it('超时包裹可用（施工单 11 沙箱 / 超时策略的挂点形态）', async () => {
+    await withHarness(async (h) => {
+      h.registry.register(
+        tool({
+          name: 'bank:slow',
+          execute: async () => {
+            await new Promise((resolve) => setTimeout(resolve, 50))
+            return 'too-late'
+          },
+        }),
+      )
+      // 环绕形态：listener 用 next(wrapped) 交还一个"包过的执行函数"
+      h.test.ctx.events.on('tools/execute', async (run, next) => {
+        const wrapped = async (call: ToolCallInput): Promise<unknown> => {
+          const timeout = new Promise<never>((_resolve, reject) => {
+            setTimeout(() => {
+              reject(new Error('工具执行超时（10ms）'))
+            }, 10)
+          })
+          return Promise.race([run(call), timeout])
+        }
+        return next(wrapped)
+      })
+
+      const execution = await h.pipeline.execute({ callId: 'c-slow', name: 'bank:slow', args: {} })
+
+      // 环绕层抛的错同样走归一化：不冒泡到主循环
+      expect(execution.result.isError).toBe(true)
+      expect(execution.result.code).toBe('tool-failed')
+      expect(execution.result.reason).toContain('超时')
+    })
+  })
+
   it('未注册工具 → 直接抛错（连 tool/call 都不落账）', async () => {
     await withHarness(async (h) => {
       await expect(h.pipeline.execute(CALL)).rejects.toThrow(/未注册/)
