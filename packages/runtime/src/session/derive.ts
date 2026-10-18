@@ -19,6 +19,13 @@ import { KNOWN_SESSION_EVENT_TYPES } from './types.ts'
 /**
  * 把日志投影成模型历史。
  *
+ * **`request/context` 不进历史**（有意的）：运行时上下文不是"消息"，它由提示词装配按
+ * reconcile 规则并入请求（施工单 05 §5）。把它当 user 消息塞进历史会污染模型可见序列——
+ * 本文件对应的用例里有一条钉住这个语义，别顺手"修"。
+ *
+ * 同理：`turn/*`、`step/*`、`request/header`、`assistant/attempt`、`approval/*`
+ * 都是审计与回放用的事件，不产生模型消息。
+ *
  * @param events 全量事件（`seq` 应连续；断代由 `SessionStore.restore` 负责）
  * @param options `known` 可注入「旧 reader 认识的事件集合」，用于验证版本容忍策略
  * @throws `BahError('session-unknown-event')` 遇到 required-on-read 的未知事件

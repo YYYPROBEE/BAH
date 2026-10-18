@@ -31,7 +31,18 @@ export interface PreExecuteInput {
   readonly verdict: PreExecuteVerdict
 }
 
-/** `tools/execute` 的载荷：一个可被环绕的执行函数（超时 / 重试 / 指标 / 沙箱包装）。 */
+/**
+ * `tools/execute` 的载荷：一个可被环绕的执行函数（超时 / 重试 / 指标 / 沙箱包装）。
+ *
+ * 写法：`(run, next) => next(wrapped)`——`run` 是内层已包好的执行，`wrapped` 拿它做包裹。
+ * 例（超时）：
+ * ```ts
+ * ctx.events.on('tools/execute', async (run, next) =>
+ *   next(async (call) => Promise.race([run(call), timeoutAfter(TIMEOUT_MS)])),
+ * )
+ * ```
+ * 完整示例见 `docs/pipeline.md` §4。
+ */
 export type ToolExecutor = (call: ToolCallInput) => Promise<unknown>
 
 /** 结果后置判决（施工单 03 §2.2 第 ⑥ 段）。 */
