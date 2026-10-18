@@ -1,0 +1,21 @@
+{
+  "name": "@bah/host",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist-types/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build:bundle": "tsdown src/index.ts --dts"
+  },
+  "dependencies": {
+    "@bah/runtime": "workspace:*",
+    "@bah/llm": "workspace:*",
+    "@bah/interaction": "workspace:*",
+    "@bah/bank": "workspace:*",
+    "@bah/persistence": "workspace:*"
+  }
+}

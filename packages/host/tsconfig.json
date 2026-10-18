@@ -1,0 +1,26 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../runtime"
+    },
+    {
+      "path": "../llm"
+    },
+    {
+      "path": "../interaction"
+    },
+    {
+      "path": "../bank"
+    },
+    {
+      "path": "../persistence"
+    }
+  ]
+}
