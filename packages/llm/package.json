@@ -20,6 +20,7 @@
     "build:bundle": "tsdown src/index.ts src/deepseek/index.ts src/mock/index.ts --dts"
   },
   "dependencies": {
-    "@bah/core": "workspace:*"
+    "@bah/core": "workspace:*",
+    "@bah/util": "workspace:*"
   }
 }

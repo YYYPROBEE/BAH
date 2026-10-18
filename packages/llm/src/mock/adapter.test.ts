@@ -1,0 +1,179 @@
+import { BahError } from '@bah/util'
+import { describe, expect, it } from 'vitest'
+
+import { assembleStream } from '../llm/assemble.ts'
+import type { StreamChunk } from '../llm/types.ts'
+import { MOCK_MODEL, MOCK_USAGE, MockLlmAdapter } from './adapter.ts'
+import { resolveStep, resolveStepContent, textStep, toolCallStep } from './script.ts'
+
+/** 把一条流收集成数组（断言"吐了什么、顺序如何"用）。 */
+async function collect(chunks: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
+  const out: StreamChunk[] = []
+  for await (const chunk of chunks) out.push(chunk)
+  return out
+}
+
+describe('llm-mock（施工单 05 §2.2 确定性 provider）', () => {
+  it('按脚本出队：文本被切片、工具调用参数被分片，装配后与脚本一致', async () => {
+    const adapter = new MockLlmAdapter({
+      script: {
+        steps: [
+          textStep('你好，我是 BAH 银行智能体'),
+          toolCallStep('call-1', 'transfer_money', { amount: 100, payee: '张三' }),
+        ],
+      },
+      chunkSize: 4,
+    })
+    const signal = new AbortController().signal
+
+    const first = await assembleStream(adapter.stream(await adapter.prepareCall({ modelId: MOCK_MODEL.id, messages: [] }), signal))
+    expect(first.content).toEqual([{ kind: 'text', text: '你好，我是 BAH 银行智能体' }])
+    expect(first.finishReason).toBe('stop')
+    expect(first.usage).toEqual(MOCK_USAGE)
+
+    const second = await assembleStream(adapter.stream(await adapter.prepareCall({ modelId: MOCK_MODEL.id, messages: [] }), signal))
+    expect(second.finishReason).toBe('tool-calls')
+    expect(second.toolCalls).toEqual([
+      {
+        callId: 'call-1',
+        name: 'transfer_money',
+        argsText: '{"amount":100,"payee":"张三"}',
+        args: { amount: 100, payee: '张三' },
+      },
+    ])
+  })
+
+  it('分片大小可调（chunkSize 大于正文即单块），且每片都带块起始/结束标记', async () => {
+    const adapter = new MockLlmAdapter({ script: { steps: [textStep('短')] }, chunkSize: 100 })
+    const chunks = await collect(
+      adapter.stream(await adapter.prepareCall({ modelId: 'mock-chat', messages: [] }), new AbortController().signal),
+    )
+    expect(chunks).toEqual([
+      { kind: 'block-start', index: 0 },
+      { kind: 'text-delta', index: 0, text: '短' },
+      { kind: 'block-end', index: 0 },
+      { kind: 'usage', ...MOCK_USAGE },
+      { kind: 'finish', reason: 'stop' },
+    ])
+  })
+
+  it('推理块按独立索引出片，装配后与文本分开（推理不进正文）', async () => {
+    const adapter = new MockLlmAdapter({
+      script: {
+        steps: [{ content: [{ kind: 'reasoning', text: '先想清楚' }, { kind: 'text', text: '答' }] }],
+      },
+      chunkSize: 3,
+    })
+    const assembled = await assembleStream(
+      adapter.stream(await adapter.prepareCall({ modelId: 'mock-chat', messages: [] }), new AbortController().signal),
+    )
+    expect(assembled.content).toEqual([
+      { kind: 'text', text: '答' },
+      { kind: 'reasoning', text: '先想清楚' },
+    ])
+  })
+
+  it('脚本用完还来要 → 抛 mock-script-exhausted（不静默返回空回复）', async () => {
+    const adapter = new MockLlmAdapter({ script: { steps: [textStep('只有一步')] } })
+    const signal = new AbortController().signal
+    await assembleStream(adapter.stream(await adapter.prepareCall({ modelId: 'mock-chat', messages: [] }), signal))
+
+    await expect(
+      (async () => {
+        await assembleStream(adapter.stream(await adapter.prepareCall({ modelId: 'mock-chat', messages: [] }), signal))
+      })(),
+    ).rejects.toThrow(/脚本已用完/)
+  })
+
+  it('不支持的块显式抛错，不静默丢上下文', async () => {
+    const adapter = new MockLlmAdapter({
+      script: { steps: [{ content: [{ kind: 'image', mimeType: 'image/png', data: 'x' }] }] },
+    })
+    await expect(
+      (async () => {
+        await assembleStream(adapter.stream(await adapter.prepareCall({ modelId: 'mock-chat', messages: [] }), new AbortController().signal))
+      })(),
+    ).rejects.toThrow(/不支持脚本化 image 块/)
+  })
+
+  it('进入前已取消 → llm-aborted（不开始流式）', async () => {
+    const adapter = new MockLlmAdapter({ script: { steps: [textStep('x')] } })
+    const prepared = await adapter.prepareCall({ modelId: 'mock-chat', messages: [] })
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(collect(adapter.stream(prepared, controller.signal))).rejects.toThrow(
+      /调用已取消（未开始流式）/,
+    )
+  })
+
+  it('块之间取消 → 吐 finish(aborted) 收尾（半截流也有结束原因）', async () => {
+    const adapter = new MockLlmAdapter({
+      script: {
+        steps: [
+          {
+            content: [
+              { kind: 'text', text: '先说一句' },
+              { kind: 'tool-call', id: 'call-1', name: 'transfer_money', args: { amount: 1 } },
+            ],
+          },
+        ],
+      },
+      chunkSize: 5,
+    })
+    const prepared = await adapter.prepareCall({ modelId: 'mock-chat', messages: [] })
+    const controller = new AbortController()
+    const iterator = adapter.stream(prepared, controller.signal)[Symbol.asyncIterator]()
+
+    const head = await iterator.next()
+    expect(head.value).toEqual({ kind: 'block-start', index: 0 })
+
+    controller.abort()
+    const rest: StreamChunk[] = []
+    while (true) {
+      const next = await iterator.next()
+      if (next.done === true) break
+      rest.push(next.value)
+    }
+
+    expect(rest.at(-1)).toEqual({ kind: 'finish', reason: 'aborted' })
+    // 取消后不再上报 usage（这笔调用没有正常完成）
+    expect(rest.some((chunk) => chunk.kind === 'usage')).toBe(false)
+  })
+
+  it('providerInfo / listModels / resolveModel 与 providerId 选项一致', async () => {
+    const adapter = new MockLlmAdapter({ script: { steps: [] }, providerId: 'mock-b' })
+    expect(adapter.providerInfo()).toEqual({
+      id: 'mock-b',
+      displayName: 'llm-mock：脚本化确定性 provider（离线演示与回放共用）',
+      capabilities: { toolCall: true, image: false, reasoning: true },
+    })
+    expect(await adapter.listModels()).toEqual([MOCK_MODEL])
+    expect(adapter.resolveModel('mock-chat').providerId).toBe('mock-b')
+    expect(() => adapter.resolveModel('nope')).toThrowError(BahError)
+  })
+
+  it('prepareCall 冻结请求（阶段 5 的"请求冻结"由此保证）', async () => {
+    const adapter = new MockLlmAdapter({ script: { steps: [] } })
+    const prepared = await adapter.prepareCall({ modelId: 'mock-chat', messages: [], params: { temperature: 0 } })
+
+    expect(Object.isFrozen(prepared)).toBe(true)
+    expect(prepared.id).toBe('mock-call-1')
+    expect(prepared.params).toEqual({ temperature: 0 })
+  })
+})
+
+describe('MockScript 脚本原语', () => {
+  it('缺省值：内容为空、结束原因 stop、无 usage', () => {
+    expect(resolveStepContent({})).toEqual({ content: [], finishReason: 'stop' })
+    expect(resolveStepContent({ content: [], finishReason: 'length', usage: { input: 1, output: 1 } })).toEqual({
+      content: [],
+      finishReason: 'length',
+      usage: { input: 1, output: 1 },
+    })
+  })
+
+  it('游标越界即抛（脚本长度写进理由，便于定位用例）', () => {
+    expect(() => resolveStep({ steps: [textStep('a')] }, 1)).toThrowError(/脚本共 1 步/)
+  })
+})

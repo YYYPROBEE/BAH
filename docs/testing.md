@@ -37,7 +37,8 @@ pnpm check
   coverage include 模式**（不把包名写死），因此名单扩容时门禁自动扩容。
 - 阈值 `lines: 100` 是名单内文件的**汇总兜底**；名单外的包不参与统计。
 - 排除项：`*.test.ts`（测试自己）、`**/index.ts`（re-export 无逻辑）、`packages/core/src/api.ts`
-  （纯类型契约，零可执行行，统计它只会得到假的 0%）。
+  与另外三个**纯类型模块**（`runtime/src/tools/types.ts`、`llm/src/llm/types.ts`、
+  `runtime/src/compaction/types.ts`）——零可执行行，统计它们只会得到假的 0%。
 - 产物：`coverage/lcov.info`、`coverage/lcov-report/`、`coverage/coverage-summary.json`
   （后者给脚本/答辩材料读数字）。`coverage/` 已进 `.gitignore`。
 - 强制名单外的代码（如 `@bah/test-support` 自身）**不要求** 100%——但它的核心逻辑仍有自测。

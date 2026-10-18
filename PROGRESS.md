@@ -13,7 +13,7 @@
 | 02 | 内核 core | 阶段 2 · M1 | [x] | 内核已实装；出口清单见 §5，偏差见 §6 |
 | 03 | 会话日志与工具管线 | 阶段 3 · M1 | [x] | 会话日志 + JSONL 后端 + 七段管线；出口清单见 §8，偏差见 §9 |
 | 04 | 主循环 agent-loop | 阶段 5 | [ ] | 依赖阶段 4（模型层）先行 |
-| 05 | 模型层与提示词装配 | 阶段 4 | [ ] | llm-mock 保证无密钥可跑 |
+| 05 | 模型层与提示词装配 | 阶段 4 | [x] | 词汇表 + Adapter seam + 六段装配 + reconcile + 压缩；出口清单见 §11，偏差见 §12 |
 | 06 | 组合系统 profile | 阶段 6 | [ ] | `bah.yml` 与本文件同批落地 |
 | 07 | 仿真银行 bank | 插件线 | [ ] | 接缝冻结后才可开工 |
 | 08 | 银行工具族 | 插件线 | [ ] | |
@@ -177,3 +177,63 @@
 | 2 | `tools/execute` 的「函数中间件」形态需插件作者理解（R28 相关） | **已闭环**：新增 [docs/pipeline.md](docs/pipeline.md)（七段 + 四个 waterfall 载荷 + 超时/重试/指标三种环绕写法 + 审批流 + 补记 + 铁律）；`seams.ts` 的 `ToolExecutor` 加最小示例 | 新增用例「超时包裹可用」：环绕层抛错经管线归一化为 `isError / tool-failed`，不冒泡 |
 | 3 | `deriveMessages` 尚未包含 `request/context` reconcile 与压缩重建 | **已定性并钉住**：`request/context` **有意**不进模型历史（reconcile 归施工单 05 §5 的提示词装配），JSDoc 写明理由 + 一条用例锁语义；压缩重建属施工单 05 的独立模块 | `derive.test.ts`「request/context 不进模型历史」 |
 | 4 | 阶段 3 的两处人工抽查未实跑 | **已实跑**：① `pnpm test -t T-SESS-001` → `1 passed / 132 skipped`；② 手工把真实 `session.jsonl` 尾行砍半 → `open` 只告警不抛错 | ② 的现场输出：`jsonl: 丢弃截断的尾行（第 3 行）…`，`open 成功，读到事件数 = 1`，`seq 列表 = [1]` |
+
+## 11. 阶段 4 出口清单（施工单 05 §0 + §8）
+
+| # | 出口标准（§0） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | provider-neutral 词汇表冻结：ContentBlock / StreamChunk | ✓ | `packages/llm/src/llm/types.ts`（7 kind 内容块 + 7 kind 分片 + 块索引约定）；`assemble.ts` 逐 kind 消费、`push` 以 `assertNever` 收尾（负控：`{kind:'ghost-delta'}` → `llm-stream-chunk: …`） |
+| 2 | LlmAdapter seam 可用：DeepSeek 真实流式 + llm-mock 无密钥跑通完整 turn | ✓ | seam：`registry.ts`（register / disposer / replace / resolve）+ 服务键 `llm:adapters`；DeepSeek：`wire.ts` 纯映射 + `adapter.ts` SSE 读流（注入假 fetch 全覆盖，真实 key 走 `adapter.e2e.test.ts`）；mock：`T-LLM-001` 脚本化跑完整 turn |
+| 3 | 系统提示词六 section 装配顺序正确；能力位缺失时对应 section 不装配 | ✓ | `T-LLM-007`（order 0/10/20/30/40/50 单调递增；乱序注册也按 order 拼）；`T-LLM-006`（无 toolCall 能力 → `bank.capabilities` 不装配，`policy.approval` 同时不装配） |
+| 4 | 运行时上下文 reconcile 语义落地：user/message 落历史 + 下次装配核对回收 | ✓ | `T-LLM-008`（两次 attempt → 旧 `system/message` 与旧 `runtime-context` 被撤回，日志仍 append-only）；`T-LLM-009`（`agent.inject` 走同一路径、模型可见） |
+| 5 | 压缩：token/turn 阈值触发；金融特例字段不丢 | ✓ | `T-CMP-001`（token 水位触发、最近 N 轮保留原文）；`T-CMP-003`（`{amount,payee,ticketId,decision}` 结构化保留）；`T-CMP-002`（摘要落账为 `compaction/summary`）；`T-CMP-004`（JSON 往返后仍能重建） |
+
+| # | 验收清单（§8） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | §0 五条逐条核对 | ✓ | 见上表 |
+| 2 | `bah --profile headless`（真实 key + mock 双跑通） | ✗（延后） | CLI / profile / boot 属阶段 6；本阶段用 `T-LLM-001` 的编程式装配验证同一链路。真实 key 的 e2e 见 §13 |
+| 3 | compaction 行覆盖 100% | ✓ | `pnpm test:coverage` → `runtime/src/compaction` 行 100%（apply.ts / summarize.ts 均 100） |
+| 4 | 降级 / 参数修复路径有单测 | ✓ | `T-LLM-005`（failed+retried 两条留痕、出流首片失败也降级、取消不重试）；`T-LLM-003`（坏 JSON 回灌 → 重试一次 → 仍坏则 `tool-args-invalid`） |
+| 5 | 密钥只从环境变量读取（grep 无硬编码 key） | ✓ | `wire.ts` 只有 `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` 两个键名常量；测试里的 `sk-test` 是伪造值，真实 key 由 e2e 从 env 读 |
+
+**规格用例落点（T-LLM-001~009 / T-CMP-001~004，编号与期望逐条一致）**
+
+| ID | 用例 | 文件 |
+|---|---|---|
+| T-LLM-001 | mock 跑通 turn（事件序列 + 历史重建） | `runtime/src/system-prompt/model-turn.test.ts`（2 例） |
+| T-LLM-002 | tool-call-delta 拼接 | `llm/src/llm/assemble.test.ts` |
+| T-LLM-003 | 坏 JSON → 回灌 + 重试 1 次 + 仍坏 isError | `llm/src/llm/repair.test.ts`（2 例） |
+| T-LLM-004 | usage 按 turn 汇总落审计 | `runtime/src/system-prompt/model-turn.test.ts` + `llm/src/llm/usage.test.ts` |
+| T-LLM-005 | 降级链 + `assistant/attempt` 落账 | `llm/src/llm/route.test.ts` |
+| T-LLM-006 | 能力位裁剪 | `runtime/src/system-prompt/sections.test.ts` |
+| T-LLM-007 | section 顺序单调递增 | `runtime/src/system-prompt/registry.test.ts`（2 例） |
+| T-LLM-008 | runtime.context 落账 + 下次装配回收 | `runtime/src/system-prompt/reconcile.test.ts` |
+| T-LLM-009 | agent.inject 走同一路径、模型可见 | `runtime/src/system-prompt/reconcile.test.ts` |
+| T-CMP-001 | token 阈值触发折叠 | `runtime/src/compaction/summarize.test.ts` |
+| T-CMP-002 | 摘要落账（可回放） | `runtime/src/compaction/apply.test.ts` |
+| T-CMP-003 | 金融特例字段结构化保留 | `runtime/src/compaction/summarize.test.ts` |
+| T-CMP-004 | 压缩后 deriveMessages 仍可重建 | `runtime/src/compaction/apply.test.ts` |
+
+**规模**：`pnpm test` **260 用例 / 33 文件**（阶段 3 为 135 / 19）；`pnpm check` 7/7、`pnpm gate` 5/5、`pnpm build` 12 包全绿；覆盖率 **All files 行 100%**（分支 96.43 / 函数 99.23）。文档：新增 [docs/model-layer.md](docs/model-layer.md)。
+
+## 12. 已知偏差与残留风险（阶段 4）
+
+| ID | 项 | 处理 |
+|---|---|---|
+| R36 | 施单 05 §2 写的是 `ctx.llm.registerAdapter(...)` | `api.ts` 冻结、`Context` 上不会长出 `llm` 成员 → 按 00 §9「按键寻址」落地为服务键 `llm:adapters`（`provideLlm`）。语义等价：注册返回 disposer、重名必须显式 `replace` |
+| R37 | 会话事件表 +2 键（`compaction/summary` / `usage/summary`）、`user/message.source` 追加 `runtime-context` | 施单 05 §5 要求摘要落账、§3 要求 usage 进审计，而事件表在 `session/types.ts`（阶段 4 白名单外）。**经人工授权**做最小增量：+2 键 + `derive.ts` +2 个空 case + source 联合 +1 值。`runtime-context` 与 `context` 必须分源，否则撤回旧上下文会顺手撤掉工具纠正文本 |
+| R38 | 依赖面：`runtime` 增 `devDependency @bah/llm` + project reference；`llm` 增 `@bah/util` | 集成测试（`T-LLM-001`）与阶段 5 主循环都需要 `@bah/llm`；本阶段先作 devDependency，阶段 5 转正为 dependencies。无环：`runtime → llm → core/util` |
+| R39 | `FinancialSummaryEntry.ticketId` 为可选 | 施单 05 §5 的接口草图是必填；但绿色直通调用**没有票据**，硬填等于伪造票号。改为可选 + `decision: 'not-required'`，并在类型注释写明 |
+| R40 | 压缩摘要**不调模型**，由结构化折叠生成 | 确定性、零成本、可逐字回放（快照回放依赖这点）。模型生成散文摘要留作可选增强（扩展点在 `renderSummaryText`） |
+| R41 | `T-LLM-001` 的「完整 turn」是脚本化驱动 | 主循环属阶段 5（`agent-loop`）。本阶段的驱动写在测试里、只用公开接缝（session + 七段管线 + 提示词 + mock adapter）；阶段 5 用真实主循环复跑同一 ID |
+| R42 | 覆盖率名单扩容 | 新增 `llm`（整包）、`runtime/system-prompt/`、`runtime/compaction/`；`vitest.config.ts` 新增两个纯类型文件排除（`llm/src/llm/types.ts`、`runtime/src/compaction/types.ts`），理由同 `core/api.ts`：零可执行行会得到假 0% |
+| R43 | `verify-no-hardcoded-limits` 门禁（施单 05 §5 提到）未实现 | 用等价约束替代：阈值只作为 `resolveCompactionConfig` 的入参（未知键 / 非正整数 / 一个阈值都没配 → 载入即抛）。门禁留到阶段 6（配置落 `bah.yml` 时才有静态扫描面） |
+
+## 13. 阶段 4 待人工确认项
+
+| # | 项 | 现状 | 建议 |
+|---|---|---|---|
+| 1 | DeepSeek 真实流式未在本机实跑（无 `DEEPSEEK_API_KEY`） | e2e 面按设计自动 skip（无 key 时不收集用例），CI 仍绿 | 有 key 时跑一次 `pnpm test:e2e`，确认 `adapter.e2e.test.ts` 出文本且 usage 非零 |
+| 2 | `assistant/message` 与 `tool/result` 的先后：施单 04 §7 的 T-LOOP-001 把 `assistant/message` 列在 `tool/result` **之后** | 本阶段脚本化驱动按 wire 合法性落账（assistant 带 toolCalls → tool/result），否则 OpenAI 兼容 wire 无法配对 | 阶段 5 与施单核对一次；若确实要求 assistant 在后，需同时说明 tool 消息如何配对。建议保留当前顺序并在 04 的测试表加注 |
+| 3 | `usage/summary` 与 `@bah/llm` 的 `TurnUsage` 同形 | 靠 `T-LLM-004` 的编译期赋值断言钉住（字段漂移即编译失败） | 阶段 5 若给 `TurnUsage` 加字段，同步 `UsageSummaryData` |
+| 4 | `api.ts` 的索引签名收窄（R27 遗留） | 仍未做（session 侧有编译期断言、派发侧有门禁） | 建议阶段 6「接缝总表冻结」时一次做完（走破坏性变更流程 + 全量快照） |

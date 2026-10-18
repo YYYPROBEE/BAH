@@ -108,6 +108,10 @@ function project(event: AnySessionEvent, openCalls: Map<string, string>): Derive
     case 'assistant/attempt':
     case 'approval/asked':
     case 'approval/decided':
+    // 成本汇总与压缩摘要：由审计导出与 `system-prompt/reconcile`（折叠投影）消费，
+    // 不是模型消息——摘要进历史的方式见 `buildModelHistory`（以一条 user 消息呈现）。
+    case 'usage/summary':
+    case 'compaction/summary':
       return []
 
     default: {

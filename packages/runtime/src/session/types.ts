@@ -38,6 +38,8 @@ export const SESSION_EVENT_TYPES = [
   'tool/result',
   'approval/asked',
   'approval/decided',
+  'usage/summary',
+  'compaction/summary',
 ] as const
 
 declare module '@bah/core' {
@@ -63,7 +65,7 @@ declare module '@bah/core' {
     /** system 消息（提示词装配结果，模型可见）。 */
     'system/message': { content: string; section?: string }
     /** user 消息（模型可见）。 */
-    'user/message': { content: string; source?: 'user' | 'context' | 'tool-recovery' }
+    'user/message': { content: string; source?: UserMessageSource }
     /** assistant 消息（模型可见；含本轮发起的工具调用）。 */
     'assistant/message': {
       content: readonly ContentBlock[]
@@ -90,7 +92,67 @@ declare module '@bah/core' {
       reason?: string
       code?: string
     }
+    /**
+     * 一个 turn 的成本汇总（施工单 05 §3：按 turn 汇总 tokens，进审计导出）。
+     *
+     * 不产生模型消息，但**必须**落账——否则"资源可控"没有可出示的证据。
+     */
+    'usage/summary': UsageSummaryData
+    /**
+     * 上下文压缩摘要（施工单 05 §5：摘要本身作为会话事件落账，可回放、可审计）。
+     *
+     * 压缩不改写历史（append-only 是不变量）：摘要落账 + 投影时折叠，两者配合还原"当时模型看到什么"。
+     */
+    'compaction/summary': CompactionSummaryData
   }
+}
+
+/**
+ * `user/message` 的来源。
+ *
+ * `runtime-context` 与 `context` 必须分开：前者是**每次 attempt 重新渲染的运行时上下文**
+ * （下次装配时按 reconcile 撤回），后者是工具后置阶段追加的一次性纠正文本（要留在历史里）。
+ * 混用会让"撤回旧上下文"顺手把纠正文本也撤掉（施工单 05 §4.1）。
+ */
+export type UserMessageSource = 'user' | 'context' | 'tool-recovery' | 'runtime-context'
+
+/** 压缩后保留的金融结构化字段（施工单 05 §5：涉及金额/收款人/审批的条目不得只留摘要）。 */
+export interface FinancialSummaryEntry {
+  readonly amount: number
+  readonly payee: string
+  /**
+   * 审批票据 ID。
+   *
+   * 绿色直通调用**没有票据**（不伪造编号）：此时字段缺省、`decision = 'not-required'`。
+   */
+  readonly ticketId?: TicketId
+  readonly decision: string
+}
+
+/** `compaction/summary` 的载荷。 */
+export interface CompactionSummaryData {
+  /** 被折叠的首个 turn（含）。 */
+  readonly fromTurn: number
+  /** 被折叠的最后一个 turn（含）。 */
+  readonly toTurn: number
+  /** 被折叠的 turn 数。 */
+  readonly turns: number
+  /** 结构化摘要文本（确定性生成，不含模型调用）。 */
+  readonly summary: string
+  /** 被折叠事件的 `seq` 引用（审计可回跳到原文）。 */
+  readonly refs: readonly number[]
+  /** 金融特例字段（结构化保留）。 */
+  readonly financial: readonly FinancialSummaryEntry[]
+  /** 被折叠的模型可见消息条数。 */
+  readonly droppedMessages: number
+}
+
+/** `usage/summary` 的载荷（与 `@bah/llm` 的 `TurnUsage` 同形）。 */
+export interface UsageSummaryData {
+  readonly turn: number
+  readonly input: number
+  readonly output: number
+  readonly calls: number
 }
 
 /** turn 结束原因（施工单 04 §2.1 的粘性原因；本阶段先给闭合联合）。 */
