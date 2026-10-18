@@ -60,6 +60,36 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
     why: 'JSONL append-only 后端：分代命名与排他发布、尾截断容忍、版本拒绝（施工单 03 §1.5）',
   },
   {
+    package: 'host',
+    scope: 'boot/',
+    why: '组合系统：四层层序与整块替换、fail-loud 校验、boot 装配与回滚、config-only HMR（施工单 06）',
+  },
+  {
+    package: 'host',
+    scope: 'plugin-manager/',
+    why: '依赖清单与逐行配置校验：未知插件 / 重复挂载 / 默认值兜底（施工单 06 §2、§4）',
+  },
+  {
+    package: 'cli',
+    scope: 'cli/',
+    why: 'CLI 入口面：参数解析、退出码语义（0/1/2）、headless 运行与 config HMR 接线（施工单 06）',
+  },
+  {
+    package: 'cli',
+    scope: 'profile.ts',
+    why: 'profile / patch 文件解析与四层层序的 fail-loud 校验（施工单 06 §4）',
+  },
+  {
+    package: 'cli',
+    scope: 'bundles.ts',
+    why: 'bundle 发现与依赖清单校验（施工单 06 §2：bah.profile.bundles）',
+  },
+  {
+    package: 'cli',
+    scope: 'dump-config.ts',
+    why: '生效树与来源层标注——答辩材料与"任何一行可被替换"的证据面（施工单 06 §4）',
+  },
+  {
     package: 'safety',
     scope: 'sentry/',
     why: '判决 / 归一化 / 规则 / 票据 / 断路器（施工单 10）',

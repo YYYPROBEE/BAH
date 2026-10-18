@@ -12,10 +12,15 @@
     "build:bundle": "tsdown src/index.ts --dts"
   },
   "dependencies": {
+    "@bah/core": "workspace:*",
     "@bah/runtime": "workspace:*",
     "@bah/llm": "workspace:*",
     "@bah/interaction": "workspace:*",
     "@bah/bank": "workspace:*",
-    "@bah/persistence": "workspace:*"
+    "@bah/persistence": "workspace:*",
+    "@bah/util": "workspace:*"
+  },
+  "devDependencies": {
+    "@bah/test-support": "workspace:*"
   }
 }

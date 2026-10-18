@@ -1,12 +1,20 @@
 /**
- * `@bah/cli` 可执行入口（M0 占位）。
+ * `@bah/cli` 可执行入口（根 `package.json` 的 `bah` 脚本指向本文件）。
  *
- * 根 `package.json` 的 `bah` 脚本指向本文件（施工单 01 §1），
- * 所以它必须真实存在——但到目前为止不实现任何运行逻辑：
- * profile 解析、bundle reconcile、插件安装在施工单 06 落地；
- * `--profile headless --dump-config` 是阶段 6 的人工抽查点。
+ * 只做两件事：解析 argv、把退出码交给进程。真正的工作在 `cli/run.ts`。
  *
- * 进程级冒烟见同目录 `main.smoke.test.ts`（验 tsx 运行 + workspace 解析 + exit code）。
+ * 运行方式：`pnpm bah --profile headless --dump-config`。
+ * 源码解析走根 `tsconfig.json` 的 `paths`（`@bah/<pkg>` → `packages/<pkg>/src/index.ts`），
+ * 因此**不需要先 build**——CLI 永远跑当前源码，不会悄悄跑旧产物。
  */
 
-console.log('bah: 底座骨架 —— CLI 在施工单 06 接入 profile 组合后可用（当前无运行逻辑）')
+import { runCli } from './cli/index.ts'
+
+process.exitCode = await runCli(process.argv.slice(2), {
+  out: (message) => {
+    console.log(message)
+  },
+  err: (message) => {
+    console.error(message)
+  },
+})

@@ -1,0 +1,28 @@
+# headless profile patch（层 2：profile patch）。
+#
+# 语义是**整块替换**（施工单 06 §0 第 3 条）：下面每行的 config 一旦出现，
+# 就完全取代 base 那一行的 config——没写的字段走插件默认值，而不是与旧值深合并。
+# 所以 `core:model` 从 deepseek 换成 mock 只需重写这一行，不会有"残留的 deepseek 字段"。
+
+- id: core:model
+  config:
+    provider: mock
+    model: mock-chat
+    chunkSize: 4
+    # 脚本化对话：一次工具调用 + 一次文本收尾（证明七段管线在 headless 里也跑通）
+    script:
+      - tool: { id: call-1, name: echo, args: { text: 你好，我是 headless 验收用的回显工具 } }
+      - text: 已为你在模拟环境完成查询。
+
+- id: core:agent
+  config:
+    channel: headless
+    loop: { model: mock:mock-chat, maxSteps: 8 }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }
+
+# 插入新行：id 不在任何 bundle 里出现，所以必须写 use 指向依赖清单里的插件
+- id: demo:echo
+  use: demo:echo
+  config: { prefix: '[headless] ' }
+
