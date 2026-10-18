@@ -1,0 +1,17 @@
+{
+  "name": "@bah/persistence",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist-types/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build:bundle": "tsdown src/index.ts --dts"
+  },
+  "dependencies": {
+    "@bah/core": "workspace:*"
+  }
+}

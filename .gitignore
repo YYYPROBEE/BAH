@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-types/
+*.tsbuildinfo
+.env*
+!.env.example
+sessions/
+*.db
+*.db-journal
