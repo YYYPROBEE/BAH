@@ -1,13 +1,14 @@
 /**
  * 快照录制回放（施工单 12 §3；**阶段 7** 完工）。
  *
- * 已落地：fixture 命名解析 + 同组最高代选择（`fixtures.ts`）——纯文件逻辑，不依赖会话日志，
- * 因此能在阶段 3 之前先落地并先被测试。
+ * 三块：
+ * - `fixtures.ts`：命名解析 + 同组最高代选择（纯文件逻辑）；
+ * - `session-log.ts`：会话日志的最小 JSONL 读写（与运行时后端同构，由 snapshots 面交叉验证）；
+ * - `harness.ts`：录制 / 读取 / 逐条比对（`session.jsonl` + `llm.jsonl` + `scenario.json`）。
  *
- * TODO(阶段 7 · 施工单 12 §4 第 4 步)：`record` / `replay` harness：
- * - 在隔离的 `cwd/sessions/spill` 目录里跑场景；
- * - `record` 录制会话与工作区快照，`replay` **无密钥**回放；
- * - 与 `llm-mock-server` 对接（录制 provider 请求 → 重放响应）；
- * - CI「影响模型可见 / 用户可见的改动必须带快照」检查。
+ * 与 `llm-mock-server` 的分工：那边管"provider 请求-响应"的录制回放，这边管"一个场景的快照"。
+ * 场景怎么跑起来由调用方提供（不依赖组合系统），所以 harness 也能给插件线用。
  */
 export * from './fixtures.ts'
+export * from './harness.ts'
+export * from './session-log.ts'

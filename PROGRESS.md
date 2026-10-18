@@ -20,7 +20,7 @@
 | 09 | 三级权限审批票据 | 插件线 | [ ] | `ToolDefinition.tier` 已预留 |
 | 10 | 安全防护层 sentry | 插件线 | [ ] | |
 | 11 | 沙箱运行时 | 插件线 | [ ] | |
-| 12 | 审计轨迹与回放测试 | 阶段 7（建议项） | [ ] | `snapshots/` 与 `test:snapshot` 已就位 |
+| 12 | 审计轨迹与回放测试 | 阶段 7（建议项） | [x] | **仅 test-support 节选**（快照录制回放 + 确定性）；TraceLog / 报表 / 对抗用例库属插件线；出口清单见 §20，偏差见 §21 |
 | 13 | Web 前端 | 插件线 | [ ] | `apps/web` 纯原生骨架已就位 |
 | 14 | 移动 H5 与跨场景规划 | 插件线 | [ ] | |
 | 15 | IM 网关与桌面端 | 插件线 | [ ] | `apps/im-gateway`、`apps/desktop` 占位 |
@@ -377,5 +377,58 @@
 | 4 | profile 的"安装"模型（R59） | 仓库内模板 + `--home` 覆盖 | 若要"用户级安装 profile"，需在插件线定 `$BAH_HOME` 目录结构与版本策略 |
 | 5 | 阶段 5 §16 的五条仍未闭环（T-LOOP-001 顺序 R44、`stop()` 语义 R46、压缩时机、一应用一会话 R52、真实 provider 中断） | 本阶段实现不依赖这些决议 | 建议插件线开工前一并拍板（尤其 R44 与 R46 会影响审计导出与 guard 判停的形状） |
 | 6 | 真实 provider（`provider: deepseek`）只做了启动期验证 | 无 `DEEPSEEK_API_KEY`，`pnpm test:e2e` 仍按设计 skip | 有 key 时跑 `pnpm bah --profile <真实 provider profile> --prompt …` 并保留 JSONL 作为验收证据 |
+
+## 20. 阶段 7 出口清单（施工单 12 · test-support 节选）
+
+> 只做快照录制回放：TraceLog 合并器、导出器 / 报表、投影/查询/标题、对抗用例库**明确不做**（插件线）。
+
+| # | 出口标准 | 状态 | 证据 |
+|---|---|---|---|
+| 1 | record 模式：跑一段 headless mock 场景，会话与快照落 `snapshots/` | ✓ | `BAH_SNAPSHOT_RECORD=1 pnpm test:snapshot` → `snapshots/headless-basic/{session.jsonl, llm.jsonl, scenario.json}`：21 条事件（1 turn：工具调用 + 收尾）、2 次 provider 调用、7 行生效行 + 模型规格；`session.jsonl` 首行是 `bah-session-header` |
+| 2 | replay 模式：**无密钥**回放，事件流与录制全等 | ✓ | 默认 `pnpm test:snapshot` → T-AUD-005 `compareEvents.diffs = []`；回放应用由 `scenario.json` 的**录制行**重建（不读 `profiles/`、不读 `bah.yml`），provider 换成 `ReplayAdapter`（无网络、无密钥） |
+| 3 | 确定性：同快照两次回放全等（无真实时间 / 随机泄漏） | ✓ | T-AUD-006：`second` 与 `first` 深度相等，且都与录制全等；确定性四件套（时钟 / 种子 / home patch / 临时会话目录）见 `snapshots/README.md` §4 |
+| 4 | CI：`pnpm test:snapshot` 在无网络、无密钥环境全绿 | ✓ | 本机未设 `DEEPSEEK_API_KEY`（e2e 面仍 skip）、回放路径无 `fetch` → `pnpm test:snapshot` **2 文件 / 6 用例**全绿；`pnpm check` 第 6 步即此命令，且**不设**录制开关（只读） |
+
+| # | 验收清单（§6 属于本阶段的部分） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | 快照 record / replay 双模式可用 | ✓ | 见上表 1–2 |
+| 2 | CI 只读回放开门禁 | ✓ | `pnpm check` 集成 `test:snapshot`；录制只由 `BAH_SNAPSHOT_RECORD=1` 触发（回放路径不含任何写仓库代码） |
+| 3 | 三链合并 / 时间线 / 报表 / 对抗用例库 | ✗（明确不做） | 依赖施工单 10（sentry）与银行工具族，属插件线；见 R68 |
+
+**规格用例落点（T-AUD-005 / T-AUD-006）**
+
+| ID | 用例 | 文件 |
+|---|---|---|
+| T-AUD-005 | record → replay：无密钥回放，事件流全等 | `snapshots/headless-basic/snapshot.test.ts` |
+| T-AUD-006 | replay 确定性：同快照两次回放全等 | 同上 |
+
+**补充用例（无编号）**：`snapshots/headless-basic/snapshot.test.ts` 另 2 条（真 `JsonlPersistence` 交叉验证"fixture = 真会话日志"、负控"篡改一条事件 → 比对必红"）；`packages/test-support` 新增 25 条（录制/回放适配器 10、harness 11、会话日志 4）；fixture 选择器 6 条沿用。
+
+**规模**：`pnpm test` **449 用例 / 50 文件**（阶段 6：424 / 47）；`pnpm test:snapshot` **6 用例 / 2 文件**；`pnpm check` 7/7；`pnpm gate` 5/5；`pnpm build` 12 包全绿。覆盖率：`@bah/test-support` 不纳入 100% 名单（00 §11 只对内核对治理平面强制），名单内文件仍 100% 行覆盖。
+
+**人工抽查点实跑**（README §3 阶段 7：断网 + 无密钥跑一次回放）：本机无密钥、无网络请求路径（`ReplayAdapter` 只读 `llm.jsonl`），`pnpm test:snapshot` 全绿；负控（篡改录制事件）在 CI 里同样会红。
+
+## 21. 已知偏差与残留风险（阶段 7）
+
+| ID | 项 | 处理 |
+|---|---|---|
+| R64 | `@bah/test-support` 不依赖 `@bah/persistence`，自带约 30 行会话日志 JSONL 读写（`session-log.ts`） | 直接引用会形成 project reference 环：`persistence` 与 `runtime` 的 tsconfig 都引用了 `test-support`（它们的用例用本包夹具），反向引用即 `TS6202`。格式只有"一行 header + 每条事件一行"，并由 `snapshots/headless-basic/snapshot.test.ts` 用**真实** `JsonlPersistence.open()` 交叉验证——格式漂移会立刻红 |
+| R65 | test-support 新增依赖 `@bah/llm`（`LlmAdapter` / `StreamChunk` / `ModelSpec` 契约） | 录制/回放适配器必须实现同一接缝；`llm` 的 tsconfig 不引用 test-support，无环 |
+| R66 | 录制开关用环境变量 `BAH_SNAPSHOT_RECORD=1`，未加根脚本 `pnpm snapshot:record` | 本阶段文件清单只含 `packages/test-support/**`、`vitest.snapshot.config.ts`、`snapshots/**`；加脚本要动根 `package.json`。用法写进 `snapshots/README.md` 与 `docs/testing.md` §9.1 |
+| R67 | `snapshots/**` 的 `scenario.ts` 不在 `tsc -b` 覆盖内 | `snapshots/` 不是 pnpm 包，给它建 tsc 项目要动 solution（`tsconfig.host.json`）。缓解：harness / 适配器 / 比对全在 `@bah/test-support`（有类型检查），`scenario.ts` 只做装配 |
+| R68 | 对抗用例库六条（施单 12 §3.1）未录 | 明确不做：依赖施工单 10（sentry）与银行工具族，属插件线 |
+| R69 | "改动必须带快照"的**自动**检查未落地 | 需要读 git diff 的门禁（`scripts/**`，不在本阶段文件清单）；当前作为评审纪律写进 `snapshots/README.md` 与 `docs/testing.md` §9.1 |
+| R70 | `fs.cpSync(..., { recursive: true })` 在本机（Node 22.17 / Windows / 非 ASCII 路径）会 abort 进程（`STATUS_STACK_BUFFER_OVERRUN`，无 JS 栈） | 负控用例改为逐个 `readFileSync`/`writeFileSync` 复制三份产物；`docs/testing.md` §10 记账：测试代码禁用 `cpSync` |
+
+## 22. 阶段 7 待人工确认项
+
+| # | 项 | 现状 | 建议 |
+|---|---|---|---|
+| 1 | test-support 自带最小 JSONL 读写（R64） | 有真后端交叉验证兜底 | 若坚持"只有一份格式实现"，需先解开 `persistence`/`runtime` → `test-support` 的 project reference（或把它们的测试夹具改成用构建产物） |
+| 2 | 录制入口用环境变量（R66） | 已写进文档 | 若要 `pnpm snapshot:record`，下一阶段在根 `package.json` 加一行即可 |
+| 3 | 自动"改动必须带快照"门禁（R69） | 评审纪律 | 建议插件线开工时加进 `scripts/`（比对 `git diff` 是否触及 `packages/{runtime,llm}/src` 却未改 `snapshots/**`） |
+| 4 | 快照覆盖范围 | 目前 1 条 headless 基础场景（1 turn + 1 工具调用） | 插件线落地后补 3–5 条：注入拦截 / 审批通过 / 审批拒绝 / 熔断冻结各一条 |
+| 5 | `randomSeed` 已录制但场景未使用 | 接口预留 | bank-forge（施工单 07）落地后，把造数随机源接到同一个 `seededRandom` |
+
 
 
