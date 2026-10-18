@@ -12,7 +12,7 @@
 | 01 | 仓库骨架与基建 | 阶段 1 · M0 | [x] | 见 §3 出口清单 |
 | 02 | 内核 core | 阶段 2 · M1 | [x] | 内核已实装；出口清单见 §5，偏差见 §6 |
 | 03 | 会话日志与工具管线 | 阶段 3 · M1 | [x] | 会话日志 + JSONL 后端 + 七段管线；出口清单见 §8，偏差见 §9 |
-| 04 | 主循环 agent-loop | 阶段 5 | [ ] | 依赖阶段 4（模型层）先行 |
+| 04 | 主循环 agent-loop | 阶段 5 | [x] | turn/step 状态机 + 四接缝 + 回退分叉；出口清单见 §14，偏差见 §15 |
 | 05 | 模型层与提示词装配 | 阶段 4 | [x] | 词汇表 + Adapter seam + 六段装配 + reconcile + 压缩；出口清单见 §11，偏差见 §12 |
 | 06 | 组合系统 profile | 阶段 6 | [ ] | `bah.yml` 与本文件同批落地 |
 | 07 | 仿真银行 bank | 插件线 | [ ] | 接缝冻结后才可开工 |
@@ -234,6 +234,74 @@
 | # | 项 | 现状 | 建议 |
 |---|---|---|---|
 | 1 | DeepSeek 真实流式未在本机实跑（无 `DEEPSEEK_API_KEY`） | e2e 面按设计自动 skip（无 key 时不收集用例），CI 仍绿 | 有 key 时跑一次 `pnpm test:e2e`，确认 `adapter.e2e.test.ts` 出文本且 usage 非零 |
-| 2 | `assistant/message` 与 `tool/result` 的先后：施单 04 §7 的 T-LOOP-001 把 `assistant/message` 列在 `tool/result` **之后** | 本阶段脚本化驱动按 wire 合法性落账（assistant 带 toolCalls → tool/result），否则 OpenAI 兼容 wire 无法配对 | 阶段 5 与施单核对一次；若确实要求 assistant 在后，需同时说明 tool 消息如何配对。建议保留当前顺序并在 04 的测试表加注 |
+| 2 | `assistant/message` 与 `tool/result` 的先后：施单 04 §7 的 T-LOOP-001 把 `assistant/message` 列在 `tool/result` **之后** | 本阶段脚本化驱动按 wire 合法性落账（assistant 带 toolCalls → tool/result），否则 OpenAI 兼容 wire 无法配对。**阶段 5 已照此实现**（见 §15 R44），仍待人工确认 | 阶段 5 与施单核对一次；若确实要求 assistant 在后，需同时说明 tool 消息如何配对。建议保留当前顺序并在 04 的测试表加注 |
 | 3 | `usage/summary` 与 `@bah/llm` 的 `TurnUsage` 同形 | 靠 `T-LLM-004` 的编译期赋值断言钉住（字段漂移即编译失败） | 阶段 5 若给 `TurnUsage` 加字段，同步 `UsageSummaryData` |
 | 4 | `api.ts` 的索引签名收窄（R27 遗留） | 仍未做（session 侧有编译期断言、派发侧有门禁） | 建议阶段 6「接缝总表冻结」时一次做完（走破坏性变更流程 + 全量快照） |
+
+## 14. 阶段 5 出口清单（施工单 04 §0 + §8）
+
+| # | 出口标准（§0） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | 编程式装配（base bundle + llm-mock）跑通完整 turn，会话 JSONL 正确落盘 | ✓ | `T-LOOP-001`（2 例：事件序列 + 历史重建）；`T-LOOP-013`（真实 `session.jsonl`：header + 逐事件行，重开后 seq 一致、`deriveMessages` 结果与内存态全等） |
+| 2 | 复刻检查表五条全部实现并有单测（§4） | ✓ | 失败补记 `T-LOOP-006`；max-tokens 粘性 `T-LOOP-007`；turn-stopping 是 serial `T-LOOP-008`（2 例）；两处取消不提交 system/user `T-LOOP-009`/`T-LOOP-010`；首个认领为空 `T-LOOP-011` |
+| 3 | Inbox 认领、中断、转向、回退、人工接管五能力接口可用 | ✓ | `Inbox`（claim/nextStep/wakeDriver）+ `TurnAbort`（每 turn 一个 controller）+ `AgentLoop.steer/fork/dispose`；T-LOOP-003（唤醒新 turn）、T-LOOP-004（转向不新开 turn）、T-LOOP-005（中断）、T-LOOP-012（分叉）。人工接管是 `approval/request` 接缝（阶段 3 已验，主循环只负责把调用送进七段管线） |
+| 4 | 失败 step 补记工具结果的单测存在且通过 | ✓ | `T-LOOP-006`：两个调用 → 执行完的有真实结果、未执行的补记 `isError/code=tool-interrupted`，`step/end` 照落、turn 不闭合（伪代码原样抛出） |
+
+| # | 验收清单（§8） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | §0 四条逐条核对 | ✓ | 见上表 |
+| 2 | 复刻检查表五条对应单测全绿 | ✓ | `pnpm test` → **330 用例 / 39 文件**全绿 |
+| 3 | `verify-event-modes` 门禁通过 | ✓ | `pnpm gate` → 5/5，`event-modes`：声明点 10 个、字面量派发点 11 个逐条比对 |
+| 4 | agent-loop 目录行覆盖 100% | ✓ | `pnpm test:coverage` → `runtime/src/agent-loop` **Stmts/Branch/Funcs/Lines = 100 / 96 / 100 / 100**；全局 All files 行 100% |
+| 5 | `bah --profile headless`（mock）端到端跑通（M1 出口） | ✗（延后） | CLI / profile / boot 属阶段 6；本阶段用 `T-LOOP-013` 的"真实 JSONL 落盘 + 重开投影"验证同一链路 |
+
+**规格用例落点（T-LOOP-001~013，编号与期望逐条一致）**
+
+| ID | 用例 | 文件 |
+|---|---|---|
+| T-LOOP-001 | 完整 turn（事件序列 / 历史重建） | `runtime/src/agent-loop/agent.test.ts`（2 例） |
+| T-LOOP-002 | preStep reject → blocked，无 step | 同上 |
+| T-LOOP-003 | inbox 有待处理 → wakeDriver 唤醒、新 turn | 同上 |
+| T-LOOP-004 | steer → 当前 step 完成后立即认领、不新开 turn | 同上 |
+| T-LOOP-005 | interrupt → `aborted`，信号传到 `llm/stream` | 同上 |
+| T-LOOP-006 | step 中途抛错 → 补记 isError 的 `tool/result` | 同上 |
+| T-LOOP-007 | max-tokens 粘性 | 同上 |
+| T-LOOP-008 | turn-stopping（serial 顺序 / 停止决策） | 同上（2 例） |
+| T-LOOP-009 | agent/request 阶段取消 → system/user 不落账 | 同上 |
+| T-LOOP-010 | prepareCall 阶段取消 → 同上 | 同上 |
+| T-LOOP-011 | 首个认领为空 → completed 且无 `step/start` | 同上 |
+| T-LOOP-012 | 回退分叉（parentSession/seedLength、原会话只读） | `runtime/src/agent-loop/rollback.test.ts`（2 例） |
+| T-LOOP-013 | JSONL 落盘 + `deriveMessages` 重建 | `runtime/src/agent-loop/agent.test.ts` |
+
+**补充用例（无编号）**：`inbox.test.ts`（11）、`interrupt.test.ts`（5）、`request.test.ts`（14：投影/装配/冻结/与 `beginAttempt` 的提交一致性）、`tool-calls.test.ts`（8：坏参数不执行、失败补记观察口）、`agent.test.ts` 补充 15 例（配置 fail-loud、outcomeOf/sticky、step 上限、空转拒绝、注册表、dispose/并发、drive 常驻、inject、fork、模型解析失败、prepareCall 抛错/AbortError、流 aborted、pre-step 改写、默认时钟）。
+
+**规模**：`pnpm test` **330 用例 / 39 文件**（阶段 4 为 260 / 33）；`pnpm check` 7/7、`pnpm gate` 5/5、`pnpm build` 12 包全绿。文档：新增 [docs/agent-loop.md](docs/agent-loop.md)。
+
+**人工抽查点实跑**（README §3 阶段 5：抽 max-tokens 粘性与失败补记）：`pnpm exec vitest run -t T-LOOP-006` → `1 passed / 329 skipped`；`-t T-LOOP-007` → `1 passed / 329 skipped`。
+
+## 15. 已知偏差与残留风险（阶段 5）
+
+| ID | 项 | 处理 |
+|---|---|---|
+| R44 | 施单 04 §7 的 T-LOOP-001 把 `assistant/message` 列在 `tool/result` **之后** | 按 wire 合法性落账：带 `toolCalls` 的 assistant 消息先落，再 `tool/call` → `tool/result`。否则 `deriveMessages` 产出的历史是"tool 消息在前、assistant 的 tool_calls 在后"，OpenAI 兼容 wire 无法配对。**建议在 04 的测试表加注**（详见 §16 第 1 条） |
+| R45 | 伪代码两处 `return false`（reject / 首个认领为空） | 改为 `break` 走到收尾段再 `turn/end`：照字面 `return` 会让 turn 永不闭合，与 T-LOOP-002/011 的"以 blocked / completed 关闭"直接冲突。这是**关闭动作**，不是重排。`turn()` 返回值由伪代码的 `boolean` 改为 `TurnEndReason`（驱动侧从未使用那个 boolean） |
+| R46 | `agent/turn-stopping` 的"可返回停止决策" | 内核 `serial` 没有返回值通道（只顺序 await），落地为载荷里的 `stop(reason?)`：调用即让本 turn 不再继续，`reason` 写成 `turn/end.reason = {kind:'failed', reason}`，让"为什么停"在审计里可解释（施工单 10 §4 的 guard 判停可读） |
+| R47 | `agent/pre-step` 的 `startsRequestSeries` | 类型与透传保留、本阶段不消费（插件线用它标记"新请求序列"，做风险分 / 压缩边界）；一条用例钉住"listener 设置它不会破坏 turn" |
+| R48 | 主循环不内建降级链 | 降级 = `agent/request` 改路由 + `llm/stream` 环绕；`FallbackRunner` 仍是插件 / 阶段 6 可直接用的工具（它的链在构造期固定，与"请求阶段可改写路由"冲突） |
+| R49 | 没有复用阶段 4 的 `beginAttempt` | 取消边界要求"提交晚于 `prepareCall`"，而 `beginAttempt` 在调用时就把 system/context/user 写进日志。改在 `agent-loop/request.ts` 实现 `commitAttempt`，并加一条**对照用例**逐条比对两者的落账形状（防两处实现漂移） |
+| R50 | 依赖面：`runtime` 的 `@bah/llm` 由 devDependency 转正为 dependencies；新增 devDependency `@bah/persistence` + project reference | 主循环生产代码 import `@bah/llm`（词汇表 / 装配 / 账本）；T-LOOP-013 用 JSONL 后端验证落盘。无环：`runtime → llm / persistence → core / util` |
+| R51 | `seams.ts` 追加 4 个接缝声明 | 施单 04 §5 说"本单只列、实现方挂接"，但 `verify-session-events` / `verify-event-modes` 只认 `seams.ts` 的声明，故做**纯声明增量**（不改 `api.ts`） |
+| R52 | `AgentLoop.fork` 需要新的 `Context` | `runtime:session` 是服务键、一个应用承载一个会话（阶段 3 的装配方式），故分叉 = 新宿主上下文；`SessionApi` 上没有 `meta` 字段，`parentSession / seedLength` 由 `ForkInfo` 挂在 agent 上 |
+| R53 | 参数不可用（坏 JSON / 根不是 object）的调用**不执行**工具体 | 直接落 `isError` 的 `tool/result`（`code: tool-args-invalid`，内容含原文）：主线只保证"配对上、有理由码"，模型下一 step 自我修复。阶段 4 的 `repairToolCall`（回灌 + 重试一次）留给插件线 / 阶段 6 接 |
+| R54 | 未注册工具（模型幻觉工具名）仍 fail-loud 抛出 | 七段管线原本就这么设计（连 ① 都不进：调用没有一个可执行体）。模型可读的纠错属插件线（sentry 归一化），本阶段不吞错 |
+
+## 16. 阶段 5 待人工确认项
+
+| # | 项 | 现状 | 建议 |
+|---|---|---|---|
+| 1 | T-LOOP-001 里 `assistant/message` 与 `tool/result` 的先后（R44） | 已按 wire 合法性实现（assistant 在前）并有测试锁定 | 请确认保留；若要按施单原顺序，需要同时给出"tool 消息如何与 assistant 的 toolCalls 配对"的方案（否则 DeepSeek / OpenAI 兼容 wire 会拒收） |
+| 2 | `turn-stopping` 的判停语义（R46） | `stop()` 把 turn 记为 `failed{reason}` | 若希望"判停"记为 `completed` 或新增 `guard-stopped` 原因，需要扩 `TurnEndReason` 联合（属会话事件表增量，需授权） |
+| 3 | 压缩只在 turn 边界判定 | 配置了 `compaction` 才跑；长 turn（多 step）内不会压缩 | 阶段 6 决定是否在 attempt 前也判一次（会引入"同一 turn 内折叠"的审计复杂度） |
+| 4 | 分叉的宿主模型（R52） | 一应用一会话，分叉需新 `Context` | 若阶段 6 要"同应用多会话"，`runtime:session` 需改成按会话键寻址（破坏性变更流程 + 全量快照） |
+| 5 | 真实 provider 的流式中断未在本机实跑（无 key） | `adapter.e2e.test.ts` 仍按设计 skip | 有 key 时跑 `pnpm test:e2e`，并手工验证一次"流到一半按停"（断言无 `assistant/message`、`turn/end.reason=aborted`） |
+

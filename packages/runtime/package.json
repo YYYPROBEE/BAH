@@ -13,10 +13,11 @@
   },
   "dependencies": {
     "@bah/core": "workspace:*",
+    "@bah/llm": "workspace:*",
     "@bah/util": "workspace:*"
   },
   "devDependencies": {
-    "@bah/llm": "workspace:*",
+    "@bah/persistence": "workspace:*",
     "@bah/test-support": "workspace:*"
   }
 }
