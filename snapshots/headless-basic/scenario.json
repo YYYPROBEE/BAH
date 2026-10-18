@@ -1,0 +1,98 @@
+{
+  "name": "headless-basic",
+  "profile": "headless",
+  "prompts": [
+    "帮我查一下余额"
+  ],
+  "sessionId": "s-snapshot-headless-basic",
+  "clock": {
+    "start": 1700000000000,
+    "step": 1
+  },
+  "randomSeed": 7,
+  "rows": [
+    {
+      "id": "core:session",
+      "use": "core:session",
+      "config": {}
+    },
+    {
+      "id": "core:tools",
+      "use": "core:tools",
+      "config": {}
+    },
+    {
+      "id": "core:prompt",
+      "use": "core:prompt",
+      "config": {}
+    },
+    {
+      "id": "core:model",
+      "use": "core:model",
+      "config": {
+        "provider": "mock",
+        "model": "mock-chat",
+        "chunkSize": 4,
+        "script": [
+          {
+            "tool": {
+              "id": "call-1",
+              "name": "echo",
+              "args": {
+                "text": "你好，我是 headless 验收用的回显工具"
+              }
+            }
+          },
+          {
+            "text": "已为你在模拟环境完成查询。"
+          }
+        ]
+      }
+    },
+    {
+      "id": "core:agent",
+      "use": "core:agent",
+      "config": {
+        "channel": "headless",
+        "loop": {
+          "model": "mock:mock-chat",
+          "maxSteps": 8
+        },
+        "runtimeContext": {
+          "user": {
+            "name": "张三",
+            "level": "金卡"
+          }
+        }
+      }
+    },
+    {
+      "id": "core:persistence",
+      "use": "core:persistence",
+      "config": {
+        "root": "sessions"
+      }
+    },
+    {
+      "id": "demo:echo",
+      "use": "demo:echo",
+      "config": {
+        "prefix": "[headless] "
+      }
+    }
+  ],
+  "model": {
+    "provider": "mock",
+    "spec": {
+      "id": "mock-chat",
+      "providerId": "mock",
+      "displayName": "Mock Chat（确定性脚本）",
+      "capabilities": {
+        "toolCall": true,
+        "image": false,
+        "reasoning": true
+      },
+      "contextWindow": 32000
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{"kind":"bah-session-header","sessionId":"s-snapshot-headless-basic","formatVersion":1,"createdAt":1700000000000}
+{"seq":1,"at":1700000000000,"formatVersion":1,"type":"turn/start","data":{"turn":1}}
+{"seq":2,"at":1700000000000,"formatVersion":1,"type":"step/start","data":{"turn":1,"step":1}}
+{"seq":3,"at":1700000000000,"formatVersion":1,"type":"request/header","data":{"turn":1,"step":1,"model":"mock-chat","params":{}}}
+{"seq":4,"at":1700000000000,"formatVersion":1,"type":"system/message","data":{"content":"你是 BAH 银行智能体：一个可审计、可分级授权的银行业务助手。\n\n安全底线（不可协商）：\n1. 不得编造账户、余额、交易、利率、产品信息与审批结论——只能引用工具返回的结果；没有结果就说明还需要查询。\n2. 涉及资金变动一律走工具，并严格服从工具返回的审批结论；没有成功结果不得声称「已办理」。\n3. 拒绝越权：无权限 / 无票据 / 无审批的操作不执行，并说明缺什么。\n4. 不确定时明确说明不确定，并请用户补充信息；不要用猜测填补缺失事实。\n\n银行领域约定：\n- 术语：账户(account)、卡(card)、交易(transaction)、账单(bill)、理财(wealth)、票据(ticket)、核销(redeem)。\n- 三级权限：绿(green) 直接执行；黄(yellow) 需用户确认；红(red) 需用户确认 + 强验证（人脸 / 短信 / U 盾）。\n- 金额单位为元、保留两位小数；日期给绝对日期，不用「昨天」这类相对说法。\n- 票据一次核销只允许一笔操作，参数变化即失效。\n\n可用工具（只能调用下列工具；带 * 的参数必填）：\n- echo（green）：回显一段文本（底座自检用示例工具，不涉及任何银行数据）；参数 text*: string\n\n表达风格：\n- 简洁、先结论后细节，一段不超过 4 句。\n- 数字给单位和精度（元、两位小数）。\n- 不承诺时限，不猜测工具未返回的结果。\n- 渠道适配：无头：面向开发者与自动化，用紧凑的确定性格式。"}}
+{"seq":5,"at":1700000000000,"formatVersion":1,"type":"request/context","data":{"turn":1,"step":1,"texts":["【当前用户】姓名：张三；等级：金卡"]}}
+{"seq":6,"at":1700000000000,"formatVersion":1,"type":"user/message","data":{"content":"【当前用户】姓名：张三；等级：金卡","source":"runtime-context"}}
+{"seq":7,"at":1700000000000,"formatVersion":1,"type":"user/message","data":{"content":"帮我查一下余额","source":"user"}}
+{"seq":8,"at":1700000000000,"formatVersion":1,"type":"assistant/message","data":{"content":[],"toolCalls":[{"callId":"call-1","name":"echo","args":{"text":"你好，我是 headless 验收用的回显工具"}}]}}
+{"seq":9,"at":1700000000000,"formatVersion":1,"type":"tool/call","data":{"callId":"call-1","name":"echo","args":{"text":"你好，我是 headless 验收用的回显工具"},"fingerprint":"echo:{\"text\":\"你好，我是 headless 验收用的回显工具\"}","tier":{"level":"green"},"at":1700000000000}}
+{"seq":10,"at":1700000000000,"formatVersion":1,"type":"tool/result","data":{"callId":"call-1","name":"echo","isError":false,"content":[{"type":"text","text":"[headless] 你好，我是 headless 验收用的回显工具"}],"durationMs":0}}
+{"seq":11,"at":1700000000000,"formatVersion":1,"type":"step/end","data":{"turn":1,"step":1}}
+{"seq":12,"at":1700000000000,"formatVersion":1,"type":"step/start","data":{"turn":1,"step":2}}
+{"seq":13,"at":1700000000000,"formatVersion":1,"type":"request/header","data":{"turn":1,"step":2,"model":"mock-chat","params":{}}}
+{"seq":14,"at":1700000000000,"formatVersion":1,"type":"system/message","data":{"content":"你是 BAH 银行智能体：一个可审计、可分级授权的银行业务助手。\n\n安全底线（不可协商）：\n1. 不得编造账户、余额、交易、利率、产品信息与审批结论——只能引用工具返回的结果；没有结果就说明还需要查询。\n2. 涉及资金变动一律走工具，并严格服从工具返回的审批结论；没有成功结果不得声称「已办理」。\n3. 拒绝越权：无权限 / 无票据 / 无审批的操作不执行，并说明缺什么。\n4. 不确定时明确说明不确定，并请用户补充信息；不要用猜测填补缺失事实。\n\n银行领域约定：\n- 术语：账户(account)、卡(card)、交易(transaction)、账单(bill)、理财(wealth)、票据(ticket)、核销(redeem)。\n- 三级权限：绿(green) 直接执行；黄(yellow) 需用户确认；红(red) 需用户确认 + 强验证（人脸 / 短信 / U 盾）。\n- 金额单位为元、保留两位小数；日期给绝对日期，不用「昨天」这类相对说法。\n- 票据一次核销只允许一笔操作，参数变化即失效。\n\n可用工具（只能调用下列工具；带 * 的参数必填）：\n- echo（green）：回显一段文本（底座自检用示例工具，不涉及任何银行数据）；参数 text*: string\n\n表达风格：\n- 简洁、先结论后细节，一段不超过 4 句。\n- 数字给单位和精度（元、两位小数）。\n- 不承诺时限，不猜测工具未返回的结果。\n- 渠道适配：无头：面向开发者与自动化，用紧凑的确定性格式。"}}
+{"seq":15,"at":1700000000000,"formatVersion":1,"type":"request/context","data":{"turn":1,"step":2,"texts":["【当前用户】姓名：张三；等级：金卡"]}}
+{"seq":16,"at":1700000000000,"formatVersion":1,"type":"user/message","data":{"content":"【当前用户】姓名：张三；等级：金卡","source":"runtime-context"}}
+{"seq":17,"at":1700000000000,"formatVersion":1,"type":"assistant/message","data":{"content":[{"type":"text","text":"已为你在模拟环境完成查询。"}]}}
+{"seq":18,"at":1700000000000,"formatVersion":1,"type":"step/end","data":{"turn":1,"step":2}}
+{"seq":19,"at":1700000000000,"formatVersion":1,"type":"usage/summary","data":{"turn":1,"input":200,"output":40,"calls":2}}
+{"seq":20,"at":1700000000000,"formatVersion":1,"type":"turn/end","data":{"turn":1,"reason":{"kind":"completed"}}}
