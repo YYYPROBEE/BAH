@@ -6,9 +6,9 @@
 {"seq":5,"at":1700000000000,"formatVersion":1,"type":"request/context","data":{"turn":1,"step":1,"texts":["【当前用户】姓名：张三；等级：金卡"]}}
 {"seq":6,"at":1700000000000,"formatVersion":1,"type":"user/message","data":{"content":"【当前用户】姓名：张三；等级：金卡","source":"runtime-context"}}
 {"seq":7,"at":1700000000000,"formatVersion":1,"type":"user/message","data":{"content":"帮我查一下余额","source":"user"}}
-{"seq":8,"at":1700000000000,"formatVersion":1,"type":"assistant/message","data":{"content":[],"toolCalls":[{"callId":"call-1","name":"echo","args":{"text":"你好，我是 headless 验收用的回显工具"}}]}}
-{"seq":9,"at":1700000000000,"formatVersion":1,"type":"tool/call","data":{"callId":"call-1","name":"echo","args":{"text":"你好，我是 headless 验收用的回显工具"},"fingerprint":"echo:{\"text\":\"你好，我是 headless 验收用的回显工具\"}","tier":{"level":"green"},"at":1700000000000}}
-{"seq":10,"at":1700000000000,"formatVersion":1,"type":"tool/result","data":{"callId":"call-1","name":"echo","isError":false,"content":[{"type":"text","text":"[headless] 你好，我是 headless 验收用的回显工具"}],"durationMs":0}}
+{"seq":8,"at":1700000000000,"formatVersion":1,"type":"tool/call","data":{"callId":"call-1","name":"echo","args":{"text":"你好，我是 headless 验收用的回显工具"},"fingerprint":"echo:{\"text\":\"你好，我是 headless 验收用的回显工具\"}","tier":{"level":"green"},"at":1700000000000}}
+{"seq":9,"at":1700000000000,"formatVersion":1,"type":"tool/result","data":{"callId":"call-1","name":"echo","isError":false,"content":[{"type":"text","text":"[headless] 你好，我是 headless 验收用的回显工具"}],"durationMs":0}}
+{"seq":10,"at":1700000000000,"formatVersion":1,"type":"assistant/message","data":{"content":[],"toolCalls":[{"callId":"call-1","name":"echo","args":{"text":"你好，我是 headless 验收用的回显工具"}}]}}
 {"seq":11,"at":1700000000000,"formatVersion":1,"type":"step/end","data":{"turn":1,"step":1}}
 {"seq":12,"at":1700000000000,"formatVersion":1,"type":"step/start","data":{"turn":1,"step":2}}
 {"seq":13,"at":1700000000000,"formatVersion":1,"type":"request/header","data":{"turn":1,"step":2,"model":"mock-chat","params":{}}}

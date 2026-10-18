@@ -2,9 +2,9 @@
  * 主循环状态机（施工单 04 §2 / §7 的 T-LOOP-001~011、T-LOOP-013）。
  *
  * 说明两件"看起来可以更优雅、但不许改"的事：
- * 1. **`assistant/message` 在 `tool/call` 之前**：带 toolCalls 的 assistant 消息必须先落账，
- *    wire 侧（OpenAI 兼容）才配得上随后的 tool 消息；施单 04 §7 的 T-LOOP-001 把
- *    `assistant/message` 列在 `tool/result` 之后，那样派生出的历史无法配对（PROGRESS R44）。
+ * 1. **落账顺序 = 施单 04 §7 T-LOOP-001**：`tool/call → tool/result → assistant/message`
+ *    （工具跑完，带 toolCalls 的 assistant 消息才收尾落账）。wire 要求「assistant(tool_calls)
+ *    在 tool 消息之前」，这一顺序由 `deriveMessages` 的两遍投影恢复（阶段 8 R44）。
  * 2. **reject / 首个认领为空两处以 `turn/end` 收尾**：伪代码写的是 `return false`，
  *    照字面 return 会让 turn 永远不闭合；T-LOOP-002/011 要求"以 blocked / completed 关闭"。
  */
@@ -87,6 +87,8 @@ interface HarnessOptions {
   readonly sessionId?: string
   /** 包一层 adapter（T-LOOP-010 用）。 */
   readonly wrapAdapter?: (mock: MockLlmAdapter) => LlmAdapter
+  /** 装配前先往会话里写历史（模拟"恢复已有会话"；构造 AgentLoop 之前执行）。 */
+  readonly seed?: (session: SessionApi) => void
   /** 装配完成后、跑用例前挂监听器。 */
   readonly prepare?: (harness: Harness) => void
 }
@@ -110,6 +112,7 @@ async function withHarness(
     registry.register(options.wrapAdapter === undefined ? mock : options.wrapAdapter(mock))
 
     const session = test.ctx.get(SESSION_SERVICE)
+    options.seed?.(session)
     const loop = new AgentLoop({
       ctx: test.ctx,
       session,
@@ -162,9 +165,9 @@ describe('T-LOOP-001 完整 turn（mock provider）', () => {
           'request/context',
           'user/message', // 运行时上下文（runtime-context）
           'user/message', // 用户原话
-          'assistant/message', // 模型发起工具调用（wire 合法性要求它在 tool 消息之前）
           'tool/call',
           'tool/result',
+          'assistant/message', // 模型发起工具调用（按施单 04 §7：工具结果之后收尾落账）
           'step/end',
           'step/start',
           'request/header',
@@ -420,6 +423,25 @@ describe('T-LOOP-006 失败 step 补记', () => {
         // step 收尾了，turn 没有闭合（伪代码：补记后原样抛出）
         expect(harness.types()).toContain('step/end')
         expect(harness.types()).not.toContain('turn/end')
+
+        // 失败路径也必须落承载消息：tool/result 在 assistant/message 之前（施单 04 §7 顺序）
+        expect(
+          harness
+            .types()
+            .filter((type) =>
+              ['tool/call', 'tool/result', 'assistant/message', 'step/end'].includes(type),
+            ),
+        ).toEqual([
+          'tool/call',
+          'tool/result',
+          'tool/call',
+          'tool/result',
+          'assistant/message',
+          'step/end',
+        ])
+        expect(
+          payloads(harness.events(), 'assistant/message')[0]?.toolCalls?.map((call) => call.callId),
+        ).toEqual(['call-ok', 'call-boom'])
       },
     )
   })
@@ -445,6 +467,55 @@ describe('T-LOOP-007 max-tokens 粘性', () => {
         ])
         // 第 2 步正常收尾，但粘性原因仍是 max-tokens
         expect(payloads(harness.events(), 'turn/end')[0]?.reason).toEqual({ kind: 'max-tokens' })
+      },
+    )
+  })
+})
+
+describe('阶段 8：压缩判定前移（R44 收口）', () => {
+  it('请求装配前折叠已完整结束的 turn；本轮不折叠，同一 turn 内判定幂等', async () => {
+    await withHarness(
+      {
+        steps: [textStep('第一段'), textStep('第二段')],
+        config: { model: 'mock:mock-chat', compaction: { maxTurns: 2, keepRecentTurns: 1 } },
+        // 造 3 个已完整结束的 turn（模拟"进程恢复后带着长历史开工"）
+        seed: (session) => {
+          for (const turn of [1, 2, 3]) {
+            session.append('turn/start', { turn })
+            session.append('step/start', { turn, step: 1 })
+            session.append('system/message', { content: `系统头 v${turn}` })
+            session.append('user/message', { content: `第 ${turn} 轮问题` })
+            session.append('assistant/message', {
+              content: [{ type: 'text', text: `第 ${turn} 轮回答` }],
+            })
+            session.append('step/end', { turn, step: 1 })
+            session.append('turn/end', { turn, reason: { kind: 'completed' } })
+          }
+        },
+      },
+      async (harness) => {
+        harness.loop.send('新一轮问题')
+        harness.loop.steer('再补一句')
+        await harness.loop.run()
+
+        const events = harness.events()
+        const summaries = events.filter((event) => event.type === 'compaction/summary')
+        // 折叠 turns 1..2（keepRecentTurns=1）：只有一个摘要（第二步判定不会重复折叠）
+        expect(summaries).toHaveLength(1)
+        expect(summaries[0]?.data.fromTurn).toBe(1)
+        expect(summaries[0]?.data.toTurn).toBe(2)
+
+        // 摘要落在本轮第一个 step/start 之后、请求落账之前 = 请求装配前判定
+        const stepStarts = events.filter(
+          (event) => event.type === 'step/start' && event.data.turn === 4,
+        )
+        const header = events.find((event) => event.type === 'request/header' && event.data.turn === 4)
+        expect(stepStarts).toHaveLength(2)
+        expect(summaries[0]!.seq).toBeGreaterThan(stepStarts[0]!.seq)
+        expect(summaries[0]!.seq).toBeLessThan(header!.seq)
+
+        // 折叠只影响投影：日志仍 append-only，模型历史仍可重建
+        expect(() => deriveMessages(events)).not.toThrow()
       },
     )
   })
@@ -507,7 +578,12 @@ describe('T-LOOP-008 turn-stopping', () => {
         harness.loop.send('请自查')
         const reason = await harness.loop.turn()
 
-        expect(reason).toEqual({ kind: 'failed', reason: '循环 guard：工具调用超上限' })
+        expect(reason).toEqual({ kind: 'guard-stopped', reason: '循环 guard：工具调用超上限' })
+        // turn/end 落账的也是判停原因（不是 failed）
+        expect(payloads(harness.events(), 'turn/end')[0]?.reason).toEqual({
+          kind: 'guard-stopped',
+          reason: '循环 guard：工具调用超上限',
+        })
         expect(harness.types().filter((type) => type === 'step/start')).toHaveLength(1)
         // 判停优先于"还有转向消息"：消息留在队列里，交给下一轮
         expect(harness.loop.inbox.nextStep).toHaveLength(1)

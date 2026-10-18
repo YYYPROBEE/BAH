@@ -146,12 +146,14 @@ snapshots/<case>/
 
 - **回放（默认，CI 用）**：`pnpm test:snapshot` —— 只读快照，不联网、不读密钥、不写文件；
   应用由 `scenario.json` 里的**录制行**重建（不读 `profiles/` 与 `bah.yml`），provider 换成 `ReplayAdapter`。
-- **录制（人工）**：`BAH_SNAPSHOT_RECORD=1 pnpm test:snapshot`
-  （PowerShell：`$env:BAH_SNAPSHOT_RECORD='1'; pnpm test:snapshot`）。
+- **录制（人工）**：`pnpm snapshot:record`（脚本注入 `BAH_SNAPSHOT_RECORD=1`，Windows / CI 一致；
+  手工等价写法：`BAH_SNAPSHOT_RECORD=1 pnpm test:snapshot`）。
   录完会在同一条用例里立刻回放比对，保证新录的也自洽。
-- **纪律**：任何影响**模型可见或用户可见**的改动（提示词段、装配顺序、工具 schema、模型参数），
-  必须重录快照并在 PR 里说明 `llm.jsonl` / `session.jsonl` 的差异——这条目前靠评审执行，
-  自动化的「改动必须带快照」检查留给插件线（见 PROGRESS §21）。
+- **纪律**：任何影响**模型可见或用户可见**的改动（提示词段、装配顺序、工具 schema、模型参数、
+  事件落账顺序），必须重录快照并在 PR 里说明 `llm.jsonl` / `session.jsonl` 的差异。
+  这条已由门禁 `snapshot-fresh` 自动执行：改 `packages/{runtime,llm}/src`（测试文件除外）
+  却没改 `snapshots/` 即阻断；纯重构用 `BAH_ALLOW_NO_SNAPSHOT=1` 或提交信息 `[no-snapshot]` 放行。
+  门禁默认比对 `HEAD` 与工作树；CI/评审要对比更长区间时设 `BAH_SNAPSHOT_BASE=<ref>`。
 
 ## 10. 已知边界（不是遗漏，是记账）
 

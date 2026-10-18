@@ -137,3 +137,94 @@ describe('deriveMessages', () => {
     expect(error.message).toContain('domain/unprojected')
   })
 })
+
+/* ── 阶段 8 R44：日志顺序（tool/result → assistant/message）≠ wire 顺序 ───────── */
+
+/** 一条承载两个调用的 assistant 消息 + 两条结果（`wireOrder=true` 时 assistant 在结果之后）。 */
+function toolStepLog(wireOrder: boolean): readonly AnySessionEvent[] {
+  const store = new SessionStore()
+  store.append('user/message', { content: '查两笔' })
+
+  const appendAssistant = (): void => {
+    store.append('assistant/message', {
+      content: [{ type: 'text', text: '我来查' }],
+      toolCalls: [
+        { callId: 'c1', name: 'bank:balance', args: {} },
+        { callId: 'c2', name: 'bank:rate', args: {} },
+      ],
+    })
+  }
+  if (!wireOrder) appendAssistant()
+
+  store.append('tool/call', {
+    callId: 'c1',
+    name: 'bank:balance',
+    args: {},
+    fingerprint: 'c1',
+    tier: { level: 'green' },
+    at: 1,
+  })
+  store.append('tool/call', {
+    callId: 'c2',
+    name: 'bank:rate',
+    args: {},
+    fingerprint: 'c2',
+    tier: { level: 'green' },
+    at: 1,
+  })
+  store.append('tool/result', {
+    callId: 'c1',
+    name: 'bank:balance',
+    isError: false,
+    content: [{ type: 'text', text: '余额 100' }],
+  })
+  store.append('tool/result', {
+    callId: 'c2',
+    name: 'bank:rate',
+    isError: false,
+    content: [{ type: 'text', text: '3.1%' }],
+  })
+
+  if (wireOrder) appendAssistant()
+  return store.events()
+}
+
+describe('deriveMessages 的 wire 顺序恢复（R44）', () => {
+  it('日志里 assistant 在 tool/result 之后 → 派生仍把 assistant 顶到 tool 消息之前', () => {
+    const messages = deriveMessages(toolStepLog(true))
+
+    expect(messages.map((message) => message.role)).toEqual(['user', 'assistant', 'tool', 'tool'])
+    expect(messages[1]).toMatchObject({
+      role: 'assistant',
+      toolCalls: [{ callId: 'c1' }, { callId: 'c2' }],
+    })
+    expect(messages[2]).toMatchObject({ role: 'tool', callId: 'c1' })
+    expect(messages[3]).toMatchObject({ role: 'tool', callId: 'c2' })
+  })
+
+  it('日志换成旧顺序（assistant 在结果之前）→ 派生结果完全相同（不重复输出 assistant）', () => {
+    expect(deriveMessages(toolStepLog(false))).toEqual(deriveMessages(toolStepLog(true)))
+  })
+
+  it('tool/result 找不到承载它的 assistant/message → 抛 session-log-hole（不静默合成）', () => {
+    const store = new SessionStore()
+    store.append('tool/call', {
+      callId: 'c9',
+      name: 'bank:balance',
+      args: {},
+      fingerprint: 'c9',
+      tier: { level: 'green' },
+      at: 1,
+    })
+    store.append('tool/result', {
+      callId: 'c9',
+      name: 'bank:balance',
+      isError: false,
+      content: [{ type: 'text', text: '100' }],
+    })
+
+    const error = captureThrown(() => deriveMessages(store.events()))
+    expect(error.code).toBe('session-log-hole')
+    expect(error.message).toContain('找不到承载它的 assistant/message')
+  })
+})

@@ -35,6 +35,14 @@ import {
 import { join } from 'node:path'
 
 import { BahError } from '@bah/util'
+import {
+  encodeJsonLine,
+  encodeSessionHeaderLine,
+  isLastNonEmptyLine,
+  parseJsonValue,
+  parseSessionHeaderLine,
+  splitLogLines,
+} from '@bah/util'
 
 import type { SessionEvent, SessionId } from '@bah/core'
 
@@ -50,9 +58,6 @@ import type {
 /** 本 reader 支持的逻辑格式版本。升级时必须同步 `SESSION_FORMAT_VERSION`（runtime/session/types.ts）。 */
 export const JSONL_FORMAT_VERSION = 1
 
-/** header 行的判别标签（防止把事件行误读成 header）。 */
-const HEADER_KIND = 'bah-session-header'
-
 /** 规范文件名：`session.jsonl` / `session.vN.jsonl`。 */
 const FILE_PATTERN = /^session(?:\.v(\d+))?\.jsonl$/
 
@@ -65,11 +70,6 @@ export interface JsonlOptions {
   readonly fsync?: boolean
   /** 告警出口（默认 `console.warn`；测试注入收集器）。 */
   readonly warn?: (message: string) => void
-}
-
-/** 一条 header 行的磁盘形态。 */
-interface HeaderLine extends SessionHeader {
-  readonly kind: typeof HEADER_KIND
 }
 
 /** 打开后缓存的会话内容。 */
@@ -105,7 +105,7 @@ export class JsonlPersistence implements SessionPersistence {
       createdAt: options.now ?? Date.now(),
       ...(options.meta === undefined ? {} : { meta: options.meta }),
     }
-    writeFileSync(path, `${encodeHeader(header)}\n`, 'utf8')
+    writeFileSync(path, `${encodeSessionHeaderLine(header)}\n`, 'utf8')
     if (this.fsync) fsyncFile(path)
     return this.handle(header, path, 0, [], true)
   }
@@ -123,7 +123,7 @@ export class JsonlPersistence implements SessionPersistence {
     const generation = loaded.generation + 1
     const path = generationPath(dir, generation)
     const header: SessionHeader = { ...loaded.header, formatVersion: JSONL_FORMAT_VERSION }
-    const lines = [encodeHeader(header), ...loaded.events.map((event) => JSON.stringify(event))]
+    const lines = [encodeSessionHeaderLine(header), ...loaded.events.map((event) => encodeJsonLine(event))]
     // 排他发布：wx 独占创建（目标已存在时由 fs 直接报错，不靠"先查后写"的竞态窗口）
     writeFileSync(path, `${lines.join('\n')}\n`, { encoding: 'utf8', flag: 'wx' })
     if (this.fsync) fsyncFile(path)
@@ -209,31 +209,29 @@ export class JsonlPersistence implements SessionPersistence {
       closeSync(fd)
     }
     const firstLine = buffer.subarray(0, read).toString('utf8').split('\n')[0] ?? ''
-    const parsed = parseJson(firstLine)
-    if (parsed === undefined || (parsed as { kind?: unknown }).kind !== HEADER_KIND) {
+    const header = parseSessionHeaderLine(firstLine)
+    if (header === undefined) {
       throw new BahError('session-header-invalid', `jsonl: 首行不是合法 header：${path}`, { path })
     }
-    const header = parsed as HeaderLine
+    const meta = header['meta']
     return {
-      sessionId: header.sessionId,
-      formatVersion: header.formatVersion,
-      createdAt: header.createdAt,
-      ...(header.meta === undefined ? {} : { meta: header.meta }),
+      sessionId: header['sessionId'] as SessionId,
+      formatVersion: header['formatVersion'] as number,
+      createdAt: header['createdAt'] as number,
+      ...(meta === undefined ? {} : { meta: meta as Readonly<Record<string, unknown>> }),
     }
   }
 
   /** 逐行解析事件；只容忍**最后一行**截断。 */
   private readEvents(path: string): readonly SessionEvent[] {
-    const lines = readFileSync(path, 'utf8').split('\n')
-    // 末尾换行会产生一个空串；最后一行若是半写则不会有换行
+    const lines = splitLogLines(readFileSync(path, 'utf8'))
     const events: SessionEvent[] = []
     for (const [index, line] of lines.entries()) {
       if (index === 0) continue // header
       if (line.length === 0) continue
-      const parsed = parseJson(line)
+      const parsed = parseJsonValue(line)
       if (parsed === undefined) {
-        const isLast = lines.slice(index + 1).every((rest) => rest.length === 0)
-        if (isLast) {
+        if (isLastNonEmptyLine(lines, index)) {
           this.warn(`jsonl: 丢弃截断的尾行（第 ${index + 1} 行）：${path}`)
           continue
         }
@@ -246,21 +244,6 @@ export class JsonlPersistence implements SessionPersistence {
     }
     return events
   }
-}
-
-/** 一句 JSON.parse，坏输入返回 `undefined`（"坏"的判定交给调用方）。 */
-function parseJson(text: string): unknown {
-  try {
-    return JSON.parse(text) as unknown
-  } catch {
-    return undefined
-  }
-}
-
-/** 解码 header 行。 */
-function encodeHeader(header: SessionHeader): string {
-  const line: HeaderLine = { kind: HEADER_KIND, ...header }
-  return JSON.stringify(line)
 }
 
 /** 代数 → 规范文件名。 */
@@ -341,7 +324,7 @@ class JsonlHandle implements SessionHandle {
     }
     const fd = openSync(this.path, 'a')
     try {
-      writeSync(fd, `${JSON.stringify(event)}\n`)
+      writeSync(fd, `${encodeJsonLine(event)}\n`)
       if (this.fsyncEnabled) fsyncSync(fd)
     } finally {
       closeSync(fd)

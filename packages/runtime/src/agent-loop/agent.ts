@@ -8,8 +8,8 @@
  *   │   reject            → turn/end{blocked}（无 step）
  *   │   首个认领为空       → turn/end{completed}（无 step）
  *   │   已有粘性结束原因且认领为空 → 关闭
- *   │   step/start → 请求装配（冻结）→ llm/stream → 装配 → assistant/message → 工具调度
- *   │   step/end（失败时先补记 tool/result 再抛）
+ *   │   step/start → 请求装配（冻结）→ llm/stream → 装配 → 工具调度 → assistant/message 收尾
+ *   │   step/end（工具失败时先补记 tool/result，再落 assistant/message）
  *   │   sticky(结束原因)
  *   │   有结束原因且无转向消息 → agent/turn-stopping（serial）→ 关闭
  *   └
@@ -23,7 +23,8 @@
  *    这里改为 `break` 走到收尾段——这是**关闭动作**，不是重排）；
  * 2. **粘性结束原因**：`sticky()` 只保留第一个判定（`max-tokens` 之后不能再被
  *    `completed` 覆盖），直到本 turn 关闭；
- * 3. **失败补记**：step 中途抛错时先补齐已开始工具的 `tool/result`（isError），再把错抛出去。
+ * 3. **失败补记**：step 中途抛错时先补齐已开始工具的 `tool/result`（isError），再落
+ *    `assistant/message`（工具调用的承载消息），最后把错抛出去。
  */
 
 import { BahError, assertNever } from '@bah/util'
@@ -466,19 +467,11 @@ export class AgentLoop implements Agent {
         this.session.append('step/start', { turn, step })
         steps = step
 
-        // 失败补记：step 中途抛错时，把已开始未完成的调用补齐（施工单 03 §0 第 4 条）
-        const recovery = new ToolCallRecovery()
-        const stopObserving = observeToolCalls(this.ctx, recovery)
+        // 工具失败补记在 `step()` 内部完成（需要先补 tool/result、再落 assistant/message）
         let outcome: TurnEndReason | null
         try {
           outcome = await this.step({ turn, step, signal, messages: decision.messages })
-        } catch (error) {
-          for (const recovered of recovery.results()) {
-            this.session.append('tool/result', recovered.data)
-          }
-          throw error
         } finally {
-          stopObserving()
           this.session.append('step/end', { turn, step })
         }
 
@@ -489,7 +482,8 @@ export class AgentLoop implements Agent {
           if (this.inbox.nextStep.length === 0) {
             const stopped = await this.turnStopping(turn, signal)
             if (stopped !== undefined) {
-              turnEnds = { kind: 'failed', reason: stopped }
+              // 主动判停是治理决策，不是故障（阶段 8 R46）
+              turnEnds = { kind: 'guard-stopped', reason: stopped }
               break
             }
           }
@@ -556,6 +550,14 @@ export class AgentLoop implements Agent {
   private async step(input: StepInput): Promise<TurnEndReason | null> {
     const { turn, step, signal } = input
 
+    // ⓪ 压缩判定（阈值触发；幂等）
+    //
+    // 放在**每次请求装配前**而不是只在 turn 收尾：turn 收尾时本 turn 尚未落 `turn/end`，
+    // 折不到它；而请求前的这次判定能覆盖"进程恢复 / 上一次 turn 没收尾"等场景，
+    // 保证发出去的请求看到的是折叠后的历史。只折叠**已完整结束**的 turn——当前 turn 永不折叠，
+    // 否则会拆散 `tool/call ↔ tool/result` 配对并丢掉本轮用户问题。
+    if (this.config.compaction !== undefined) runCompaction(this.session, this.config.compaction)
+
     // ① 装配（纯）：首选模型的能力位决定提示词裁剪与工具 schema 是否下发
     let model: ModelSpec
     try {
@@ -614,27 +616,69 @@ export class AgentLoop implements Agent {
       return this.cancelled(turn, '模型流以 aborted 结束')
     }
 
-    // ⑥ 记账 + assistant/message（工具调用在这里一并落账，wire 侧才配得上 tool 消息）
+    // ⑥ 记账
     this.ledger.record(turn, assembled.usage)
+
+    // ⑦ 工具调度 → assistant/message 收尾落账
+    //
+    // 落账顺序按施工单 04 §7 T-LOOP-001：`tool/call → tool/result → assistant/message`
+    // （工具跑完，assistant 消息才收尾）。wire 侧的「带 tool_calls 的 assistant 必须在
+    // tool 消息之前」由 `deriveMessages` 的两遍投影恢复（见 session/derive.ts）。
+    //
+    // 异常时也必须落：否则 `tool/call` 没有承载它的 assistant 消息，历史无法重建。
+    const toolCalls = assembled.toolCalls
+    if (assembled.finishReason === 'tool-calls') {
+      if (toolCalls.length === 0) {
+        this.appendAssistantMessage(assembled)
+        return this.fail(turn, '模型以 tool-calls 结束但没有给出任何工具调用（拒绝空转）')
+      }
+      try {
+        await this.runToolCalls(toolCalls, signal)
+      } finally {
+        this.appendAssistantMessage(assembled)
+      }
+    } else {
+      this.appendAssistantMessage(assembled)
+    }
+
+    return outcomeOf(assembled.finishReason)
+  }
+
+  /** 落 `assistant/message`（工具调用在这里一并落账，wire 侧才配得上 tool 消息）。 */
+  private appendAssistantMessage(assembled: AssembledStream): void {
     const toolCalls = assembled.toolCalls
     this.session.append('assistant/message', {
       content: toSessionBlocks(assembled.content),
       ...(toolCalls.length === 0 ? {} : { toolCalls: toolCalls.map(toToolCallRecord) }),
     })
+  }
 
-    // ⑦ 工具调度：结束原因为 tool-calls 时才逐个走七段管线
-    if (assembled.finishReason === 'tool-calls') {
-      if (toolCalls.length === 0) {
-        return this.fail(turn, '模型以 tool-calls 结束但没有给出任何工具调用（拒绝空转）')
-      }
+  /**
+   * 逐个执行工具（七段管线）。
+   *
+   * 中途抛错时先把「已开始、未完成」的调用补记成 `tool/result`（施工单 03 §0 第 4 条），
+   * 保证 `tool/call ↔ tool/result` 不出现空洞；再把错抛给上层的 step 收尾。
+   */
+  private async runToolCalls(
+    calls: readonly AssembledToolCall[],
+    signal: AbortSignal,
+  ): Promise<void> {
+    const recovery = new ToolCallRecovery()
+    const stopObserving = observeToolCalls(this.ctx, recovery)
+    try {
       const dispatcher = new ToolCallDispatcher({
         pipeline: this.pipeline(signal),
         session: this.session,
       })
-      for (const call of toolCalls) await dispatcher.execute(call)
+      for (const call of calls) await dispatcher.execute(call)
+    } catch (error) {
+      for (const recovered of recovery.results()) {
+        this.session.append('tool/result', recovered.data)
+      }
+      throw error
+    } finally {
+      stopObserving()
     }
-
-    return outcomeOf(assembled.finishReason)
   }
 
   /** 解析并冻结调用（成功 = 请求已发出；失败统一转成 `assistant/attempt`）。 */
