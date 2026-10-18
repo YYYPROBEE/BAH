@@ -35,6 +35,8 @@ export default defineConfig({
         '**/index.ts',
         // api.ts 是纯类型契约（冻结面）：没有任何可执行行，统计它只会得到假的 0%
         'packages/core/src/api.ts',
+        // 纯类型模块（只有 export type / 类型别名），零可执行行
+        'packages/runtime/src/tools/types.ts',
       ],
       // 名单内文件的行覆盖必须 100%（按文件强制的兜底执行口）
       thresholds: { lines: 100 },

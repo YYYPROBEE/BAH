@@ -97,12 +97,26 @@ importers:
       '@bah/core':
         specifier: workspace:*
         version: link:../core
+      '@bah/util':
+        specifier: workspace:*
+        version: link:../util
+    devDependencies:
+      '@bah/test-support':
+        specifier: workspace:*
+        version: link:../test-support
 
   packages/runtime:
     dependencies:
       '@bah/core':
         specifier: workspace:*
         version: link:../core
+      '@bah/util':
+        specifier: workspace:*
+        version: link:../util
+    devDependencies:
+      '@bah/test-support':
+        specifier: workspace:*
+        version: link:../test-support
 
   packages/safety:
     dependencies:
@@ -115,9 +129,6 @@ importers:
       '@bah/core':
         specifier: workspace:*
         version: link:../core
-      '@bah/runtime':
-        specifier: workspace:*
-        version: link:../runtime
       '@bah/util':
         specifier: workspace:*
         version: link:../util
