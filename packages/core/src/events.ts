@@ -154,8 +154,15 @@ export class BahEvents implements Events {
 /**
  * 瀑布步进：从第 `index` 级开始，把 `current` 交给该级 handler。
  *
- * 返回值规则（施工单 02 §4）：handler 的返回值就是本级的处理结果；
- * `next(v)` 返回下游链的结果，因此「交还控制权」写成 `return next(v)` 即透传并可改写。
+ * 返回值规则（施工单 02 §4.5；语义与施工单 00 §12 的机制对照锚点一致——
+ * 瀑布返回**最外层 handler 的返回值**，`next()` 本身不做值穿透）：
+ *
+ * - handler 的返回值就是本级的处理结果，所以「交还控制权」必须写成 `return next(v)`，
+ *   下游（可能被改写过的）值才带得出来；
+ * - 不调 `next()` 直接返回 = 短路，「我拥有这个判决」，后续 handler 不再执行；
+ * - 只 `await next(v)` 而不 `return` 会得到 `undefined`——这是**有意**的显式语义
+ *   （`events.test.ts` 有专门用例钉住它）。不要改成「链尾值兜底」：那会让
+ *   「next 之后再改写」（如补审计字段）被静默丢掉。
  *
  * @param entries 该事件的全部监听器（已按注册顺序）
  * @param name 事件名（错误信息用）

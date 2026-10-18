@@ -89,7 +89,7 @@
 |---|---|---|---|
 | 1 | 出口标准 §0 五条逐条核对 | ✓ | 见上表 |
 | 2 | `pnpm test packages/core` 全绿，行覆盖 100% | ✓ | `pnpm test:coverage` → `All files 100 / 100 / 100 / 100` |
-| 3 | `verify-event-modes` 门禁通过 | ⏳ 阶段 3 | 提示词原文：本阶段只做「每个派发点 JSDoc 标注 `@mode`」，门禁随阶段 3 落地。五个派发点均已标注 |
+| 3 | `verify-event-modes` 门禁通过 | ✓ 骨架版 | `pnpm gate` → 4/4，其中 `event-modes` 已含真实比对逻辑并做过负控（见 R20）；事件总表冻结后按 TODO 收紧 |
 | 4 | `api.ts` 无随意改动 | ✓ | `git diff --stat -- packages/core/src/api.ts` 为空（460 行原样） |
 
 ## 6. 已知偏差与残留风险（阶段 2）
@@ -100,10 +100,12 @@
 | R10 | `effect()` 返回 `Disposer`（api.ts 冻结面），02 §2 正文写 `: void` | 按 api.ts 实现（阶段 1 已记为偏差：02 同段注释要求返回 disposer） |
 | R11 | `use()` 返回 `Promise<this>` 而非 `this` | 应用 `ready` 后再注册要跑异步 `apply`（T-CORE-020 要求「前者 effect 回滚」，前提是前者已安装）；而「载入即抛」要求配置错误**同步**抛。用「非 async 函数返回 Promise」同时满足两者 |
 | R12 | 顶层未知配置键由内核补检 | schemastery 对未知键是「原样保留」不报错；内核用它自己的 `dict` 字段做顶层键比对。嵌套未知键留给施工单 06 的 profile 校验 |
-| R13 | `waterfall` 返回值规则 | 取**最外层 handler 的返回值**；`next(v)` 返回下游链结果。所以「交还控制权」必须写 `return next(v)`（只 `await next(v)` 不 return 会丢掉值）。02 §4.5 原文只写「返回最终处理值」，此处做了明确化——**需人工确认** |
-| R14 | `bail` 的 `next` 是透传函数，不参与裁决 | api.ts 说「waterfall/bail 的监听器必须显式 `await next()` 交还」，但 bail 的裁决只看返回值（首个非 `undefined`），`next` 无交还语义；保留透传是为了形状统一（误调不炸） |
+| R13 | `waterfall` 返回值规则 | 取**最外层 handler 的返回值**；`next(v)` 返回下游链结果。**已定案**：查阅机制对照锚点（施工单 00 §12）确认上游语义同为「返回最外层 listener 的返回值、`next()` 不做值穿透」，故不改实现，只把规则写进 `stepChain` JSDoc，并加一条无 ID 用例钉住「只 `await next(v)` 不 return 会丢值」（防被好心重构改成链尾兜底） |
+| R14 | `bail` 的 `next` 是透传函数，不参与裁决 | api.ts 说「waterfall/bail 的监听器必须显式 `await next()` 交还」，但 bail 的裁决只看返回值（首个非 `undefined`），`next` 无交还语义；保留透传是为了形状统一（误调不炸）。**与上游差异**：上游把 `null` / `false` 也算「无裁决」，我们按 api.ts 冻结面只认 `undefined`——`return false` 在本工程会短路。要改需走破坏性变更流程 |
 | R15 | 事件监听器声明的 `mode` 与派发模式不一致 → 抛 `event-mode-mismatch` | api.ts 未规定该情形。选择 fail-loud 而非静默跳过：`@mode` 是公开契约，声明与实际派发点分叉属接缝错误 |
 | R16 | 根 `vitest.config.ts` + `package.json` 有改动（在 `packages/core/**` 之外） | 提示词硬约束 3 要求「覆盖率门禁本阶段接入」：`include` 改为读 `scripts/coverage-allowlist.ts`（不写死包名，后续阶段名单自动生效），新增 `test:coverage` 脚本；排除 `api.ts`（纯类型、零可执行行）、`*.test.ts`、`index.ts` |
-| R17 | 声明产物含 `*.test.d.ts` | 测试在 composite 工程内才会被 `tsc -b` 检查类型；这些 d.ts 不进导出面，属噪声 |
-| R18 | 实现总量 924 行（含 index 与注释；有效代码 533 行） | 提示词目标 600–900 行：按有效代码在区间内，含注释略超 24 行（JSDoc 覆盖了每个公开成员与每个错误码） |
+| R17 | 声明产物含 `*.test.d.ts` | **已决议保留**：测试在 composite 工程内才会被 `tsc -b` 检查类型（这才是值钱的部分）；这些 d.ts 不进导出面、仓库私有、不发布 |
+| R18 | 实现总量 924 行（含 index 与注释；有效代码 533 行） | **已决议保留**：有效代码在 600–900 区间内，超出的 24 行全是 JSDoc（公开成员与错误码的契约说明），后续阶段靠它读懂内核 |
 | R19 | T-CORE-001 语义按人工决议实现 | 决议：install 阶段禁止 `parallel` 广播（此时后续插件的监听器尚未安装），错误文案含「有监听器未完成」；`start` 完成后广播正常（有测试覆盖） |
+| R20 | `verify-event-modes` 门禁 | **已落地骨架**：`scripts/verify-event-modes.ts` 并入 `pnpm gate`（现 4 项）。已有真实比对逻辑（声明点向前 20 行找 `@mode`、派发点取字面量事件名，不一致即失败）；当前零声明点、零字面量派发点 → 骨架通过。**负控已验证**：临时注入「声明 emit / 按 waterfall 派发」→ `✘ event-modes` 且 exit 1 |
+| R21 | 底部提示词 README 的抽查点笔误 | **已更正**：`BAH-底座提示词/README.md` §3 阶段 2 行改为「T-CORE-003（effect 逆序回滚）+ T-CORE-020（同名覆盖后回滚），waterfall 短路见 T-CORE-007」。该文件在 `MonoRepo/` 之外，不入本仓库提交 |

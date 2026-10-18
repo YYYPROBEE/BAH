@@ -88,6 +88,18 @@ describe('waterfall（施工单 02 §4 逐条）', () => {
 
     expect(order).toEqual(['slow', 'fast'])
   })
+
+  it('waterfall 以最外层 handler 返回值为准：只 await next() 不 return 就会丢值', async () => {
+    // 这是有意的显式语义（与施工单 00 §12 的机制对照锚点一致），不是 bug：
+    // 「链尾值兜底」会让 next 之后的改写被静默吃掉，所以这里把行为钉死，防止被好心重构掉。
+    const events = new BahEvents()
+    events.on('audited-chain', async (value, next) => {
+      await next({ hops: asProbe(value).hops + 1 })
+    })
+    events.on('audited-chain', async (value, next) => next(value))
+
+    await expect(events.waterfall('audited-chain', { hops: 0 })).resolves.toBeUndefined()
+  })
 })
 
 describe('serial / bail / emit / parallel', () => {
