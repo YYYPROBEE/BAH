@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@bah/core": "workspace:*",
-    "@bah/runtime": "workspace:*",
     "@bah/util": "workspace:*"
   }
 }

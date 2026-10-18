@@ -9,6 +9,12 @@
   "references": [
     {
       "path": "../core"
+    },
+    {
+      "path": "../util"
+    },
+    {
+      "path": "../test-support"
     }
   ]
 }

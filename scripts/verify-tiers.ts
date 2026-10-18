@@ -61,9 +61,15 @@ const gate: Gate = {
   },
 }
 
-/** 是否是一个 ToolDefinition 声明点的行（类型位置）。 */
+/**
+ * 是否是一个 ToolDefinition **声明点**。
+ *
+ * 只认两种形态：`satisfies ToolDefinition`（字面量收窄）与 `: ToolDefinition ... = {`（带对象字面量的注解）。
+ * 纯类型引用（如 `Map<string, ToolDefinition>`、函数返回类型）不是声明点——
+ * 早期版本把它们算成声明点会误报（阶段 3 落地工具注册表时踩到）。
+ */
 function isDeclarationPoint(line: string): boolean {
-  return /\bsatisfies\s+ToolDefinition\b/.test(line) || /:\s*ToolDefinition\b/.test(line)
+  return /\bsatisfies\s+ToolDefinition\b/.test(line) || /:\s*ToolDefinition\b[^=]*=\s*\{/.test(line)
 }
 
 /** 声明点之后 TIER_WINDOW 行内是否出现 `tier:`。 */

@@ -40,6 +40,11 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
     why: '会话 append-only 日志与 deriveMessages 投影（施工单 03）',
   },
   {
+    package: 'persistence',
+    scope: 'jsonl/',
+    why: 'JSONL append-only 后端：分代命名与排他发布、尾截断容忍、版本拒绝（施工单 03 §1.5）',
+  },
+  {
     package: 'safety',
     scope: 'sentry/',
     why: '判决 / 归一化 / 规则 / 票据 / 断路器（施工单 10）',

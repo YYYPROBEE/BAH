@@ -11,7 +11,7 @@
 | 00 | 全局约定与工程纪律 | 全程（宪法） | [x] | 落为 `AGENTS.md`；合规五条进门禁 `no-upstream-imports` |
 | 01 | 仓库骨架与基建 | 阶段 1 · M0 | [x] | 见 §3 出口清单 |
 | 02 | 内核 core | 阶段 2 · M1 | [x] | 内核已实装；出口清单见 §5，偏差见 §6 |
-| 03 | 会话日志与工具管线 | 阶段 3 · M1 | [ ] | envelope 与工具契约已冻结在 api.ts |
+| 03 | 会话日志与工具管线 | 阶段 3 · M1 | [x] | 会话日志 + JSONL 后端 + 七段管线；出口清单见 §8，偏差见 §9 |
 | 04 | 主循环 agent-loop | 阶段 5 | [ ] | 依赖阶段 4（模型层）先行 |
 | 05 | 模型层与提示词装配 | 阶段 4 | [ ] | llm-mock 保证无密钥可跑 |
 | 06 | 组合系统 profile | 阶段 6 | [ ] | `bah.yml` 与本文件同批落地 |
@@ -136,3 +136,35 @@
 | R24 | 测试面把 `@bah/*` 解析到 `src` | 包 `exports` 指向 `dist/`，测试若走包名会静默跑构建产物（改了 src 忘了 build 就假绿）。仅在四个测试配置里 alias，包间真实运行时依赖不变（02 §8 第 1 条） |
 | R25 | 测试覆盖面边界 | `snapshots/**` 与 `apps/web/src/*.test.js` 不在 `tsc -b` 覆盖内（只经 vitest 转译），阶段 7 扩快照 harness 时补 `snapshots/tsconfig.json`；e2e 面**零用例是设计**（真实 API 密钥门控），不需要密钥的进程冒烟放 unit 面 |
 | R26 | CLI 占位文案去阶段号 | 原文案写死「阶段 1」，已改为「底座骨架」，避免每阶段都要改占位文本（冒烟用例只断言 `^bah: ` 前缀） |
+
+## 8. 阶段 3 出口清单（施工单 03 §0 + §5）
+
+| # | 出口标准（§0） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | 会话 append-only（内存 + JSONL）：`seq` 单调连续、不可覆写、不可删除 | ✓ | `T-SESS-001`（100 条 seq 连续）、`T-SESS-005`（分代发布、源文件不动）、`T-SESS-008`（接口面无 rename/delete，单测探测）；`SessionStore` 不提供 update/delete，`restore` 拒收断代 |
+| 2 | `deriveMessages()` 可从日志投影模型历史；`verify-session-events` 门禁通过 | ✓ | `T-SESS-002/003/004`；`pnpm gate` → 5/5（新门禁 `session-events` 已做负控：未声明事件名 + 白名单外 `deriveMessages` 均被拦） |
+| 3 | 七段管线完整，判决顺序与 §2.2 严格一致 | ✓ | `T-TOOL-003~011`；顺序断言：pre-execute → guard → execute → post-execute → 落账（`T-TOOL-006` 证明 deny 短路、ask 不触发） |
+| 4 | 失败 step 补记（`ToolCallRecovery`）可用 | ✓ | `ToolCallRecovery.observe/results`（3 例：未闭合补记、已闭合不补、理由可定制）；主循环接线在阶段 5 |
+| 5 | 单测全绿 + session / tools / persistence-jsonl 行覆盖 100% | ✓ | `pnpm test` 130 用例 / 18 文件；`pnpm test:coverage` → 三目录 **Lines 100%**（core 仍 100%） |
+
+| # | 验收清单（§5） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | §0 五条逐条核对 | ✓ | 见上表 |
+| 2 | `verify-session-events` 门禁通过 | ✓ | `pnpm gate` 5/5 |
+| 3 | 三目录行覆盖 100% | ✓ | 覆盖率报告（session / tools / jsonl 全 100） |
+| 4 | 七段顺序与 §2.2 逐段一致 | ✓ | `pipeline.ts` 文件头把七段逐条列出，代码按 ①②③④⑤⑥⑦ 注释分段；`T-TOOL-006` 锁顺序 |
+| 5 | 无 update/delete 会话事件 API | ✓ | `T-SESS-008` |
+
+## 9. 已知偏差与残留风险（阶段 3）
+
+| ID | 项 | 处理 |
+|---|---|---|
+| R27 | `SessionEventMap` / `BahEventMap` 用**模块增强**补键，而非改 `api.ts` | 阶段 3 硬约束「不动 core/**」与 api.ts「阶段 3 收窄为逐键声明」冲突，取前者：`session/types.ts` + `seams.ts` 用 `declare module '@bah/core'` 追加。**后果**：core 的索引签名仍在，事件名拼错不会被类型系统拦住（`SessionEventType` 仍是 string）——由 `verify-session-events` 词法门禁兜底。彻底收窄要走破坏性变更流程（可列为下阶段选项） |
+| R28 | `session/event` 载荷是单参数信封 `{ session, event }` | 04 §5 写的是 `(session, event)` 两参；内核 `emit` 只传一个 payload，故包成信封 |
+| R29 | 会话事件族只声明**平台族**（turn/step、请求、消息、工具、审批） | 03 §1.2 的领域族（`transfer/*`、`card/*`、`wealth/*`、`verify/*`…）按同表注释「由各自插件包声明」留给插件线，用同一增强机制追加 |
+| R30 | 审批接缝 = `approval/request`（waterfall）+ `decision` 字段默认 `unavailable` | 票据**状态机**未实现（属主 bank-core，施工单 07 §3）；本阶段只签发 `TicketRef` 并落 `approval/asked` / `approval/decided` 事件对。`unavailable = deny` 符合 00 §11 |
+| R31 | JSONL 升级只改文件 header，事件行原样保留 | 「不改写历史」优先于「事件 formatVersion 一起升级」；`open` 用 `flag: 'wx'` 排他发布后继（不靠先查后写的竞态窗口），源文件一个字节不动（T-SESS-005 断言） |
+| R32 | `DerivedMessage` 是 wire-agnostic 视图 | 阶段 4 的 Adapter 负责映射到 DeepSeek wire（messages / tool_calls）；`deriveMessages` 只保证「模型可见序列」正确 |
+| R33 | 两个 M0 门禁的误报修复 | `tiers` 原来把纯类型引用（`Map<string, ToolDefinition>`）算成声明点 → 误报；改为只认 `satisfies X` 与 `: X = {`。`session-events` 跳过注释行（文档里提到 `deriveMessages` 不算调用）。两者都重新做过负控 |
+| R34 | 覆盖率排除 `runtime/src/tools/types.ts` | 纯类型模块（只有 `export type`），与 `core/api.ts` 同理；`session/types.ts` 有运行时常量，**不**排除 |
+| R35 | 依赖面变化 | `runtime` / `persistence` 新增 `@bah/util`（BahError / assertNever）与 `devDependency @bah/test-support`；`test-support` 去掉未使用的 `@bah/runtime`（否则 `runtime → test-support → runtime` 形成 project reference 环）。01 §3 的依赖表未列这些边，属追加 |
