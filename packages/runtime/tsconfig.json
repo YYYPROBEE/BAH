@@ -17,6 +17,9 @@
       "path": "../llm"
     },
     {
+      "path": "../persistence"
+    },
+    {
       "path": "../test-support"
     }
   ]

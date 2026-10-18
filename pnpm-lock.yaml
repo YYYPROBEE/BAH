@@ -113,13 +113,16 @@ importers:
       '@bah/core':
         specifier: workspace:*
         version: link:../core
+      '@bah/llm':
+        specifier: workspace:*
+        version: link:../llm
       '@bah/util':
         specifier: workspace:*
         version: link:../util
     devDependencies:
-      '@bah/llm':
+      '@bah/persistence':
         specifier: workspace:*
-        version: link:../llm
+        version: link:../persistence
       '@bah/test-support':
         specifier: workspace:*
         version: link:../test-support

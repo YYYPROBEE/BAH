@@ -11,6 +11,12 @@
 
 import type { ContentBlock, SessionId, TicketRef } from '@bah/core'
 
+import type {
+  AgentPreStepInput,
+  AgentRequestInput,
+  AgentTurnStoppingInput,
+  LlmStreamer,
+} from './agent/index.ts'
 import type { AnySessionEvent, ApprovalChallenge, ApprovalDecision, ToolResultData } from './session/types.ts'
 import type { PreExecuteVerdict, ToolCallInput } from './tools/types.ts'
 
@@ -129,5 +135,34 @@ declare module '@bah/core' {
      * @mode waterfall
      */
     'approval/request': ApprovalInput
+
+    /**
+     * 入口平面：归一化 + 注入检测 + 审计改写（**只观察/改写，不阻断**；唯一阻断点是
+     * `tools/pre-execute`）。listener 可 `reject`（入口拒绝）或改写认领消息。
+     *
+     * @mode waterfall
+     */
+    'agent/pre-step': AgentPreStepInput
+
+    /**
+     * 请求装配结果（路由 / 降级 / 成本控制的挂点）。`prepareCall` 之后不再派发。
+     *
+     * @mode waterfall
+     */
+    'agent/request': AgentRequestInput
+
+    /**
+     * 流式分片的生产者（观测 / 重试 / 限流做成环绕，不写进 adapter）。
+     *
+     * @mode waterfall
+     */
+    'llm/stream': LlmStreamer
+
+    /**
+     * turn 收尾钩子（serial：顺序执行、无 next 参数）：汇总 / 写审计 / 循环 guard 判停。
+     *
+     * @mode serial
+     */
+    'agent/turn-stopping': AgentTurnStoppingInput
   }
 }
