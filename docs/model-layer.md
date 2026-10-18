@@ -143,10 +143,15 @@ const { plan, event } = runCompaction(session, thresholds)   // plan.needed=fals
 ```
 
 - 触发：token 估算 ≥ `maxTokens` 或完整 turn 数 > `maxTurns`，且折叠后仍能留下 `keepRecentTurns` 个 turn。
+- **判定时机**：主循环在**每次请求装配前**判一次、turn 收尾再兜一次（阶段 8）。两处都只折叠
+  **已完整结束**的 turn——当前 turn 永不折叠，否则会拆散 `tool/call ↔ tool/result` 配对并丢掉本轮用户问题；
+  因此重复判定幂等（已折叠的 turn 在 `collapseEvents` 阶段就被剔除）。
 - 摘要**确定性生成**（结构化统计 + 金融字段），不调模型：可回放、零成本、可逐字比对。
 - 摘要落账为 `compaction/summary`（带 `refs` 事件引用），**不改写历史**；折叠只发生在投影层。
 - 金融特例：涉及金额/收款人/票据/结论的条目保留结构化字段 `{ amount, payee, ticketId, decision }`；绿色直通调用没有票据时**不伪造票号**（`ticketId` 缺省、`decision: 'not-required'`）。
 - 幂等：已折叠的 turn 不会重复摘要。
+- 长 turn（多 step）内不会折叠**当前** turn：安全性与可审计性优先（配对不拆、本轮问题不丢）。
+  若单 turn 本身就超过窗口，应在插件线用"工具结果裁剪 / 预算 guard"处理，而不是折叠当前 turn。
 
 ## 9. 常见误用（都踩过）
 

@@ -33,12 +33,14 @@ snapshots/
 # 回放（默认；CI 用这一条）——只读：不联网、不读密钥、不写文件
 pnpm test:snapshot
 
-# 录制（人工；改了模型可见/用户可见的东西之后）
-$env:BAH_SNAPSHOT_RECORD='1'; pnpm test:snapshot; Remove-Item Env:\BAH_SNAPSHOT_RECORD
-# bash/zsh: BAH_SNAPSHOT_RECORD=1 pnpm test:snapshot
+# 录制（人工；改了模型可见/用户可见的东西之后）——脚本内部注入 BAH_SNAPSHOT_RECORD=1
+pnpm snapshot:record
 ```
 
 录制会在同一条用例里**立刻回放比对**：新录的快照如果不自洽，当场就红。
+
+> 门禁 `snapshot-fresh` 会拦「改了 `packages/{runtime,llm}/src` 却没改 `snapshots/`」的提交。
+> 纯重构（无行为变化）用 `BAH_ALLOW_NO_SNAPSHOT=1 pnpm gate` 放行，或在提交信息里写 `[no-snapshot]`。
 
 ## 回放为什么不需要密钥与 profile
 
@@ -66,7 +68,7 @@ $env:BAH_SNAPSHOT_RECORD='1'; pnpm test:snapshot; Remove-Item Env:\BAH_SNAPSHOT_
 
 1. 复制 `snapshots/headless-basic/` 成 `snapshots/<case>/`（改 `CASE.name` 与 prompts）；
 2. `scenario.ts` 里换成你要的 profile / 输入（装配仍走 `@bah/host` 的 `boot`，不要绕过它）；
-3. `BAH_SNAPSHOT_RECORD=1 pnpm test:snapshot` 录制；
+3. `pnpm snapshot:record` 录制；
 4. `pnpm test:snapshot` 跑一遍只读回放，确认绿。
 
 > 纪律：**CI 永远只读**。`recordSnapshot` 只在 `BAH_SNAPSHOT_RECORD=1` 时被调用；

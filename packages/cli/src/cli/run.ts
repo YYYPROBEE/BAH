@@ -353,6 +353,8 @@ export function describeReason(reason: TurnEndReason): string {
       return 'aborted（已中断）'
     case 'max-tokens':
       return 'max-tokens（输出上限）'
+    case 'guard-stopped':
+      return `guard-stopped（判停：${reason.reason}）`
     case 'failed':
       return `failed（${reason.reason}）`
     default:

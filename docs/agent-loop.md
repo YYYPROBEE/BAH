@@ -15,18 +15,20 @@ turn/start（先开 turn：turn 号从日志续号，分叉/回放的会话不�
   │      └─ 粘性结束且认领为空  → 关闭
   │
   │    step/start
+  │      ⓪ 压缩判定（阈值触发，幂等：只折叠**已完整结束**的 turn；本 turn 永不折叠）
   │      ① 装配（纯）：提示词 × 模型能力位 + 日志派生历史 + 认领消息 + 注入上下文
   │      ② agent/request（waterfall：改路由 / 参数）
   │      ③ prepareCall（冻结；失败/取消**都不提交** system/user）
   │      ④ 提交：request/header → system/message → request/context → user/message
   │      ⑤ llm/stream（waterfall 环绕）→ StreamAssembler
-  │      ⑥ assistant/message（带 toolCalls）→ 工具七段管线（逐个）
-  │    step/end（失败时先补记 tool/result 再抛）
+  │      ⑥ 工具七段管线（逐个：tool/call → tool/result）
+  │      ⑦ assistant/message 收尾（带 toolCalls）
+  │    step/end（工具失败时先补记 tool/result，再落 assistant/message）
   │
   │    sticky(结束原因)
   │      有结束原因且无转向消息 → agent/turn-stopping（serial）→ 关闭
   └
-压缩判定 → usage/summary → turn/end（reason 必落）
+压缩判定（兜底）→ usage/summary → turn/end（reason 必落）
 ```
 
 ## 2. 一个 step 的落账时序（记不住就照抄）
@@ -38,13 +40,20 @@ turn/start（先开 turn：turn 号从日志续号，分叉/回放的会话不�
 | 3 | `request/context` | **每次都落**（`texts: []` 也落）：它是"撤回过期上下文"的边界 |
 | 4 | `user/message`(`runtime-context`) | 仅当确有运行时上下文 |
 | 5 | `user/message`(认领消息) | 用户原话 / 转向指令 |
-| 6 | `assistant/message` | **带 toolCalls**：wire 侧要它才能配 `tool` 消息 |
-| 7 | `tool/call` → `tool/result` | 七段管线（执行前落 call、冻结结果落 result） |
+| 6 | `tool/call` → `tool/result` | 七段管线（执行前落 call、冻结结果落 result） |
+| 7 | `assistant/message` | **带 toolCalls**：工具跑完后收尾落账（施单 04 §7 T-LOOP-001 的顺序） |
 | 8 | `step/end` | finally 落账（失败也落） |
 
-> 施单 04 §7 的 T-LOOP-001 把 `assistant/message` 列在 `tool/result` 之后。按那个顺序派生出的历史
-> 是"tool 消息在前、assistant 的 tool_calls 在后"，OpenAI 兼容 wire 无法配对——本仓按 wire 合法性
-> 实现（assistant 在前），并在 PROGRESS §15 记为偏离 R44，待人工确认。
+> 日志顺序 ≠ wire 顺序：wire（OpenAI 兼容）要求「带 tool_calls 的 assistant 消息」排在 `tool` 消息之前。
+> 这一顺序由 `deriveMessages()` 的两遍投影恢复（先索引每条 assistant 消息承载的 `callId`，
+> 在首个 `tool/result` 处把消息顶到前面）；工具执行抛错时也照常落 assistant 消息，
+> 否则 `tool/result` 找不到承载它的消息（`session-log-hole`）。阶段 8 之前按 wire 合法性把
+> assistant 提前落账（旧 R44），现按施单顺序收口。
+>
+> 压缩判定放在**每次请求装配前**（施工单 05 §5 的"阈值触发"），turn 收尾再兜一次：
+> turn 收尾那一刻本 turn 还没落 `turn/end`，折不到它；请求前这次能覆盖"进程恢复 / 上一次 turn
+> 没收尾"等场景。两处都只折叠**已完整结束**的 turn——当前 turn 永不折叠（否则会拆散
+> `tool/call ↔ tool/result` 配对），因此重复调用是幂等的。
 
 ## 3. 四个接缝（本单只加这四个）
 
@@ -53,7 +62,7 @@ turn/start（先开 turn：turn 号从日志续号，分叉/回放的会话不�
 | `agent/pre-step` | waterfall | `{ agent, messages, turn, step, signal, verdict }` | 归一化 / 注入检测 / 审计改写；`verdict.kind='reject'` 即入口拒绝 |
 | `agent/request` | waterfall | `{ agent, turn, step, request }` | 模型路由、降级、成本控制；`prepareCall` 之后不再派发 |
 | `llm/stream` | waterfall | `(call, signal) => AsyncIterable<StreamChunk>` | 观测 / 重试 / 限流（环绕生产者，不写进 adapter） |
-| `agent/turn-stopping` | serial | `{ agent, turn, signal, stop(reason?) }` | 收尾、写审计、循环 guard 判停 |
+| `agent/turn-stopping` | serial | `{ agent, turn, signal, stop(reason?) }` | 收尾、写审计、循环 guard 判停；`stop()` → `turn/end.reason = { kind: 'guard-stopped', reason }` |
 
 写法（都是"同一信封进出"，旁听者必须 `return next(input)`）：
 
@@ -125,12 +134,14 @@ interrupt() ──► 当前 turn 的 AbortController 取消
 step 中途抛错
   ├─ ToolCallRecovery 已通过 session/event 观察到「已开始、未完成」的调用
   ├─ catch：逐条 append tool/result{isError:true, code:'tool-interrupted'}
+  ├─ finally：append assistant/message（承载 toolCalls；否则 tool/result 无主）
   ├─ finally：append step/end
   └─ 原样抛出（turn 不闭合；turn 级失败由调用方决定怎么处理）
 ```
 
-`deriveMessages()` 把"有 `tool/call` 没 `tool/result`"当错误（`session-log-hole`）——
-所以补记不是可选项，是让日志能被重建的前提。
+`deriveMessages()` 把"有 `tool/call` 没 `tool/result`"当错误（`session-log-hole`），
+也把"`tool/result` 找不到承载它的 `assistant/message`"当错误（同样拒绝静默合成）——
+所以补记与"失败也落 assistant/message"都不是可选项，是让日志能被重建的前提。
 
 ## 7. 回退分叉
 

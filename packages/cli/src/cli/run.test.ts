@@ -400,11 +400,14 @@ describe('事件流辅助函数（补充用例）', () => {  it('lastAssistantTe
     expect(lastTurnEnd(events)).toEqual({ kind: 'completed' })
   })
 
-  it('describeReason：五种原因 + 未知标签由 assertNever 拒绝', () => {
+  it('describeReason：六种原因 + 未知标签由 assertNever 拒绝', () => {
     expect(describeReason({ kind: 'completed' })).toBe('completed')
     expect(describeReason({ kind: 'blocked' })).toContain('blocked')
     expect(describeReason({ kind: 'aborted' })).toContain('aborted')
     expect(describeReason({ kind: 'max-tokens' })).toContain('max-tokens')
+    expect(describeReason({ kind: 'guard-stopped', reason: '超预算' })).toBe(
+      'guard-stopped（判停：超预算）',
+    )
     expect(describeReason({ kind: 'failed', reason: '炸了' })).toContain('炸了')
     expect(() => describeReason({ kind: 'bogus' } as unknown as TurnEndReason)).toThrow(/turn-end-reason/)
   })

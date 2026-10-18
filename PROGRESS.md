@@ -4,7 +4,7 @@
 > 纪律：**一次只推进一个阶段，验收通过才进下一阶段**（底座提示词 README §2.1）。
 > `[x]` = 该文档对应施工单已按出口标准验收；`[ ]` = 未开工。
 
-## 1. 文档 / 施工单进度（18 行）
+## 1. 文档 / 施工单进度（19 行）
 
 | # | 文档 | 对应阶段 | 状态 | 备注 |
 |---|---|---|---|---|
@@ -25,6 +25,7 @@
 | 14 | 移动 H5 与跨场景规划 | 插件线 | [ ] | |
 | 15 | IM 网关与桌面端 | 插件线 | [ ] | `apps/im-gateway`、`apps/desktop` 占位 |
 | 16 | 交付材料与验收 | 插件线 | [ ] | |
+| — | 底座收口（R44/R46/压缩 + 快照工具链） | 阶段 8 | [x] | 事件顺序按施单重排、判停独立成 `guard-stopped`、压缩前移到请求装配前、JSONL 编解码下沉 util、`pnpm snapshot:record`、快照门禁；出口清单见 §23，偏差见 §24 |
 | — | 一致性检查（文档 ↔ 代码） | 每阶段末 | [ ] | 阶段 1 已做：api.ts ↔ 02/03 逐条对照，见 §4 |
 
 ## 2. U3 · 人力裁剪决议（施工单 01 出口标准第 7 条）
@@ -429,6 +430,48 @@
 | 3 | 自动"改动必须带快照"门禁（R69） | 评审纪律 | 建议插件线开工时加进 `scripts/`（比对 `git diff` 是否触及 `packages/{runtime,llm}/src` 却未改 `snapshots/**`） |
 | 4 | 快照覆盖范围 | 目前 1 条 headless 基础场景（1 turn + 1 工具调用） | 插件线落地后补 3–5 条：注入拦截 / 审批通过 / 审批拒绝 / 熔断冻结各一条 |
 | 5 | `randomSeed` 已录制但场景未使用 | 接口预留 | bank-forge（施工单 07）落地后，把造数随机源接到同一个 `seededRandom` |
+
+## 23. 阶段 8 出口清单（底座收口：R44/R46/压缩 + 快照工具链）
+
+> 本阶段不是新施工单，而是**把阶段 5–7 的待确认项与两处规格偏离收口**（决策见 §24 顶部"决策记录"）。
+
+| # | 出口标准 | 状态 | 证据 |
+|---|---|---|---|
+| 1 | **R44**：日志顺序按施单 04 §7 T-LOOP-001（`tool/call → tool/result → assistant/message`） | ✓ | `agent.ts` 把 assistant 消息移到 step 收尾（异常路径先补记 `tool/result` 再落）；重录的 `snapshots/headless-basic/session.jsonl` 里 seq 8/9/10 = `tool/call` / `tool/result` / `assistant/message`；`pnpm bah --profile headless --prompt …` 的 20 条事件同序 |
+| 2 | **R44 派生**：`deriveMessages` 两遍投影恢复 wire 顺序（assistant(tool_calls) 在 tool 消息前） | ✓ | `derive.test.ts` 新增 3 条：日志新顺序 → wire 顺序正确、旧顺序结果相同、`tool/result` 无承载消息 → `session-log-hole`（不静默合成）；T-SESS-002 仍绿 |
+| 3 | **R46**：判停不再伪装成 `failed` | ✓ | `TurnEndReason` 增 `{ kind: 'guard-stopped'; reason }`；`turn/end.reason` 与 `loop.turn()` 返回值一致；CLI `describeReason` 文案 `guard-stopped（判停：…）`；T-LOOP-008 改判 |
+| 4 | **压缩时机**：每次请求装配前判定，turn 收尾兜底 | ✓ | `agent.ts` 在装配前 `runCompaction`（幂等）；新增用例：恢复 3 个完整 turn → 本轮首个 `step/start` 之后、`request/header` 之前落 `compaction/summary`，同一 turn 第二步不重复折叠 |
+| 5 | **R64**：会话日志编解码只有一份实现 | ✓ | 新增 `@bah/util` 的 `jsonl` 模块（header 判别 / 行编解码 / 尾行判定），`persistence` 与 `test-support` 均改调；util 新增 8 条自测；真后端交叉验证（`snapshots` 面）仍绿 |
+| 6 | **R66**：录制入口 | ✓ | 根脚本 `pnpm snapshot:record`（`scripts/record-snapshot.mjs` 注入 `BAH_SNAPSHOT_RECORD=1`）；实跑录制 6 用例全绿，`session.jsonl` 重录、`llm.jsonl` / `scenario.json` 未变（mock 输出稳定） |
+| 7 | **R69**：自动"改动必须带快照"门禁 | ✓ | 新增第 6 道门禁 `snapshot-fresh`；负控：改 `packages/runtime/src` 未改快照 → exit 1（列出 agent/derive/types）；`BAH_ALLOW_NO_SNAPSHOT=1` → 6/6 通过 |
+| 8 | 全量验证 | ✓ | `pnpm check` **7/7**；`pnpm test` **461 用例 / 51 文件**；`pnpm test:coverage` → **All files 行 100%**（分支 96.07 / 函数 98.61，名单内逐文件 100%）；`pnpm gate` **6/6**；`pnpm test:snapshot` **6 用例 / 2 文件**；`pnpm build` 12 包全绿 |
+| 9 | 文档同步（破坏性变更纪律） | ✓ | [docs/agent-loop.md](docs/agent-loop.md)（step 时序 / wire 顺序 / 压缩时机 / 失败补记）、[docs/model-layer.md](docs/model-layer.md) §8、[docs/testing.md](docs/testing.md) §9.1、[snapshots/README.md](snapshots/README.md) 两条命令与门禁 |
+
+**规模变化**：用例 449 → **461**（+12：derive 3、agent-loop 1、util codec 8）；门禁 5 → **6**；新增包内模块 `util/src/jsonl/`；`snapshots/headless-basic/session.jsonl` 重录（顺序变化）。
+
+## 24. 已知偏差与残留风险（阶段 8）
+
+**决策记录（引导式提问的三轮结论）**：R44 按施单原顺序重排（异常也落承载消息）；派生两遍扫描按 `callId` 配对，缺承载消息即 `session-log-hole`；R46 新增 `guard-stopped`；压缩判定前移到请求装配前；R64 下沉 `@bah/util`；R66 加 `pnpm snapshot:record`；R69 严格门禁 + 逃生口。
+
+| ID | 项 | 处理 |
+|---|---|---|
+| R71 | `deriveMessages` 新增硬约束：`tool/result` 必须有承载它的 `assistant/message` | 与"`tool/call` 必须有 `tool/result`"同级：缺了就抛 `session-log-hole`，**不静默合成** assistant 消息。旧日志若在 assistant 消息落账前崩过，读取会失败——这类日志本来就无法重建 wire 历史。快照已重录 |
+| R72 | `snapshot-fresh` 的基线与未跟踪文件 | 默认比对 `HEAD` 与工作树（提交前有效）；**已提交**后要复查须设 `BAH_SNAPSHOT_BASE=<ref>`，否则工作树干净时会明确打印"无可检查改动"而不是假装通过。未跟踪的新源码文件不在 `git diff` 内（新增文件另有评审） |
+| R73 | 门禁排除 `*.test.ts` | 测试不进产物，改了不必重录快照；`packages/{runtime,llm}/src` 的**非测试**文件仍严格 |
+| R74 | 压缩只折叠**已完整结束**的 turn | 单 turn 本身超窗时不会被折叠（折叠当前 turn 会拆散 `tool/call ↔ tool/result` 并丢掉本轮用户问题）。若需要，插件线用"工具结果裁剪 / 预算 guard"处理，而不是改折叠语义 |
+| R75 | `@bah/util` 新增 `jsonl` 模块不在 100% 覆盖名单 | 00 §11 只对内核与治理平面强制；仍有 8 条自测覆盖编码/解码/CRLF/尾行判定 |
+| R76 | `guard-stopped` 是 `TurnEndReason` 的联合增量（不是新会话事件） | `verify-session-events` 不受影响；但审计/渠道若对 `turn/end.reason` 做穷尽 switch，必须补该分支（`assertNever` 会在编译期提醒） |
+| R77 | 事件落账顺序变更属**破坏性变更** | 按 AGENTS.md 纪律 3 同步了 [docs/agent-loop.md](docs/agent-loop.md) 与全量快照；下游若有"按事件顺序渲染时间线"的 UI（插件线 13–15），应改为按段/按 turn 渲染，而不是假设 assistant 先于工具卡片 |
+
+## 25. 阶段 8 待人工确认项
+
+| # | 项 | 现状 | 建议 |
+|---|---|---|---|
+| 1 | R44 的"日志顺序 ↔ wire 顺序"分离 | 日志按施单、wire 由派生恢复 | 请确认接受这一分工；若要求"日志本身即 wire 顺序"，需把 tool 消息与 assistant 消息合并成一条复合事件（事件表增量） |
+| 2 | `guard-stopped` 的命名与语义 | 判停原因进 `turn/end.reason` | 若要区分"预算耗尽 / guard 判停 / 人工终止"，可再拆子原因码（审计更细，但联合继续膨胀） |
+| 3 | `snapshot-fresh` 的基线策略（R72） | 默认 `HEAD`，CI 用 `BAH_SNAPSHOT_BASE` | 若 CI 有固定基线（如 `origin/main`），建议在 CI 脚本里显式设置，避免"树干净即通过" |
+| 4 | 压缩边界（R74） | 当前 turn 永不折叠 | 单 turn 超窗的治理留给插件线（工具结果裁剪 / 预算 guard），请确认这一归属 |
+| 5 | 快照覆盖面 | 仍是 1 条 headless 基础场景 | 阶段 7 §22 第 4 条仍有效：插件线落地后补注入拦截 / 审批通过 / 审批拒绝 / 熔断冻结各一条 |
 
 
 

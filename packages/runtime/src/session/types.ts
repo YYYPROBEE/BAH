@@ -155,12 +155,19 @@ export interface UsageSummaryData {
   readonly calls: number
 }
 
-/** turn 结束原因（施工单 04 §2.1 的粘性原因；本阶段先给闭合联合）。 */
+/**
+ * turn 结束原因（施工单 04 §2.1 的粘性原因）。
+ *
+ * `guard-stopped` 与 `failed` 的区别：前者是 `agent/turn-stopping` 的主动判停
+ * （循环 guard、预算耗尽等），属于治理决策而不是故障；审计与渠道文案必须能区分
+ * （阶段 8 R46：判停不再伪装成 `failed`）。
+ */
 export type TurnEndReason =
   | { kind: 'completed' }
   | { kind: 'blocked' }
   | { kind: 'aborted' }
   | { kind: 'max-tokens' }
+  | { kind: 'guard-stopped'; reason: string }
   | { kind: 'failed'; reason: string }
 
 /** 工具体可见的调用记录（落在 `assistant/message.toolCalls` 里）。 */
