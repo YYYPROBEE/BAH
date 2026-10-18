@@ -1,0 +1,27 @@
+/* Web 渠道基础样式（M0 骨架，阶段 1）。设计令牌与组件样式见施工单 13。 */
+
+:root {
+  color-scheme: light dark;
+  --bah-font-sans: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  --bah-color-fg: #1b1b1f;
+  --bah-color-bg: #ffffff;
+  --bah-color-muted: #6b6b76;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--bah-font-sans);
+  color: var(--bah-color-fg);
+  background: var(--bah-color-bg);
+}
+
+.app {
+  display: block;
+  padding: 1rem;
+  color: var(--bah-color-muted);
+}

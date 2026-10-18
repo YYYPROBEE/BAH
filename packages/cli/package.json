@@ -1,0 +1,29 @@
+{
+  "name": "@bah/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist-types/src/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build:bundle": "tsdown src/index.ts --dts"
+  },
+  "dependencies": {
+    "@bah/core": "workspace:*",
+    "@bah/host": "workspace:*",
+    "@bah/runtime": "workspace:*",
+    "@bah/util": "workspace:*",
+    "yaml": "^2"
+  },
+  "bah": {
+    "profile": {
+      "bundles": ["base"]
+    }
+  },
+  "devDependencies": {
+    "@bah/test-support": "workspace:*"
+  }
+}

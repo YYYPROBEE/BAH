@@ -1,0 +1,26 @@
+{
+  "name": "@bah/llm",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist-types/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./deepseek": {
+      "types": "./dist-types/deepseek/index.d.ts",
+      "import": "./dist/deepseek/index.js"
+    },
+    "./mock": {
+      "types": "./dist-types/mock/index.d.ts",
+      "import": "./dist/mock/index.js"
+    }
+  },
+  "scripts": {
+    "build:bundle": "tsdown src/index.ts src/deepseek/index.ts src/mock/index.ts --dts"
+  },
+  "dependencies": {
+    "@bah/core": "workspace:*",
+    "@bah/util": "workspace:*"
+  }
+}

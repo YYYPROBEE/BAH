@@ -1,0 +1,12 @@
+# headless（施工单 06 §3）：M1 验收用 profile。
+#
+# - 无 UI 渠道：只有会话/工具/模型/主循环/持久化（base 的全部行）
+# - llm 用 mock：patch 把 `core:model` 从 deepseek 整块换成脚本化 mock
+# - 关闭 config HMR：headless 是一次性进程，热重载没有收益（施工单 06 §4）
+#
+# 其余渠道 profile（web / mobile / im / desktop / sdk）本阶段只留占位目录，
+# 内容属插件线（施工单 13–15）。
+name: headless
+bundles: [base]
+patch: ./patch.yml
+hmr: false

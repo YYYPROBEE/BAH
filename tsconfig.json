@@ -1,0 +1,26 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.host.json" },
+    { "path": "./tsconfig.client.json" }
+  ],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@bah/core": ["packages/core/src/index.ts"],
+      "@bah/runtime": ["packages/runtime/src/index.ts"],
+      "@bah/llm": ["packages/llm/src/index.ts"],
+      "@bah/llm/mock": ["packages/llm/src/mock/index.ts"],
+      "@bah/llm/deepseek": ["packages/llm/src/deepseek/index.ts"],
+      "@bah/interaction": ["packages/interaction/src/index.ts"],
+      "@bah/safety": ["packages/safety/src/index.ts"],
+      "@bah/bank": ["packages/bank/src/index.ts"],
+      "@bah/persistence": ["packages/persistence/src/index.ts"],
+      "@bah/host": ["packages/host/src/index.ts"],
+      "@bah/channels": ["packages/channels/src/index.ts"],
+      "@bah/cli": ["packages/cli/src/index.ts"],
+      "@bah/test-support": ["packages/test-support/src/index.ts"],
+      "@bah/util": ["packages/util/src/index.ts"]
+    }
+  }
+}

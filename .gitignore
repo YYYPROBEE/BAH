@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-types/
+*.tsbuildinfo
+.env*
+!.env.example
+sessions/
+coverage/
+*.db
+*.db-journal
