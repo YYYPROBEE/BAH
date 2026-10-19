@@ -46,7 +46,7 @@ packages/bank/src/
 **金额口径**：模型参数是「元」，核心与事件是「分」（字段名带 `Cents`）。
 工具边界用 `yuanToCents()` 转一次；展示统一 `formatYuan()`（不依赖 locale）。
 
-## 3. 三级权限与票据链（08 已落地的一段）
+## 3. 三级权限与票据链（08 落地、09 收口）
 
 ```text
 模型调用
@@ -55,36 +55,43 @@ packages/bank/src/
 tools/pre-execute（waterfall）
   ├─ 身份：`BANK_IDENTITY` 无绑定 → deny no-identity
   ├─ transfer_create：bank-core previewTransfer →
-  │    当日累计含本笔 > 日限额 → 红（daily-limit）
+  │    当日累计含本笔 > min(账本日限额, Config dailyTransferLimit) → 红（daily-limit）
   │    收款人 binding = new     → 红（new-payee）
   │    余额不足等 block 级风险   → deny（不进入审批）
+  ├─ 同 turn 风险调用超 riskyCallThreshold → 非绿一律 ask（risky-calls）
+  ├─ 强验证锁定中且红 → deny verify-locked
   ├─ 绿 → allow（交还下游判决）
   ├─ 黄 → ask + TicketDraft（ttl 来自 config）
-  └─ 红 → ask + challenge（sms / face / ushield，来自 config）
+  ├─ 红 → ask + challenge（sms / face / ushield，来自 config）
+  └─ 每次判决落 tier/decided（级别 + 理由 + 判决 + 理由码）
   ▼
 approval/request（waterfall）
-  ├─ 签发 bank-core 五绑定票据（会话 / 工具 / 参数指纹 / 金额 / TTL）
-  ├─ 渠道应答者决定 allowed-once / rejected / unavailable
-  └─ 同步 issued → approved / blocked
+  ├─ 签发 bank-core 五绑定票据（会话 / 工具 / 参数指纹 / 金额 / TTL）+ ticket/issued
+  ├─ @bah/interaction 的仲裁器决定 allowed-once / rejected / cancelled / unavailable
+  └─ 同步 issued → approved / blocked + ticket/approved | ticket/blocked
   ▼
 tools/execute → 工具体
   └─ 工具边界组装 TicketRef → bank-core redeem()（唯一核销属主）
   ▼
-tools/result → 失败且票据仍 approved → blocked（不留下"已批未用"的票据）
+tools/result → ticket/redeemed + ticket/consumed（成功）或 ticket/blocked（失败）
 ```
 
-**判定是"取高不取低"**：声明级别是下限；金额 / 收款人只能上调。
+**判定是"取高不取低"**：声明级别是下限；金额 / 收款人 / 组合风险只能上调，重试 / 超时 /
+渠道切换都不降级。日累计的**权威口径在 bank-core 账本**，runtime 侧只是缓存（换会话不重置）。
+阈值只来自 `bank:tools` 配置（`dailyTransferLimit` / `riskyOps` / `riskyCallThreshold`），
+模型输出与用户口头声明不参与判定。
 指纹由 `fingerprintOf(tool, args)`（键序无关）重算，审批后改参数会在
 `TicketStore.redeem()` 处被拒（`ticket-binding-mismatch`），不是靠工具自觉。
 
-### 与 09 的分工
+### 09 的落地情况
 
-| 能力 | 08 现状 | 09 接管 |
-|---|---|---|
-| `decide()` 判定函数 | `tools/tier.ts`（声明 + 金额/收款人升级） | 补 `risky_calls`、跨 turn 状态、完整矩阵 |
-| 审批服务 | `approval/request` 桥接（票据生命周期） | `@bah/interaction` 的应答者、超时归一化、双渠道竞答 |
-| 会话身份绑定 | `SessionIdentityStore`（服务键 `bank:identity`）：`identity/bound` 落账 + 回放恢复；`demoUserId` 只是显式演示引导 | credentials：mock 短信 / IM 映射 / Web 登录调用同一个 `BANK_IDENTITY.bind` |
-| 强验证挑战链 | 挑战 / 锁定 / 三渠道工具可用 | 红级 `ask+challenge` 自动签发挑战并串联审批弹窗 |
+| 能力 | 落点 |
+|---|---|
+| `decide()` 判定矩阵 | `tools/tier.ts`（矩阵 + 五条附加规则）；入口在 `governance.ts` |
+| 审批服务 | `@bah/interaction` 的 `ApprovalService`（应答者 / 超时 / 双渠道竞答 / 归一化） |
+| 票据生命周期 | `@bah/interaction` 的 `TicketLedger`（`ticket/*` 事件）；核销仍属 bank-core |
+| 会话身份绑定 | `bank:identity` + `@bah/persistence` 的 credentials（mock 短信 / IM 映射 / Web 接缝） |
+| 强验证挑战链 | 红级 `ask+challenge` → `bank:challenge` 端口签发 → 验证通过才批准 |
 
 ## 4. 身份与配置
 
@@ -97,10 +104,11 @@ tools/result → 失败且票据仍 approved → blocked（不留下"已批未�
 3. 若 profile 显式写了 `demoUserId` 且当前绑定不同，则 `bind()` + 落一条 `identity/bound`
    （`method: 'demo-config'`）。
 
-09 的 credentials 只需要：
+09 的 credentials 走同一条绑定路径（事件名不变）：
 
 ```ts
-ctx.get(BANK_IDENTITY).bind(sessionId, userId)
+// @bah/persistence 的 CredentialsService 内部（三个渠道统一）
+identity.bind(sessionId, userId)
 session.append('identity/bound', { userId, method: 'mock-login', at: now }, { ignorable: true })
 ```
 
@@ -116,9 +124,12 @@ session.append('identity/bound', { userId, method: 'mock-login', at: now }, { ig
     seed: 7                  # 造数种子（与快照 randomSeed 同源）
     datasetTier: demo        # demo / stress / adversarial
     disclaimerId: wealth-risk-v1
-    ticketTtlSeconds: 120
+    ticketTtlSeconds: 120    # 票据 TTL = 审批超时（同源，施工单 09 §10）
     computeTimeoutMs: 5000
     redChallenge: sms
+    dailyTransferLimit: 5000 # 元；生效值 = min(账本日限额, 本值)
+    riskyOps: [transfer_create, wealth_purchase]  # 组合风险计数对象
+    riskyCallThreshold: 3    # 同 turn 风险调用上限；超过后非绿一律 ask
     verify: { successAfter: 1, maxAttempts: 3, lockMinutes: 30 }
 ```
 
@@ -156,11 +167,15 @@ presenter 是**纯函数**：同输入同输出；不访问 ctx / 时间 / 随�
 | 事件 | 载荷 | 说明 |
 |---|---|---|
 | `identity/bound` | `{ userId, method, at }` | 会话绑定银行用户；回放时据此恢复 |
+| `tier/decided` | `{ callId, name, level, reason, verdict, code?, at }` | 每次 pre-execute 判决的审计落点 |
 | `read/accounts` `read/balance` `read/txns` `read/bill-analyzed` `read/bill-report` `read/analysis` | `{ result }` | 结果整块落账，卡片可重建 |
 | `read/wealth` | `{ op: 'list' \| 'compare', result }` | 带 `disclaimerId` |
 | `transfer/preview` `transfer/created` `wealth/purchased` | `{ result }` | 写操作只在成功时落 |
 | `verify/face` `verify/sms` `verify/ushield` | `{ result }` | 每次尝试都落 |
 | `verify/locked` | `{ sessionId, channel, until, attempts }` | 连续失败触发的会话级锁定 |
+
+审批与票据生命周期事件（`ticket/*`、`approval/duplicate|timeout|challenge-*`）由
+`@bah/interaction` 声明，见 [interaction.md](interaction.md) §5。
 
 **为什么都带 `ignorable: true`**：运行时的 `deriveMessages` 只认识平台族事件；
 领域事件若按 required-on-read 落账，下一条请求装配会拒绝（`session-unknown-event`）。
@@ -191,21 +206,27 @@ presenter 是**纯函数**：同输入同输出；不访问 ctx / 时间 / 随�
 | T-TOOLS-005 | `wealth.*` 带 `disclaimerId` | `tools/wealth.test.ts` |
 | T-TOOLS-006 | 受限计算超时结构化失败 | `tools/queries.test.ts` |
 | T-TOOLS-007 | 独立 verify → `no-challenge` | `tools/verification.test.ts` |
-| T-TOOLS-008 | 三连败 → 锁 30 分钟 + `verify/locked` | 同上 |
+| T-TOOLS-008 | 三连败 → 锁 30 分钟 + `verify/locked`（09 编号 T-VER-002） | 同上 |
 | T-TOOLS-009 | presenter 纯度 | `tools/catalog.test.ts` |
 | T-TOOLS-010 | 目录与源码一致（篡改即红） | `tools/catalog.test.ts` + `pnpm gate` |
 
-headless 实跑：
+09 的判定用例（T-TIER-001~010）落在 `tools/tier.test.ts` / `tools/accumulation.test.ts` /
+`tools/governance.test.ts`；审批用例见 [interaction.md](interaction.md) §9。
+
+headless 实跑（幕 3：800 元黄级全流程）：
 
 ```bash
-pnpm bah --profile headless --prompt 查一下我的余额 --session s-bank09 --jsonl .tmp-bank09
-# 22 条事件：identity/bound → tool/call → read/balance（卡片数据）→ tool/result → 文本收尾
+pnpm bah --profile headless --prompt "给王建国转800元" --session s-tier09 --jsonl .tmp-tier09
+# 29 条事件：identity/bound → tool/call → tier/decided → approval/asked → ticket/issued
+#   → ticket/approved → approval/decided → transfer/created → ticket/redeemed
+#   → ticket/consumed → tool/result → 文本收尾
 ```
 
 ## 9. headless 演示脚本片段
 
-`core:model` 的 mock 脚本可以按顺序驱动多个工具（headless 无审批应答者，**写操作**会被
-`unavailable` 拒绝，这是默认拒绝语义，不是 bug）：
+`core:model` 的 mock 脚本可以按顺序驱动多个工具。当前 `profiles/headless/patch.yml` 的默认脚本
+是**幕 3**（`transfer_create` 800 元 + `interaction:approval` 的 headless 自动应答者）；下面是
+只读工具的脚本示例（历史 08 演示）：
 
 ```yaml
 - id: core:model
@@ -224,15 +245,17 @@ pnpm bah --profile headless --prompt 查一下我的余额 --session s-bank09 --
       - text: 演示完成。
 ```
 
-写操作（`transfer_create` / `wealth_purchase`）需要 09 的审批应答者；强验证（`verify_face` /
-`verify_sms` / `verify_ushield`）需要红级挑战链签发挑战。两者的演示见施工单 09 的幕 3 排练。
+写操作（`transfer_create` / `wealth_purchase`）需要审批应答者（`interaction:approval` 的
+`responder: headless`，或渠道 UI）；强验证（`verify_face` / `verify_sms` / `verify_ushield`）
+需要红级挑战链签发的挑战 ID——审批链里的验证由 `bank:challenge` 端口自动完成。
 
 ## 10. 已知边界
 
 | 项 | 现状 | 计划 |
 |---|---|---|
-| 红级强验证串联 | 红级 `ask` 带 `challenge`，但挑战的签发/串联由 09 完成；08 的 `verify_*` 只保证被调用时可用 | 09 §6 |
-| 日限额与执行 | 升红后经批准仍会执行（bank-core 不拦日限额；规格把日限额放在权限升级） | 09 若需要"拒绝"而非"升红"需改判定 |
-| card / subscription | 九实体与造数已落，Provider 方法未加（P1 工具才需要） | 08 P1 / 09 |
+| 红级强验证串联 | 已由 09 串联：`ask+challenge` → `bank:challenge` 签发 → 验证通过才批准 | — |
+| 日限额与执行 | 升红后经批准仍会执行（bank-core 不拦日限额；规格把日限额放在权限升级） | 若产品要"拒绝"，改判定 `deny` 并同步 T-TIER-004 |
+| card / subscription | 九实体与造数已落，Provider 方法未加（P1 工具才需要） | P1 工具时补齐 |
 | 定时转账 / AA 拆分 | `transfer_create` 的 `when` 只支持 `now`，未来时间返回 `unsupported-schedule` | P1 `transfer_schedule` / `transfer_split` |
 | 单应用单会话 | 票据五绑定里的 `sessionId` 来自 `bah:run`（一应用一会话） | 与 R52 一并评估多会话 |
+| 审批应答者 | headless 有显式自动应答者；Web / IM 渠道属 13/15 | 渠道只需 `attach(responder)` |

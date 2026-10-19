@@ -101,6 +101,16 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
   },
   {
     package: 'bank',
+    scope: 'tools/governance.ts',
+    why: '治理平面：pre-execute 判决落账 / 五绑定票据桥接 / 结果记账（施工单 09 §1–§3）',
+  },
+  {
+    package: 'interaction',
+    scope: 'approval/',
+    why: '审批服务（应答者 / 超时 / 双渠道竞答 / 挑战链）与票据生命周期账本（施工单 09 §2–§3）',
+  },
+  {
+    package: 'bank',
     scope: 'core/',
     why: '仿真银行核心：九实体 / 票据状态机与原子核销 / 日累计权威口径 / mock 账本（施工单 07）',
   },

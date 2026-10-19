@@ -17,7 +17,7 @@
 | 06 | 组合系统 profile | 阶段 6 | [x] | 三层概念（profile/bundle/patch）+ 四层层序 + config-only HMR + CLI 出口；出口清单见 §17，偏差见 §18 |
 | 07 | 仿真银行 bank | 插件线 | [x] | bank-core / bank-forge 实装：九实体、票据状态机与原子核销、三档造数、风控预检五规则；出口清单见 §26，偏差见 §27，待确认见 §28 |
 | 08 | 银行工具族 | 插件线 | [x] | 14 个 P0 工具 / 三级判决与票据桥接 / presenter 契约 / 目录门禁 / headless 实跑；出口清单见 §29，偏差见 §30，待确认见 §31 |
-| 09 | 三级权限审批票据 | 插件线 | [ ] | `ToolDefinition.tier` 已预留 |
+| 09 | 三级权限审批票据 | 插件线 | [x] | 判定矩阵 + 五条附加规则 / `@bah/interaction` 审批服务与票据账本 / 身份绑定渠道 / 红级挑战链 / headless 幕 3；出口清单见 §32，偏差见 §33，待确认见 §34 |
 | 10 | 安全防护层 sentry | 插件线 | [ ] | |
 | 11 | 沙箱运行时 | 插件线 | [ ] | |
 | 12 | 审计轨迹与回放测试 | 阶段 7（建议项） | [x] | **仅 test-support 节选**（快照录制回放 + 确定性）；TraceLog / 报表 / 对抗用例库属插件线；出口清单见 §20，偏差见 §21 |
@@ -602,6 +602,142 @@ host 装配 5，新增 10 个测试文件）；`pnpm test:coverage` 行 100%；`
 | 5 | 会话身份 | **08 先行并入**：`BANK_IDENTITY` + `identity/bound` + 回放恢复；`demoUserId` 仅演示引导 | 09 credentials 调同一 `bind`，事件名不变 |
 | 6 | `host/.../saga.ts` 覆盖率缺口 | 接受临时排除 | saga 线补 `saga/tick` 触发用例后移除；非 08 引入 |
 | 7 | P1 工具（card / sub / 定时 / 拆分 / 赎回） | 默认推到 M4 | 先完成 09–16 P0 主线；若演示需要 card / sub 再提前 |
+
+## 32. 插件线 09 出口清单（施工单 09 · 三级权限审批票据）
+
+> 本阶段只动 `packages/interaction/src/{approval,index}`、`packages/bank/src/{tools,verify}`、
+> `packages/persistence/src/{credentials,index}`、`packages/host/src/boot/plugins/{approval,bank-tools,index}`、
+> `packages/cli/bundles/base`、`profiles/headless`、`scripts/{verify-tiers,coverage-allowlist}`、
+> `docs/**`、`PROGRESS.md` 与测试；**未改** `packages/{runtime,core}/src`（管线语义与冻结面原样）。
+
+| # | 出口标准（提示词 §目标） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | 矩阵落地：绿自动、黄 ask、红 ask+challenge；取高不取低 | ✓ | `tools/tier.ts` 的 `decide()`；T-TIER-001/002/009 + `tier.test.ts` 23 例 |
+| 2 | 五条附加规则都有对抗单测（含"用户声称额度更高"） | ✓ | T-TIER-003/004/005/006/007/008/010；`accumulation.test.ts` 用同一个 core 证明跨 turn / 跨会话累计 |
+| 3 | `approval/asked → approval/decided` 在 turn 内闭合；超时/不可达/非法返回 → `unavailable → deny`；四枚举都能真实产生 | ✓ | `approval/service.test.ts` 25 例；`host/.../approval.test.ts` 的 unavailable/rejected/cancelled/allowed-once 端到端 |
+| 4 | 双渠道竞答：先到者胜、后到者已决、重复 decided 不重复执行；`allowed-once` 只对一次调用有效 | ✓ | 三个独立竞态用例（T-APPR-004 + 重复 decided + 定时器 no-op）；指纹绑定由 core 的 `redeem()` 兜底 |
+| 5 | 未绑定会话业务工具 deny；`identity/bound` durable、回放自动恢复 | ✓ | T-IDN-001/002/003（`host/.../bank-tools.test.ts`）；`restoreSessionIdentity` 回放路径 |
+| 6 | 强验证未通过批准不可达；三连败锁 30 分钟 + `verify/locked`；锁定期红级全 deny | ✓ | `host/.../approval.test.ts`（challenge-required / verify-locked）；T-VER-001/002/003 |
+| 7 | 幕 3 排练：headless + demo 800 元黄级全流程 | ✓ | 见 §35.5 实录（29 条事件） |
+| 8 | `decide` / 审批服务 / 票据记账进覆盖率名单且 100% 行覆盖 | ✓ | `coverage-allowlist.ts` 新增 `interaction/approval/`、`bank/tools/governance.ts`；`pnpm test:coverage` All files 行 100% |
+
+**规模**：`pnpm test` **839 用例 / 97 文件**（08 后 734 / 88）；`pnpm test:coverage` 行 100%、分支 96.24%；
+`pnpm gate` **10/10**；`pnpm build` **13 包**；`pnpm test:snapshot` **6 用例**（无密钥、无网络）。
+
+## 33. 已知偏差与残留风险（插件线 09）
+
+| ID | 项 | 处理 |
+|---|---|---|
+| R102 | **应答者注册方式**：提示词写"经 `approval/request` waterfall 注册应答者"，实现是"审批服务独占一个 waterfall 监听器 + 渠道向仲裁器 `attach`" | waterfall 是**串行**的，每个渠道各挂一个监听会退化成"注册顺序快慢"而不是"先应答者胜出"；对外挂点/事件名/结论枚举不变。Web/IM（13/15）只需 `ctx.get(APPROVAL_SERVICE).attach(responder)` |
+| R103 | 审批服务的配置键（`responder` / `autoDecision` / `autoVerify` / `autoDelayMs`）放在 `interaction:approval` 命名空间，不在 `bank:tools` | 归属不同插件：bank 的阈值（`dailyTransferLimit` / `riskyOps` / `riskyCallThreshold`）仍并入 `bank:tools` 并走同一 fail-loud 口；两套配置各自有 `rejectUnknownKeys` |
+| R104 | `dailyTransferLimit` 缺省 **5000 元**（施工单 §5 示例是 1000） | 与 07 已验收的 demo 数据（卡日限额 500,000 分）同值，避免"卡片显示剩余 4200 却按 1000 判定"的双口径；生效值 = `min(core 账本日限额, Config)`，数据只能收紧 |
+| R105 | `riskyOps` 缺省 `['transfer_create','wealth_purchase']`（施工单示例 `transfer.create` / `card.report-lost`） | 工具名已按 R95 改下划线；`card_report_lost` 属 P1 未实现。配置校验对未知工具名 fail-loud |
+| R106 | **审批超时 = 票据 `expiresAt`**，不另设 `approvalTimeout` 键 | 与票据 TTL 同源于 `ticketTtlSeconds`（施工单 §10 风险表）；"TTL 先于审批超时"用"迟到应答在 `answer()` 处按 `expired` 拒绝"钉住，而不是等定时器 |
+| R107 | `ticket/*`、`approval/duplicate|timeout|challenge-*` 共 9 个新事件由 `@bah/interaction` 声明 | 全部 `ignorable: true`（R91 同策略）；`approval/asked|decided` 仍由七段管线落账——**未改** `runtime` |
+| R108 | `TicketLedger` 是 core 状态机的**审计投影**，不是第二个核销属主 | `redeem` 的唯一属主仍是 bank-core；账本只在 `tools/result` 观察后记账，越级转移 fail-loud |
+| R109 | `@bah/interaction` 新增 `@bah/util` 依赖与 `@bah/test-support` devDependency；**bank 未依赖 interaction** | 账本以结构类型（`TicketLifecycle`）由宿主注入，避免 bank 反向依赖交互包；`pnpm-lock.yaml` 已同步 |
+| R110 | headless 默认脚本从 `account_balance` 改为**幕 3**（`transfer_create` 800 + 自动应答者） | 08 的绿级实跑证据改由 `host/.../bank-tools.test.ts` 覆盖；CLI 仍可用 `--patch` 覆盖脚本（叠层语义不变） |
+| R111 | `verify-tiers` 从纯词法升级为"导入真实工具目录（14 个）+ 词法声明点（12 个）+ 阈值写死扫描（22 个文件）" | 词法证明"写了 tier"，导入才能证明"级别合法、amountPath 指向真实参数" |
+| R112 | credentials 的绑定端口只接受**当前会话**（`identity-session-mismatch`） | 一个 host 进程只服务一个会话（`bah:run`）；防止把身份事件写进别人的日志。多会话宿主属施工单 13 的会话路由议题 |
+
+## 34. 插件线 09 待人工确认项
+
+| # | 项 | 现状 | 建议 |
+|---|---|---|---|
+| 1 | 日限额语义（R94 / R104） | 超限只升红，批准后仍执行 | 保持；若产品要"拒绝"，改 `decide()` 为 `deny` 并同步 T-TIER-004 |
+| 2 | headless 默认脚本替换（R110） | 现在是幕 3 转账 | 若 08 的余额演示仍需默认可见，建议新增一个 `--patch` 演示文件而不是回退 |
+| 3 | 审批配置命名空间（R103） | `interaction:approval` | 若坚持"所有阈值进 bank:tools"，需要把审批行配置并入 bank 行并由 bank 注入仲裁器 |
+| 4 | 审批超时口径（R106） | = 票据 TTL | 若希望"审批比票据多等几秒"，需新增同源派生（如 `ttl + grace`）并补一条 TTL/超时先后用例 |
+| 5 | 票据账本双写（R108） | core 状态机 + 审计投影 | 若认为投影冗余，可只保留 `ticket/*` 事件、去掉内存账本；但转移合法性检查会移到事件消费方 |
+| 6 | 施工单 10 的接缝 | 票据签发仍在 `tools/pre-execute`（桥接里） | 10 落地时把签发换到 sentry 平面，**不换语义、不换事件名**（提示词 §接缝预留） |
+
+## 35. 插件线 09 测试落点与配置/事件表
+
+### 35.1 用例 → 文件 → 标题
+
+| ID | 用例 | 文件 | 标题（`describe`/`it`） |
+|---|---|---|---|
+| T-TIER-001 | 绿级直行 | `bank/src/tools/tier.test.ts` | `T-TIER-001 绿级直行` |
+| T-TIER-002 | 黄级 800 白名单 | 同上 | `T-TIER-002 黄级 800 白名单` |
+| T-TIER-003 | 恰好 = 上限 | 同上 | `T-TIER-003 恰好 = 上限` |
+| T-TIER-004 | 超 1 元 | 同上 | `T-TIER-004 超 1 元` |
+| T-TIER-005 | 跨 turn 累计 | `bank/src/tools/accumulation.test.ts` | `T-TIER-005 跨 turn 累计` |
+| T-TIER-006 | 换会话不重置 | 同上 | `T-TIER-006 换会话不重置` |
+| T-TIER-007 | 用户声称额度更高 | `bank/src/tools/tier.test.ts` | `T-TIER-007 用户声称额度更高` |
+| T-TIER-008 | 红级重试不降级 | 同上 + `accumulation.test.ts` | `T-TIER-008 红级重试不降级` |
+| T-TIER-009 | 新收款人 | `bank/src/tools/tier.test.ts` | `T-TIER-009 新收款人` |
+| T-TIER-010 | risky_calls 超阈 | 同上 + `accumulation.test.ts` | `T-TIER-010 组合风险超阈` |
+| T-APPR-001 | 批准 | `interaction/src/approval/service.test.ts` + `host/.../approval.test.ts` | `T-APPR-001 批准` |
+| T-APPR-002 | 拒绝 | `service.test.ts` | `T-APPR-002 拒绝` |
+| T-APPR-003 | 超时 | `service.test.ts` | `T-APPR-003 超时` |
+| T-APPR-004 | 双渠道竞答 | `service.test.ts` | `T-APPR-004 双渠道竞答` |
+| T-IDN-001 | 未绑定 deny | `host/.../bank-tools.test.ts` | `T-IDN-001 ...` |
+| T-IDN-002 | 绑定后放行 | 同上 | `T-IDN-002 ...` |
+| T-IDN-003 | `identity/bound` durable + 回放 | 同上 | `T-IDN-003 ...` |
+| T-VER-001 | 人脸成功 | `bank/src/tools/verification.test.ts` | `T-VER-001 ...` |
+| T-VER-002 | 三连败锁 30 分钟 | 同上 | `T-VER-002 ...` |
+| T-VER-003 | 锁定期红级全 deny | `bank/src/tools/governance.test.ts` | `T-VER-003 ...` |
+
+补充：`interaction/src/approval/ticket-ledger.test.ts`（13 例，账本转移/幂等/越级）、
+`events.test.ts`（事件表）、`headless-responder.test.ts`（7 例，挑战/失败/延迟）、
+`bank/src/verify/port.test.ts`（6 例，端口与锁定）、`persistence/src/credentials/index.test.ts`（12 例）。
+
+### 35.2 负控清单（故意改坏 → 对应用例必须红）
+
+| 改坏了什么 | 红了哪条 |
+|---|---|
+| 日累计忽略"已用"（只用本笔比上限） | T-TIER-005、T-TIER-006、T-TIER-004、T-TIER-007 |
+| 上限不再取 `min(账本, Config)`（只用账本） | T-TIER-007（"数据侧说更大也没用"） |
+| 升级结果直接当级别（可降级） | T-TIER-004/007/008/009/010 + 锁定用例（14 条） |
+| 删掉"新收款人"分支 | T-TIER-009 + 预览工具升红用例 |
+| `riskyOver` 恒 false | T-TIER-010（单测 + 治理层各一条） |
+| 无应答者时返回 `allowed-once` | T-APPR-003（没有应答者 → unavailable） |
+| 去掉 core 的指纹比对 | T-BANK-005（五绑定逐项比对） |
+
+### 35.3 Config 键变更（`bank:tools` 与 `interaction:approval`）
+
+| 键 | 变更 | 缺省 | 校验 |
+|---|---|---|---|
+| `dailyTransferLimit` | 新增（元） | 5000 | `readPositiveInteger` |
+| `riskyOps` | 新增（工具名数组） | `['transfer_create','wealth_purchase']` | `readStringArray` + 逐个对照 `BANK_TOOL_NAME_SET` |
+| `riskyCallThreshold` | 新增 | 3 | `readPositiveInteger` |
+| `ticketTtlSeconds` | 沿用（R106：审批超时同源） | 120 | `readPositiveInteger` |
+| `verify.*` / `redChallenge` / `seed` / `datasetTier` / `disclaimerId` / `computeTimeoutMs` / `demoUserId` | 沿用 | 同 08 | 同 08 |
+| `interaction:approval.responder` | 新增 | `none` | `readEnum` |
+| `interaction:approval.autoDecision` | 新增 | `allow` | `readEnum` |
+| `interaction:approval.autoVerify` | 新增 | `true` | `readBoolean` |
+| `interaction:approval.autoDelayMs` | 新增 | 无（0） | `readPositiveInteger`（写 0 = invalid-config） |
+
+### 35.4 事件表变更
+
+| 事件 | 变更 | `ignorable` | 落账点 |
+|---|---|---|---|
+| `tier/decided` | 新增（bank） | 是 | `tools/pre-execute` 每次判决 |
+| `ticket/issued` `ticket/approved` `ticket/redeemed` `ticket/consumed` `ticket/blocked` | 新增（interaction） | 是 | 桥接 / 审批结论 / `tools/result` |
+| `approval/duplicate` `approval/timeout` `approval/challenge-issued` `approval/challenge-failed` | 新增（interaction） | 是 | 仲裁器 / 挑战链 |
+| `approval/asked` `approval/decided` | 沿用（管线落账） | 否 | 七段管线 ③e（未改） |
+| `identity/bound` | 沿用（method 追加 `mock-login` / `im-map`） | 是 | credentials 绑定 |
+
+### 35.5 幕 3 排练实录
+
+```bash
+pnpm bah --profile headless --prompt "给王建国转800元" --session s-tier09 --jsonl .tmp-tier09
+# bah: profile headless · 会话 s-tier09
+# bah: 回复 已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。
+# bah: 已落盘 .tmp-tier09\s-tier09\session.jsonl（29 条事件）
+```
+
+事件序列（29）：
+
+```text
+identity/bound → turn/start → step/start → request/header → system/message → request/context
+→ user/message ×2 → tool/call → tier/decided(level=yellow, verdict=ask)
+→ approval/asked → ticket/issued → ticket/approved → approval/decided(allowed-once)
+→ transfer/created → ticket/redeemed → ticket/consumed → tool/result → assistant/message
+→ step/end → step/start → request/header → system/message → request/context → user/message
+→ assistant/message → step/end → usage/summary → turn/end(completed)
+```
+
 
 
 
