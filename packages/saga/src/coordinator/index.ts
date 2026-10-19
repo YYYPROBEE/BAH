@@ -8,6 +8,7 @@
 import { BahError } from '@bah/util'
 
 import { SAGA_AUDIT, SAGA_CLOCK, SAGA_IDEMPOTENCY, SAGA_STEP_CONTEXT, SAGA_STORE } from '../seams.ts'
+import { type CompensationDeps, runCompensation } from '../compensation/index.ts'
 import { mustDeadLetter } from '../probe/classify.ts'
 import { escalateToDlq } from '../probe/settle.ts'
 import { advance, isTerminal } from '../state-machine/index.ts'
@@ -34,6 +35,13 @@ export type CallOutcome =
 export interface CoordinatorDeps {
   readonly settings: SagaSettings
   readonly dispatch: CallDispatcher
+  /**
+   * 补偿调用 / 探诊通道（SA-10 §3.2）。
+   *
+   * 省略时失败结算只 CAS 到 `COMPENSATING`、不发射补偿（批 4 之前的兼容路径）；
+   * 自动补偿必须由调用方注入——没有通道就不得假装补偿成功。
+   */
+  readonly compensation?: CompensationDeps
 }
 
 /** 已收敛的 step 状态（READY 与完成判定共用）。 */
@@ -63,7 +71,7 @@ export async function runSaga(ctx: Context, sagaId: string, deps: CoordinatorDep
     const outcomes = await mapPool(ready, deps.settings.maxParallelBranches, (step) =>
       runStep(ctx, sagaId, step, deps),
     )
-    await settleSaga(ctx, sagaId, snapshot, outcomes)
+    await settleSaga(ctx, sagaId, snapshot, outcomes, deps)
   }
 }
 
@@ -227,6 +235,7 @@ async function settleSaga(
   sagaId: string,
   snapshot: SagaTransaction,
   outcomes: readonly CallOutcome[],
+  deps: CoordinatorDeps,
 ): Promise<void> {
   const store = ctx.get(SAGA_STORE)
   const at = ctx.get(SAGA_CLOCK).now()
@@ -270,4 +279,9 @@ async function settleSaga(
       })
     }
   })
+
+  // SA-10 §3.2：自动路径在结算段之后直接进入反向屏障补偿；手动路径复用 issueComp。
+  if (to === 'COMPENSATING' && deps.compensation !== undefined) {
+    await runCompensation(ctx, sagaId, deps.settings, deps.compensation)
+  }
 }
