@@ -54,6 +54,7 @@ const gate: Gate = {
       ...readSessionTypeNames(root),
       ...readSeamNames(root),
       ...readAugmentedSeamNames(root),
+      ...readAugmentedSessionNames(root),
     ])
 
     const findings: string[] = []
@@ -118,6 +119,29 @@ function readAugmentedSeamNames(root: string): string[] {
       for (const matched of body.matchAll(/^\s*'([\w.:/-]+)'\s*:/gm)) {
         names.push(matched[1] as string)
       }
+    }
+  }
+  return names
+}
+
+/**
+ * 扫描全仓 `interface SessionEventMap` / `interface BankSessionEventMap` 的声明块。
+ *
+ * 领域事件由插件包用模块增强追加（施工单 03 §1.2）：`@bah/bank` 的
+ * `interface BankSessionEventMap` 是声明本体，`declare module '@bah/core'` 里只写
+ * `extends BankSessionEventMap`。两处都收，才能让 `audit.append('read/balance')`
+ * 这类字面量通过"事件名必须在表内"的检查。
+ */
+function readAugmentedSessionNames(root: string): string[] {
+  const names: string[] = []
+  for (const file of walk(root, ['packages'], isSource)) {
+    const text = readFileSync(file, 'utf8')
+    if (!text.includes('BankSessionEventMap') && !text.includes('interface SessionEventMap')) continue
+    // 文件里同时可能有多个接口（如 `BahEventMap`），但带引号的键在本仓只用于事件声明；
+    // 逐个界面块匹配会在嵌套对象字面量的 `}` 处提前截断（read/wealth 就是这种形状），
+    // 因此按"整文件收集带引号键"更稳。
+    for (const matched of text.matchAll(/^\s*'([\w.:/-]+)'\s*:/gm)) {
+      names.push(matched[1] as string)
     }
   }
   return names

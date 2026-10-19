@@ -16,6 +16,7 @@
     "@bah/util": "workspace:*"
   },
   "devDependencies": {
+    "@bah/runtime": "workspace:*",
     "@bah/test-support": "workspace:*"
   }
 }

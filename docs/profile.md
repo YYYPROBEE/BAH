@@ -73,7 +73,7 @@ interface PluginRow {
 }
 ```
 
-### 本仓的 base bundle（七行）
+### 本仓的 base bundle（十一行）
 
 | 行 id | 插件实现 | 提供 | inject |
 |---|---|---|---|
@@ -83,6 +83,10 @@ interface PluginRow {
 | `core:model` | mock / deepseek 适配器 | `llm:adapters` | — |
 | `core:agent` | `AgentLoop` + 注册表 | `runtime:agents` | `bah:run`、`runtime:session`、`llm:adapters` |
 | `core:persistence` | `JsonlPersistence` | `bah:session-files` | `bah:run` |
+| `bank:tools` | 14 个银行工具 + 治理平面 | （注册工具；默认未绑定身份） | `bah:run`、`runtime:session`、`runtime:tools` |
+| `bank:saga-store` | Saga 存储 | `bah:saga-store` | — |
+| `bank:saga` | Saga 协调器 | `bah:saga-clock` 等 | `bah:saga-store`、`bah:saga-audit` |
+| `bank:saga-audit` | 审计链 | `bah:saga-audit` | `bah:saga-clock` |
 | `demo:echo` | 示例工具 | （注册 `echo` 工具） | `runtime:tools` |
 
 `bah:run` 是**boot injection**（不是可 patch 的行）：`{ sessionId, jsonlDir?, now }` 是"这次进程启动的输入"，
@@ -101,8 +105,14 @@ interface PluginRow {
     model: mock-chat
     chunkSize: 4
     script:
-      - tool: { id: call-1, name: echo, args: { text: 你好，我是 headless 验收用的回显工具 } }
-      - text: 已为你在模拟环境完成查询。
+      - tool: { id: call-1, name: account_balance, args: {} }
+      - text: 已为你在模拟环境查询账户余额。
+
+- id: bank:tools
+  config:
+    demoUserId: u-1       # 09 的会话绑定落地前的显式演示身份；不写 = 未绑定
+    seed: 7
+    datasetTier: demo
 
 - id: core:agent
   config:
@@ -116,7 +126,7 @@ interface PluginRow {
   config: { prefix: '[headless] ' }
 ```
 
-`pnpm bah --profile headless --dump-config`（列宽按内容自适应，下面是结构示例）：
+`pnpm bah --profile headless --dump-config`（列宽按内容自适应，下面是结构示例；长配置省略）：
 
 ```text
 bah: profile headless（bundles: base；config HMR: 关）
@@ -130,18 +140,22 @@ core:prompt       bundle:base                                 {}
 core:model        profile-patch:profiles/headless/patch.yml   {"provider":"mock","model":"mock-chat", …}
 core:agent        profile-patch:profiles/headless/patch.yml   {"loop":{…},"channel":"headless", …}
 core:persistence  bundle:base                                 {"root":"sessions","fsync":true}
+bank:tools        profile-patch:profiles/headless/patch.yml   {"demoUserId":"u-1","seed":7, …}
+bank:saga-store   bundle:base                                 {"dbPath":"sessions/saga.sqlite"}
+bank:saga         bundle:base                                 {"maxParallelBranches":4, …}
+bank:saga-audit   bundle:base                                 {"signingKeyPath":"keys/saga-ed25519.pem", …}
 demo:echo         profile-patch:profiles/headless/patch.yml   {"prefix":"[headless] "}
 
-bah: 共 7 行
+bah: 共 11 行
 ```
 
 跑一个 turn：
 
 ```bash
-pnpm bah --profile headless --prompt 你好 --session s-demo
+pnpm bah --profile headless --prompt 查一下我的余额 --session s-demo
 # bah: profile headless · 会话 s-demo
-# bah: 回复 已为你在模拟环境完成查询。
-# bah: 已落盘 sessions/s-demo/session.jsonl（20 条事件）
+# bah: 回复 已为你在模拟环境查询账户余额。
+# bah: 已落盘 sessions/s-demo/session.jsonl（22 条事件：identity/bound → tool/call → read/balance → tool/result）
 ```
 
 ---

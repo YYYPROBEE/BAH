@@ -14,12 +14,12 @@ packages/bank/src/
 │  ├─ ticket.ts     TicketStore：issued → approved → redeemed | blocked（核销唯一属主）
 │  ├─ mock.ts       MockBankCore：内存账本、预检、转账/理财、日累计推导
 │  └─ time.ts       UTC 日 / 账期口径（dayKey / monthKey / periodRange）
-└─ forge/
-   ├─ index.ts      buildBankDataset：demo / stress / adversarial 三档造数
-   └─ risk.ts       风控预检五规则 + 夜间时段判定
+├─ forge/
+│  ├─ index.ts      buildBankDataset：demo / stress / adversarial 三档造数
+│  └─ risk.ts       风控预检五规则 + 夜间时段判定
+├─ tools/           银行工具族（施工单 08；见 docs/bank-tools.md）
+└─ verify/          强验证挑战 / 锁定（施工单 09 §6 的 Provider seam）
 ```
-
-`tools/` 与 `verify/` 留给施工单 08（银行工具族与工具目录校验）。
 
 ## 2. 九实体与金额口径
 
@@ -90,11 +90,11 @@ limits()                             // 风控阈值只读视图
 - `previewTransfer` 返回 `dailyUsedCents` / `dailyLimitCents` / `remainingCents`（**不含本笔**）、
   `risks[]` 与 `verdict`（allow / warn / block）。最终 ask/deny 仍归治理平面。
 
-### 与 `@bah/core` 冻结的 `TicketRef` 的桥接（08/09 要接）
+### 与 `@bah/core` 冻结的 `TicketRef` 的桥接（08 已落地）
 
 `@bah/core` 的 `TicketRef` 只有 `{ ticketId, fingerprint, amount?, expiresAt }`；本包的五绑定需要
 `sessionId` 与 `tool`。工具执行时能拿到 `ToolExecContext.sessionId` 与工具定义名，所以在**工具边界**
-组装：
+组装（`packages/bank/src/tools/tickets.ts`）：
 
 ```ts
 const ref = {
@@ -102,7 +102,7 @@ const ref = {
   binding: {
     sessionId: ctx.sessionId,              // ToolExecContext
     tool: definition.name,                 // 工具定义名
-    fingerprint: coreTicket.fingerprint,
+    fingerprint: fingerprintOf(tool, args), // 工具边界重算（审批后改参数即失效）
     amountCents: yuanToCents(coreTicket.amount ?? 0),
     expiresAt: coreTicket.expiresAt,
   },
@@ -110,6 +110,8 @@ const ref = {
 ```
 
 这一步刻意留在 08（工具族）而不是核心：核心不依赖运行时，五绑定才是核销的权威材料。
+审批票据的 `issued → approved / blocked` 生命周期由 `tools/governance.ts` 的 `approval/request`
+桥接同步（详见 [bank-tools.md](bank-tools.md) §3）。
 
 ## 5. 造数三档
 
@@ -177,6 +179,9 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 | T-BANK-011 风控预检五规则 | `forge/risk.test.ts` |
 | T-BANK-012 余额不足 | `core/mock.test.ts` |
 
+工具族（施工单 08）的用例在 `packages/bank/src/tools/*.test.ts`，ID 与期望见
+[bank-tools.md](bank-tools.md) §8（T-TOOLS-001~010）。
+
 补充用例：票据并发核销（两个并发 `createTransfer` 只成功一个）、状态机边角（重复签发 / 幂等 /
 已核销不可再阻断）、分页与非法游标、账单环比与三类异常、金额校验 fail-loud、UTC 账期解析。
 
@@ -188,7 +193,7 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 | 项 | 现状 | 计划 |
 |---|---|---|
 | card / subscription 的 Provider 方法 | 九实体与造数已落；读写方法未加入 `BankCoreProvider` | 施工单 08 的工具对齐时补齐（07 §2 明确写了"同理"） |
-| 与 `@bah/core` `TicketRef` 的桥接 | 本包用五绑定的 `TicketRef` | 工具边界组装（见 §4 代码），属 08/09 |
+| 与 `@bah/core` `TicketRef` 的桥接 | 08 已落地（`tools/tickets.ts` + `tools/governance.ts`） | 09 接管审批服务与挑战链 |
 | 金额单位 | 核心面全是「分」；工具参数是「元」 | 08 的工具层用 `yuanToCents` 转换一次 |
 | 日 / 账期 | 固定 UTC 切分 | 夜间大额是唯一本地口径（UTC+8）；如需按客户时区切日，属插件线配置扩展 |
 | 状态持久化 | 全内存；重启回到造数初始态 | 真实对接只换 Provider；mock 不落盘 |

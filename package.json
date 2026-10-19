@@ -16,7 +16,8 @@
     "test:web": "vitest run --config vitest.web.config.ts",
     "check": "tsx scripts/ci.ts",
     "gate": "tsx scripts/run-gates.ts",
-    "bah": "tsx packages/cli/src/main.ts"
+    "bah": "tsx packages/cli/src/main.ts",
+    "tool-catalog": "tsx scripts/build-tool-catalog.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

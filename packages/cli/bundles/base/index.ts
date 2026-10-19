@@ -21,6 +21,9 @@ export const bundle: Bundle = {
     { id: 'core:model', config: { provider: 'deepseek', model: 'deepseek-chat' } },
     { id: 'core:agent', config: { loop: { model: 'deepseek:deepseek-chat' } } },
     { id: 'core:persistence', config: { root: 'sessions' } },
+    // 银行工具族（施工单 08）：默认不带身份（09 的会话绑定落地前，未绑定 = 业务工具全 deny）；
+    // headless / 演示 profile 用 patch 显式写 demoUserId
+    { id: 'bank:tools' },
     // Saga 补偿与审计层（SA-07）：存储底座 → 协调器（提供时钟）→ 审计链（等时钟就绪）
     { id: 'bank:saga-store', config: { dbPath: 'sessions/saga.sqlite' } },
     { id: 'bank:saga' },
