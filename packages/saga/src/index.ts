@@ -4,6 +4,7 @@
  * 纪律：跨包只认服务键与事件名（SA-00 §4.5）。
  */
 
+import { installGates } from './gates/index.ts'
 import { installIdempotency } from './idempotency/index.ts'
 import { SAGA_CLOCK } from './seams.ts'
 import { installTemplates } from './templates/index.ts'
@@ -87,6 +88,35 @@ export {
   registerTemplate,
   validateTemplate,
 } from './templates/index.ts'
+export {
+  barrierCheck,
+  compBackoffDelay,
+  downstreamOf,
+  issueComp,
+  reverseLayers,
+  runCompensation,
+} from './compensation/index.ts'
+export type { CompensationDeps, CompensationInvocation } from './compensation/index.ts'
+export {
+  assertManualOnlyTail,
+  assertNotModelVisible,
+  buildTraceparent,
+  checkBusinessRule,
+  checkRisk,
+  checkSchema,
+  compensationEndpointName,
+  dlqDepthVerdict,
+  installDlqAlerts,
+  installGates,
+  provideParamGates,
+  provideTraceparentInjection,
+  spanIdOf,
+  submitDecision,
+  toW3cTraceId,
+  traceparentOf,
+  withTraceparent,
+} from './gates/index.ts'
+export type { DecisionOutcome, ParamGateName, ParamGateVerdict, StaleDetail } from './gates/index.ts'
 export { probeStep } from './probe/index.ts'
 export type { ProbeObservation, ProbeTransport, ProbeVerdict, StepRef } from './probe/index.ts'
 export { classify, mustDeadLetter, RETRYABLE } from './probe/classify.ts'
@@ -107,8 +137,12 @@ export const systemClock: SagaClock = {
  * 启动期恢复需要存储与审计同时就绪，由 host 侧用 `ctx.whenReady` 调度（见 saga 插件）。
  */
 export function provideSaga(ctx: Context, settings: SagaSettings): void {
-  void settings
   ctx.provide(SAGA_CLOCK, systemClock)
   installIdempotency(ctx)
   installTemplates(ctx)
+  // 工具面治理（三道闸 / traceparent）与模板注册同属 b2 批次特性；
+  // 关开关即回滚挂点，DDL 不回滚（SA-00 §10）。
+  if (settings.features.b2) {
+    ctx.effect(installGates(ctx))
+  }
 }
