@@ -27,6 +27,9 @@ export const bundle: Bundle = {
     // 审批服务（施工单 09）：必须排在 bank:tools 之后——bank 的桥接先签五绑定票据，
     // 再把「找谁应答」交给本行的仲裁器（waterfall 的注册顺序 = 外层顺序）
     { id: 'interaction:approval' },
+    // 安全防护层（施工单 10）：也在 bank:tools 之后（要 bank:tickets 做熔断吊销）；
+    // 只做四接缝接线 + 幻觉防护，判决阈值全部走 safety:sentry 配置
+    { id: 'safety:sentry' },
     // Saga 补偿与审计层（SA-07）：存储底座 → 协调器（提供时钟）→ 审计链（等时钟就绪）
     { id: 'bank:saga-store', config: { dbPath: 'sessions/saga.sqlite' } },
     { id: 'bank:saga' },

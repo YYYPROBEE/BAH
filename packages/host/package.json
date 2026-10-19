@@ -16,7 +16,9 @@
     "@bah/runtime": "workspace:*",
     "@bah/llm": "workspace:*",
     "@bah/interaction": "workspace:*",
+    "@bah/safety": "workspace:*",
     "@bah/bank": "workspace:*",
+    "@bah/knowledge": "workspace:*",
     "@bah/persistence": "workspace:*",
     "@bah/saga": "workspace:*",
     "@bah/util": "workspace:*"

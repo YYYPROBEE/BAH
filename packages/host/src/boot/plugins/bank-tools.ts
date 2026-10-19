@@ -16,6 +16,7 @@
 import {
   BANK_CHALLENGE,
   BANK_IDENTITY,
+  BANK_TICKETS,
   BANK_TOOL_NAME_SET,
   MockBankCore,
   SessionIdentityStore,
@@ -118,6 +119,9 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         lockMs: config.verify.lockMinutes * 60_000,
         now: run.now,
       })
+      // 票据状态机的宿主出口（状态读取 + 熔断批量吊销；核销入口不外泄）。
+      // 施工单 10 §5：sentry 的断路器只通过这个服务键吊销在途票据，不自己核销。
+      ctx.effect(ctx.provide(BANK_TICKETS, core.tickets))
 
       const session = ctx.get(SESSION_SERVICE)
       const identity = new SessionIdentityStore()

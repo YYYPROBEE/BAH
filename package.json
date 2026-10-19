@@ -15,9 +15,16 @@
     "snapshot:record": "node scripts/record-snapshot.mjs",
     "test:web": "vitest run --config vitest.web.config.ts",
     "check": "tsx scripts/ci.ts",
+    "check:full": "pnpm check && pnpm rag:check",
     "gate": "tsx scripts/run-gates.ts",
     "bah": "tsx packages/cli/src/main.ts",
-    "tool-catalog": "tsx scripts/build-tool-catalog.ts"
+    "tool-catalog": "tsx scripts/build-tool-catalog.ts",
+    "rag:dev": "node scripts/rag.mjs dev",
+    "rag:test": "node scripts/rag.mjs test",
+    "rag:check": "node scripts/rag.mjs check",
+    "rag:ingest": "node scripts/rag.mjs ingest",
+    "rag:contract": "node scripts/rag.mjs contract",
+    "demo:rag": "node scripts/demo-rag.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

@@ -19,7 +19,9 @@
  * 工具边界完成映射；本包的五绑定是核销时的**权威比对材料**。
  */
 
-import type { SessionId, TicketId } from '@bah/core'
+import { defineService } from '@bah/core'
+
+import type { ServiceKey, SessionId, TicketId } from '@bah/core'
 
 import { BahError } from '@bah/util'
 
@@ -219,6 +221,32 @@ export class TicketStore {
     return this.records.get(ticketId)?.status
   }
 
+  /**
+   * 吊销全部**在途**票据（`issued` / `approved` → `blocked`）。
+   *
+   * 施工单 10 §5 的熔断动作：冻结时让旧票据不可执行。属主仍是本类——
+   * 断路器只调用它，不自己改票据状态；`redeemed` / `blocked` 是终态，不受影响。
+   *
+   * @param reason 阻断理由（审计用；如 `sentry-breaker-frozen`）
+   * @param now 操作时刻（epoch ms；注入时钟）
+   * @returns 本次被吊销的票据记录（顺序 = 签发顺序）
+   */
+  revokeAll(reason: string, now: number): readonly TicketRecord[] {
+    const revoked: TicketRecord[] = []
+    for (const [ticketId, record] of this.records) {
+      if (record.status !== 'issued' && record.status !== 'approved') continue
+      const blocked: TicketRecord = {
+        ...record,
+        status: 'blocked',
+        blockedAt: now,
+        blockedReason: reason,
+      }
+      this.records.set(ticketId, blocked)
+      revoked.push(blocked)
+    }
+    return revoked
+  }
+
   private require(ticketId: TicketId): TicketRecord {
     const record = this.records.get(ticketId)
     if (record === undefined) {
@@ -228,8 +256,15 @@ export class TicketStore {
   }
 }
 
-/** 五绑定逐项比对；返回第一处不一致的字段名，全等返回 `undefined`。 */
-function bindingDiff(left: TicketBinding, right: TicketBinding): string | undefined {
+/**
+ * 服务键：`bank:tickets`（票据状态机的宿主出口）。
+ *
+ * 只暴露**状态读取 + 批量吊销**这一对最小面：核销仍只在工具体内经 `TicketRef` 完成，
+ * 安全层拿不到 `redeem()` 的授权入口（施工单 07 §3：核销唯一属主）。
+ */
+export const BANK_TICKETS: ServiceKey<TicketStore> = defineService<TicketStore>('bank:tickets')
+
+/** 五绑定逐项比对；返回第一处不一致的字段名，全等返回 `undefined`。 */function bindingDiff(left: TicketBinding, right: TicketBinding): string | undefined {
   if (left.sessionId !== right.sessionId) return 'sessionId'
   if (left.tool !== right.tool) return 'tool'
   if (left.fingerprint !== right.fingerprint) return 'fingerprint'

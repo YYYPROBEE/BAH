@@ -12,12 +12,14 @@ import { agentPlugin } from './agent.ts'
 import { approvalPlugin } from './approval.ts'
 import { bankToolsPlugin } from './bank-tools.ts'
 import { echoPlugin } from './echo.ts'
+import { knowledgePlugin } from './knowledge.ts'
 import { modelPlugin } from './model.ts'
 import { persistencePlugin } from './persistence.ts'
 import { promptPlugin } from './prompt.ts'
 import { sagaPlugin } from './saga.ts'
 import { sagaAuditPlugin } from './saga-audit.ts'
 import { sagaStorePlugin } from './saga-store.ts'
+import { sentryPlugin } from './sentry.ts'
 import { sessionPlugin } from './session.ts'
 import { toolsPlugin } from './tools.ts'
 
@@ -31,7 +33,9 @@ export const HOST_PLUGINS: readonly HostPlugin<any>[] = [
   persistencePlugin,
   echoPlugin,
   bankToolsPlugin,
+  knowledgePlugin,
   approvalPlugin,
+  sentryPlugin,
   sagaStorePlugin,
   sagaPlugin,
   sagaAuditPlugin,
@@ -42,12 +46,14 @@ export {
   approvalPlugin,
   bankToolsPlugin,
   echoPlugin,
+  knowledgePlugin,
   modelPlugin,
   persistencePlugin,
   promptPlugin,
   sagaPlugin,
   sagaAuditPlugin,
   sagaStorePlugin,
+  sentryPlugin,
   sessionPlugin,
   toolsPlugin,
 }
