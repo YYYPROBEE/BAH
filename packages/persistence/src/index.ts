@@ -4,5 +4,10 @@
  * 后续：`projection/` `query/` `title/` `credentials/` `settings/` `identity/` `feedback/`
  * `migrations/`（施工单 03、12）。
  */
+export * from './chain/index.ts'
 export * from './jsonl/index.ts'
 export * from './persistence/index.ts'
+export * from './projection/index.ts'
+export * from './saga-store/index.ts'
+export * from './saga-store/migrations/index.ts'
+export * from './saga-store/types.ts'

@@ -9,6 +9,7 @@
     { "path": "packages/safety" },
     { "path": "packages/bank" },
     { "path": "packages/persistence" },
+    { "path": "packages/saga" },
     { "path": "packages/host" },
     { "path": "packages/channels" },
     { "path": "packages/cli" },

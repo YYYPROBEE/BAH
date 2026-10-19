@@ -23,6 +23,12 @@ const SESSION_TYPES = 'packages/runtime/src/session/types.ts'
 /** 接缝事件表所在的文件（相对仓库根）。 */
 const SEAMS = 'packages/runtime/src/seams.ts'
 
+/**
+ * `BahEventMap` 是**可增强的接缝表**：`@bah/saga` 按 SA-07 §5 用模块增强追加
+ * saga 专用派发键（这些键不落会话事件，SA-00 §4.4「两套键空间」）。
+ * 因此声明集合 = runtime `seams.ts` + 全仓所有 `interface BahEventMap` 块。
+ */
+
 /** 允许调用 `deriveMessages(` 的路径前缀（相对仓库根的 posix 路径）。 */
 const DERIVE_WHITELIST = [
   'packages/runtime/src/session/',
@@ -47,6 +53,7 @@ const gate: Gate = {
     const declared = new Set<string>([
       ...readSessionTypeNames(root),
       ...readSeamNames(root),
+      ...readAugmentedSeamNames(root),
     ])
 
     const findings: string[] = []
@@ -98,6 +105,22 @@ function readSessionTypeNames(root: string): string[] {
 function readSeamNames(root: string): string[] {
   const text = readFileSync(`${root}/${SEAMS}`, 'utf8')
   return [...text.matchAll(/^\s*'([\w.:/-]+)'\s*:/gm)].map((matched) => matched[1]!)
+}
+
+/** 扫描全仓 `interface BahEventMap { ... }` 模块增强块，收集派发键。 */
+function readAugmentedSeamNames(root: string): string[] {
+  const names: string[] = []
+  for (const file of walk(root, ['packages'], isSource)) {
+    const text = readFileSync(file, 'utf8')
+    if (!text.includes('interface BahEventMap')) continue
+    for (const block of text.matchAll(/interface\s+BahEventMap\s*\{([\s\S]*?)\n\s*\}/g)) {
+      const body = block[1] ?? ''
+      for (const matched of body.matchAll(/^\s*'([\w.:/-]+)'\s*:/gm)) {
+        names.push(matched[1] as string)
+      }
+    }
+  }
+  return names
 }
 
 /** 注释行不参与扫描（文档里提到事件名或 deriveMessages 不构成调用）。 */

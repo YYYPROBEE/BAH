@@ -13,6 +13,9 @@ import { echoPlugin } from './echo.ts'
 import { modelPlugin } from './model.ts'
 import { persistencePlugin } from './persistence.ts'
 import { promptPlugin } from './prompt.ts'
+import { sagaPlugin } from './saga.ts'
+import { sagaAuditPlugin } from './saga-audit.ts'
+import { sagaStorePlugin } from './saga-store.ts'
 import { sessionPlugin } from './session.ts'
 import { toolsPlugin } from './tools.ts'
 
@@ -25,9 +28,23 @@ export const HOST_PLUGINS: readonly HostPlugin<any>[] = [
   agentPlugin,
   persistencePlugin,
   echoPlugin,
+  sagaStorePlugin,
+  sagaPlugin,
+  sagaAuditPlugin,
 ]
 
-export { agentPlugin, echoPlugin, modelPlugin, persistencePlugin, promptPlugin, sessionPlugin, toolsPlugin }
+export {
+  agentPlugin,
+  echoPlugin,
+  modelPlugin,
+  persistencePlugin,
+  promptPlugin,
+  sagaPlugin,
+  sagaAuditPlugin,
+  sagaStorePlugin,
+  sessionPlugin,
+  toolsPlugin,
+}
 
 /**
  * 造依赖清单。
