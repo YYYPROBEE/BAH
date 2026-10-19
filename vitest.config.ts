@@ -41,6 +41,8 @@ export default defineConfig({
         'packages/llm/src/llm/types.ts',
         // 压缩的配置/计划形状：只有接口，零可执行行
         'packages/runtime/src/compaction/types.ts',
+        // 仿真银行的 Provider 契约：只有接口与类型别名，零可执行行
+        'packages/bank/src/core/provider.ts',
       ],
       // 名单内文件的行覆盖必须 100%（按文件强制的兜底执行口）
       thresholds: { lines: 100 },

@@ -101,7 +101,12 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
   },
   {
     package: 'bank',
-    scope: 'core/ticket.ts',
-    why: '票据状态机——核销唯一属主（施工单 07 §3）',
+    scope: 'core/',
+    why: '仿真银行核心：九实体 / 票据状态机与原子核销 / 日累计权威口径 / mock 账本（施工单 07）',
+  },
+  {
+    package: 'bank',
+    scope: 'forge/',
+    why: '造数确定性（seeded 三档）与风控预检五规则（施工单 07 §4）',
   },
 ]
