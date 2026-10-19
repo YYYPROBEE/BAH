@@ -8,10 +8,26 @@
  * 否则会与后装的审计插件互等）。
  */
 
-import { parseSagaSettings, provideSaga, recoverAll } from '@bah/saga'
+import { resolve } from 'node:path'
+
+import { ChainFile, projectionDiff } from '@bah/persistence'
+import type { ProjectionReducer } from '@bah/persistence'
+import {
+  installConvergence,
+  legacyAlertSink,
+  parseSagaSettings,
+  provideSaga,
+  recoverAll,
+  reduceSaga,
+} from '@bah/saga'
 import { SAGA_AUDIT, SAGA_STORE } from '@bah/saga'
 
+import type { ChainRow } from '@bah/saga'
+
 import type { HostPlugin } from '../../plugin-manager/index.ts'
+
+/** 链根目录与 `bank:saga-audit` 保持一致：`<cwd>/sessions/<sagaId>/audit.jsonl`。 */
+const CHAIN_ROOT = resolve(process.cwd(), 'sessions')
 
 export const sagaPlugin: HostPlugin<ReturnType<typeof parseSagaSettings>> = {
   id: 'bank:saga',
@@ -22,7 +38,28 @@ export const sagaPlugin: HostPlugin<ReturnType<typeof parseSagaSettings>> = {
       provideSaga(ctx, settings)
 
       void Promise.all([ctx.whenReady(SAGA_STORE), ctx.whenReady(SAGA_AUDIT)])
-        .then(() => recoverAll(ctx, settings))
+        .then(() => {
+          recoverAll(ctx, settings)
+          // 批 6：把 janitor / recon 接回 tick 注册表，并注入链只读面。
+          const chain = new ChainFile({ rootDir: CHAIN_ROOT, fsync: false })
+          installConvergence(
+            ctx,
+            settings,
+            () => undefined,
+            async () => [],
+            {
+              projectionDiff: (sagaId) =>
+                projectionDiff(ctx, chain, sagaId, reduceSaga as unknown as ProjectionReducer),
+              readStream: (sagaId): readonly ChainRow[] =>
+                chain.read(sagaId).map((row) => ({ q: row.q, t: row.t, sub: row.sub, hb: row.hb })),
+            },
+            // DLQ 升级等常规告警进进程内汇；邮件/webhook 由渠道适配器消费。
+            (level, message) => {
+              const sink = legacyAlertSink()
+              sink(level, message)
+            },
+          )
+        })
         .catch((error: unknown) => {
           // 内核不提供 start 钩子；启动恢复失败必须可见，不能静默吞错。
           console.error(

@@ -29,6 +29,7 @@ import type {
   StateSnapshot,
   StepState,
   SuspensionTicket,
+  TargetSystemRow,
   VaultSensitive,
 } from './types.ts'
 
@@ -60,6 +61,11 @@ export interface SagaStoreHandle {
   findActiveTemplate(toolName: string): CompTemplate | undefined
   /** 按 `(template_id, template_version)` 读回冻结版本。 */
   readTemplate(templateId: string, templateVersion: number): CompTemplate | undefined
+  /** 目标系统登记读取（SA-16 §8：批 6 补，供 host 提供 `bah:target-registry`）。 */
+  readTarget(targetSystem: string): TargetSystemRow | undefined
+  listTargets(): readonly TargetSystemRow[]
+  /** 运维/装配期登记目标（补偿自动化的前置事实）。 */
+  upsertTarget(target: TargetSystemRow): void
   /** 关闭连接（宿主插件在 dispose 时调用）。 */
   close(): void
 }
@@ -167,6 +173,18 @@ function mapTemplate(row: Row): CompTemplate {
     amountThreshold: optNum(row['amount_threshold']),
     payloadProjection: str(row['payload_projection']),
     status: str(row['status']),
+  }
+}
+
+function mapTarget(row: Row): TargetSystemRow {
+  return {
+    targetSystem: str(row['target_system']),
+    idempotencySupport: str(row['idempotency_support']) as TargetSystemRow['idempotencySupport'],
+    idempotencyTtlS: optNum(row['idempotency_ttl_s']),
+    probeEndpoint: optStr(row['probe_endpoint']),
+    lagSeconds: num(row['lag_seconds']),
+    attestDigest: optStr(row['attest_digest']),
+    registeredAt: num(row['registered_at']),
   }
 }
 
@@ -440,6 +458,48 @@ class SqliteSagaStore implements SagaStoreHandle {
       .prepare('SELECT * FROM comp_template WHERE template_id = ? AND template_version = ?')
       .get(templateId, templateVersion) as Row | undefined
     return row === undefined ? undefined : mapTemplate(row)
+  }
+
+  /* ── 目标系统登记（SA-16 §8：批 6 补读取入口） ── */
+
+  readTarget(targetSystem: string): TargetSystemRow | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM target_system_registry WHERE target_system = ?')
+      .get(targetSystem) as Row | undefined
+    return row === undefined ? undefined : mapTarget(row)
+  }
+
+  listTargets(): readonly TargetSystemRow[] {
+    const rows = this.db
+      .prepare('SELECT * FROM target_system_registry ORDER BY target_system')
+      .all() as Row[]
+    return rows.map(mapTarget)
+  }
+
+  upsertTarget(target: TargetSystemRow): void {
+    this.db
+      .prepare(
+        `INSERT INTO target_system_registry
+          (target_system, idempotency_support, idempotency_ttl_s, probe_endpoint,
+           lag_seconds, attest_digest, registered_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(target_system) DO UPDATE SET
+           idempotency_support = excluded.idempotency_support,
+           idempotency_ttl_s = excluded.idempotency_ttl_s,
+           probe_endpoint = excluded.probe_endpoint,
+           lag_seconds = excluded.lag_seconds,
+           attest_digest = excluded.attest_digest,
+           registered_at = excluded.registered_at`,
+      )
+      .run(
+        target.targetSystem,
+        target.idempotencySupport,
+        target.idempotencyTtlS ?? null,
+        target.probeEndpoint ?? null,
+        target.lagSeconds,
+        target.attestDigest ?? null,
+        target.registeredAt,
+      )
   }
 
   /* ── 步骤 ── */

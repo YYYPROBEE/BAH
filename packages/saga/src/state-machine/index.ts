@@ -8,31 +8,12 @@
 import { BahError } from '@bah/util'
 
 import { TERMINAL_STATES } from '../types.ts'
+import { canTransition, SAGA_TRANSITIONS } from './transitions.ts'
 
 import type { SagaStore } from '../seams.ts'
 import type { SagaState, TerminalState } from '../types.ts'
 
-/** 合法出边表：终态无出边（SA-00 §4.1）。 */
-export const SAGA_TRANSITIONS: Readonly<Record<SagaState, readonly SagaState[]>> = {
-  CREATED: ['RUNNING'],
-  RUNNING: [
-    'SUCCEEDED',
-    'ABORTED_CLEAN',
-    'COMPENSATING',
-    'PENDING_RISK_REVIEW',
-    'GATE_HOLDING',
-    'COMPENSATION_DLQ',
-  ],
-  PENDING_RISK_REVIEW: ['RUNNING', 'COMPENSATING', 'ABORTED_CLEAN'],
-  GATE_HOLDING: ['RUNNING', 'COMPENSATING'],
-  COMPENSATING: ['COMPENSATED', 'PARTIALLY_COMPENSATED', 'COMPENSATION_DLQ', 'MANUALLY_CLOSED'],
-  PARTIALLY_COMPENSATED: ['COMPENSATING', 'MANUALLY_CLOSED'],
-  COMPENSATION_DLQ: ['MANUALLY_CLOSED'],
-  SUCCEEDED: [],
-  ABORTED_CLEAN: [],
-  COMPENSATED: [],
-  MANUALLY_CLOSED: [],
-}
+export { SAGA_TRANSITIONS, canTransition } from './transitions.ts'
 
 /**
  * 断言一条状态出边合法。

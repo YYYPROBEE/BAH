@@ -196,3 +196,15 @@ export interface VaultSensitive {
   readonly keyVersion: number
   readonly classification: string
 }
+
+/** `target_system_registry` 行（SA-16 §8：批 6 补齐读取入口，消除 `service-missing`）。 */
+export interface TargetSystemRow {
+  readonly targetSystem: string
+  readonly idempotencySupport: 'STRONG' | 'WEAK' | 'NONE'
+  readonly idempotencyTtlS?: number
+  /** `undefined` = 禁止自动补偿。 */
+  readonly probeEndpoint?: string
+  readonly lagSeconds: number
+  readonly attestDigest?: string
+  readonly registeredAt: number
+}

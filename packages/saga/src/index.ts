@@ -4,13 +4,22 @@
  * 纪律：跨包只认服务键与事件名（SA-00 §4.5）。
  */
 
+import { page, provideAlertBus } from './alert/index.ts'
+import { noopAlertSink } from './alert/sink.ts'
 import { installGates } from './gates/index.ts'
 import { installIdempotency } from './idempotency/index.ts'
-import { SAGA_CLOCK } from './seams.ts'
+import { runJanitor } from './janitor/index.ts'
+import { runReconJob } from './recon/index.ts'
+import { SAGA_AUDIT, SAGA_CLOCK } from './seams.ts'
 import { installTemplates } from './templates/index.ts'
+import { installTick } from './tick/index.ts'
+import { registerTickJob } from './tick/registry.ts'
 
 import type { Context } from '@bah/core'
 
+import type { AlertSink } from './alert/sink.ts'
+import type { ForceCloseManifest } from './janitor/index.ts'
+import type { ExternalStatement, ReconDeps } from './recon/index.ts'
 import type { SagaClock } from './seams.ts'
 import type { SagaSettings } from './types.ts'
 
@@ -70,11 +79,13 @@ export { SAGA_STATES, TERMINAL_STATES, STEP_STATES, COMP_STATES } from './types.
 export {
   advance,
   assertTransition,
+  canTransition,
   initialProjection,
   isTerminal,
   reduceSaga,
   SAGA_TRANSITIONS,
 } from './state-machine/index.ts'
+export { SAGA_FINAL_SUBJECT_PREFIX } from './state-machine/reduce.ts'
 export { parseSagaSettings } from './settings.ts'
 export { commitSegment, planSaga, runSaga, mapPool, readySteps } from './coordinator/index.ts'
 export type { CallDispatcher, CallOutcome, CoordinatorDeps, PlannedStep, SagaPlan } from './coordinator/index.ts'
@@ -123,6 +134,90 @@ export { classify, mustDeadLetter, RETRYABLE } from './probe/classify.ts'
 export type { FailureClass } from './probe/classify.ts'
 export { escalateToDlq, settleCall } from './probe/settle.ts'
 export type { EscalateInput, SettleInput, CallOutcome as SettleCallOutcome } from './probe/settle.ts'
+export { noopAlertSink } from './alert/sink.ts'
+export type { AlertLevel, AlertSink } from './alert/sink.ts'
+export { forceClose, hardEscalationIds, runJanitor } from './janitor/index.ts'
+export type { ForceCloseManifest, JanitorCounts } from './janitor/index.ts'
+export {
+  createAmendmentSaga,
+  isDrillWindow,
+  reconcileBatch,
+  reconPeriodOf,
+  runReconJob,
+} from './recon/index.ts'
+export type {
+  ChainRow,
+  ExternalStatement,
+  ExternalStatementRow,
+  ReconBatch,
+  ReconDeps,
+  ReconJobOptions,
+  ReconJobResult,
+  ReconResult,
+} from './recon/index.ts'
+export {
+  dayEndResidualDiff,
+  recordResidual,
+  RESIDUAL_ALERT_RATE,
+  RESIDUAL_P0_RATE,
+  RESIDUAL_WHITELIST,
+} from './recon/residual.ts'
+export type {
+  ResidualInput,
+  ResidualStatement,
+  ResidualStatementRow,
+} from './recon/residual.ts'
+export {
+  lastJobHeartbeat,
+  recordJobHeartbeat,
+  registerTickJob,
+  runTickJob,
+  unregisterTickJob,
+} from './tick/registry.ts'
+export type { TickJobName } from './tick/registry.ts'
+export { dispatchTick, hasRunTick, installTick } from './tick/index.ts'
+export type { TickPayload } from './tick/index.ts'
+
+export {
+  alertSoft,
+  checkChainHealth,
+  collectSloMetrics,
+  emitAlert,
+  heartbeat,
+  legacyAlertSink,
+  page,
+  provideAlertBus,
+  registerAlertSink,
+  sloVerdict,
+  SLO_METRICS,
+} from './alert/index.ts'
+export type {
+  AlertBus,
+  AlertEvent,
+  AlertEventSink,
+  SloMetric,
+  SloObservations,
+  SloSample,
+} from './alert/index.ts'
+
+export {
+  bucketOf,
+  buildApprovalCard,
+  FIVE_STATE_BUCKETS,
+  listSagas,
+  sagaTimeline,
+} from './view/index.ts'
+export type {
+  ApprovalCardData,
+  ApprovalCardInput,
+  FiveStateBucket,
+  SagaTimelineRow,
+} from './view/index.ts'
+export { causalDag, isAcyclic } from './view/causality.ts'
+export type { CausalDag, CausalEdge, CausalNode } from './view/causality.ts'
+
+export { assertReplayDiffZero, replay, replayDiff } from './replay/index.ts'
+export type { ReplayDeps, ReplayResult } from './replay/index.ts'
 
 /** 默认系统时钟：生产路径的唯一时间来源；测试注入 `SagaClock` 覆盖。 */
 export const systemClock: SagaClock = {
@@ -145,4 +240,67 @@ export function provideSaga(ctx: Context, settings: SagaSettings): void {
   if (settings.features.b2) {
     ctx.effect(installGates(ctx))
   }
+  // SA-13：告警总线 + `saga/tick` 唯一派发点 + anchor job（批 6）。
+  if (settings.features.b4) {
+    installObservability(ctx, settings)
+  }
+}
+
+/**
+ * 观测面装配（SA-13 §3.4 / §3.5）：
+ * - 告警汇 + 真实 DLQ 升级监听；
+ * - `saga/tick` 唯一 `serial` 派发点；
+ * - anchor job 登记（period 按 UTC 月度；重复锚定由 anchor 自身幂等）。
+ *
+ * 只登记，不立即执行；janitor / recon 仍由 `installConvergence` 登记。
+ */
+export function installObservability(ctx: Context, settings: SagaSettings): void {
+  provideAlertBus(ctx, settings)
+  installTick(ctx)
+  ctx.effect(
+    registerTickJob('anchor', () => {
+      const at = ctx.get(SAGA_CLOCK).now()
+      const period = new Date(at).toISOString().slice(0, 7)
+      void ctx
+        .get(SAGA_AUDIT)
+        .anchor(period)
+        .catch((error: unknown) => {
+          page(ctx, 'P0', `anchor-failed:${error instanceof Error ? error.message : String(error)}`)
+        })
+    }),
+  )
+}
+
+/**
+ * 收敛闭环装配（SA-12 §3.4，批 5）。
+ *
+ * 只登记 janitor / recon 两个 job；`saga/tick` 的唯一派发点与 host 的
+ * `ReconDeps` / 对账单注入属批 6。`features.b3` 关闭即回滚挂点。
+ *
+ * 注意：`ctx.effect` 的参数只在 dispose 时执行——这里直接传入
+ * `registerTickJob(...)` 返回的 disposer，不能包成 `ctx.effect(() => ...)`。
+ */
+export function installConvergence(
+  ctx: Context,
+  settings: SagaSettings,
+  manifestOf: (sagaId: string) => ForceCloseManifest | undefined,
+  statement: ExternalStatement,
+  deps: ReconDeps,
+  alerts: AlertSink = noopAlertSink,
+): void {
+  if (!settings.features.b3) return
+
+  ctx.effect(
+    registerTickJob('janitor', () => {
+      runJanitor(ctx, settings, manifestOf, alerts)
+    }),
+  )
+
+  ctx.effect(
+    registerTickJob('recon', () => {
+      void runReconJob(ctx, settings, statement, deps, alerts).catch((error: unknown) => {
+        alerts('P0', `recon-job-failed:${error instanceof Error ? error.message : String(error)}`)
+      })
+    }),
+  )
 }
