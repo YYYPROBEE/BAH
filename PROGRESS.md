@@ -15,7 +15,7 @@
 | 04 | 主循环 agent-loop | 阶段 5 | [x] | turn/step 状态机 + 四接缝 + 回退分叉；出口清单见 §14，偏差见 §15 |
 | 05 | 模型层与提示词装配 | 阶段 4 | [x] | 词汇表 + Adapter seam + 六段装配 + reconcile + 压缩；出口清单见 §11，偏差见 §12 |
 | 06 | 组合系统 profile | 阶段 6 | [x] | 三层概念（profile/bundle/patch）+ 四层层序 + config-only HMR + CLI 出口；出口清单见 §17，偏差见 §18 |
-| 07 | 仿真银行 bank | 插件线 | [ ] | 接缝冻结后才可开工 |
+| 07 | 仿真银行 bank | 插件线 | [x] | bank-core / bank-forge 实装：九实体、票据状态机与原子核销、三档造数、风控预检五规则；出口清单见 §26，偏差见 §27，待确认见 §28 |
 | 08 | 银行工具族 | 插件线 | [ ] | |
 | 09 | 三级权限审批票据 | 插件线 | [ ] | `ToolDefinition.tier` 已预留 |
 | 10 | 安全防护层 sentry | 插件线 | [ ] | |
@@ -472,6 +472,61 @@
 | 3 | `snapshot-fresh` 的基线策略（R72） | 默认 `HEAD`，CI 用 `BAH_SNAPSHOT_BASE` | 若 CI 有固定基线（如 `origin/main`），建议在 CI 脚本里显式设置，避免"树干净即通过" |
 | 4 | 压缩边界（R74） | 当前 turn 永不折叠 | 单 turn 超窗的治理留给插件线（工具结果裁剪 / 预算 guard），请确认这一归属 |
 | 5 | 快照覆盖面 | 仍是 1 条 headless 基础场景 | 阶段 7 §22 第 4 条仍有效：插件线落地后补注入拦截 / 审批通过 / 审批拒绝 / 熔断冻结各一条 |
+
+## 26. 插件线 07 出口清单（施工单 07 · 仿真银行 bank）
+
+> 插件线首阶段。本阶段只落**库与领域机制**（core / forge）；工具族（08）、审批票据接线（09）随后。
+> 本阶段不改 `packages/{runtime,llm}`，快照门禁判定"未触及治理平面"，无需重录快照。
+
+| # | 出口标准（§0） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | 九实体数据模型落地，seeded 造数可复现 | ✓ | `core/model.ts` 九实体 + 八类品牌 ID；`forge/index.ts` 三档造数；T-BANK-001（同 seed 逐字全等、换 seed 流水不同） |
+| 2 | `BankCoreProvider` 接口完整；写操作强制 `TicketRef` 门禁 | ✓ | `core/provider.ts` 九个方法；`createTransfer` / `purchaseWealth` 的第二个参数就是 `TicketRef`，核心内先 `tickets.redeem()` 再动账本 |
+| 3 | 票据状态机归本包；原子核销防并发重放 | ✓ | `core/ticket.ts`：`issued → approved → redeemed | blocked`；`redeem()` 同步 CAS（检查与转移之间无 await）；T-BANK-002/003/004/005/006 + 并发用例（`Promise.allSettled` 只成功一个） |
+| 4 | `previewTransfer` 返回当日已累计与剩余额度（权威口径） | ✓ | T-BANK-007（两笔 1,000 元后 remaining = 3,000 元）；T-BANK-008（换会话仍累计 80,000 分）；日累计只从账本流水推导 |
+| 5 | `demo` 档预置王建国为白名单收款人（首笔早于演示） | ✓ | T-BANK-009：`binding = 'whitelist'`、`firstSeenAt < now`；数据速查表见 [docs/bank.md](docs/bank.md) §5 |
+| 6 | 三档造数 + 五规则 mock 风控预检 | ✓ | T-BANK-010（adversarial 含差 10,000 分的金额与新收款人、夜间大额、重复扣费）；T-BANK-011（五规则各自返回码 + 同时触发的固定顺序） |
+| 7 | 全部单测通过，行覆盖 100% | ✓ | `packages/bank` **57 用例 / 6 文件**；`bank/core/` 行 100%（分支 96.53 / 函数 100）、`bank/forge/` 100/100/100 |
+
+| # | 验收清单（§7） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | §0 七条逐条核对 | ✓ | 见上表 |
+| 2 | bank-core / bank-forge 行覆盖 100% | ✓ | `pnpm test:coverage` → All files 行 100%，两个 scope 均 100% |
+| 3 | 票据核销并发测试 | ✓ | `core/mock.test.ts`「并发核销」：同一票据两个 `createTransfer`，一个 fulfilled 一个 `ticket-already-redeemed`，余额只扣一次 |
+| 4 | `verify-tiers` / `verify-tool-catalog` 门禁 | 部分 | `verify-tiers` 绿（4 个 ToolDefinition 声明点）；`verify-tool-catalog` 随工具族（08）落地时新增，本阶段无工具可校验 |
+
+**规模**：本阶段新增 **57 用例 / 6 文件**；提交树整体 **518 用例 / 58 文件**（阶段 8 为 461 / 51）。
+`pnpm check` 7/7；`pnpm gate` 在提交树 **6/6**（`event-modes` / `no-upstream-imports` / `plugin-config` /
+`session-events` / `snapshot-fresh` / `tiers`）；`pnpm build` 12 包。覆盖率名单扩容：
+`bank/core/` 与 `bank/forge/`（`core/provider.ts` 是纯类型模块，按既有惯例在 `vitest.config.ts` 排除）。
+
+> 说明：本地工作树另有一批**不属本阶段**的未提交 `@bah/saga` 改动（第 13 个包及相关门禁/接线），
+> 本阶段未纳入提交；因此本地整体测试数为 549 用例 / 64 文件、门禁 7/7、构建 13 包。
+
+## 27. 已知偏差与残留风险（插件线 07）
+
+| ID | 项 | 处理 |
+|---|---|---|
+| R78 | 票据状态机落 `core/ticket.ts`（施工单 07 §5 写的是 `core/tickets.ts`） | 覆盖率名单与 `@bah/bank` 单数模块习惯（`model/provider/mock/time`）一致；已在 [docs/bank.md](docs/bank.md) §8 记账 |
+| R79 | 金额统一整数「分」，字段名带 `Cents`（施工单未规定单位） | 避免余额/日累计/票据金额的浮点误差；工具边界的「元」用 `yuanToCents` 转一次；展示用 `formatYuan` |
+| R80 | `BankCoreProvider` 未含 card / subscription 读写方法 | 施工单 07 §2 明确写"card / subscription 同理（施工单 08 的工具对齐后补齐方法）"；九实体与造数已落 |
+| R81 | 票据凭据有两层形状：`@bah/core` 的 `TicketRef`（3 字段）与本包五绑定 `TicketRef` | 桥接刻意留在 08 的工具边界（`ctx.sessionId` + 工具名 + `yuanToCents`），核心不反向依赖运行时；见 [docs/bank.md](docs/bank.md) §4 |
+| R82 | `seededRandom` 从 `@bah/test-support` 下沉到 `@bah/util`，test-support 改为 re-export | 施工单 07 §4.1 要求造数与快照夹具"同源"；`snapshots/README.md` 的 `randomSeed` 才能重放出 bank-forge 的同一套数据。test-support 对外的 import 路径与行为不变 |
+| R83 | 覆盖率名单扩容（`bank/core/`、`bank/forge/`），并把 `core/provider.ts` 加进纯类型排除 | 07 §0 要求 bank-core / bank-forge 行覆盖 100%；`provider.ts` 零可执行行，与 `runtime/src/tools/types.ts` 同例 |
+| R84 | 日 / 账期固定 UTC 切分；夜间大额固定 UTC+8 | 跨机器、跨时区判决一致，快照回放不飘；若将来要按客户时区切日，属插件线的配置扩展 |
+| R85 | `demo` 档没有随机量（同 seed 只是"恰好相同"）；`stress` 每用户 100 笔 | demo 追求可讲解的固定数据；stress 的规模足以压分页与汇总 |
+| R86 | 本阶段提交不含 `@bah/saga` 那批未提交改动 | 由人工决定其提交边界；两批只共享 `pnpm-lock.yaml`，本阶段锁文件已按"只含 07"裁剪后提交 |
+
+## 28. 插件线 07 待人工确认项
+
+| # | 项 | 现状 | 建议 |
+|---|---|---|---|
+| 1 | 票据凭据桥接放 08（R81） | 本包用五绑定 `TicketRef` | 请确认 08 在工具边界组装（`ctx.sessionId` / 工具名 / `yuanToCents`），而不是改核心签名 |
+| 2 | 金额单位（R79） | 核心面全「分」，工具参数「元」 | 请确认演示脚本与 16 的附录也按「分」记账、展示时转元 |
+| 3 | card / subscription 方法留到 08（R80） | 未进 Provider | 若演示需要"卡片限额 / 订阅扣费"工具，08 一并补 |
+| 4 | 文件命名（R78） | `core/ticket.ts` | 若要严格照施单改为 `tickets.ts`，需同步覆盖率名单与本文件 |
+| 5 | demo 数据速查表 | 已写进 [docs/bank.md](docs/bank.md) §5 | 施工单 07 §8 建议贴进 16 附录；16 落地时搬运 |
+| 6 | 工作树中 `@bah/saga` 批次的提交 | 未提交、全绿 | 与本阶段无关，请单独决定提交信息与时机；本阶段未触碰其文件 |
 
 
 
