@@ -16,7 +16,7 @@
 | 05 | 模型层与提示词装配 | 阶段 4 | [x] | 词汇表 + Adapter seam + 六段装配 + reconcile + 压缩；出口清单见 §11，偏差见 §12 |
 | 06 | 组合系统 profile | 阶段 6 | [x] | 三层概念（profile/bundle/patch）+ 四层层序 + config-only HMR + CLI 出口；出口清单见 §17，偏差见 §18 |
 | 07 | 仿真银行 bank | 插件线 | [x] | bank-core / bank-forge 实装：九实体、票据状态机与原子核销、三档造数、风控预检五规则；出口清单见 §26，偏差见 §27，待确认见 §28 |
-| 08 | 银行工具族 | 插件线 | [ ] | |
+| 08 | 银行工具族 | 插件线 | [x] | 14 个 P0 工具 / 三级判决与票据桥接 / presenter 契约 / 目录门禁 / headless 实跑；出口清单见 §29，偏差见 §30，待确认见 §31 |
 | 09 | 三级权限审批票据 | 插件线 | [ ] | `ToolDefinition.tier` 已预留 |
 | 10 | 安全防护层 sentry | 插件线 | [ ] | |
 | 11 | 沙箱运行时 | 插件线 | [ ] | |
@@ -527,6 +527,81 @@
 | 4 | 文件命名（R78） | `core/ticket.ts` | 若要严格照施单改为 `tickets.ts`，需同步覆盖率名单与本文件 |
 | 5 | demo 数据速查表 | 已写进 [docs/bank.md](docs/bank.md) §5 | 施工单 07 §8 建议贴进 16 附录；16 落地时搬运 |
 | 6 | 工作树中 `@bah/saga` 批次的提交 | 未提交、全绿 | 与本阶段无关，请单独决定提交信息与时机；本阶段未触碰其文件 |
+
+## 29. 插件线 08 出口清单（施工单 08 · 银行工具族）
+
+> 本阶段只动 `packages/bank/src/{tools,verify}`、`packages/host/src/boot/plugins/{bank-tools,index}`、
+> `packages/cli/bundles/base`、`profiles/headless`、`scripts/{verify-session-events,verify-tiers,verify-tool-catalog,build-tool-catalog}`、
+> 根 `package.json` / `vitest.config.ts` 与文档；**未改** `packages/{runtime,llm}/src`（快照门禁判定无需重录）。
+
+| # | 出口标准（§0） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | 首批 14 个工具完整落地（6 查询 + 2 转账 + 3 理财 + 3 强验证） | ✓ | `tools/specs.ts` 14 项；`tools/catalog.ts` 穷尽工厂表（少一个即编译失败）；`pnpm tool-catalog` → 14 行 |
+| 2 | 每个工具 `tier` 在定义处声明，治理平面统一解释 | ✓ | `specs.ts` 的 `tier` 是唯一来源；`tier: spec.tier` 出现在每个 `satisfies ToolDefinition` 对象里；`pnpm gate` → `tiers` 16 个声明点 |
+| 3 | `presentCall` / `presentResult` 满足施工单 13 的渲染需要 | ✓ | `tools/presenters.ts` 14 种 `kind`；`docs/bank-tools.md` §5 逐字段表；T-TOOLS-009 纯函数断言 + 坏参数不抛错 |
+| 4 | `verify-tool-catalog` 门禁通过；总数 ≤ 28 | ✓ | 新门禁第 10 道：数量 / 名字唯一 / tier 合法 / 事件已声明 / 工厂穷尽 / 文档逐字一致；`pnpm gate` 10/10 |
+| 5 | `wealth.*` 返回带 `disclaimerId` | ✓ | `tools/wealth.ts` 三个工具都从 `config.disclaimerId` 取值；T-TOOLS-005；前端强制渲染见 presenter 卡片字段 |
+| 6 | headless 端到端：mock 模型调 `account_balance` → 绿级放行 → 卡片落账 | ✓ | `pnpm bah --profile headless --prompt 查一下我的余额 --session s-bank09 --jsonl .tmp-bank09` → 22 条事件：`identity/bound` → `tool/call(green)` → `read/balance`（结果整块）→ `tool/result` → 收尾；host 用例 `bank-tools.test.ts` 同链路断言 |
+| 7 | （拍板追加）会话身份绑定先行落地 | ✓ | `BANK_IDENTITY` 服务 + `identity/bound` 领域事件 + 回放恢复；headless 由 `demoUserId` 显式引导；不写即 deny `no-identity`；单测 `identity.test.ts` 4 例 + host 断言 |
+
+| # | 验收清单（§7） | 状态 | 证据 |
+|---|---|---|---|
+| 1 | §0 六条逐条核对 | ✓ | 见上表 |
+| 2 | 工具总数 ≤ 28 | ✓ | 14 / 28；门禁与单测双查 |
+| 3 | P0 14 个全部有 headless 脚本演示路径 | ✓ 部分 | headless 默认脚本演示 `account_balance`；其余 13 个用 pipeline / 工具体用例覆盖（`transfer_create` 含完整黄级票据链） |
+| 4 | 落账事件与施工单 03 §1.2 族表一致 | ✓ | `tools/events.ts` 声明 15 个领域事件（`identity/bound` + 14 个业务事件）；`verify-session-events` 扩展为读取 `BankSessionEventMap` 模块增强，76 个派发点全绿 |
+
+**规格用例落点（T-TOOLS-001~010）**
+
+| ID | 用例 | 文件 |
+|---|---|---|
+| T-TOOLS-001 | 绿级直行（无审批） | `bank/src/tools/governance.test.ts` + `host/.../bank-tools.test.ts` |
+| T-TOOLS-002 | 黄级 800 元白名单 → ask + 票据签发/核销 | `bank/src/tools/governance.test.ts` |
+| T-TOOLS-003 | 日累计含本笔 > 上限 → 红 | `bank/src/tools/governance.test.ts` + `tier.test.ts` |
+| T-TOOLS-004 | 新收款人 → 红（100 元也一样） | 同上 |
+| T-TOOLS-005 | `wealth.*` 带 `disclaimerId` | `bank/src/tools/wealth.test.ts` |
+| T-TOOLS-006 | `analysis_calc` 超时 / 取消 / 语法错误的结构化失败 | `bank/src/tools/queries.test.ts` |
+| T-TOOLS-007 | 独立 verify 调用 → `no-challenge` | `bank/src/tools/verification.test.ts` |
+| T-TOOLS-008 | 三连败 → 锁 30 分钟 + `verify/locked` | 同上 |
+| T-TOOLS-009 | presenter 纯度（两次调用全等） | `bank/src/tools/catalog.test.ts` |
+| T-TOOLS-010 | 目录一致（源码增删 → 门禁红） | `catalog.test.ts` 的负控 + `verify-tool-catalog` |
+
+**规模**：`pnpm test` **734 用例 / 88 文件**（本阶段开工前 651 / 78；本阶段新增 83 例：bank 工具 78 +
+host 装配 5，新增 10 个测试文件）；`pnpm test:coverage` 行 100%；`pnpm gate` **10/10**；`pnpm build` **13 包**全绿；
+`pnpm bah --profile headless …` 22 条事件落盘。文档：新增 [docs/bank-tools.md](docs/bank-tools.md)、
+[docs/tool-catalog.md](docs/tool-catalog.md)；更新 [docs/bank.md](docs/bank.md)、[docs/profile.md](docs/profile.md)。
+
+## 30. 已知偏差与残留风险（插件线 08）
+
+| ID | 项 | 处理 |
+|---|---|---|
+| R87 | 会话身份已在本阶段先行落地（原计划 09）：`SessionIdentityStore` + 服务键 `bank:identity` + `identity/bound` 领域事件 + 回放恢复；`demoUserId` 只是**显式演示引导** | 09 的 credentials（mock 短信 / IM 映射 / Web 登录）调用同一个 `BANK_IDENTITY.bind`，事件名不变。**没有隐式默认账户**，未绑定会话所有业务工具 deny `no-identity`（工具内 `requireUserId` 兜底） |
+| R88 | **预存缺口**：`packages/host/src/boot/plugins/saga.ts` 的启动恢复 `.then()` 回调在覆盖率上只有 81.39%（saga 批 6 引入，08 未改该文件） | 经拍板：接受临时 `coverage.exclude`；`@bah/saga` 的 convergence / recon 用例已覆盖同一逻辑。saga 线补一条 `saga/tick` 触发用例后移除排除 |
+| R89 | 三级判决落在 `packages/bank/src/tools/tier.ts`，不是施工单 09 §1 写的 `packages/runtime/src/tier/decide.ts` | **已拍板**：判定留 bank（覆盖率名单早已预留），09 在同一入口补 `risky_calls` / 跨 turn 状态；审批服务迁 `@bah/interaction`（R90） |
+| R90 | **审批票据生命周期暂由 `tools/governance.ts` 持有**：pre-execute 返回 ask；`approval/request` 桥接里签发五绑定票据、应答后同步 `approved/blocked` | **已拍板**：09 把应答者注册 / 超时归一化 / 双渠道竞答 / 票据 lifecycle 迁到 `@bah/interaction`；bank 侧保留五绑定组装与核销边界 |
+| R91 | 领域事件以 `ignorable: true` 落账 | 运行时 `deriveMessages` 只认识平台族；不标 ignorable 会让下一次请求装配抛 `session-unknown-event`。UI/审计读原始日志，卡片由 `result` 派生；`verify-session-events` 门禁已支持 `BankSessionEventMap` 增强 |
+| R92 | `analysis_calc` 的默认实现是**确定性表达式求值器**（算术 + data 路径 + 5 个函数 + 预算/超时），不是通用 JS | 施工单 11 的 `compute-bounded` 通过 `BankToolDeps.compute` 整体替换；工具层已有 `Promise.race` 超时与 `signal` 取消。代码永不进 `none` 档 |
+| R93 | **红级强验证尚未串联**：红级 `ask` 带 `challenge` 字段，但挑战的签发与"先验证再批准"由 09 完成；当前批准后即可执行红级操作 | **已拍板**：09 接管挑战链。08 的 `verify_face/sms/ushield` 已可用（挑战 / 三连败锁定），T-TOOLS-007/008 覆盖；09 §6 接"挑战通过才允许批准" |
+| R94 | 日限额只升红，不拒绝；批准后 bank-core 仍会执行（core 不校验日限额） | **已拍板**：保持升红、批准后执行（与施工单 08 §3.8 字面一致）；若产品改口径，在 09 判定改 `deny` 并同步 T-TOOLS-003 |
+| R95 | 工具名已按拍板改为**下划线**（`account_balance` / `transfer_create`…） | 规避 DeepSeek / OpenAI 兼容 wire 的 function name 字符集风险；事件名仍是斜杠族（`transfer/created`），不受影响。目录、文档、测试、headless 脚本已同步 |
+| R96 | `transfer_create` 的 `when` 只支持 `now`；未来时间返回 `unsupported-schedule` | P1 `transfer_schedule` / `transfer_split` 接管；不伪造"已定时"的成功 |
+| R97 | `BankCoreProvider` 仍未加 card / subscription 读写方法 | 08 的 P0 14 个工具不需要；P1 的 `card_*` / `sub_*` 落地时按 07 §2 "同理"补齐 |
+| R98 | `demo:echo` 仍留在 base（底座出口的自检工具） | 与 `bank:tools` 并存；插件线 13 若不需要可从 `HOST_PLUGINS` / bundle 移除并同步 headless patch |
+| R99 | `packages/bank` 新增 devDependency `@bah/runtime` + project reference | 只为单测装真实七段管线（`testing.ts` 夹具）；运行时代码不 import runtime。无环：`bank → runtime → llm/persistence → core/util` |
+| R100 | `scripts/verify-tiers.ts` 改为**对象内定位**：`satisfies ToolDefinition` 在对象末尾时向前找 `return {`，再只在这个对象里找 `tier` | 不能用"前后各 60 行"——会看到相邻工具的 tier（负控假绿）。仍为词法门禁；负控（删掉一个 tier）已验证会红 |
+| R101 | `scripts/verify-session-events.ts` 的声明集合新增"整文件收集带引号键" | 领域事件用模块增强声明；按接口块匹配会在 `read/wealth` 的嵌套对象 `}` 处提前截断。负控：未声明的 `transfer/created` 会红 |
+
+## 31. 插件线 08 拍板记录（2026-10-19）
+
+| # | 议题 | 决议 | 落点 / 后续 |
+|---|---|---|---|
+| 1 | 三级判定与审批 lifecycle 放哪 | 判定留 `bank/tools/tier.ts`；审批服务迁 `@bah/interaction` | 09 扩展判定入口，迁应答者 / 超时 / 票据 lifecycle；bank 保留五绑定组装 |
+| 2 | 红级强验证时序 | 09 接管挑战链；08 保持"ask 带 challenge" | 09 §6：挑战通过才允许票据批准 |
+| 3 | 日限额语义 | 升红，批准后仍执行 | 与 08 §3.8 一致；若改"拒绝"需 09 改判定并同步 T-TOOLS-003 |
+| 4 | 工具命名 | **已改为下划线**（`account_balance` 等） | 目录 / 文档 / 测试 / headless 脚本已同步；无 wire 映射债 |
+| 5 | 会话身份 | **08 先行并入**：`BANK_IDENTITY` + `identity/bound` + 回放恢复；`demoUserId` 仅演示引导 | 09 credentials 调同一 `bind`，事件名不变 |
+| 6 | `host/.../saga.ts` 覆盖率缺口 | 接受临时排除 | saga 线补 `saga/tick` 触发用例后移除；非 08 引入 |
+| 7 | P1 工具（card / sub / 定时 / 拆分 / 赎回） | 默认推到 M4 | 先完成 09–16 P0 主线；若演示需要 card / sub 再提前 |
 
 
 

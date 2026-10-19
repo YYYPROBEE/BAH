@@ -9,10 +9,17 @@
     provider: mock
     model: mock-chat
     chunkSize: 4
-    # 脚本化对话：一次工具调用 + 一次文本收尾（证明七段管线在 headless 里也跑通）
+    # 脚本化对话：一次银行工具调用 + 一次文本收尾（证明七段管线在 headless 里也跑通）
     script:
-      - tool: { id: call-1, name: echo, args: { text: 你好，我是 headless 验收用的回显工具 } }
-      - text: 已为你在模拟环境完成查询。
+      - tool: { id: call-1, name: account_balance, args: {} }
+      - text: 已为你在模拟环境查询账户余额。
+
+- id: bank:tools
+  config:
+    # 09 的会话身份绑定落地前，headless 显式绑定 demo 用户（王建国）；不写则所有业务工具 deny
+    demoUserId: u-1
+    seed: 7
+    datasetTier: demo
 
 - id: core:agent
   config:

@@ -115,6 +115,7 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       'core:agent',
       'core:persistence',
       'demo:echo',
+      'bank:tools',
       'bank:saga-store',
       'bank:saga',
       'bank:saga-audit',

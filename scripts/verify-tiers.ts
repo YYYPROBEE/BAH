@@ -16,7 +16,7 @@ import { relative } from 'node:path'
 import { isMainModule, runStandalone, walk, type Gate } from './gate-lib.ts'
 
 /** 声明点之后多少行内必须出现 `tier`（对象字面量通常紧随其后）。 */
-const TIER_WINDOW = 60
+const TIER_WINDOW = 160
 
 /** 只扫包内源码，不扫产物与声明。 */
 const isSource = (fileName: string): boolean => fileName.endsWith('.ts') && !fileName.endsWith('.d.ts')
@@ -72,13 +72,44 @@ function isDeclarationPoint(line: string): boolean {
   return /\bsatisfies\s+ToolDefinition\b/.test(line) || /:\s*ToolDefinition\b[^=]*=\s*\{/.test(line)
 }
 
-/** 声明点之后 TIER_WINDOW 行内是否出现 `tier:`。 */
+/**
+ * 声明点附近是否出现 `tier:`。
+ *
+ * 两种书写都要支持：
+ * - `const x: ToolDefinition<…> = { tier: … }`：`tier` 在声明点之后；
+ * - `return { … } satisfies ToolDefinition`：`satisfies` 在对象**末尾**，`tier` 在之前。
+ *
+ * 第二种不能简单"前后各看 60 行"——会看到相邻工具的定义（负控会假绿）。
+ * 因此先向前找到对象字面量的起点（`return {` / `const x = {`），只在这个对象内找 `tier`。
+ */
 function hasTierWithin(lines: readonly string[], from: number): boolean {
+  if (/\bsatisfies\s+ToolDefinition\b/.test(lines[from] ?? '')) {
+    const start = findObjectStart(lines, from)
+    if (start === undefined) return false
+    for (let index = start; index <= from; index += 1) {
+      if (/\btier\s*:/.test(lines[index] ?? '')) return true
+    }
+    return false
+  }
+
   const end = Math.min(lines.length, from + TIER_WINDOW)
   for (let index = from; index < end; index += 1) {
     if (/\btier\s*:/.test(lines[index] ?? '')) return true
   }
   return false
+}
+
+/** 从 `satisfies` 行向前找对象字面量的起点（优先 `return {`，其次 `const x = {`）。 */
+function findObjectStart(lines: readonly string[], from: number): number | undefined {
+  const floor = Math.max(0, from - TIER_WINDOW)
+  // 先找 `return {`：对象内部可能还有 `const result = {`，不能被它截胡
+  for (let index = from; index >= floor; index -= 1) {
+    if (/^\s*return\s*\{/.test(lines[index] ?? '')) return index
+  }
+  for (let index = from; index >= floor; index -= 1) {
+    if (/^\s*(?:const|let|var)\s+[\w$]+\s*(?::[^=]+)?=\s*\{/.test(lines[index] ?? '')) return index
+  }
+  return undefined
 }
 
 export { gate }
