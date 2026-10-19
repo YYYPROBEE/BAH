@@ -6,17 +6,20 @@
  * 2. 不写 `demoUserId` → 未绑定身份，业务工具 deny `no-identity`（施工单 09 §4）。
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { asSessionId, captureThrown } from '@bah/test-support'
 import { AGENTS_SERVICE, SESSION_SERVICE, TOOLS_SERVICE } from '@bah/runtime'
+import { SessionIdentityStore, restoreSessionIdentity } from '@bah/bank'
+import { CREDENTIALS } from '@bah/persistence'
 import { describe, expect, it } from 'vitest'
 
 import { boot, type BootOptions } from '../boot.ts'
 import { createCatalog } from './index.ts'
 import { DEFAULT_BANK_TOOLS, bankToolsPlugin, type BankToolsSettings } from './bank-tools.ts'
+import { SESSION_FILES } from './persistence.ts'
 import type { AnySessionEvent } from '@bah/runtime'
 import type { PluginRow } from '../profile-plugins.ts'
 
@@ -89,6 +92,17 @@ describe('bank:tools 配置（fail-loud）', () => {
     expect(settings.verify).toEqual({ successAfter: 2, maxAttempts: 4, lockMinutes: 10 })
   })
 
+  it('09 新增阈值：日限额 / 风险名单 / 风险次数都可被配置覆盖', () => {
+    const settings = bankToolsPlugin.validate({
+      dailyTransferLimit: 1_000,
+      riskyOps: ['transfer_create'],
+      riskyCallThreshold: 2,
+    }) as BankToolsSettings
+    expect(settings.dailyTransferLimit).toBe(1_000)
+    expect(settings.riskyOps).toEqual(['transfer_create'])
+    expect(settings.riskyCallThreshold).toBe(2)
+  })
+
   it('未知键 / 非法类型 / 非法枚举全部拒绝', () => {
     const cases: readonly [string, Readonly<Record<string, unknown>>, string][] = [
       ['顶层未知键', { nope: 1 }, 'unknown-config-key'],
@@ -98,6 +112,9 @@ describe('bank:tools 配置（fail-loud）', () => {
       ['挑战渠道非法', { redChallenge: 'password' }, 'invalid-config'],
       ['disclaimerId 空串', { disclaimerId: ' ' }, 'invalid-config'],
       ['verify 嵌套非对象', { verify: 1 }, 'invalid-config'],
+      ['日限额非正整数', { dailyTransferLimit: 0 }, 'invalid-config'],
+      ['风险名单含未知工具', { riskyOps: ['transfer_creat'] }, 'invalid-config'],
+      ['风险次数非正整数', { riskyCallThreshold: 0 }, 'invalid-config'],
     ]
     for (const [name, config, code] of cases) {
       const error = captureThrown(() => bankToolsPlugin.validate(config))
@@ -154,7 +171,7 @@ describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
     }
   })
 
-  it('14 个工具全部注册；不写 demoUserId 时业务工具 deny no-identity', async () => {
+  it('T-IDN-001 14 个工具全部注册；不写 demoUserId 时业务工具 deny no-identity', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bah-bank-noid-'))
     const app = await bootWith({}, 's-bank-noid', dir)
     try {
@@ -174,6 +191,90 @@ describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
       }
       expect(result.isError).toBe(true)
       expect(result.code).toBe('no-identity')
+      expect(
+        app.ctx
+          .get(SESSION_SERVICE)
+          .events()
+          .some((event) => String(event.type) === 'identity/bound'),
+      ).toBe(false)
+    } finally {
+      await app.dispose('test')
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('T-IDN-002 短信登录后绑定：业务工具放行，identity/bound 记 mock-login', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-login-'))
+    const sessionId = 's-bank-login'
+    const app = await bootWith({}, sessionId, dir)
+    try {
+      const credentials = app.ctx.get(CREDENTIALS)
+      const requested = credentials.requestSmsLogin('13800001111')
+      if (!requested.ok) throw new Error(`演示用户手机号应可登录：${requested.code}`)
+      const done = credentials.completeSmsLogin(
+        asSessionId(sessionId),
+        requested.challenge.loginId,
+        requested.challenge.code,
+      )
+      expect(done).toEqual({ ok: true, userId: 'u-1' })
+
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('查一下余额')
+      await agent.run()
+
+      const events = app.ctx.get(SESSION_SERVICE).events()
+      const result = payloads(events, 'tool/result')[0] as { isError: boolean }
+      expect(result.isError).toBe(false)
+      expect(payloads(events, 'identity/bound')[0]).toMatchObject({
+        userId: 'u-1',
+        method: 'mock-login',
+      })
+    } finally {
+      await app.dispose('test')
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('T-IDN-003 identity/bound 是 durable 事实：落盘可查、回放可恢复', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-replay-'))
+    const sessionId = asSessionId('s-bank-replay')
+    const app = await bootWith({}, String(sessionId), dir)
+    try {
+      const credentials = app.ctx.get(CREDENTIALS)
+      const requested = credentials.requestSmsLogin('13800001111')
+      if (!requested.ok) throw new Error('演示用户手机号应可登录')
+      credentials.completeSmsLogin(
+        sessionId,
+        requested.challenge.loginId,
+        requested.challenge.code,
+      )
+
+      const events = app.ctx.get(SESSION_SERVICE).events()
+      const bound = events.filter((event) => String(event.type) === 'identity/bound')
+      expect(bound).toHaveLength(1)
+
+      // durable：JSONL 里真的有一行 identity/bound
+      const file = app.ctx.get(SESSION_FILES).fileOf(sessionId)
+      expect(readFileSync(file, 'utf8')).toContain('identity/bound')
+      expect(readFileSync(file, 'utf8')).toContain('mock-login')
+
+      // 回放：用同一批事件重建身份（施工单 12 的快照回放走同一条路径）
+      const restored = new SessionIdentityStore()
+      restoreSessionIdentity(restored, sessionId, events)
+      expect(restored.resolve(sessionId)).toBe('u-1')
+    } finally {
+      await app.dispose('test')
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('身份绑定只能作用于当前会话（一个 host 进程一个会话，别写进别人的日志）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-guard-'))
+    const app = await bootWith({}, 's-bank-guard', dir)
+    try {
+      const credentials = app.ctx.get(CREDENTIALS)
+      const error = captureThrown(() => credentials.bindSession(asSessionId('s-other'), 'u-1'))
+      expect(error.code).toBe('identity-session-mismatch')
       expect(
         app.ctx
           .get(SESSION_SERVICE)

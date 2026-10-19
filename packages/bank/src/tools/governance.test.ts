@@ -50,7 +50,12 @@ describe('T-TOOLS-001 绿级直行', () => {
       expect(execution.result.code).toBeUndefined()
       expect(payloads(h, 'approval/asked')).toHaveLength(0)
       expect(auditPayloads(h, 'read/balance')).toHaveLength(1)
-      expect(h.audits[0]?.type).toBe('read/balance')
+      expect(h.audits.map((record) => record.type)).toEqual(['tier/decided', 'read/balance'])
+      expect(auditPayloads(h, 'tier/decided')[0]).toMatchObject({
+        name: 'account_balance',
+        level: 'green',
+        verdict: 'allow',
+      })
       expect(h.events().map((event) => event.type)).toEqual(['tool/call', 'tool/result'])
       expect(payloads(h, 'tool/call')[0]).toMatchObject({
         name: 'account_balance',
@@ -155,7 +160,12 @@ describe('审批失败路径', () => {
       expect(execution.result.isError).toBe(true)
       expect(execution.result.code).toBe('no-identity')
       expect(payloads(h, 'approval/asked')).toHaveLength(0)
-      expect(h.audits).toHaveLength(0)
+      // 判决本身仍要落审计（谁在什么时候被拒、理由码是什么）
+      expect(h.audits.map((record) => record.type)).toEqual(['tier/decided'])
+      expect(auditPayloads(h, 'tier/decided')[0]).toMatchObject({
+        verdict: 'deny',
+        code: 'no-identity',
+      })
     } finally {
       await h.dispose()
     }
@@ -178,7 +188,7 @@ describe('审批失败路径', () => {
     }
   })
 
-  it('红色操作锁定中：pre-execute deny verify-locked', async () => {
+  it('T-VER-003 锁定期红级：pre-execute deny verify-locked，票据一张都不签', async () => {
     const verify = new VerifyService({
       provider: { verify: async () => ({ success: false }) },
       maxAttempts: 3,

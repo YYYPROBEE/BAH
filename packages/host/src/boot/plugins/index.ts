@@ -9,6 +9,7 @@ import type { HostPlugin, PluginCatalog } from '../../plugin-manager/index.ts'
 import { bootError } from '../config.ts'
 
 import { agentPlugin } from './agent.ts'
+import { approvalPlugin } from './approval.ts'
 import { bankToolsPlugin } from './bank-tools.ts'
 import { echoPlugin } from './echo.ts'
 import { modelPlugin } from './model.ts'
@@ -30,6 +31,7 @@ export const HOST_PLUGINS: readonly HostPlugin<any>[] = [
   persistencePlugin,
   echoPlugin,
   bankToolsPlugin,
+  approvalPlugin,
   sagaStorePlugin,
   sagaPlugin,
   sagaAuditPlugin,
@@ -37,6 +39,7 @@ export const HOST_PLUGINS: readonly HostPlugin<any>[] = [
 
 export {
   agentPlugin,
+  approvalPlugin,
   bankToolsPlugin,
   echoPlugin,
   modelPlugin,

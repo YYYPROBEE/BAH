@@ -20,10 +20,20 @@ export interface BankToolsConfig {
   readonly disclaimerId: string
   /** `analysis_calc` 的执行上限（ms）；沙箱超时熔断。 */
   readonly computeTimeoutMs: number
-  /** 审批票据 TTL（秒）。 */
+  /** 审批票据 TTL（秒）——**审批超时与票据 TTL 同源**于这一个常量（施工单 09 §10）。 */
   readonly ticketTtlSeconds: number
   /** 红级操作的强验证渠道（09 会按用户/场景选择）。 */
   readonly redChallenge: StrongAuth
+  /**
+   * 日累计上限（**元**；施工单 09 §5）。
+   *
+   * 生效值 = `min(core 账本的卡/账户日限额, 本值)`：数据只能收紧、不能放宽 Config。
+   */
+  readonly dailyTransferLimit: number
+  /** 计入组合风险的工具名（施工单 09 §1.1 第 5 条）。 */
+  readonly riskyOps: readonly string[]
+  /** 同一 turn 内允许的风险调用次数；超过后非绿调用一律 `ask`。 */
+  readonly riskyCallThreshold: number
 }
 
 /** 身份解析接缝：09 落地为会话绑定；08 的 headless 由 profile 显式配置演示用户。 */

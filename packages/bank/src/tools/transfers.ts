@@ -9,7 +9,7 @@
 import type { ToolDefinition } from '@bah/core'
 
 import type { Account } from '../core/index.ts'
-import { formatYuan } from '../core/index.ts'
+import { formatYuan, yuanToCents } from '../core/index.ts'
 import type { TransferPreview } from '../core/provider.ts'
 import { requireAccount, requireUserId } from './accounts.ts'
 import type { PayeeBinding } from '../core/index.ts'
@@ -114,6 +114,7 @@ export function createTransferCreateTool(
  *
  * 生效级别以 **transfer_create 的声明下限（黄）** 为基线：
  * 试算卡片的用途就是告诉用户"执行时会发生什么"，按绿级展示会低估确认成本。
+ * 生效日限额 = `min(core 账本的卡/账户限额, Config 的 dailyTransferLimit)`（施工单 09 §1.1 第 2 条）。
  */
 export async function previewTransfer(
   deps: BankToolDeps,
@@ -127,12 +128,20 @@ export async function previewTransfer(
     amountCents: input.amountCents,
     channel: 'app',
   })
-  return toTransferPreview(preview, clockOf(deps)())
+  return toTransferPreview(preview, clockOf(deps)(), yuanToCents(deps.config.dailyTransferLimit))
 }
 
 /** 预检结果 → DTO（纯函数，`at` 由调用方给，避免读时钟）。 */
-export function toTransferPreview(preview: TransferPreview, at: number): TransferPreviewResult {
-  const tier = escalateTransferTier('yellow', preview)
+export function toTransferPreview(
+  preview: TransferPreview,
+  at: number,
+  dailyLimitCents?: number,
+): TransferPreviewResult {
+  const tier = escalateTransferTier('yellow', preview, dailyLimitCents)
+  const limitCents =
+    dailyLimitCents === undefined
+      ? preview.dailyLimitCents
+      : Math.min(preview.dailyLimitCents, dailyLimitCents)
   return {
     amountCents: preview.amountCents,
     feeCents: preview.feeCents,
@@ -140,8 +149,8 @@ export function toTransferPreview(preview: TransferPreview, at: number): Transfe
     payeeBinding: preview.payee.binding,
     ...(preview.payee.payeeId === undefined ? {} : { payeeId: preview.payee.payeeId }),
     dailyUsedCents: preview.dailyUsedCents,
-    dailyLimitCents: preview.dailyLimitCents,
-    remainingCents: preview.remainingCents,
+    dailyLimitCents: limitCents,
+    remainingCents: Math.max(0, limitCents - preview.dailyUsedCents),
     risks: preview.risks.map((risk) => ({
       rule: risk.rule,
       severity: risk.severity,
