@@ -173,6 +173,7 @@ async function runProfile(
     const session = app.ctx.get(SESSION_SERVICE)
     const events = session.events()
     io.out(`bah: 回复 ${lastAssistantText(events)}`)
+    printKnowledgeCard(events, io)
     io.out(`bah: 已落盘 ${app.ctx.get(SESSION_FILES).fileOf(sessionId)}（${session.lastSeq()} 条事件）`)
 
     const end = lastTurnEnd(events)
@@ -331,6 +332,33 @@ export function lastAssistantText(events: readonly AnySessionEvent[]): string {
     if (joined.length > 0) text = joined
   }
   return text.length > 0 ? text : '（本轮没有文本回复）'
+}
+
+/**
+ * 最后一张知识卡（`knowledge_answer` 的工具结果投影）。
+ *
+ * 只读 `tool/result`：那是已校验答案的唯一权威落点；assistant 正文只是引导语。
+ * 缺省返回 `undefined`——没有知识工具调用时 CLI 不额外打印任何东西。
+ */
+export function lastKnowledgeAnswer(events: readonly AnySessionEvent[]): string | undefined {
+  let text: string | undefined
+  for (const event of events) {
+    if (event.type !== 'tool/result') continue
+    const data = event.data
+    if (data.name !== 'knowledge_answer' || data.isError) continue
+    const joined = data.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+    if (joined.length > 0) text = joined
+  }
+  return text
+}
+
+/** 有知识卡就打印；没有则静默（普通 turn 不额外输出）。 */
+export function printKnowledgeCard(events: readonly AnySessionEvent[], io: CliIo): void {
+  const knowledge = lastKnowledgeAnswer(events)
+  if (knowledge !== undefined) io.out(`bah: 知识卡\n${knowledge}`)
 }
 
 /** 最后一次 turn 的结束原因。 */

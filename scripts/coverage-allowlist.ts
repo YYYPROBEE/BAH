@@ -95,6 +95,11 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
     why: '判决 / 归一化 / 规则 / 票据 / 断路器（施工单 10）',
   },
   {
+    package: 'safety',
+    scope: 'sandbox-policy/',
+    why: '沙箱档位解析：三层覆盖序 / 模型代码禁入 none / override 只收紧（施工单 11 §2）',
+  },
+  {
     package: 'bank',
     scope: 'tools/tier.ts',
     why: '三级权限判定矩阵（施工单 09）',
@@ -118,5 +123,10 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
     package: 'bank',
     scope: 'forge/',
     why: '造数确定性（seeded 三档）与风控预检五规则（施工单 07 §4）',
+  },
+  {
+    package: 'knowledge',
+    scope: '',
+    why: '知识平面适配层：principal 组装 / 契约守卫 / 超时降级 / 工具与卡片（防 ACL 越权与静默放行）',
   },
 ]

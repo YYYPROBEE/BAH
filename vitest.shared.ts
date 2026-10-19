@@ -11,7 +11,7 @@
 
 import { fileURLToPath } from 'node:url'
 
-/** 12 个物理包（施工单 00 §6）。 */
+/** 工作区物理包（新增包必须在这里登记，测试面才能指到 src）。 */
 const PACKAGE_DIRS = [
   'core',
   'runtime',
@@ -19,6 +19,7 @@ const PACKAGE_DIRS = [
   'interaction',
   'safety',
   'bank',
+  'knowledge',
   'persistence',
   'saga',
   'host',

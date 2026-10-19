@@ -1,0 +1,100 @@
+/**
+ * sentry 的 durable 事件声明（施工单 10 §1 的四接缝落账 + 施工单 03 §1.2 的治理族）。
+ *
+ * 为什么由本包声明：03 §1.2 的规矩是「`sentry/*`、`policy/downgraded`、`guard/repeat-tool`
+ * 等治理事件由各自插件包用同一个模块增强机制追加」。这里只做声明，不改冻结的 `api.ts`。
+ *
+ * 两条纪律：
+ * 1. **全部 `ignorable: true`**（施工单 10 硬约束 6 / R91）：平台 reader（`deriveMessages`）
+ *    不认识这些族，必须显式可跳过，否则下一条请求会把它们当 required-on-read 缺失而拒绝；
+ * 2. 事件名只允许出现在本文件——`verify-session-events` 门禁会扫强化块里的字面量。
+ */
+
+import type { SessionId } from '@bah/core'
+
+import type { RiskLevel } from '../kernel/index.ts'
+
+/** sentry 治理事件的数据表（`SessionEventMap` 的增强内容）。 */
+export interface SentrySessionEventMap {
+  /** 入口平面检测到风险信号（仅审计：**检测器永不阻断**，施工单 10 §3）。 */
+  'sentry/detected': {
+    readonly turn: number
+    readonly step: number
+    readonly level: RiskLevel
+    readonly score: number
+    readonly families: readonly string[]
+    readonly transforms: readonly string[]
+    /** 是否带 IM 不可信来源标记（施工单 10 §3 第 5 行）。 */
+    readonly untrusted: boolean
+    readonly at: number
+  }
+  /** 控制平面拒绝了一次工具调用（唯一阻断点的落账；施工单 10 §1）。 */
+  'sentry/tool-denied': {
+    readonly callId: string
+    readonly name: string
+    /** 结构化理由码（kebab-case）。 */
+    readonly code: string
+    readonly reason: string
+    /** 命中的确定性判决段：`rules` / `budget` / `breaker` / `degraded` / `tool-limit`。 */
+    readonly stage: string
+    readonly at: number
+  }
+  /** 断路器锁存冻结（窗口拒绝数达阈值；冻结与时间无关，施工单 10 §5）。 */
+  'sentry/breaker-frozen': {
+    readonly sessionId: SessionId
+    readonly denies: number
+    readonly windowSeconds: number
+    /** 本次吊销的在途票据数（属主仍是 bank-core）。 */
+    readonly ticketsRevoked: number
+    readonly reason: string
+    readonly at: number
+  }
+  /** 显式人工解冻（**唯一**解除路径；施工单 10 §5）。 */
+  'sentry/unfrozen': {
+    readonly sessionId: SessionId
+    readonly by: string
+    readonly reason: string
+    readonly at: number
+  }
+  /** 幻觉防护追加了纠正提示（turn-stopping 的旁路纠正；施工单 10 §4）。 */
+  'sentry/honesty-corrected': {
+    readonly turn: number
+    /** `no-result`：无工具结果却陈述账户事实；`numeric`：声明值与权威值不一致。 */
+    readonly kind: 'no-result' | 'numeric'
+    readonly detail: string
+    readonly at: number
+  }
+  /** 连续非法参数超阈 → 只绿模式（施工单 10 §5 第 4 行）。 */
+  'policy/downgraded': {
+    readonly sessionId: SessionId
+    readonly invalidArgs: number
+    readonly threshold: number
+    readonly at: number
+  }
+  /** 同 turn 工具调用数超限（施工单 10 §5 第 3 行）。 */
+  'guard/repeat-tool': {
+    readonly turn: number
+    readonly tools: number
+    readonly limit: number
+    readonly at: number
+  }
+}
+
+declare module '@bah/core' {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
+  interface SessionEventMap extends SentrySessionEventMap {}
+}
+
+/** 本包认识的治理事件类型。 */
+export type SentrySessionEventType = keyof SentrySessionEventMap
+
+/** 治理事件全量键（文档与门禁用；顺序 = 声明顺序）。 */
+export const SENTRY_SESSION_EVENT_TYPES = [
+  'sentry/detected',
+  'sentry/tool-denied',
+  'sentry/breaker-frozen',
+  'sentry/unfrozen',
+  'sentry/honesty-corrected',
+  'policy/downgraded',
+  'guard/repeat-tool',
+] as const satisfies readonly SentrySessionEventType[]

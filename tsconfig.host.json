@@ -8,6 +8,7 @@
     { "path": "packages/interaction" },
     { "path": "packages/safety" },
     { "path": "packages/bank" },
+    { "path": "packages/knowledge" },
     { "path": "packages/persistence" },
     { "path": "packages/saga" },
     { "path": "packages/host" },

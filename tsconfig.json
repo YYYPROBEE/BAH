@@ -15,6 +15,7 @@
       "@bah/interaction": ["packages/interaction/src/index.ts"],
       "@bah/safety": ["packages/safety/src/index.ts"],
       "@bah/bank": ["packages/bank/src/index.ts"],
+    "@bah/knowledge": ["packages/knowledge/src/index.ts"],
       "@bah/persistence": ["packages/persistence/src/index.ts"],
       "@bah/saga": ["packages/saga/src/index.ts"],
       "@bah/host": ["packages/host/src/index.ts"],

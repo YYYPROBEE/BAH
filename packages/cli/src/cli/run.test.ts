@@ -24,9 +24,11 @@ import {
   USAGE,
   describeReason,
   lastAssistantText,
+  lastKnowledgeAnswer,
   lastTurnEnd,
   onlyAgent,
   parseArgs,
+  printKnowledgeCard,
   runCli,
   type CliIo,
 } from './run.ts'
@@ -392,8 +394,77 @@ describe('事件流辅助函数（补充用例）', () => {  it('lastAssistantTe
     expect(lastAssistantText(events)).toBe('后半！')
   })
 
-  it('lastTurnEnd：没有 turn/end 时为 undefined', () => {
-    expect(lastTurnEnd([])).toBeUndefined()
+  it('lastKnowledgeAnswer：只读 knowledge_answer 的成功结果，取最后一条', () => {
+    expect(lastKnowledgeAnswer([])).toBeUndefined()
+    const events: AnySessionEvent[] = [
+      {
+        seq: 1,
+        at: 0,
+        formatVersion: 1,
+        type: 'tool/result',
+        data: {
+          callId: 'c-1',
+          name: 'account_balance',
+          isError: false,
+          content: [{ type: 'text', text: '余额 100 元' }],
+        },
+      },
+      {
+        seq: 2,
+        at: 0,
+        formatVersion: 1,
+        type: 'tool/result',
+        data: {
+          callId: 'c-2',
+          name: 'knowledge_answer',
+          isError: true,
+          content: [{ type: 'text', text: '不可用' }],
+        },
+      },
+      {
+        seq: 3,
+        at: 0,
+        formatVersion: 1,
+        type: 'tool/result',
+        data: {
+          callId: 'c-3',
+          name: 'knowledge_answer',
+          isError: false,
+          content: [
+            { type: 'text', text: '赎回费率为1.50%[K1]。' },
+            { type: 'text', text: '引用：[K1] 费率表' },
+          ],
+        },
+      },
+    ]
+    expect(lastKnowledgeAnswer(events)).toBe('赎回费率为1.50%[K1]。\n引用：[K1] 费率表')
+  })
+
+  it('printKnowledgeCard：有卡打印，无卡静默', () => {
+    const out: string[] = []
+    const io: CliIo = { out: (line) => out.push(line), err: () => undefined }
+    printKnowledgeCard([], io)
+    expect(out).toEqual([])
+
+    const events: AnySessionEvent[] = [
+      {
+        seq: 1,
+        at: 0,
+        formatVersion: 1,
+        type: 'tool/result',
+        data: {
+          callId: 'c-1',
+          name: 'knowledge_answer',
+          isError: false,
+          content: [{ type: 'text', text: '赎回费率为1.50%[K1]。' }],
+        },
+      },
+    ]
+    printKnowledgeCard(events, io)
+    expect(out[0]).toContain('bah: 知识卡')
+  })
+
+  it('lastTurnEnd：没有 turn/end 时为 undefined', () => {    expect(lastTurnEnd([])).toBeUndefined()
     const events: AnySessionEvent[] = [
       { seq: 1, at: 0, formatVersion: 1, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
     ]

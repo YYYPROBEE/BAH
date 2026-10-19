@@ -1,0 +1,118 @@
+{
+  "answers": [
+    {
+      "match": "稳盈90天",
+      "response": {
+        "schemaVersion": "knowledge.v1",
+        "traceId": "tr-fixture-fee",
+        "kind": "answer",
+        "answer": "赎回费率（持有<7天）为1.50%[K1]。",
+        "citations": [
+          {
+            "marker": "K1",
+            "docId": "FEE-2025-v3",
+            "title": "稳盈系列费率表（2025版）",
+            "clauseNo": "费率表",
+            "charStart": 120,
+            "charEnd": 188
+          }
+        ],
+        "evidence": [
+          {
+            "marker": "K1",
+            "chunkId": 1,
+            "docId": "FEE-2025-v3",
+            "title": "稳盈系列费率表（2025版）",
+            "clauseNo": "费率表",
+            "tier": 1,
+            "charStart": 120,
+            "charEnd": 188,
+            "text": "持有不满7天赎回费率1.50%。"
+          }
+        ],
+        "verdict": "GREEN",
+        "reasonCode": null,
+        "candidates": [],
+        "latencyMs": {
+          "retrieval": 41,
+          "generation": 0,
+          "verify": 12,
+          "total": 53
+        }
+      }
+    },
+    {
+      "match": "VIP",
+      "response": {
+        "schemaVersion": "knowledge.v1",
+        "traceId": "tr-fixture-refusal",
+        "kind": "refusal",
+        "answer": "当前权限范围内没有可引用的依据，无法回答该问题。",
+        "citations": [],
+        "evidence": [],
+        "verdict": "RED",
+        "reasonCode": "SCOPE_EMPTY",
+        "candidates": [],
+        "latencyMs": {
+          "retrieval": 6,
+          "generation": 0,
+          "verify": 2,
+          "total": 8
+        }
+      }
+    }
+  ],
+  "queries": [
+    {
+      "match": "稳盈90天",
+      "response": {
+        "schemaVersion": "knowledge.v1",
+        "traceId": "tr-fixture-query",
+        "kind": "lookup",
+        "route": "lookup",
+        "visibleCount": 3,
+        "answer": "",
+        "evidence": [
+          {
+            "marker": "K1",
+            "chunkId": 1,
+            "docId": "FEE-2025-v3",
+            "title": "稳盈系列费率表（2025版）",
+            "clauseNo": "费率表",
+            "tier": 1,
+            "charStart": 0,
+            "charEnd": 90,
+            "text": "持有不满7天赎回费率1.50%。"
+          }
+        ],
+        "values": [
+          {
+            "label": "赎回费率（持有<7天）",
+            "valueText": "1.50",
+            "unit": "%",
+            "cellRef": "c-1",
+            "formula": null
+          }
+        ],
+        "candidates": [],
+        "verdict": "GREEN",
+        "reasonCode": null,
+        "latencyMs": {
+          "retrieval": 38,
+          "generation": 0,
+          "verify": 0,
+          "total": 38
+        }
+      }
+    }
+  ],
+  "health": {
+    "status": "ok",
+    "schemaVersion": "knowledge.v1",
+    "corpusVersion": 1,
+    "embedVersion": "fixture",
+    "docs": 10,
+    "chunks": 10,
+    "embedding": "off"
+  }
+}

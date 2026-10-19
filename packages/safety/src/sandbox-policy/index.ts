@@ -1,7 +1,9 @@
 /**
- * @bah/safety · 逻辑模块 sandbox-policy（M0 占位）。
+ * `@bah/safety` 的 sandbox 模块出口（施工单 11）。
  *
- * 本文件只声明模块位置，不实现任何运行逻辑；
- * 实装见施工单 10、11。
+ * 两半的分工：`sandbox-policy` 只回答"这一调用进哪一档"，`sandbox-runtime` 只回答
+ * "在什么环境里执行、执行成什么样"。判决与执行分家，才谈得上"阻断只由确定性组件执行"。
  */
-export {}
+
+export * from './policy.ts'
+export * from './tier.ts'
