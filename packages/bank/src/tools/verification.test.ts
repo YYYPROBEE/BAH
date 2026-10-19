@@ -25,7 +25,7 @@ describe('强验证渠道', () => {
     expect(error.code).toBe('no-challenge')
   })
 
-  it('挑战链：face 首次通过，落 verify/face', async () => {
+  it('T-VER-001 人脸成功：挑战通过并落 verify/face', async () => {
     const h = createBankHarness()
     const challenge = h.verify.issue(h.ctx.sessionId, 'face')
     const result = (await h.call('verify_face', { challengeId: challenge.id })) as VerifyResult
@@ -48,7 +48,7 @@ describe('强验证渠道', () => {
     expect(error.code).toBe('challenge-channel-mismatch')
   })
 
-  it('T-TOOLS-008 三连败：第 3 次锁 30 分钟并落 verify/locked；第 4 次直接 verify-locked', async () => {
+  it('T-VER-002 三连败：第 3 次锁 30 分钟并落 verify/locked；第 4 次直接 verify-locked', async () => {
     const clock = { now: 1_700_000_000_000 }
     const verify = new VerifyService({
       provider: ALWAYS_FAIL,

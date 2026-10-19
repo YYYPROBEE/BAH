@@ -26,14 +26,32 @@ import type {
   WealthCompareResult,
   WealthPurchaseResult,
 } from './dto.ts'
-import type { SessionId } from '@bah/core'
+import type { SessionId, ToolTierLevel } from '@bah/core'
 
 import type { IdentityBoundData } from './identity.ts'
+import type { TierReason } from './tier.ts'
 
 /** 银行领域事件的数据表（`SessionEventMap` 的增强内容）。 */
 export interface BankSessionEventMap {
   /** 会话已绑定银行用户（施工单 09 §4；回放时据此恢复身份）。 */
   'identity/bound': IdentityBoundData
+  /** 三级判决已作出（允许 / 需审批 / 拒绝 + 理由码；施工单 09 §1.2 的审计落点）。 */
+  'tier/decided': {
+    /** 调用 ID。 */
+    readonly callId: string
+    /** 工具名。 */
+    readonly name: string
+    /** 判定出的生效级别（未绑定身份等早期拒绝时为声明级别）。 */
+    readonly level: ToolTierLevel
+    /** 升级 / 追加理由。 */
+    readonly reason: TierReason
+    /** 判决种类。 */
+    readonly verdict: 'allow' | 'ask' | 'deny'
+    /** 拒绝理由码（`no-identity` / `verify-locked` / 预检失败码）。 */
+    readonly code?: string
+    /** 判决时刻（注入时钟）。 */
+    readonly at: number
+  }
   /** 账户列表已读取。 */
   'read/accounts': { readonly result: AccountsResult }
   /** 余额已读取（`txnRef` 是幻觉防护引用）。 */
@@ -83,6 +101,7 @@ export type BankSessionEventType = keyof BankSessionEventMap
 /** 领域事件全量键（门禁与文档用；顺序即声明顺序）。 */
 export const BANK_SESSION_EVENT_TYPES = [
   'identity/bound',
+  'tier/decided',
   'read/accounts',
   'read/balance',
   'read/txns',

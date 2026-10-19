@@ -5,6 +5,7 @@
  * `migrations/`（施工单 03、12）。
  */
 export * from './chain/index.ts'
+export * from './credentials/index.ts'
 export * from './jsonl/index.ts'
 export * from './persistence/index.ts'
 export * from './projection/index.ts'

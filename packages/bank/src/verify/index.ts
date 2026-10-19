@@ -221,3 +221,5 @@ export class VerifyService {
     this.challenges.set(challenge.id, { ...challenge, ...patch })
   }
 }
+
+export * from './port.ts'

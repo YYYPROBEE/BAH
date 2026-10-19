@@ -21,9 +21,12 @@ export const bundle: Bundle = {
     { id: 'core:model', config: { provider: 'deepseek', model: 'deepseek-chat' } },
     { id: 'core:agent', config: { loop: { model: 'deepseek:deepseek-chat' } } },
     { id: 'core:persistence', config: { root: 'sessions' } },
-    // 银行工具族（施工单 08）：默认不带身份（09 的会话绑定落地前，未绑定 = 业务工具全 deny）；
-    // headless / 演示 profile 用 patch 显式写 demoUserId
+    // 银行工具族（施工单 08）：默认不带身份（会话绑定由 profile 显式写 demoUserId）；
+    // headless / 演示 profile 用 patch 显式引导
     { id: 'bank:tools' },
+    // 审批服务（施工单 09）：必须排在 bank:tools 之后——bank 的桥接先签五绑定票据，
+    // 再把「找谁应答」交给本行的仲裁器（waterfall 的注册顺序 = 外层顺序）
+    { id: 'interaction:approval' },
     // Saga 补偿与审计层（SA-07）：存储底座 → 协调器（提供时钟）→ 审计链（等时钟就绪）
     { id: 'bank:saga-store', config: { dbPath: 'sessions/saga.sqlite' } },
     { id: 'bank:saga' },

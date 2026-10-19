@@ -105,7 +105,7 @@ function payloads<T extends AnySessionEvent['type']>(
 }
 
 describe('依赖清单（HOST_PLUGINS）', () => {
-  it('清单 id 与插件名逐一对应（base 的十个插件行）', () => {
+  it('清单 id 与插件名逐一对应（base 的十一个插件行）', () => {
     const catalog = createCatalog()
     expect(Object.keys(catalog)).toEqual([
       'core:session',
@@ -116,6 +116,7 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       'core:persistence',
       'demo:echo',
       'bank:tools',
+      'interaction:approval',
       'bank:saga-store',
       'bank:saga',
       'bank:saga-audit',

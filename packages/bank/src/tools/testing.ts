@@ -46,6 +46,9 @@ export const TEST_CONFIG: BankToolsConfig = {
   computeTimeoutMs: 5_000,
   ticketTtlSeconds: 120,
   redChallenge: 'sms',
+  dailyTransferLimit: 5_000,
+  riskyOps: ['transfer_create', 'wealth_purchase'],
+  riskyCallThreshold: 3,
 }
 
 /** 直接调用工具的 harness。 */
@@ -159,9 +162,15 @@ export function createPipelineHarness(options: {
   readonly approval?: 'allowed-once' | 'rejected' | 'unavailable'
   readonly tier?: ForgeTier
   readonly verify?: VerifyService
+  /** 复用同一个 bank-core（跨会话累计用例：账本必须共享）。 */
+  readonly core?: MockBankCore
+  /** 会话 ID（缺省 `s-bank-pipe`；跨会话用例传另一个）。 */
+  readonly sessionId?: string
+  /** 调用 ID 前缀（跨会话共用 core 时避免票据 ID 撞车）。 */
+  readonly callIdPrefix?: string
 } = {}): PipelineHarness {
   const test = createTestContext()
-  const sessionId = asSessionId('s-bank-pipe')
+  const sessionId = asSessionId(options.sessionId ?? 's-bank-pipe')
   const clock = fixedClock({ start: DEMO_NOW, step: 10 })
   provideSession(test.ctx, { sessionId, now: clock.now })
   const session = test.ctx.get(SESSION_SERVICE)
@@ -169,7 +178,12 @@ export function createPipelineHarness(options: {
   provideTools(test.ctx, registry)
 
   const audits: AuditRecord[] = []
-  const { deps, core } = createDeps({ ...options, now: clock.now, audits })
+  const { deps, core } = createDeps({
+    ...options,
+    now: clock.now,
+    audits,
+    ...(options.core === undefined ? {} : { core: options.core }),
+  })
   for (const tool of createBankTools(deps)) registry.register(tool)
   provideBankGovernance({ ctx: test.ctx, sessionId, deps })
 
@@ -201,7 +215,11 @@ export function createPipelineHarness(options: {
     events: () => session.events(),
     async run(name, args = {}) {
       sequence += 1
-      return pipeline.execute({ callId: `c-${sequence}`, name, args })
+      return pipeline.execute({
+        callId: `${options.callIdPrefix ?? ''}c-${sequence}`,
+        name,
+        args,
+      })
     },
     dispose: () => test.dispose(),
   }
