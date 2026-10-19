@@ -9,17 +9,33 @@
     provider: mock
     model: mock-chat
     chunkSize: 4
-    # 脚本化对话：一次银行工具调用 + 一次文本收尾（证明七段管线在 headless 里也跑通）
+    # 脚本化对话：幕 3「给王建国转 800 元」——黄级审批 → 批准 → 核销 → 文本收尾。
+    # demo 档的王建国是白名单收款人、首笔早于演示，所以 800 元走黄级（不升红）。
     script:
-      - tool: { id: call-1, name: account_balance, args: {} }
-      - text: 已为你在模拟环境查询账户余额。
+      - tool:
+          id: call-1
+          name: transfer_create
+          args:
+            amount: 800
+            payee:
+              name: 王建国
+              phone: '13900002222'
+            remark: 房租
+      - text: 已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。
 
 - id: bank:tools
   config:
-    # 09 的会话身份绑定落地前，headless 显式绑定 demo 用户（王建国）；不写则所有业务工具 deny
+    # headless 显式绑定 demo 用户（王建国）；不写则所有业务工具 deny no-identity
     demoUserId: u-1
     seed: 7
     datasetTier: demo
+
+- id: interaction:approval
+  config:
+    # headless 没有 Web 弹窗：显式开启自动应答者（默认 none = 拒绝，绝不默认放行）
+    responder: headless
+    autoDecision: allow
+    autoVerify: true
 
 - id: core:agent
   config:
