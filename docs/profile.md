@@ -173,6 +173,15 @@ pnpm bah --profile headless --prompt "给王建国转800元" --session s-tier09 
 #   → approval/decided → transfer/created → ticket/redeemed → ticket/consumed → tool/result
 ```
 
+想看 08 的绿级余额链路，用同目录的 `patch-balance.yml` 做层 4 overlay（整块替换 mock 脚本，
+不改变默认幕 3）：
+
+```bash
+pnpm bah --profile headless --patch profiles/headless/patch-balance.yml \
+  --prompt "查一下我的余额" --session s-balance --jsonl .tmp-balance
+# 23 条事件：… → tool/call → tier/decided(green/allow) → read/balance → tool/result → …
+```
+
 ---
 
 ## 4. 校验与错误（fail-loud，统一 `bah-boot: ` 前缀）
