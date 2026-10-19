@@ -8,7 +8,7 @@
 import { resolve } from 'node:path'
 
 import { createSagaStore } from '@bah/persistence'
-import { SAGA_STORE } from '@bah/saga'
+import { SAGA_STORE, TARGET_REGISTRY } from '@bah/saga'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { readString, rejectUnknownKeys } from '../config.ts'
@@ -28,6 +28,11 @@ export const sagaStorePlugin: HostPlugin<SagaStoreSettings> = {
       const dbPath = config.dbPath === ':memory:' ? ':memory:' : resolve(process.cwd(), config.dbPath)
       const store = createSagaStore({ dbPath })
       ctx.provide(SAGA_STORE, store)
+      // SA-16 §8：批 6 补齐目标登记的生产提供者，避免补偿路径 `service-missing`。
+      ctx.provide(TARGET_REGISTRY, {
+        get: (targetSystem) => store.readTarget(targetSystem),
+        list: () => store.listTargets(),
+      })
       ctx.effect(() => {
         store.close()
       })

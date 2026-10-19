@@ -37,6 +37,12 @@ export interface SagaPlan {
   readonly timeoutBudgetMs: number
   readonly initiator: string
   readonly steps: readonly PlannedStep[]
+  /**
+   * 父 saga（只由修正 saga 使用，SA-12 I11）。
+   *
+   * 追加为可选字段：不改变既有调用方的语义，也不占用任何冻结面。
+   */
+  readonly parentSagaId?: string
 }
 
 /** 落计划：事务从 `CREATED` 起步，同段 CAS 到 `RUNNING` 后派发 `saga/created`。 */
@@ -48,6 +54,7 @@ export function planSaga(ctx: Context, plan: SagaPlan, settings: SagaSettings): 
   commitSegment(ctx, (tx) => {
     tx.insertTransaction({
       sagaId: plan.sagaId,
+      ...(plan.parentSagaId === undefined ? {} : { parentSagaId: plan.parentSagaId }),
       businessType: plan.businessType,
       traceId: plan.traceId,
       state: 'CREATED',

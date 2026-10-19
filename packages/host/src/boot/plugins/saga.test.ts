@@ -9,7 +9,7 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { createContext } from '@bah/core'
-import { SAGA_AUDIT, SAGA_CLOCK, SAGA_IDEMPOTENCY, SAGA_STORE } from '@bah/saga'
+import { SAGA_AUDIT, SAGA_CLOCK, SAGA_IDEMPOTENCY, SAGA_STORE, TARGET_REGISTRY } from '@bah/saga'
 import { describe, expect, it } from 'vitest'
 
 import { sagaPlugin } from './saga.ts'
@@ -43,6 +43,18 @@ describe('Saga 三插件装配', () => {
       expect(typeof ctx.get(SAGA_CLOCK).now()).toBe('number')
       expect(typeof ctx.get(SAGA_AUDIT).append).toBe('function')
       expect(typeof ctx.get(SAGA_IDEMPOTENCY).makeKey).toBe('function')
+
+      // SA-16 §8：目标登记的生产提供者已就位（不再是 service-missing）。
+      const store = ctx.get(SAGA_STORE)
+      store.upsertTarget({
+        targetSystem: 'pay.charge',
+        idempotencySupport: 'STRONG',
+        probeEndpoint: '/probe/pay',
+        lagSeconds: 0,
+        registeredAt: 1,
+      })
+      expect(ctx.get(TARGET_REGISTRY).get('pay.charge')?.idempotencySupport).toBe('STRONG')
+      expect(ctx.get(TARGET_REGISTRY).list()).toHaveLength(1)
 
       // 审计插件确实拿到的是 saga 提供的时钟：同一 now 源
       const before = ctx.get(SAGA_CLOCK).now()

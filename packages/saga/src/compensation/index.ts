@@ -17,7 +17,7 @@ import { BahError, canonicalJson, seededRandom, sha256Hex } from '@bah/util'
 import { commitSegment } from '../coordinator/commit.ts'
 import { mapPool } from '../coordinator/index.ts'
 import { escalateToDlq, settleCall } from '../probe/settle.ts'
-import { advance } from '../state-machine/index.ts'
+import { SAGA_FINAL_SUBJECT_PREFIX } from '../state-machine/reduce.ts'
 import {
   SAGA_AUDIT,
   SAGA_CLOCK,
@@ -556,7 +556,24 @@ function finalizeCompensation(ctx: Context, sagaId: string, barrierStopped = fal
 
   const to =
     comps.every((comp) => comp.state === 'OK') ? 'COMPENSATED' : 'PARTIALLY_COMPENSATED'
-  advance(store, sagaId, 'COMPENSATING', to, saga.version, ctx.get(SAGA_CLOCK).now())
+  const at = ctx.get(SAGA_CLOCK).now()
+  // 状态收敛与「补偿完成」链记录同提交段：冻结事件表无独立完成事件，
+  // 以既有 `saga/comp-result` 的保留 subjectRef（`$final:<STATE>`）承载终态，
+  // 回放据此从 CREATED 全量折叠到与运行时一致（SA-16 §8 批 6 对齐）。
+  commitSegment(ctx, (tx) => {
+    if (!tx.casState(sagaId, 'COMPENSATING', to, saga.version, at)) {
+      throw new BahError('version-conflict', `bah-saga: version-conflict: ${sagaId}@v${saga.version}`, {
+        sagaId,
+        version: saga.version,
+        from: 'COMPENSATING',
+        to,
+      })
+    }
+    ctx.get(SAGA_AUDIT).append(sagaId, 'saga/comp-result', {
+      sagaId,
+      compId: `${SAGA_FINAL_SUBJECT_PREFIX}${to}`,
+    })
+  })
 }
 
 async function runLayer(

@@ -43,6 +43,12 @@ export interface SagaStore {
   findActiveTemplate(toolName: string): CompTemplate | undefined
   /** 按计划期冻结的 `(templateId, templateVersion)` 读回。 */
   readTemplate(templateId: string, templateVersion: number): CompTemplate | undefined
+  // 目标系统登记（SA-16 §8 批 6 回写：消除 `bah:target-registry` 无提供者）
+  /** 读一条目标系统承诺；未登记返回 `undefined`（补偿侧按 `unknown-target` 拒自动补偿）。 */
+  readTarget(targetSystem: string): TargetSystem | undefined
+  listTargets(): readonly TargetSystem[]
+  /** 运维/装配期登记目标（补偿自动化的前置事实）。 */
+  upsertTarget(target: TargetSystem): void
 }
 
 /**

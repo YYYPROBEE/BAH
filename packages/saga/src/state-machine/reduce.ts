@@ -18,9 +18,34 @@
 
 import { BahError } from '@bah/util'
 
-import type { ReduceSaga, SagaProjection, StepState } from '../types.ts'
+import { TERMINAL_STATES } from '../types.ts'
+import { canTransition } from './transitions.ts'
+
+import type { ReduceSaga, SagaProjection, SagaState, StepState } from '../types.ts'
 
 const SETTLED: ReadonlySet<StepState> = new Set<StepState>(['EXECUTED', 'SKIPPED'])
+const TERMINAL: ReadonlySet<SagaState> = new Set<SagaState>(TERMINAL_STATES)
+
+/**
+ * 补偿终态的**既有事件键内**折叠约定：`saga/comp-result` 的 `subjectRef`
+ * 取 `$final:<STATE>` 时表示补偿已收敛到的终态。
+ *
+ * 冻结事件表没有「补偿完成」事件（SA-16 §8 已登记），本约定不新增事件键：
+ * 补偿调度在 CAS 收敛后追发一条 `saga/comp-result`，`subjectRefOf` 从 `compId`
+ * 取到该保留值，回放据此还原 `COMPENSATED` / `PARTIALLY_COMPENSATED`。
+ */
+export const SAGA_FINAL_SUBJECT_PREFIX = '$final:'
+
+/** 目标态若与当前态存在合法出边才推进；越界一律保持原态（与运行期守卫同源）。 */
+function nextState(projection: SagaProjection, to: SagaState): SagaProjection {
+  // `MANUALLY_CLOSED` 是 SA-12 清道夫的**直达终态**：`forceClose` 对任意非终态
+  // 直接 CAS（SA-12 §3.1），不走 `assertTransition`。回放要镜像这条运行时写路径，
+  // 否则被强制关闭的 saga 永远 diff≠0；表本身（SAGA_TRANSITIONS）保持 SA-00 原样。
+  if (to === 'MANUALLY_CLOSED') {
+    return TERMINAL.has(projection.state) ? projection : { ...projection, state: to }
+  }
+  return canTransition(projection.state, to) ? { ...projection, state: to } : projection
+}
 
 /** 回放/投影的统一初值（SA-11 §3.5 / SA-13 §3.3：一律从 `CREATED` 起播）。 */
 export function initialProjection(sagaId: string): SagaProjection {
@@ -41,19 +66,17 @@ export const reduceSaga: ReduceSaga = (projection, event) => {
 
   switch (event.type) {
     case 'saga/created':
-      return { ...projection, state: projection.state === 'CREATED' ? 'RUNNING' : projection.state }
+      return nextState(projection, 'RUNNING')
 
     case 'saga/step-planned':
       if (subject.length > 0) steps[subject] = 'PLANNED'
       return { ...projection, steps }
 
-    case 'saga/call-result':
+    case 'saga/call-result': {
       if (subject.length > 0) steps[subject] = 'EXECUTED'
-      return {
-        ...projection,
-        state: allStepsSettled(steps) ? 'SUCCEEDED' : projection.state,
-        steps,
-      }
+      const settled = allStepsSettled(steps) ? nextState(projection, 'SUCCEEDED') : projection
+      return { ...settled, steps }
+    }
 
     case 'saga/unknown-probe':
       if (subject.length > 0) steps[subject] = 'PROBING'
@@ -67,15 +90,23 @@ export const reduceSaga: ReduceSaga = (projection, event) => {
 
     case 'saga/comp-decided':
     case 'saga/comp-issued':
-    case 'saga/comp-result':
-      return { ...projection, state: 'COMPENSATING' }
+      return nextState(projection, 'COMPENSATING')
+
+    case 'saga/comp-result': {
+      // 收敛终态（`$final:<STATE>`）必须经过合法出边校验，绝不越过状态机。
+      if (subject.startsWith(SAGA_FINAL_SUBJECT_PREFIX)) {
+        const terminal = subject.slice(SAGA_FINAL_SUBJECT_PREFIX.length) as SagaState
+        return nextState(projection, terminal)
+      }
+      return nextState(projection, 'COMPENSATING')
+    }
 
     case 'saga/dlq-escalated':
       if (subject.length > 0) steps[subject] = 'UNRESOLVED'
-      return { ...projection, state: 'COMPENSATION_DLQ', steps }
+      return { ...nextState(projection, 'COMPENSATION_DLQ'), steps }
 
     case 'saga/manually-closed':
-      return { ...projection, state: 'MANUALLY_CLOSED' }
+      return nextState(projection, 'MANUALLY_CLOSED')
 
     default:
       return projection
