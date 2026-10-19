@@ -20,6 +20,7 @@ const PACKAGE_DIRS = [
   'safety',
   'bank',
   'persistence',
+  'saga',
   'host',
   'channels',
   'cli',

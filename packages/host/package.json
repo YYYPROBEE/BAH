@@ -18,6 +18,7 @@
     "@bah/interaction": "workspace:*",
     "@bah/bank": "workspace:*",
     "@bah/persistence": "workspace:*",
+    "@bah/saga": "workspace:*",
     "@bah/util": "workspace:*"
   },
   "devDependencies": {

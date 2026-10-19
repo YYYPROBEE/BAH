@@ -16,6 +16,7 @@
       "@bah/safety": ["packages/safety/src/index.ts"],
       "@bah/bank": ["packages/bank/src/index.ts"],
       "@bah/persistence": ["packages/persistence/src/index.ts"],
+      "@bah/saga": ["packages/saga/src/index.ts"],
       "@bah/host": ["packages/host/src/index.ts"],
       "@bah/channels": ["packages/channels/src/index.ts"],
       "@bah/cli": ["packages/cli/src/index.ts"],

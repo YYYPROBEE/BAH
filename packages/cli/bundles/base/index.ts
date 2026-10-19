@@ -21,5 +21,9 @@ export const bundle: Bundle = {
     { id: 'core:model', config: { provider: 'deepseek', model: 'deepseek-chat' } },
     { id: 'core:agent', config: { loop: { model: 'deepseek:deepseek-chat' } } },
     { id: 'core:persistence', config: { root: 'sessions' } },
+    // Saga 补偿与审计层（SA-07）：存储底座 → 协调器（提供时钟）→ 审计链（等时钟就绪）
+    { id: 'bank:saga-store', config: { dbPath: 'sessions/saga.sqlite' } },
+    { id: 'bank:saga' },
+    { id: 'bank:saga-audit' },
   ],
 }
