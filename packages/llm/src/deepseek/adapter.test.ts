@@ -244,3 +244,33 @@ describe('DeepSeekAdapter（施工单 05 §2.1，注入假 fetch）', () => {
     })
   })
 })
+
+describe('DeepSeekAdapter · 未注入 fetch 时的默认出口', () => {
+  // 生产装配（`createDeepSeekAdapter(process.env)`）不传 fetch，走的是
+  // `options.fetch ?? ((input, init) => fetch(input, init))` 这一支。
+  // 单测此前一律注入假 fetch，导致这条**唯一在线上生效**的分支从未被执行。
+  // 这里把 globalThis.fetch 换成假实现来驱动它，不产生真实网络请求。
+  it('省略 fetch 选项时委托给全局 fetch', async () => {
+    const original = globalThis.fetch
+    const seen: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      seen.push(String(input))
+      return new Response(sseBody(HAPPY_PARTS), { status: 200 })
+    }) as typeof globalThis.fetch
+
+    try {
+      const adapter = new DeepSeekAdapter({ apiKey: 'sk-default-fetch' })
+      const prepared = await adapter.prepareCall({
+        modelId: 'deepseek-chat',
+        messages: [{ role: 'user', content: [{ kind: 'text', text: '转账 100' }] }],
+      })
+      const assembled = await assembleStream(adapter.stream(prepared, new AbortController().signal))
+
+      expect(assembled.content[0]).toEqual({ kind: 'text', text: '好的' })
+      expect(seen).toHaveLength(1)
+      expect(seen[0]).toBe('https://api.deepseek.com/chat/completions')
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+})
