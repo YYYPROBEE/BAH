@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 
+import { BARREL_EXCLUSIONS } from './scripts/barrel-excludes.ts'
 import { COVERAGE_ALLOWLIST } from './scripts/coverage-allowlist.ts'
 import { bahSourceAlias } from './vitest.shared.ts'
 
@@ -32,7 +33,9 @@ export default defineConfig({
       include: allowlistedSources,
       exclude: [
         '**/*.test.ts',
-        '**/index.ts',
+        // 只排除显式登记的纯 barrel（verify-index-barrels 逐条校验）；
+        // 实现型 index.ts 必须由覆盖率统计，否则就是假绿。
+        ...BARREL_EXCLUSIONS.map((entry) => entry.path),
         // api.ts 是纯类型契约（冻结面）：没有任何可执行行，统计它只会得到假的 0%
         'packages/core/src/api.ts',
         // 纯类型模块（只有 export type / 类型别名），零可执行行
@@ -52,8 +55,15 @@ export default defineConfig({
         // 先排除以保持门禁可运行，待 saga 线补一条 tick 触发用例后移除（PROGRESS §30 R88）。
         'packages/host/src/boot/plugins/saga.ts',
       ],
-      // 名单内文件的行覆盖必须 100%（按文件强制的兜底执行口）
-      thresholds: { lines: 100 },
+      // 名单内文件逐文件强制：每文件行/语句/函数 100%，分支暂钉在 80%（清债后升 95/100）。
+      // 旧配置只有全局 lines: 100，一个文件 99% 会被另一个文件 100% 掩盖——那正是审查指出的假绿。
+      thresholds: {
+        lines: 100,
+        statements: 100,
+        functions: 100,
+        branches: 80,
+        perFile: true,
+      },
       // text 给人看；lcov 给 CI / 答辩材料；json-summary 给脚本读
       reporter: ['text', 'lcov', 'json-summary'],
       reportsDirectory: 'coverage',

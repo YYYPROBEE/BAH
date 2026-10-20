@@ -30,8 +30,19 @@ export interface Gate {
   run(root: string): Promise<GateResult>
 }
 
-/** 递归遍历时一律跳过的目录（构建产物与依赖）。 */
-const SKIP_DIRS = new Set(['node_modules', 'dist', 'dist-types', '.git', 'sessions'])
+/** 递归遍历时一律跳过的目录（构建产物、依赖与本地环境）。 */
+const SKIP_DIRS = new Set([
+  'node_modules',
+  'dist',
+  'dist-types',
+  '.git',
+  'sessions',
+  'coverage',
+  '.ci-artifacts',
+  '.venv',
+  '__pycache__',
+  '.pytest_cache',
+])
 
 /**
  * 递归收集文件（深度优先，结果按路径排序，保证输出稳定）。

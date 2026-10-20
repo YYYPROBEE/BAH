@@ -45,6 +45,29 @@ export const CASE = {
   clock: { start: 1_700_000_000_000, step: 1 },
   /** seeded 随机种子（与 bank-forge 同源接口的预留位；本场景暂未用到）。 */
   randomSeed: 7,
+  /**
+   * 本场景真实驱动的治理平面（门禁 snapshot-fresh 的归属依据）。
+   *
+   * 只列“这条对话真的跑到了”的代码：一次余额查询 + 一次转账（审批 → 票据 → 核销）
+   * + 启动装配。Saga 的补偿/恢复分支、压缩、真实 DeepSeek 流不在本场景内。
+   */
+  coveredSources: [
+    'packages/runtime/src/agent-loop/',
+    'packages/runtime/src/session/',
+    'packages/runtime/src/system-prompt/',
+    'packages/runtime/src/tools/',
+    'packages/runtime/src/seams.ts',
+    'packages/llm/src/llm/',
+    'packages/llm/src/mock/',
+    'packages/bank/src/core/',
+    'packages/bank/src/tools/',
+    'packages/host/src/boot/',
+    'packages/persistence/src/jsonl/',
+    'packages/persistence/src/saga-store/',
+    'packages/safety/src/sentry/',
+    'packages/interaction/src/approval/',
+    'packages/saga/src/recovery/',
+  ],
 } as const
 
 /** 一个"不存在"的 home 目录：录制与回放都不读开发机上的 home patch。 */
@@ -122,6 +145,7 @@ export async function runRecord(): Promise<{
         randomSeed: CASE.randomSeed,
         rows,
         model: { provider, spec: model },
+        coveredSources: [...CASE.coveredSources],
       },
       events,
       exchanges,

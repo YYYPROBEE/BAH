@@ -18,6 +18,8 @@ import { readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+import ts from 'typescript'
+
 import { isMainModule, runStandalone, walk, type Gate, type GateResult } from './gate-lib.ts'
 
 /** 声明点之后多少行内必须出现 `tier`（对象字面量通常紧随其后）。 */
@@ -149,30 +151,107 @@ function checkDeclarationSites(root: string, findings: string[]): number {
 }
 
 /**
- * 阈值写死扫描：银行工具源码里不得出现 `dailyTransferLimit: 5000` 之类的字面量。
+ * 阈值写死扫描：银行工具源码里不得出现 `dailyTransferLimit: 5000` 之类的字面量
+ * （BAH 代码修改清单 2026-10-20 · B1.4：变量绕过也必须发现）。
  *
- * 允许的两类位置：`testing.ts`（测试夹具）与读取点（`deps.config.dailyTransferLimit`）。
+ * 允许的位置：`testing.ts`（测试夹具）与读取点（`deps.config.dailyTransferLimit`，无数字字面量）。
+ *
+ * 判据（AST）：
+ * - 变量/对象属性名含 daily / risky / transfer（或 amount+money 与 limit/threshold/cap 组合），
+ *   且初始化为数字字面量 → 失败；
+ * - 比较运算的一侧是含 amount 的表达式、另一侧是 ≥1000 的数字字面量 → 失败（内联阈值）。
+ *
+ * 故意不把 `BANK_TOOL_LIMIT = 28` 当作资金阈值：名字不含 daily/risky/transfer/amount。
  */
 function checkThresholdsOnlyInConfig(root: string, findings: string[]): number {
   const toolsDir = join('packages', 'bank', 'src', 'tools')
   const files = walk(root, [toolsDir], (fileName) => isSource(fileName))
-  const assignment = /\b(dailyTransferLimit|riskyCallThreshold)\s*[:=]\s*\d/
   let checked = 0
   for (const file of files) {
     const name = file.replace(/\\/g, '/')
     if (name.endsWith('/testing.ts')) continue
     checked += 1
-    const lines = readFileSync(file, 'utf8').split(/\r?\n/)
-    for (const [index, line] of lines.entries()) {
-      if (isCommentLine(line)) continue
-      if (assignment.test(line)) {
-        findings.push(
-          `${relative(root, file)}:${index + 1} 阈值不得写死在代码里（只许来自 bank:tools 配置；施工单 09 §1.1 第 2 条）`,
-        )
-      }
+    const text = readFileSync(file, 'utf8')
+    const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const where = relative(root, file).replace(/\\/g, '/')
+
+    const report = (node: ts.Node, reason: string): void => {
+      const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
+      findings.push(`${where}:${line} ${reason}（阈值只许来自 bank:tools 配置；施工单 09 §1.1 第 2 条）`)
     }
+
+    const walkNode = (node: ts.Node): void => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+        if (node.initializer !== undefined && isNumeric(node.initializer)) {
+          const value = numericValue(node.initializer)
+          // 计数器（`riskyCallsInTurn = 0`）不是阈值：非精确配置名要求金额级（≥100）。
+          if (isThresholdName(node.name.text) && (value >= 100 || isExactThresholdName(node.name.text))) {
+            report(node, `变量 ${node.name.text} 写死了资金阈值`)
+          }
+        }
+      }
+      if (ts.isPropertyAssignment(node) && isNumeric(node.initializer)) {
+        const property = node.name.getText(source).replace(/['"]/g, '')
+        if (isThresholdName(property)) {
+          report(node, `属性 ${property} 写死了资金阈值`)
+        }
+      }
+      if (ts.isBinaryExpression(node) && isComparison(node.operatorToken.kind)) {
+        const inline = inlineThreshold(node, source)
+        if (inline) report(node, `比较表达式里出现内联金额阈值 ${inline}`)
+      }
+      ts.forEachChild(node, walkNode)
+    }
+    walkNode(source)
   }
   return checked
+}
+
+/** 资金阈值相关命名（避免把 BANK_TOOL_LIMIT 这类工具数量上限误判为金额阈值）。 */
+function isThresholdName(name: string): boolean {
+  if (/(daily|risky|transfer)/i.test(name)) return true
+  return (
+    /(amount|money)/i.test(name) && /(limit|threshold|cap)/i.test(name)
+  ) || (
+    /(limit|threshold|cap)/i.test(name) && /(daily|transfer|risky)/i.test(name)
+  )
+}
+
+/** 配置字段的精确名字：小值也是阈值（例如 riskyCallThreshold = 2）。 */
+function isExactThresholdName(name: string): boolean {
+  return /^(dailyTransferLimit|riskyCallThreshold)$/i.test(name)
+}
+
+function isNumeric(node: ts.Node): boolean {
+  return ts.isNumericLiteral(node)
+}
+
+function numericValue(node: ts.Node): number {
+  return ts.isNumericLiteral(node) ? Number(node.text.replace(/_/g, '')) : Number.NaN
+}
+
+function isComparison(kind: ts.SyntaxKind): boolean {
+  return (
+    kind === ts.SyntaxKind.LessThanToken ||
+    kind === ts.SyntaxKind.LessThanEqualsToken ||
+    kind === ts.SyntaxKind.GreaterThanToken ||
+    kind === ts.SyntaxKind.GreaterThanEqualsToken
+  )
+}
+
+/** 返回内联阈值文本（若比较的一侧是 ≥1000 的数字、另一侧是 amount 相关表达式）。 */
+function inlineThreshold(node: ts.BinaryExpression, source: ts.SourceFile): string | undefined {
+  const left = node.left
+  const right = node.right
+  const leftAmount = /amount/i.test(left.getText(source))
+  const rightAmount = /amount/i.test(right.getText(source))
+  if (leftAmount && ts.isNumericLiteral(right) && Number(right.text.replace(/_/g, '')) >= 1000) {
+    return right.text
+  }
+  if (rightAmount && ts.isNumericLiteral(left) && Number(left.text.replace(/_/g, '')) >= 1000) {
+    return left.text
+  }
+  return undefined
 }
 
 /** 是否是一个 ToolDefinition **声明点**（规则见函数注释）。 */
@@ -206,12 +285,6 @@ function findObjectStart(lines: readonly string[], from: number): number | undef
     if (/^\s*(?:const|let|var)\s+[\w$]+\s*(?::[^=]+)?=\s*\{/.test(lines[index] ?? '')) return index
   }
   return undefined
-}
-
-/** 注释行不参与扫描（文档里提到阈值不构成写死）。 */
-function isCommentLine(line: string): boolean {
-  const trimmed = line.trimStart()
-  return trimmed.startsWith('*') || trimmed.startsWith('//') || trimmed.startsWith('/*')
 }
 
 export { gate }
