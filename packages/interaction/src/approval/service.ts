@@ -17,7 +17,7 @@
  */
 
 import { BahError } from '@bah/util'
-import { defineService } from '@bah/core'
+import { defineService, describeThrown } from '@bah/core'
 
 import type { Disposer, ServiceKey } from '@bah/core'
 
@@ -125,8 +125,13 @@ export class ApprovalService {
     let downstream: T
     try {
       downstream = await next(input)
-    } catch {
-      return this.settleNow(input, { decision: 'unavailable', reason: 'approval-request-failed' }, 'downstream')
+    } catch (error) {
+      // 不吞原始异常：审批失败的原因必须能进审计（否则排障只剩四个字）
+      return this.settleNow(
+        input,
+        { decision: 'unavailable', reason: `approval-request-failed: ${describeThrown(error)}` },
+        'downstream',
+      )
     }
 
     if (downstream.decision.decision !== 'unavailable') {

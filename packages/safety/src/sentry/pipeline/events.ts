@@ -12,7 +12,7 @@
 
 import type { SessionId } from '@bah/core'
 
-import type { RiskLevel } from '../kernel/index.ts'
+import type { RiskLevel, TraceRecord } from '../kernel/index.ts'
 
 /** sentry 治理事件的数据表（`SessionEventMap` 的增强内容）。 */
 export interface SentrySessionEventMap {
@@ -64,6 +64,13 @@ export interface SentrySessionEventMap {
     readonly detail: string
     readonly at: number
   }
+  /**
+   * 审计轨迹的 durable 副本（`trace.sink=session` 时逐条落账）。
+   *
+   * 载荷就是 TraceLog 的原始记录（`ts` / `seq` / `kind` 等），供施工单 12 的三链导出
+   * 直接回放；平台 reader 不认识本族，必须 `ignorable: true`。
+   */
+  'sentry/trace': TraceRecord
   /** 连续非法参数超阈 → 只绿模式（施工单 10 §5 第 4 行）。 */
   'policy/downgraded': {
     readonly sessionId: SessionId
@@ -95,6 +102,7 @@ export const SENTRY_SESSION_EVENT_TYPES = [
   'sentry/breaker-frozen',
   'sentry/unfrozen',
   'sentry/honesty-corrected',
+  'sentry/trace',
   'policy/downgraded',
   'guard/repeat-tool',
 ] as const satisfies readonly SentrySessionEventType[]

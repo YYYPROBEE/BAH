@@ -56,12 +56,16 @@ export function parseTransferInput(args: Readonly<Record<string, unknown>>): Tra
 /**
  * 解析执行时间：当前只支持 `now`（定时转账属 P1 `transfer.schedule`）。
  *
- * @throws `BahError('unsupported-schedule')` 给了未来时间
+ * @throws `BahError('when-in-past')` 给了已经过去的时间
+ * @throws `BahError('unsupported-schedule')` 给了未来时间（能力未实现，不是参数错误）
  * @throws `BahError('tool-args-invalid')` 时间非法
  */
 export function assertExecutableNow(when: string | undefined, now: number): void {
   if (when === undefined || when.toLowerCase() === 'now') return
   const at = parseInstant(when, 'transfer.when')
+  if (at < now) {
+    throw new BahError('when-in-past', 'bank-tools: 执行时间已经过去，不能补做历史转账', { when })
+  }
   if (at > now) {
     throw new BahError(
       'unsupported-schedule',
@@ -69,7 +73,6 @@ export function assertExecutableNow(when: string | undefined, now: number): void
       { when },
     )
   }
-  throw new BahError('tool-args-invalid', 'bank-tools: when 只能是 now 或未来的定时时间', { when })
 }
 
 /** 理财筛选条件。 */

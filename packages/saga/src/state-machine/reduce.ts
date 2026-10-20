@@ -13,7 +13,10 @@
  * - `saga/dlq-escalated` → `COMPENSATION_DLQ`；`saga/manually-closed` → `MANUALLY_CLOSED`；
  * - 探诊与恢复事件只改步骤视图，不改事务状态。
  *
- * 本函数**零 I/O、零 LLM、零外部调用**；未知事件类型原样返回（链上允许并存非状态事件）。
+ * 本函数**零 I/O、零 LLM、零外部调用**。链上允许并存与状态无关的事件
+ * （`saga/tick`、`saga/anchor-published` 等），它们显式列在 `NON_STATE_EVENTS` 里
+ * 原样返回；**不在该白名单里的未知事件一律 fail-loud**——新状态事件漏接时
+ * 静默失真比崩溃更危险（资金补偿路径不接受"悄悄不推进"）。
  */
 
 import { BahError } from '@bah/util'
@@ -25,6 +28,16 @@ import type { ReduceSaga, SagaProjection, SagaState, StepState } from '../types.
 
 const SETTLED: ReadonlySet<StepState> = new Set<StepState>(['EXECUTED', 'SKIPPED'])
 const TERMINAL: ReadonlySet<SagaState> = new Set<SagaState>(TERMINAL_STATES)
+
+/** 与状态机无关的链事件：允许原样通过（显式白名单，而不是 `default` 兜底）。 */
+const NON_STATE_EVENTS: ReadonlySet<string> = new Set([
+  'saga/param-validated',
+  'saga/residual-recorded',
+  'saga/reconciled',
+  'saga/vault-accessed',
+  'saga/anchor-published',
+  'saga/tick',
+])
 
 /**
  * 补偿终态的**既有事件键内**折叠约定：`saga/comp-result` 的 `subjectRef`
@@ -109,7 +122,12 @@ export const reduceSaga: ReduceSaga = (projection, event) => {
       return nextState(projection, 'MANUALLY_CLOSED')
 
     default:
-      return projection
+      if (NON_STATE_EVENTS.has(event.type)) return projection
+      throw new BahError(
+        'saga-unreduced-event',
+        `bah-saga: saga-unreduced-event: 未知事件 ${event.type}（状态机没有对应转移）`,
+        { sagaId: event.sagaId, type: event.type, seqInSaga: event.seqInSaga },
+      )
   }
 }
 
@@ -132,6 +150,8 @@ function splitRecoveredSubject(subject: string): { readonly stepId: string; read
 
 function stepStateOfRecovery(action: string): StepState {
   switch (action) {
+    case '':
+      return 'PLANNED'
     case 'skip-executed':
       return 'EXECUTED'
     case 'probe':
@@ -139,6 +159,10 @@ function stepStateOfRecovery(action: string): StepState {
     case 'dlq':
       return 'UNRESOLVED'
     default:
-      return 'PLANNED'
+      throw new BahError(
+        'saga-unreduced-recovery',
+        `bah-saga: saga-unreduced-recovery: 未知恢复动作 ${JSON.stringify(action)}`,
+        { action },
+      )
   }
 }

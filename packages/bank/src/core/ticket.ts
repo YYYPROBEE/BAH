@@ -257,12 +257,22 @@ export class TicketStore {
 }
 
 /**
- * 服务键：`bank:tickets`（票据状态机的宿主出口）。
+ * 票据状态机的**窄端口**：只含状态读取 + 批量吊销。
  *
- * 只暴露**状态读取 + 批量吊销**这一对最小面：核销仍只在工具体内经 `TicketRef` 完成，
- * 安全层拿不到 `redeem()` 的授权入口（施工单 07 §3：核销唯一属主）。
+ * 宿主以这个结构暴露给安全层，而不是直接暴露 `TicketStore`——后者还带着
+ * `issue` / `approve` / `block` / `redeem`，任何能 `ctx.get` 的插件都能拿到核销入口。
+ * 核销仍只在工具体内经 `TicketRef` 完成（施工单 07 §3：核销唯一属主）。
  */
-export const BANK_TICKETS: ServiceKey<TicketStore> = defineService<TicketStore>('bank:tickets')
+export interface TicketGuard {
+  /** 读取票据状态（不存在返回 `undefined`）。 */
+  status(ticketId: TicketId): TicketStatus | undefined
+  /** 吊销全部在途票据（`issued` / `approved` → `blocked`）。 */
+  revokeAll(reason: string, now: number): readonly TicketRecord[]
+}
+
+/** 服务键：`bank:ticket-guard`（只读状态 + 批量吊销的最小出口）。 */
+export const BANK_TICKET_GUARD: ServiceKey<TicketGuard> =
+  defineService<TicketGuard>('bank:ticket-guard')
 
 /** 五绑定逐项比对；返回第一处不一致的字段名，全等返回 `undefined`。 */function bindingDiff(left: TicketBinding, right: TicketBinding): string | undefined {
   if (left.sessionId !== right.sessionId) return 'sessionId'

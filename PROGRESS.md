@@ -831,8 +831,8 @@ Node 直接加载 `.ts` worker 入口需要 `--experimental-strip-types`，因�
 > 本批只做**接线与治理面**：`packages/safety/src/sentry/{index,pipeline/**}`、
 > `packages/host/src/boot/plugins/{sentry.ts,index.ts}`、`packages/cli/bundles/base/index.ts`、
 > `profiles/headless/patch-injection.yml`、`docs/sentry.md`、`PROGRESS.md` 与测试。
-> 另有两处**待确认的跨包新增**：`packages/bank/src/core/ticket.ts` 的 `revokeAll()` + `BANK_TICKETS` 服务键，
-> 以及 `packages/host/src/boot/plugins/bank-tools.ts` 的一行 `ctx.provide(BANK_TICKETS, core.tickets)`
+> 另有两处跨包新增（R131；后按 §42 收窄为 `BANK_TICKET_GUARD`）：`packages/bank/src/core/ticket.ts` 的 `revokeAll()` + 票据服务键，
+> 以及 `packages/host/src/boot/plugins/bank-tools.ts` 的一行 `ctx.provide(...)`
 > （见 R131）。内核算法/阈值一行未改；`runtime` / `core` / 11 的 sandbox 文件未动。
 
 | # | 出口标准（提示词 §目标） | 状态 | 证据 |
@@ -876,7 +876,7 @@ Node 直接加载 `.ts` worker 入口需要 `--experimental-strip-types`，因�
 | 3 | 连续拒绝触发熔断 | `breaker.test.ts` / `control.test.ts` / 宿主 T-SNT-008（锁存 + 吊销 + 事件） |
 | 4 | 审批超时 | 09 的 T-APPR-003（`unavailable`）；`audit.test.ts` 断言 `approval/decided(unavailable)` 进 TraceLog，且拒绝只由 `tool/result` 计一次 |
 | 5 | 跨场景提权 | `control.test.ts` T-SNT-004（XSC-001/002 → deny） |
-| 6 | 票据重放 | 宿主 `sentry.test.ts`「票据重放被 bank-core 拒绝」（第二次 `redeem()` → `ticket-already-redeemed`）；07 的 `ticket.test.ts` 同口径 |
+| 6 | 票据重放 | 07 的 `ticket.test.ts` T-BANK-003（第二次 `redeem()` → `ticket-already-redeemed`）；原宿主用例已按 §42 迁回 bank 包 |
 
 ### 40.2 负控清单（故意改坏 → 哪条用例必红）
 
@@ -899,7 +899,7 @@ Node 直接加载 `.ts` worker 入口需要 `--experimental-strip-types`，因�
 | `detector.warnThreshold` / `highThreshold` | 新增 | 0.45 / 0.8 | `(0,1]` 且 warn < high |
 | `rules.disabled` | 新增 | `[]` | 非空字符串数组 |
 | `rules.demoWhitelist` | 新增 | `true` | 布尔（NET-001 校准位） |
-| `rules.crossScenario` | 新增 | `true` | 布尔（内置 XSC-001/002） |
+| `rules.crossScenario` | 新增 | `false` | 布尔（内置 XSC-001/002；默认关，演示 profile 显式开） |
 | `rules.extra[]` | 新增 | `[]` | `{id, pattern, family?, note?}`；正则载入时编译，失败即抛 |
 | `budget.totalCalls` / `riskyCalls` / `amountYuan` | 新增 | 60 / 20 / 200000 | 正整数 |
 | `breaker.denyThreshold` / `windowSeconds` / `revokeTickets` | 新增 | 5 / 600 / `true` | 正整数 / 布尔 |
@@ -958,8 +958,8 @@ ticket/redeemed → ticket/consumed → tool/result → assistant/message → st
 | R128 | **`post-execute` 的"声明值"来源** | `assistant/message` 在工具之后才落账，同 step 拿不到当步文本；实现取"本 turn 已落账 assistant 文本 + 工具参数字符串"，当步文本的复核放 `turn-stopping`（见 R129） |
 | R129 | **无工具结果不陈述的口径收窄** | 规格 §4 写"无 `read/*` 结果"，实现收窄为"本 turn 无任何 `tool/result`"——否则幕 3 的合法转账成功陈述会被误纠正；`docs/sentry.md` §10 已写明 |
 | R130 | **解冻入口形态** | 本批以 `SENTRY_SERVICE.unfreeze(by, reason)` 为唯一解除路径（无 UI/CLI 按钮；坐席面板属 13/15）；只绿模式另由 `restore()` 解除 |
-| R131 | **跨包新增（待确认）**：`TicketStore.revokeAll(reason, now)` + `BANK_TICKETS` 服务键 + `bank-tools.ts` 一行暴露 | 硬约束允许 `revokeAll`；`BANK_TICKETS` 是"安全层只读状态 + 批量吊销"的最小出口，`redeem()` 判定未改。若不允许 host 侧这一行，替代方案是冻结时只做逻辑拒绝（不以 bank-core 状态吊销） |
-| R132 | **`crossScenario` 内置规则（XSC-001/002）** | 内核 13 条不动；跨场景规则走内核既有的 `extraRules` 能力 + Config 开关（默认开），阈值/正则全部 fail-loud |
+| R131 | **跨包新增（已拍板 B）**：`TicketStore.revokeAll(reason, now)` + 票据服务键 + `bank-tools.ts` 一行暴露 | 硬约束允许 `revokeAll`；原 `BANK_TICKETS: ServiceKey<TicketStore>` 会连带暴露 `issue/approve/block/redeem`，已收窄为 `BANK_TICKET_GUARD: TicketGuard`（只含 `status` + `revokeAll`）。`redeem()` 判定未改，核销入口不跨包。见 §42 |
+| R132 | **`crossScenario` 内置规则（XSC-001/002）** | 内核 13 条不动；跨场景规则走内核既有的 `extraRules` 能力 + Config 开关（默认关，演示 profile 显式开），阈值/正则全部 fail-loud |
 | R133 | **T-SNT-001 演示金额从 5 万改为 5,001 元** | demo 账户可用 12,345.67 元，5 万会先被 bank-core 的"余额不足"预检拒绝（理由码不同）；5,001 元刚好超日限额，走"红级 + 无审批"这条要验证的路径。5 万本身仍被拒（`insufficient-balance`） |
 | R134 | `trace.sink` 只提供 `memory` / `stderr` | 三链 JSONL 导出、时间线与自评报表属施工单 12；sentry 不碰 fs |
 | R135 | **IM section 未注册** | `SECTION_ORDERS` 冻结，新增段属破坏性变更；sentry 只交付 `IM_UNTRUSTED_SECTION` 占位，注册权留给施工单 15 |
@@ -968,11 +968,11 @@ ticket/redeemed → ticket/consumed → tool/result → assistant/message → st
 
 | # | 项 | 现状 | 建议 |
 |---|---|---|---|
-| 1 | R131 的接口变更（`BANK_TICKETS` + host 一行） | 工作树已实现，未提交 | 人工复核：是否允许 host 侧暴露票据服务；若不允许，改为"冻结仅逻辑拒绝"并在报告里降级"吊销票据"为"拒绝执行" |
-| 2 | 只绿模式与 09 判定的边界 | sentry 在 bank 判决**之前**叠加拒绝（waterfall 内层）；bank 的 `tier/decided` 仍会为绿级记录 allow | 若希望"降级时 bank 也知情"，需要在 09 侧读 sentry 状态（本批不改 bank） |
-| 3 | 与 11 沙箱的接缝 | 本批不碰 `analysis_calc` / `BANK_COMPUTE` | 11 批 C 接沙箱时，sentry 的规则扫描仍先于沙箱（控制面顺序不变） |
-| 4 | `trace.sink=stderr` 仅演示 | 标准错误不落盘、不可回放 | 施工单 12 接三链导出后换 `session` / JSONL sink |
-| 5 | 跨场景规则的误报面 | XSC-001/002 是窄正则（跨场景/绕过额度），demo 语料未误报 | 上线前用真实语料跑一轮误报统计；可用 `rules.crossScenario=false` 一键关闭 |
+| 1 | R131 的接口变更 | **已拍板 B**：票据服务收窄为 `BANK_TICKET_GUARD`（`status` + `revokeAll`），`TicketStore` 不跨包 | 见 §42；备选"冻结仅逻辑拒绝"未采用（会失去吊销的防御纵深） |
+| 2 | 只绿模式与 09 判定的边界 | sentry 先拒时，09 已补一条声明级 `tier/decided`（`verdict=deny`、`reason=declared`、`level=声明级别`） | 见 §42；若需要生效级别而非声明级别，需调整装配顺序，另批评估 |
+| 3 | 与 11 沙箱的接缝 | 本批不碰 `analysis_calc` / `BANK_COMPUTE` | 11 批 C 接沙箱时补契约测试：恶意 code 命中规则 → seam 0 次调用 |
+| 4 | `trace.sink=stderr` 仅演示 | 已新增 `session` sink（durable、可回放）；生产环境 `stderr` 载入即拒 | 施工单 12 再接 JSONL 文件导出 |
+| 5 | 跨场景规则的误报面 | 默认已关；新增 `pnpm sentry:fp` 语料扫描 | 上线前用脱敏真实语料跑统计，人工复核增量命中后再开启 |
 
 **结论**：批次 B 的 8 条出口标准全部闭合；四条命令全绿。唯一需要人工拍板的是 R131 的跨包暴露面，
 其余偏离均在 `docs/sentry.md` §10 与本节留有可追溯说明。
@@ -996,6 +996,20 @@ ticket/redeemed → ticket/consumed → tool/result → assistant/message → st
 
 **已知缺口**（`docs/knowledge.md` §7）：向量/RRF、LLM 生成、蕴含层、真实解析、证据面板、熔断持久化。
 **主循环**：本批**未改** `packages/runtime/**`；`agent/finalize` 留赛后（对接方案 §7.6）。
+
+## 42. 2026-10-20 复核决议与落地（R131 / 只绿边界 / XSC / trace）
+
+> 触发：批次 B 复核提出的 5 个待拍板点。本节记录实际选择与改动面；`docs/sentry.md` 同步更新。
+
+| # | 决议 | 落地 |
+|---|---|---|
+| 1 | R131 选 **B（窄端口）** | `TicketStore` 仍是核销唯一属主；新增 `TicketGuard { status, revokeAll }` + `BANK_TICKET_GUARD`（`bank:ticket-guard`）。`bank-tools.ts` 只 provide 两方法对象；`sentry.ts` 改依赖窄端口。`issue/approve/redeem` 不再跨包可见 |
+| 2 | 只绿边界选 **B（09 补审计）** | `governance.ts` 在 `downstream.verdict.kind==='deny' && code.startsWith('sentry-')` 时补 `tier/decided{verdict:'deny', reason:'declared', level:声明级别, code}`；不跑预检、不签票据 |
+| 3 | 11 沙箱接缝**本批不改** | 顺序仍由 `tools/pre-execute`（③）先于 `tools/execute`（⑤）保证；11 批补契约测试 |
+| 4 | XSC 选 **A+B** | `rules.crossScenario` 默认 `false`；`profiles/headless/patch.yml` 显式 `true`；新增 `scripts/sentry-fp-scan.ts` 与 `pnpm sentry:fp`（统计 tool/call 命中、增量命中与样本） |
+| 5 | trace 选 **A+C** | `trace.sink` 增加 `session`（宿主逐条落 `sentry/trace`，ignorable）；生产环境 `sink=stderr` 在 `sentryPlugin.validate` fail-loud（`sentry-insecure-trace-sink`） |
+
+**测试面**：`packages/bank/src/core/ticket.test.ts` 新增 `revokeAll` 两条；`packages/bank/src/tools/governance.test.ts` 新增声明级 `tier/decided` 一条；`packages/host/.../sentry.test.ts` 改为窄端口断言 + `session` sink + 生产护栏；`config.test.ts` / `control.test.ts` 跟随默认开关调整。
 
 
 

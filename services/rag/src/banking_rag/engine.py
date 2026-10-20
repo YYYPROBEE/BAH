@@ -1,27 +1,26 @@
-"""知识回答引擎（骨架版 12 步的确定性切片）。
+"""知识回答引擎：12 步确定性管线（生成可选 LLM，校验层不变）。
 
-流程：breaker → 地区守卫 → 产品消歧 → ACL 谓词 → 路由 → 检索/取数 → 抽取式生成
-→ 字面/数值校验 → 状态机 → 审计。
+流程：breaker → 地区守卫 → 产品消歧 → ACL 谓词 → 路由 → 混合检索/取数
+→ 生成（LLM / 模板 / 抽取式降级）→ 字面+蕴含+数值校验 → 状态机 → 审计 → 熔断计数。
 
-生成器是**抽取式**的：答案句直接来自证据或 cell，不调 LLM。这样骨架先保证
-"引用真实、数值零改写、拒答确定"；LLM 生成器后续替换 `_generate_*` 即可，校验层不变。
+纪律：
+- 数值只从 cell `value_text` 取（取数型问题不经 LLM）；
+- LLM 输出不可信：只当 claim 草稿，终态由代码判定；
+- 每个出口（含拒答/消歧/锁定）都写审计，且字段足够证据面板回放。
 """
 
 from __future__ import annotations
 
 import json
-import re
 import time
 import uuid
 from dataclasses import dataclass, field
 
 from .breaker import Breaker
-from .config import MAX_EVIDENCE_CHARS
 from .contract import (
     AnswerRequest,
     AnswerResponse,
     Candidate,
-    Citation,
     Evidence,
     Latency,
     LookupValue,
@@ -31,17 +30,18 @@ from .contract import (
     VerifyRequest,
     VerifyResponse,
 )
+from .entailment import Entailer
+from .generator import Claim, Generation, Generator, InsufficientEvidence
+from .llm import LLM, build_llm
 from .retrieve import (
-    LookupHit,
+    SearchResult,
     evidence_from_rows,
-    extract_terms,
     is_lookup_query,
     lookup,
-    normalize_text,
     search,
 )
 from .store import Store
-from .verify import extract_markers, verify_answer
+from .verify import verify_answer
 
 ALIASES: tuple[tuple[str, str], ...] = (
     ("稳盈90天增强版", "W-003"),
@@ -59,9 +59,11 @@ REGION_HINTS: dict[str, str] = {
 REFUSAL_MESSAGES = {
     "SCOPE_EMPTY": "当前权限范围内没有可引用的依据，无法回答该问题。",
     "EMPTY_RETRIEVAL": "知识库中没有找到相关依据，无法回答该问题。",
+    "INSUFFICIENT_EVIDENCE": "现有依据不足以回答该问题，已中止输出。",
     "NUMERIC_MISMATCH": "检索到的依据与答案数值不一致，已中止输出。",
     "SPAN_UNRESOLVED": "答案引用无法解析到证据，已中止输出。",
     "MISSING_CITATION": "答案缺少可验证引用，已中止输出。",
+    "MISSING_CLAIM_CITATION": "答案存在未绑定引用的结论，已中止输出。",
     "UNSUPPORTED_CLAIM": "答案未获得证据支持，已中止输出。",
     "BREAKER_LOCKED": "本次会话的检索已暂时锁定，已转人工接管。",
     "KNOWLEDGE_UNAVAILABLE": "知识服务暂不可用，请稍后再试。",
@@ -105,34 +107,19 @@ def region_mismatch(query: str, region: str) -> bool:
     return False
 
 
-def _split_sentences(text: str) -> list[str]:
-    return [part.strip() for part in re.split(r"[。；;\n]+", text) if part.strip()]
-
-
-def _pick_sentence(text: str, query: str) -> str:
-    terms = extract_terms(query)
-    sentences = _split_sentences(text)
-    if not sentences:
-        return text
-    scored = []
-    for sentence in sentences:
-        score = sum(1 for term in terms if term in sentence)
-        scored.append((score, len(sentence), sentence))
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    return scored[0][2]
-
-
-def _with_span(evidence: Evidence, sentence: str) -> Evidence:
-    start = evidence.text.find(sentence)
-    if start < 0:
-        return evidence
-    return evidence.model_copy(update={"char_start": start, "char_end": start + len(sentence)})
-
-
 @dataclass
 class Engine:
     store: Store
     breaker: Breaker = field(default_factory=Breaker)
+    llm: LLM | None = None
+    generator: Generator = field(init=False)
+    entailer: Entailer = field(init=False)
+
+    def __post_init__(self) -> None:
+        llm = self.llm if self.llm is not None else build_llm()
+        self.llm = llm
+        self.generator = Generator(llm)
+        self.entailer = Entailer(llm)
 
     # ── 对外：/v1/answer ──────────────────────────────────────────────────
     def answer(self, request: AnswerRequest) -> AnswerResponse:
@@ -141,13 +128,20 @@ class Engine:
         principal = request.principal
         conn = self.store.connect()
         try:
-            if self.breaker.is_locked(request.session_id):
+            if self.breaker.is_locked(conn, request.session_id):
                 return self._refuse(
-                    conn, request, trace_id, "LOCKED", "BREAKER_LOCKED", started, 0, []
+                    conn,
+                    request,
+                    trace_id,
+                    "LOCKED",
+                    "BREAKER_LOCKED",
+                    started,
+                    count_breaker=False,
+                    breaker_state="LOCKED",
                 )
             if region_mismatch(request.query, principal.region):
                 return self._refuse(
-                    conn, request, trace_id, "RED", "SCOPE_EMPTY", started, 0, []
+                    conn, request, trace_id, "RED", "SCOPE_EMPTY", started
                 )
 
             visible = self.store.visible_chunk_ids(conn, principal)
@@ -156,35 +150,21 @@ class Engine:
                 visible = self._filter_visible_by_product(conn, visible, products[0])
             if not visible:
                 return self._refuse(
-                    conn, request, trace_id, "RED", "SCOPE_EMPTY", started, 0, []
+                    conn, request, trace_id, "RED", "SCOPE_EMPTY", started, visible=visible
                 )
 
             if len(products) >= 2:
                 candidates = self._candidates(conn, principal, products)
                 if len(candidates) >= 2:
-                    response = AnswerResponse(
-                        trace_id=trace_id,
-                        kind="disambiguation",
-                        answer="您指的是哪一只产品？",
-                        candidates=candidates,
-                        verdict="AMBER_DISAMBIGUATION",
-                        reason_code="NEED_DISAMBIGUATION",
-                        latency_ms=Latency(
-                            retrieval=_elapsed_ms(started),
-                            total=_elapsed_ms(started),
-                        ),
+                    return self._disambiguate(
+                        conn, request, trace_id, candidates, visible, started
                     )
-                    self._audit(
-                        conn, request, trace_id, visible, [], "disambiguation",
-                        "AMBER_DISAMBIGUATION", "NEED_DISAMBIGUATION", response.answer,
-                        _elapsed_ms(started),
-                    )
-                    return response
 
             route = "lookup" if is_lookup_query(request.query) else "hybrid"
             retrieval_started = time.perf_counter()
             evidence: list[Evidence] = []
             values: list[LookupValue] = []
+            result = SearchResult(evidence=[], trace={})
             if route == "lookup":
                 hits = lookup(self.store, conn, visible, request.query)
                 if hits:
@@ -198,39 +178,120 @@ class Engine:
                         )
                         for hit in hits
                     ]
+                    result = SearchResult(
+                        evidence=evidence,
+                        trace={
+                            "route": "lookup",
+                            "cells": [
+                                {
+                                    "cellId": hit.cell_id,
+                                    "chunkId": hit.chunk_id,
+                                    "label": hit.label,
+                                    "valueText": hit.value_text,
+                                    "unit": hit.unit,
+                                }
+                                for hit in hits
+                            ],
+                        },
+                    )
             if not evidence:
-                evidence = search(self.store, conn, visible, request.query)
+                result = search(self.store, conn, visible, request.query)
+                evidence = result.evidence
             retrieval_ms = _elapsed_ms(retrieval_started)
 
             if not evidence:
                 return self._refuse(
-                    conn, request, trace_id, "RED", "EMPTY_RETRIEVAL", started, retrieval_ms, []
+                    conn,
+                    request,
+                    trace_id,
+                    "RED",
+                    "EMPTY_RETRIEVAL",
+                    started,
+                    retrieval_ms=retrieval_ms,
+                    visible=visible,
+                    trace=result.trace,
                 )
 
             generation_started = time.perf_counter()
             if values:
-                answer_text = self._generate_lookup(values[0], "K1")
+                claim_text = f"{values[0].label}为{values[0].value_text}{values[0].unit}"
+                generation = Generation(
+                    text=LOOKUP_ANSWER_TEMPLATE.format(
+                        label=values[0].label,
+                        value=values[0].value_text,
+                        unit=values[0].unit,
+                        marker="K1",
+                    ),
+                    claims=[Claim(text=claim_text, markers=["K1"])],
+                    generator="template",
+                )
             else:
-                sentence = _pick_sentence(evidence[0].text, request.query)
-                evidence[0] = _with_span(evidence[0], sentence)
-                answer_text = f"{sentence}[K1]。"
+                try:
+                    generation = self.generator.generate(
+                        request.query,
+                        evidence,
+                        max_chars=request.answer_options.max_chars,
+                    )
+                except InsufficientEvidence:
+                    return self._refuse(
+                        conn,
+                        request,
+                        trace_id,
+                        "RED",
+                        "INSUFFICIENT_EVIDENCE",
+                        started,
+                        retrieval_ms=retrieval_ms,
+                        visible=visible,
+                        evidence_ids=[item.chunk_id for item in evidence],
+                        trace=result.trace,
+                    )
             generation_ms = _elapsed_ms(generation_started)
 
             verify_started = time.perf_counter()
-            cell_values = [str(row["value_text"]) for row in self.store.cells_for(conn, [e.chunk_id for e in evidence])]
-            verified = verify_answer(answer_text, evidence, cell_values, trace_id=trace_id)
+            cell_values = [
+                str(row["value_text"])
+                for row in self.store.cells_for(
+                    conn, [item.chunk_id for item in evidence]
+                )
+            ]
+            verified = verify_answer(
+                generation.text,
+                evidence,
+                cell_values,
+                require_citations=request.answer_options.require_citations,
+                trace_id=trace_id,
+                entailer=self.entailer,
+            )
             verify_ms = _elapsed_ms(verify_started)
 
             if verified.verdict == "RED":
                 return self._refuse(
-                    conn, request, trace_id, "RED", verified.reason_code or "UNSUPPORTED_CLAIM",
-                    started, retrieval_ms, [e.chunk_id for e in evidence], verified,
+                    conn,
+                    request,
+                    trace_id,
+                    "RED",
+                    verified.reason_code or "UNSUPPORTED_CLAIM",
+                    started,
+                    retrieval_ms=retrieval_ms,
+                    visible=visible,
+                    evidence_ids=[item.chunk_id for item in evidence],
+                    trace=result.trace,
+                    generator=generation.generator,
+                    model=generation.model,
+                    tokens=(generation.prompt_tokens, generation.completion_tokens),
+                    verified=verified,
                 )
 
-            final_text = answer_text
+            final_text = generation.text
             if verified.verdict == "AMBER_INFERRED":
-                final_text = f"（推断性回答）{answer_text}"
+                final_text = f"（推断性回答）{final_text}"
 
+            latency = Latency(
+                retrieval=retrieval_ms,
+                generation=generation_ms,
+                verify=verify_ms,
+                total=_elapsed_ms(started),
+            )
             response = AnswerResponse(
                 trace_id=trace_id,
                 kind="answer",
@@ -239,18 +300,26 @@ class Engine:
                 evidence=evidence,
                 verdict=verified.verdict,
                 reason_code=verified.reason_code,
-                latency_ms=Latency(
-                    retrieval=retrieval_ms,
-                    generation=generation_ms,
-                    verify=verify_ms,
-                    total=_elapsed_ms(started),
-                ),
+                latency_ms=latency,
             )
-            self._audit(
-                conn, request, trace_id, visible, [e.chunk_id for e in evidence], route,
-                verified.verdict, verified.reason_code, final_text, _elapsed_ms(started),
+
+            self._record_and_audit(
+                conn,
+                request,
+                trace_id,
+                visible=visible,
+                evidence_ids=[item.chunk_id for item in evidence],
+                route=route,
+                verdict=verified.verdict,
+                reason_code=verified.reason_code,
+                answer_text=final_text,
+                latency_ms=latency.total,
+                trace=result.trace,
+                generator=generation.generator,
+                model=generation.model,
+                tokens=(generation.prompt_tokens, generation.completion_tokens),
+                verified=verified,
             )
-            self.breaker.record(request.session_id, verified.verdict, verified.reason_code)
             return response
         finally:
             conn.close()
@@ -262,16 +331,22 @@ class Engine:
         principal = request.principal
         conn = self.store.connect()
         try:
-            if self.breaker.is_locked(request.session_id):
+            if self.breaker.is_locked(conn, request.session_id):
                 return QueryResponse(
-                    trace_id=trace_id, kind="refusal", answer=REFUSAL_MESSAGES["BREAKER_LOCKED"],
-                    verdict="LOCKED", reason_code="BREAKER_LOCKED",
+                    trace_id=trace_id,
+                    kind="refusal",
+                    answer=REFUSAL_MESSAGES["BREAKER_LOCKED"],
+                    verdict="LOCKED",
+                    reason_code="BREAKER_LOCKED",
                     latency_ms=Latency(total=_elapsed_ms(started)),
                 )
             if region_mismatch(request.query, principal.region):
                 return QueryResponse(
-                    trace_id=trace_id, kind="refusal", answer=REFUSAL_MESSAGES["SCOPE_EMPTY"],
-                    verdict="RED", reason_code="SCOPE_EMPTY",
+                    trace_id=trace_id,
+                    kind="refusal",
+                    answer=REFUSAL_MESSAGES["SCOPE_EMPTY"],
+                    verdict="RED",
+                    reason_code="SCOPE_EMPTY",
                     latency_ms=Latency(total=_elapsed_ms(started)),
                 )
             visible = self.store.visible_chunk_ids(conn, principal)
@@ -280,45 +355,79 @@ class Engine:
                 visible = self._filter_visible_by_product(conn, visible, products[0])
             if not visible:
                 return QueryResponse(
-                    trace_id=trace_id, kind="refusal", answer=REFUSAL_MESSAGES["SCOPE_EMPTY"],
-                    verdict="RED", reason_code="SCOPE_EMPTY",
+                    trace_id=trace_id,
+                    kind="refusal",
+                    answer=REFUSAL_MESSAGES["SCOPE_EMPTY"],
+                    verdict="RED",
+                    reason_code="SCOPE_EMPTY",
                     latency_ms=Latency(total=_elapsed_ms(started)),
                 )
             if len(products) >= 2:
                 candidates = self._candidates(conn, principal, products)
                 if len(candidates) >= 2:
                     return QueryResponse(
-                        trace_id=trace_id, kind="disambiguation",
-                        answer="您指的是哪一只产品？", candidates=candidates,
-                        verdict="AMBER_DISAMBIGUATION", reason_code="NEED_DISAMBIGUATION",
+                        trace_id=trace_id,
+                        kind="disambiguation",
+                        answer="您指的是哪一只产品？",
+                        candidates=candidates,
+                        verdict="AMBER_DISAMBIGUATION",
+                        reason_code="NEED_DISAMBIGUATION",
                         latency_ms=Latency(total=_elapsed_ms(started)),
                     )
             route = "lookup" if is_lookup_query(request.query) else "hybrid"
             evidence: list[Evidence] = []
             values: list[LookupValue] = []
+            result = SearchResult(evidence=[], trace={})
             if route == "lookup":
                 hits = lookup(self.store, conn, visible, request.query)
                 if hits:
                     evidence = self._evidence_for_chunks(conn, [hits[0].chunk_id])
                     values = [
                         LookupValue(
-                            label=hit.label, value_text=hit.value_text,
-                            unit=hit.unit, cell_ref=f"c-{hit.cell_id}",
+                            label=hit.label,
+                            value_text=hit.value_text,
+                            unit=hit.unit,
+                            cell_ref=f"c-{hit.cell_id}",
                         )
                         for hit in hits
                     ]
+                    result = SearchResult(
+                        evidence=evidence,
+                        trace={
+                            "route": "lookup",
+                            "cells": [
+                                {
+                                    "cellId": hit.cell_id,
+                                    "chunkId": hit.chunk_id,
+                                    "label": hit.label,
+                                    "valueText": hit.value_text,
+                                    "unit": hit.unit,
+                                }
+                                for hit in hits
+                            ],
+                        },
+                    )
             if not evidence:
-                evidence = search(self.store, conn, visible, request.query)
+                result = search(self.store, conn, visible, request.query)
+                evidence = result.evidence
             if not evidence:
                 return QueryResponse(
-                    trace_id=trace_id, kind="refusal", answer=REFUSAL_MESSAGES["EMPTY_RETRIEVAL"],
-                    visible_count=len(visible), verdict="RED", reason_code="EMPTY_RETRIEVAL",
+                    trace_id=trace_id,
+                    kind="refusal",
+                    answer=REFUSAL_MESSAGES["EMPTY_RETRIEVAL"],
+                    visible_count=len(visible),
+                    verdict="RED",
+                    reason_code="EMPTY_RETRIEVAL",
                     latency_ms=Latency(total=_elapsed_ms(started)),
                 )
             kind = "lookup" if values else "evidence"
             return QueryResponse(
-                trace_id=trace_id, kind=kind, route=route, visible_count=len(visible),
-                evidence=evidence, values=values,
+                trace_id=trace_id,
+                kind=kind,
+                route=route,
+                visible_count=len(visible),
+                evidence=evidence,
+                values=values,
                 latency_ms=Latency(retrieval=_elapsed_ms(started), total=_elapsed_ms(started)),
             )
         finally:
@@ -343,7 +452,8 @@ class Engine:
                 )
             if not evidence:
                 return VerifyResponse(
-                    verdict="RED", reason_code="SPAN_UNRESOLVED",
+                    verdict="RED",
+                    reason_code="SPAN_UNRESOLVED",
                     latency_ms=Latency(total=0),
                 )
             cell_values = [
@@ -351,9 +461,12 @@ class Engine:
                 for cell in self.store.cells_for(conn, [item.chunk_id for item in evidence])
             ]
             return verify_answer(
-                request.answer_text, evidence, cell_values,
+                request.answer_text,
+                evidence,
+                cell_values,
                 require_citations=request.options.require_citations,
                 trace_id=request.trace_ids[0] if request.trace_ids else None,
+                entailer=self.entailer,
             )
         finally:
             conn.close()
@@ -409,11 +522,43 @@ class Engine:
             for product_id, (_score, title) in sorted(best.items())
         ]
 
-    @staticmethod
-    def _generate_lookup(hit: LookupValue, marker: str) -> str:
-        return LOOKUP_ANSWER_TEMPLATE.format(
-            label=hit.label, value=hit.value_text, unit=hit.unit, marker=marker
+    def _disambiguate(
+        self,
+        conn,
+        request: AnswerRequest,
+        trace_id: str,
+        candidates: list[Candidate],
+        visible: set[int],
+        started: float,
+    ) -> AnswerResponse:
+        answer = "您指的是哪一只产品？"
+        response = AnswerResponse(
+            trace_id=trace_id,
+            kind="disambiguation",
+            answer=answer,
+            candidates=candidates,
+            verdict="AMBER_DISAMBIGUATION",
+            reason_code="NEED_DISAMBIGUATION",
+            latency_ms=Latency(retrieval=_elapsed_ms(started), total=_elapsed_ms(started)),
         )
+        self._record_and_audit(
+            conn,
+            request,
+            trace_id,
+            visible=visible,
+            evidence_ids=[],
+            route="alias",
+            verdict="AMBER_DISAMBIGUATION",
+            reason_code="NEED_DISAMBIGUATION",
+            answer_text=answer,
+            latency_ms=response.latency_ms.total,
+            trace={"candidates": [item.model_dump(by_alias=True) for item in candidates]},
+            generator="none",
+            model=None,
+            tokens=(0, 0),
+            verified=None,
+        )
+        return response
 
     def _refuse(
         self,
@@ -423,11 +568,24 @@ class Engine:
         verdict: str,
         reason_code: str,
         started: float,
-        retrieval_ms: int,
-        evidence_ids: list[int],
+        *,
+        retrieval_ms: int = 0,
+        visible: set[int] | None = None,
+        evidence_ids: list[int] | None = None,
+        trace: dict[str, object] | None = None,
+        generator: str = "none",
+        model: str | None = None,
+        tokens: tuple[int, int] = (0, 0),
         verified: VerifyResponse | None = None,
+        count_breaker: bool = True,
+        breaker_state: str | None = None,
     ) -> AnswerResponse:
         message = REFUSAL_MESSAGES.get(reason_code, REFUSAL_MESSAGES["UNSUPPORTED_CLAIM"])
+        latency = Latency(
+            retrieval=retrieval_ms,
+            verify=0,
+            total=_elapsed_ms(started),
+        )
         response = AnswerResponse(
             trace_id=trace_id,
             kind="refusal",
@@ -436,24 +594,35 @@ class Engine:
             citations=verified.citations if verified is not None else [],
             verdict=verdict,  # type: ignore[arg-type]
             reason_code=reason_code,
-            latency_ms=Latency(
-                retrieval=retrieval_ms,
-                verify=0,
-                total=_elapsed_ms(started),
-            ),
+            latency_ms=latency,
         )
-        self._audit(
-            conn, request, trace_id, set(), evidence_ids, "hybrid",
-            verdict, reason_code, message, _elapsed_ms(started),
+        self._record_and_audit(
+            conn,
+            request,
+            trace_id,
+            visible=visible or set(),
+            evidence_ids=evidence_ids or [],
+            route="hybrid",
+            verdict=verdict,
+            reason_code=reason_code,
+            answer_text=message,
+            latency_ms=latency.total,
+            trace=trace or {},
+            generator=generator,
+            model=model,
+            tokens=tokens,
+            verified=verified,
+            count_breaker=count_breaker,
+            breaker_state=breaker_state,
         )
-        self.breaker.record(request.session_id, verdict, reason_code)
         return response
 
-    def _audit(
+    def _record_and_audit(
         self,
         conn,
         request: AnswerRequest,
         trace_id: str,
+        *,
         visible: set[int],
         evidence_ids: list[int],
         route: str,
@@ -461,14 +630,37 @@ class Engine:
         reason_code: str | None,
         answer_text: str,
         latency_ms: int,
+        trace: dict[str, object],
+        generator: str,
+        model: str | None,
+        tokens: tuple[int, int],
+        verified: VerifyResponse | None,
+        count_breaker: bool = True,
+        breaker_state: str | None = None,
     ) -> None:
+        if count_breaker:
+            self.breaker.record(
+                conn,
+                request.session_id,
+                verdict,
+                reason_code,
+                injection_hit=request.injection_hit,
+            )
+        state = breaker_state or self.breaker.status(conn, request.session_id)
         now = request.principal.now.isoformat()
+        verify_payload = (
+            json.dumps(verified.model_dump(by_alias=True, mode="json"), ensure_ascii=False)
+            if verified is not None
+            else None
+        )
         self.store.log_retrieval(
             conn,
             trace_id=trace_id,
             session_id=request.session_id,
             query_norm=request.query,
-            predicate_json=json.dumps(request.principal.model_dump(mode="json"), ensure_ascii=False),
+            predicate_json=json.dumps(
+                request.principal.model_dump(mode="json"), ensure_ascii=False
+            ),
             visible_count=len(visible),
             evidence_ids=evidence_ids,
             route=route,
@@ -476,6 +668,8 @@ class Engine:
             reason_code=reason_code,
             latency_ms=latency_ms,
             created_at=now,
+            channels_json=json.dumps(trace, ensure_ascii=False) if trace else None,
+            breaker_state=state,
         )
         self.store.log_answer(
             conn,
@@ -486,4 +680,9 @@ class Engine:
             reason_code=reason_code,
             latency_ms=latency_ms,
             created_at=now,
+            verify_json=verify_payload,
+            generator=generator,
+            model=model,
+            tokens_in=tokens[0],
+            tokens_out=tokens[1],
         )

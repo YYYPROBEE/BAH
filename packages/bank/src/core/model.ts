@@ -52,14 +52,28 @@ export type { SessionId, TicketId }
  * 2. 金额（整数分）
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 元 → 分（四舍五入到整数分）；非法输入 fail-loud。 */
+/** 元 → 分（按十进制四舍五入到整数分）；非法输入 fail-loud。 */
 export function yuanToCents(value: number): number {
   if (!Number.isFinite(value) || value < 0) {
     throw new BahError('money-invalid', `bank: 金额必须是有限非负数（收到 ${String(value)}）`, {
       value,
     })
   }
-  return Math.round(value * 100)
+  // 不能用 `Math.round(value * 100)`：`1.005 * 100 === 100.49999999999999`，
+  // 会舍成 100 分（少 1 分）。转成十进制指数形式再取整，让"元"的十进制字面值说了算。
+  // 极小/极大值在 `String()` 里会带 `e`，拼 `${value}e2` 不合法，退回乘法后由安全整数兜底。
+  const text = String(value)
+  const cents =
+    text.includes('e') || text.includes('E')
+      ? Math.round(value * 100)
+      : Math.round(Number(`${text}e2`))
+  if (!Number.isSafeInteger(cents)) {
+    throw new BahError('money-invalid', `bank: 金额超出可精确表示的范围（收到 ${String(value)}）`, {
+      value,
+      cents,
+    })
+  }
+  return cents
 }
 
 /** 分 → 元（只用于展示，不参与账本计算）。 */

@@ -62,13 +62,23 @@ export interface DeepSeekAdapterOptions {
   readonly fetch?: FetchLike
   /** 模型表（默认 `DEEPSEEK_MODELS`）。 */
   readonly models?: readonly ModelSpec[]
+  /** 整次请求的硬上限（含建连与读流；默认 120s）。 */
+  readonly requestTimeoutMs?: number
+  /** 两个分片之间的静默上限（默认 60s）。 */
+  readonly idleTimeoutMs?: number
 }
+
+/** 缺省超时：上游挂起时绝不无限等待（审查 S2）。 */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 120_000
+export const DEFAULT_IDLE_TIMEOUT_MS = 60_000
 
 export class DeepSeekAdapter implements LlmAdapter {
   private readonly apiKey: string | undefined
   private readonly baseUrl: string
   private readonly fetchImpl: FetchLike
   private readonly models: readonly ModelSpec[]
+  private readonly requestTimeoutMs: number
+  private readonly idleTimeoutMs: number
 
   /** 调用序号（`prepareCall` 的 id 用）。 */
   private calls = 0
@@ -78,6 +88,8 @@ export class DeepSeekAdapter implements LlmAdapter {
     this.baseUrl = options.baseUrl ?? readDeepSeekEnv({}).baseUrl
     this.fetchImpl = options.fetch ?? ((input, init) => fetch(input, init))
     this.models = options.models ?? DEEPSEEK_MODELS
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+    this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
   }
 
   providerInfo(): ProviderInfo {
@@ -153,6 +165,7 @@ export class DeepSeekAdapter implements LlmAdapter {
    * 取消：`signal` 透传给 `fetch`；进入前已取消直接抛 `llm-aborted`。
    *
    * @throws `BahError('llm-aborted')` 调用已取消
+   * @throws `BahError('llm-timeout')` 整次请求或分片间静默超时
    * @throws `BahError('llm-http-error')` 非 2xx 或响应没有 body
    * @throws `BahError('llm-wire-invalid')` SSE 分片不是合法 JSON
    */
@@ -163,45 +176,93 @@ export class DeepSeekAdapter implements LlmAdapter {
       })
     }
 
-    const response = await this.fetchImpl(joinUrl(this.baseUrl, CHAT_COMPLETIONS_PATH), {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(toWireBody(call, true)),
-      signal,
-    })
+    // 超时与用户取消都收敛到同一个内部 controller：fetch 与读流共用一条信号。
+    const controller = new AbortController()
+    let timedOut: 'request' | 'idle' | undefined
+    const onAbort = (): void => controller.abort()
+    signal.addEventListener('abort', onAbort, { once: true })
+    const requestTimer = setTimeout(() => {
+      timedOut = 'request'
+      controller.abort()
+    }, this.requestTimeoutMs)
+    let idleTimer: ReturnType<typeof setTimeout> | undefined
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
 
-    if (!response.ok) {
-      const detail = await response.text()
-      throw new BahError(
-        'llm-http-error',
-        `deepseek: POST /chat/completions 失败 HTTP ${response.status}${detail === '' ? '' : `：${truncate(detail)}`}`,
-        { status: response.status },
-      )
-    }
+    try {
+      const response = await this.fetchImpl(joinUrl(this.baseUrl, CHAT_COMPLETIONS_PATH), {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(toWireBody(call, true)),
+        signal: controller.signal,
+      })
 
-    if (response.body === null) {
-      throw new BahError('llm-http-error', 'deepseek: 响应没有 body（该端点不支持流式）')
-    }
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done === true) break
-      buffer += decoder.decode(value, { stream: true })
-
-      const parsed = parseSseRecords(buffer)
-      buffer = parsed.rest
-      for (const record of parsed.records) {
-        yield* chunksOfRecord(record)
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new BahError(
+          'llm-http-error',
+          `deepseek: POST /chat/completions 失败 HTTP ${response.status}${detail === '' ? '' : `：${truncate(detail)}`}`,
+          { status: response.status },
+        )
       }
-    }
 
-    // 收尾：最后一条记录可能没有空行结尾（网络分片边界）
-    if (buffer.trim() !== '') {
-      yield* chunksOfRecord(buffer)
+      if (response.body === null) {
+        throw new BahError('llm-http-error', 'deepseek: 响应没有 body（该端点不支持流式）')
+      }
+
+      reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        // 分片间静默超时：上游“握手成功但不再吐字”同样不能无限等
+        idleTimer = setTimeout(() => {
+          timedOut = 'idle'
+          controller.abort()
+        }, this.idleTimeoutMs)
+        let chunk: ReadableStreamReadResult<Uint8Array>
+        try {
+          chunk = await reader.read()
+        } finally {
+          if (idleTimer !== undefined) clearTimeout(idleTimer)
+        }
+        if (chunk.done === true) break
+        buffer += decoder.decode(chunk.value, { stream: true })
+
+        const parsed = parseSseRecords(buffer)
+        buffer = parsed.rest
+        for (const record of parsed.records) {
+          yield* chunksOfRecord(record)
+        }
+      }
+
+      // 收尾：最后一条记录可能没有空行结尾（网络分片边界）
+      if (buffer.trim() !== '') {
+        yield* chunksOfRecord(buffer)
+      }
+    } catch (error) {
+      if (signal.aborted) {
+        throw new BahError('llm-aborted', 'deepseek: 调用已取消', { model: call.model.id })
+      }
+      if (timedOut !== undefined) {
+        const limit = timedOut === 'request' ? this.requestTimeoutMs : this.idleTimeoutMs
+        const what = timedOut === 'request' ? '整次请求' : '分片间静默'
+        throw new BahError('llm-timeout', `deepseek: ${what}超时（${limit}ms）`, {
+          model: call.model.id,
+          phase: timedOut,
+          timeoutMs: limit,
+        })
+      }
+      throw error
+    } finally {
+      clearTimeout(requestTimer)
+      if (idleTimer !== undefined) clearTimeout(idleTimer)
+      signal.removeEventListener('abort', onAbort)
+      // 超时/取消后释放连接；已读完的流上 cancel() 是安全的空操作
+      try {
+        await reader?.cancel()
+      } catch {
+        // 连接已经断了：没有可回收的资源
+      }
     }
   }
 

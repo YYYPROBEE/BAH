@@ -188,6 +188,38 @@ describe('审批失败路径', () => {
     }
   })
 
+  it('安全层先拒（sentry-*）时补声明级 tier/decided：bank 审计链不缺口', async () => {
+    const h = createPipelineHarness({ approval: 'allowed-once' })
+    try {
+      // 模拟 sentry 在 bank 评估前叠加拒绝：注册在治理平面之后 = waterfall 内层
+      h.ctx.events.on('tools/pre-execute', async (input, next) => {
+        await next(input)
+        return {
+          ...input,
+          verdict: { kind: 'deny', code: 'sentry-degraded', reason: '会话已降级为只绿模式' },
+        }
+      })
+
+      const execution = await h.run('transfer_create', TRANSFER_800)
+      expect(execution.result.isError).toBe(true)
+      expect(execution.result.code).toBe('sentry-degraded')
+      expect(auditPayloads(h, 'tier/decided')).toEqual([
+        expect.objectContaining({
+          callId: 'c-1',
+          name: 'transfer_create',
+          level: 'yellow',
+          reason: 'declared',
+          verdict: 'deny',
+          code: 'sentry-degraded',
+        }),
+      ])
+      expect(payloads(h, 'approval/asked')).toHaveLength(0)
+      expect(h.core.tickets.size).toBe(0)
+    } finally {
+      await h.dispose()
+    }
+  })
+
   it('T-VER-003 锁定期红级：pre-execute deny verify-locked，票据一张都不签', async () => {
     const verify = new VerifyService({
       provider: { verify: async () => ({ success: false }) },

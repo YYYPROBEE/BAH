@@ -48,6 +48,8 @@ class AnswerRequest(ApiModel):
     query: str = Field(min_length=1, max_length=512)
     principal: Principal
     answer_options: AnswerOptions = Field(default_factory=AnswerOptions)
+    # 由上游 sentry 透传的注入特征命中（RAG 不重复建检测器；缺省 false 保持兼容）。
+    injection_hit: bool = False
 
 
 class QueryRequest(ApiModel):
@@ -146,6 +148,7 @@ class VerifyClaim(ApiModel):
     markers: list[str] = Field(default_factory=list)
     literal: Literal["pass", "fail"]
     support: Literal["pass", "fail"]
+    entailment: Literal["pass", "fail", "skipped"] = "skipped"
 
 
 class VerifyNumber(ApiModel):

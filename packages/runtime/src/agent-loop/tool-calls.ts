@@ -48,6 +48,27 @@ export function toolCallInputOf(call: AssembledToolCall): ToolCallInput {
   return { callId: call.callId, name: call.name, args: call.args ?? {} }
 }
 
+/**
+ * 取消后**未执行**的调用 → 冻结的失败结果。
+ *
+ * 必须为每个已声明的 toolCall 落一条 `tool/result`：否则 `deriveMessages` 会判定
+ * `tool/call ↔ tool/result` 出现空洞。写操作在入口处挡下（不打断执行中的原子写）。
+ */
+export function interruptedResult(
+  call: AssembledToolCall,
+  reason = '用户中断：工具调用未执行',
+): ToolResultData {
+  return {
+    callId: call.callId,
+    name: call.name,
+    isError: true,
+    content: [{ type: 'text', text: reason }],
+    code: 'tool-interrupted',
+    reason,
+    durationMs: 0,
+  }
+}
+
 /** 调度依赖（管线按 turn 构造：它持有本 turn 的取消信号）。 */
 export interface ToolCallDispatcherOptions {
   readonly pipeline: ToolPipeline

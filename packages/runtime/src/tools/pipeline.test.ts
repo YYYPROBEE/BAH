@@ -418,10 +418,12 @@ describe('tools/execute 环绕', () => {
     })
   })
 
-  it('未注册工具 → 直接抛错（连 tool/call 都不落账）', async () => {
+  it('未注册工具 → 归一化为 tool-missing 失败结果（不落 tool/call，不冒泡）', async () => {
     await withHarness(async (h) => {
-      await expect(h.pipeline.execute(CALL)).rejects.toThrow(/未注册/)
-      expect(h.log()).toHaveLength(0)
+      const execution = await h.pipeline.execute(CALL)
+      expect(execution.result).toMatchObject({ isError: true, code: 'tool-missing' })
+      // 没有可执行体：只补一条结果，避免 assistant.toolCalls 出现空洞
+      expect(h.log().map((event) => event.type)).toEqual(['tool/result'])
     })
   })
 

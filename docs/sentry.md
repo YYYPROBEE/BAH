@@ -47,7 +47,7 @@ d. 熔断/降级    锁存冻结、只绿模式、同 turn 工具数超限（三
 | 1 | 直接指令注入 | `injection_direct`（high） | `agent/pre-step` 审计 + 风险分 | T-SNT-001 |
 | 2 | 混淆绕过 | 6 步归一化后再检测：全角 NFKC / 零宽 / 同形 / base64 / 间隔符 / 拼音标记 | 同上 | T-SNT-002 |
 | 3 | 工具参数注入 | `scanToolArgs` 递归扫参数 blob（备注/收款人备注/任意嵌套） | **`tools/pre-execute` 命中即 deny** | T-SNT-003 / 幕 2 |
-| 4 | 跨场景提权 | 组合风险规则（`XSC-001/002`，Config 可关）+ 收款人白名单（09） | `tools/pre-execute` | T-SNT-004 |
+| 4 | 跨场景提权 | 组合风险规则（`XSC-001/002`，默认关、演示 profile 显式开）+ 收款人白名单（09） | `tools/pre-execute` | T-SNT-004 |
 | 5 | 渠道侧注入（IM） | `im.ts`：`⟦UNTRUSTED:im⟧` 来源标记 + 降权提示词 section 占位 | 入口审计标注，section 由施工单 15 注册 | T-SNT-005 |
 
 **设计要点**：即使模型被完全带偏，业务操作仍被工具面拦住——这是演示"注入防御有效"的核心话术。
@@ -102,14 +102,14 @@ safety:sentry:
   rules:
     disabled: []                 # 停用的内置规则 ID
     demoWhitelist: true          # NET-001 的 demo/example/mock 校准位
-    crossScenario: true          # 内置 XSC-001/002（跨场景提权）
+    crossScenario: false         # 内置 XSC-001/002；默认关，演示/压测 profile 显式开
     extra: []                    # 部署追加规则：{id, pattern, family?, note?}；正则编译失败即抛
   budget:    { totalCalls: 60, riskyCalls: 20, amountYuan: 200000 }
   breaker:   { denyThreshold: 5, windowSeconds: 600, revokeTickets: true }
   degrade:   { invalidArgsThreshold: 3 }
   guard:     { maxToolsPerTurn: 12 }
   honesty:   { numeric: true, noResult: true }
-  trace:     { ringSize: 200, flushThreshold: 1, sink: memory }   # memory | stderr
+  trace:     { ringSize: 200, flushThreshold: 1, sink: memory }   # memory | session | stderr
 ```
 
 校验（`pipeline/config.ts`）：未知键 / 类型错 / 阈值越界 / 正则编译失败 → 载入即抛，
@@ -130,12 +130,15 @@ safety:sentry:
 | `sentry/breaker-frozen` | 窗口拒绝数达阈值 | denies / windowSeconds / ticketsRevoked |
 | `sentry/unfrozen` | 显式人工解冻 | by / reason |
 | `sentry/honesty-corrected` | 幻觉防护追加纠正 | turn / kind（no-result / numeric）/ detail |
+| `sentry/trace` | `trace.sink=session` | TraceLog 原始记录（ts / seq / kind…） |
 | `policy/downgraded` | 连续非法参数超阈 | invalidArgs / threshold |
 | `guard/repeat-tool` | 同 turn 工具数超限 | turn / tools / limit |
 
 ## 8. 票据吊销（唯一属主仍是 bank-core）
 
-冻结时 sentry 只调用 `BANK_TICKETS`（`TicketStore`）的 `revokeAll(reason, now)`：
+宿主只向外暴露窄端口 `BANK_TICKET_GUARD`（`TicketGuard`：`status` + `revokeAll`），
+**不把 `TicketStore` 整体交给安全层**——`issue` / `approve` / `block` / `redeem` 留在 bank-core。
+冻结时 sentry 只调用窄端口的 `revokeAll(reason, now)`：
 `issued` / `approved` → `blocked`，`redeemed` / `blocked` 终态不动。
 `redeem()` 的判定**一行未改**；核销仍只发生在工具体内。
 
@@ -192,5 +195,8 @@ identity/bound → turn/start → sentry/detected(high, injection_direct)
    `IM_UNTRUSTED_SECTION` 描述，注册权留给施工单 15。
 4. **人工解冻入口**：本批次以服务方法提供（`SENTRY_SERVICE.unfreeze`）；
    坐席控制台 / Web 面板的按钮属施工单 13/15。
-5. **TraceLog 导出**：本批次只做内存环 + 注入 sink（`stderr` 演示）；三链导出与自评报表属施工单 12。
+5. **TraceLog 导出**：`memory` / `session` / `stderr` 三种 sink；`session` 逐条落 durable 会话事件
+   （`sentry/trace`，可回放），`stderr` 仅演示且生产环境载入即拒；三链导出与自评报表属施工单 12。
 6. **沙箱不在本单**：`analysis_calc` 仍在进程内跑（施工单 11 的 R113）。
+7. **XSC 默认关**：`rules.crossScenario` 默认 `false`，演示 profile 显式打开；
+   上线前先跑 `pnpm sentry:fp -- --dir <脱敏真实语料>`，样本量不足或增量命中未复核时不得开启。

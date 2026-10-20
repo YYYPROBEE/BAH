@@ -16,7 +16,7 @@
 import {
   BANK_CHALLENGE,
   BANK_IDENTITY,
-  BANK_TICKETS,
+  BANK_TICKET_GUARD,
   BANK_TOOL_NAME_SET,
   MockBankCore,
   SessionIdentityStore,
@@ -34,6 +34,7 @@ import {
   type ForgeTier,
   type IdentityBoundData,
   type StrongAuth,
+  type TicketGuard,
 } from '@bah/bank'
 import { TicketLedger } from '@bah/interaction'
 import {
@@ -120,8 +121,13 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         now: run.now,
       })
       // 票据状态机的宿主出口（状态读取 + 熔断批量吊销；核销入口不外泄）。
-      // 施工单 10 §5：sentry 的断路器只通过这个服务键吊销在途票据，不自己核销。
-      ctx.effect(ctx.provide(BANK_TICKETS, core.tickets))
+      // 施工单 10 §5：sentry 的断路器只通过这个窄端口吊销在途票据，不自己核销。
+      // 只交出两个方法——`issue/approve/block/redeem` 留在 bank-core，不跨包可见。
+      const ticketGuard: TicketGuard = {
+        status: (ticketId) => core.tickets.status(ticketId),
+        revokeAll: (reason, at) => core.tickets.revokeAll(reason, at),
+      }
+      ctx.effect(ctx.provide(BANK_TICKET_GUARD, ticketGuard))
 
       const session = ctx.get(SESSION_SERVICE)
       const identity = new SessionIdentityStore()

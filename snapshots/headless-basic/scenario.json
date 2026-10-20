@@ -37,14 +37,19 @@
           {
             "tool": {
               "id": "call-1",
-              "name": "echo",
+              "name": "transfer_create",
               "args": {
-                "text": "你好，我是 headless 验收用的回显工具"
+                "amount": 800,
+                "payee": {
+                  "name": "王建国",
+                  "phone": "13900002222"
+                },
+                "remark": "房租"
               }
             }
           },
           {
-            "text": "已为你在模拟环境完成查询。"
+            "text": "已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。"
           }
         ]
       }
@@ -72,6 +77,50 @@
       "config": {
         "root": "sessions"
       }
+    },
+    {
+      "id": "bank:tools",
+      "use": "bank:tools",
+      "config": {
+        "demoUserId": "u-1",
+        "seed": 7,
+        "datasetTier": "demo"
+      }
+    },
+    {
+      "id": "interaction:approval",
+      "use": "interaction:approval",
+      "config": {
+        "responder": "headless",
+        "autoDecision": "allow",
+        "autoVerify": true
+      }
+    },
+    {
+      "id": "safety:sentry",
+      "use": "safety:sentry",
+      "config": {
+        "rules": {
+          "crossScenario": true
+        }
+      }
+    },
+    {
+      "id": "bank:saga-store",
+      "use": "bank:saga-store",
+      "config": {
+        "dbPath": "sessions/saga.sqlite"
+      }
+    },
+    {
+      "id": "bank:saga",
+      "use": "bank:saga",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-audit",
+      "use": "bank:saga-audit",
+      "config": {}
     },
     {
       "id": "demo:echo",

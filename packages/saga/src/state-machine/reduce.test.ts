@@ -105,6 +105,10 @@ describe('reduceSaga 唯一转移函数', () => {
 
     const before = fold([event('saga/created')])
     expect(reduceSaga(before, event('saga/tick'))).toEqual(before)
+    // 白名单之外的未知事件必须 fail-loud：新状态事件漏接不能悄悄不推进
+    expect(() => reduceSaga(before, event('saga/future-state-event'))).toThrow(
+      /saga-unreduced-event/,
+    )
   })
 
   it('事件与投影 sagaId 不一致即 fail-loud', () => {

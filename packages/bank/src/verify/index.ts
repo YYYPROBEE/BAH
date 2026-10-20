@@ -85,6 +85,8 @@ export class VerifyService {
   private readonly now: () => number
   private readonly challenges = new Map<string, VerifyChallenge>()
   private readonly locks = new Map<SessionId, number>()
+  /** 正在 `await provider.verify` 的挑战：同一挑战的并发提交必须被拒。 */
+  private readonly inFlight = new Set<string>()
   private sequence = 0
 
   constructor(options: VerifyServiceOptions = {}) {
@@ -137,6 +139,7 @@ export class VerifyService {
    * @throws `BahError('no-challenge')` 挑战不存在 / 不属于本会话
    * @throws `BahError('challenge-channel-mismatch')` 渠道不符
    * @throws `BahError('challenge-consumed')` 挑战已结束
+   * @throws `BahError('challenge-busy')` 同一挑战已有一次验证在途
    */
   async submit(
     sessionId: SessionId,
@@ -170,55 +173,81 @@ export class VerifyService {
         status: challenge.status,
       })
     }
-
-    const attempt = challenge.attempts + 1
-    const outcome = await this.provider.verify({ challengeId, channel, attempt })
-    if (outcome.success) {
-      this.replace(challenge, { attempts: attempt, status: 'passed' })
-      return {
-        result: {
-          channel,
-          challengeId,
-          success: true,
-          attempts: attempt,
-          remainingAttempts: Math.max(0, this.maxAttempts - attempt),
-        },
-        justLocked: false,
-      }
+    // 原子占位：并发提交若都读到 attempts=0，失败计数会互相覆盖（锁定阈值永远凑不齐）；
+    // 通过后再来一次失败提交还会把 passed 写回 pending（已消费的挑战被复活）。
+    if (this.inFlight.has(challengeId)) {
+      throw new BahError('challenge-busy', `bank-tools: 挑战 ${challengeId} 已有验证在途`, {
+        challengeId,
+      })
     }
+    this.inFlight.add(challengeId)
 
-    if (attempt >= this.maxAttempts) {
-      this.replace(challenge, { attempts: attempt, status: 'failed' })
-      const until = this.now() + this.lockMs
-      this.locks.set(sessionId, until)
+    try {
+      const attempt = challenge.attempts + 1
+      const outcome = await this.provider.verify({ challengeId, channel, attempt })
+
+      // provider 返回后重新读取：状态可能已被同一服务的其他路径改写
+      const latest = this.challenges.get(challengeId)
+      if (latest === undefined || latest.status !== 'pending') {
+        throw new BahError('challenge-consumed', `bank-tools: 挑战 ${challengeId} 已结束`, {
+          challengeId,
+          status: latest?.status ?? 'missing',
+        })
+      }
+      const settledAttempts = latest.attempts + 1
+
+      if (outcome.success) {
+        this.replace(challengeId, { attempts: settledAttempts, status: 'passed' })
+        return {
+          result: {
+            channel,
+            challengeId,
+            success: true,
+            attempts: settledAttempts,
+            remainingAttempts: Math.max(0, this.maxAttempts - settledAttempts),
+          },
+          justLocked: false,
+        }
+      }
+
+      if (settledAttempts >= this.maxAttempts) {
+        this.replace(challengeId, { attempts: settledAttempts, status: 'failed' })
+        const until = this.now() + this.lockMs
+        this.locks.set(sessionId, until)
+        return {
+          result: {
+            channel,
+            challengeId,
+            success: false,
+            attempts: settledAttempts,
+            remainingAttempts: 0,
+            lockedUntil: until,
+          },
+          justLocked: true,
+        }
+      }
+
+      this.replace(challengeId, { attempts: settledAttempts })
       return {
         result: {
           channel,
           challengeId,
           success: false,
-          attempts: attempt,
-          remainingAttempts: 0,
-          lockedUntil: until,
+          attempts: settledAttempts,
+          remainingAttempts: this.maxAttempts - settledAttempts,
         },
-        justLocked: true,
+        justLocked: false,
       }
-    }
-
-    this.replace(challenge, { attempts: attempt })
-    return {
-      result: {
-        channel,
-        challengeId,
-        success: false,
-        attempts: attempt,
-        remainingAttempts: this.maxAttempts - attempt,
-      },
-      justLocked: false,
+    } finally {
+      this.inFlight.delete(challengeId)
     }
   }
 
-  private replace(challenge: VerifyChallenge, patch: Partial<VerifyChallenge>): void {
-    this.challenges.set(challenge.id, { ...challenge, ...patch })
+  /** 只改目标字段：绝不把调用方手里的旧快照整体写回。 */
+  private replace(challengeId: string, patch: Partial<VerifyChallenge>): void {
+    const current = this.challenges.get(challengeId)
+    if (current === undefined) return
+    this.challenges.set(challengeId, { ...current, ...patch })
   }
 }
 

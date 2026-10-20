@@ -290,6 +290,13 @@ export class MockBankCore implements BankCoreProvider {
         userId: req.userId,
       })
     }
+    // 与 createTransfer 同一校验顺序：账户状态在金额 / 产品之前，且必须在核销前
+    if (account.status !== 'active') {
+      throw new BahError('account-inactive', `bank: 账户状态 ${account.status}，不能购买理财`, {
+        accountId: account.id,
+        status: account.status,
+      })
+    }
     this.assertAmount(req.amountCents)
     const product = this.products.find((item) => item.id === req.productId)
     if (product === undefined) {

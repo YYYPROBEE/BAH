@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import { describeThrown } from '@bah/core'
 import { bootError, createCatalog, boot, SESSION_FILES, startConfigHmr } from '@bah/host'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
-import { BahError, assertNever } from '@bah/util'
+import { BahError, assertNever, assertSafePathSegment } from '@bah/util'
 
 import type { ConfigHmr } from '@bah/host'
 import type { Agent, AgentRegistry, AnySessionEvent, TurnEndReason } from '@bah/runtime'
@@ -133,7 +133,10 @@ async function runProfile(
     overlays: args.patch,
   }
   const { layers, files } = readLayers(root, profile, layerOptions)
-  const sessionId = (args.session ?? `s-${now().toString(36)}`) as SessionId
+  // 会话 ID 会拼进落盘路径：先过白名单，绝不允许 `--session ../../etc/...`
+  const rawSessionId = args.session ?? `s-${now().toString(36)}`
+  assertSafePathSegment(rawSessionId, '--session')
+  const sessionId = rawSessionId as SessionId
 
   const app = await boot({
     profile,
