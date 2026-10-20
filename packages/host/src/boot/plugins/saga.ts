@@ -25,23 +25,24 @@ import { SAGA_AUDIT, SAGA_STORE } from '@bah/saga'
 import type { ChainRow } from '@bah/saga'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
+import { SESSION_FILES } from './persistence.ts'
 
-/** 链根目录与 `bank:saga-audit` 保持一致：`<cwd>/sessions/<sagaId>/audit.jsonl`。 */
-const CHAIN_ROOT = resolve(process.cwd(), 'sessions')
-
+/** 链根跟随 persistence 的生效会话根（`--jsonl` 覆盖 / 配置 root 都同源）。 */
 export const sagaPlugin: HostPlugin<ReturnType<typeof parseSagaSettings>> = {
   id: 'bank:saga',
 
   plugin: {
     name: 'bank:saga',
+    inject: [SESSION_FILES.id],
     apply(ctx, settings) {
       provideSaga(ctx, settings)
+      const chainRoot = resolve(ctx.get(SESSION_FILES).root)
 
       void Promise.all([ctx.whenReady(SAGA_STORE), ctx.whenReady(SAGA_AUDIT)])
         .then(() => {
           recoverAll(ctx, settings)
           // 批 6：把 janitor / recon 接回 tick 注册表，并注入链只读面。
-          const chain = new ChainFile({ rootDir: CHAIN_ROOT, fsync: false })
+          const chain = new ChainFile({ rootDir: chainRoot, fsync: false })
           installConvergence(
             ctx,
             settings,

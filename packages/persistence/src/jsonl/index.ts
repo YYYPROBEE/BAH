@@ -5,3 +5,4 @@
  * 所以逻辑不能写在入口里（否则会绕开 100% 行覆盖门禁）。
  */
 export * from './backend.ts'
+export * from './redact.ts'

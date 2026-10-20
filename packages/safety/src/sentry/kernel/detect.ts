@@ -99,7 +99,7 @@ export function detect(text: string, thresholds: DetectorThresholds = {}): RiskS
     if (match === null) continue
     signal.score = Math.max(signal.score, weight)
     signal.families.push(family)
-    signal.signatures.push((match[0] as string).slice(0, 40))
+    signal.signatures.push((match[0] ?? '').slice(0, 40))
   }
 
   // 多重命中加成（多信号聚簇的最小形态）

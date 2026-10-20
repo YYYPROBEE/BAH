@@ -65,9 +65,43 @@ export class SessionStore {
     return event
   }
 
+  /**
+   * 追加一条**领域事件**（不在平台 `SessionEventMap` 内的事件族）。
+   *
+   * 领域事件不参与模型历史投影，必须显式 `ignorable: true`——旧 reader 跳过它们，
+   * 而不是把不认识的事件当成 required-on-read 缺失。
+   */
+  appendDomain(
+    type: string,
+    data: unknown,
+    options: { readonly ignorable?: true } = {},
+  ): AnySessionEvent {
+    const seq = this.lastSeq() + 1
+    const event = {
+      seq,
+      at: this.now(),
+      formatVersion: this.logFormatVersion,
+      type,
+      data,
+      ignorable: options.ignorable ?? true,
+    } as AnySessionEvent
+    this.log.push(event)
+    return event
+  }
+
   /** 全量只读视图（快照副本：调用方无法借此改写日志）。 */
   events(): readonly AnySessionEvent[] {
     return this.log.slice()
+  }
+
+  /**
+   * 全量只读视图（**内部热路径**：不拷贝，调用方必须只读）。
+   *
+   * 请求装配每个 step 都要遍历全量事件；`events()` 的防御性拷贝会把长会话拖成 O(n²)。
+   * 返回的是内部数组的只读类型视图，只允许运行时内部调用。
+   */
+  eventsView(): readonly AnySessionEvent[] {
+    return this.log
   }
 
   /** 最后一条事件的 `seq`（空日志为 0）。 */

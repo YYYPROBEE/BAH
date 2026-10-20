@@ -5,13 +5,15 @@
  * 审计链落到 `sessions/`，本用例用唯一 sagaId 并在收尾清理。
  */
 
-import { rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createContext } from '@bah/core'
 import { SAGA_AUDIT, SAGA_CLOCK, SAGA_IDEMPOTENCY, SAGA_STORE, TARGET_REGISTRY } from '@bah/saga'
 import { describe, expect, it } from 'vitest'
 
+import { SESSION_FILES } from './persistence.ts'
 import { sagaPlugin } from './saga.ts'
 import { sagaAuditPlugin } from './saga-audit.ts'
 import { sagaStorePlugin } from './saga-store.ts'
@@ -32,7 +34,12 @@ describe('Saga 三插件装配', () => {
   it('T-SA07-006：apply 空跑装配成功，三个服务键就绪，dispose 后可逆', async () => {
     const ctx = createContext()
     const sagaId = `s1-test-${process.pid}-${Date.now()}`
+    const chainRoot = mkdtempSync(join(tmpdir(), 'bah-saga-host-'))
     try {
+      ctx.provide(SESSION_FILES, {
+        root: chainRoot,
+        fileOf: (session) => join(chainRoot, String(session), 'session.jsonl'),
+      })
       await ctx.use(sagaStorePlugin.plugin, sagaStorePlugin.validate({ dbPath: ':memory:' }))
       await ctx.use(sagaPlugin.plugin, sagaPlugin.validate({}))
       await ctx.use(sagaAuditPlugin.plugin, sagaAuditPlugin.validate({}))
@@ -68,7 +75,7 @@ describe('Saga 三插件装配', () => {
       expectServiceMissing(ctx, SAGA_CLOCK)
       expectServiceMissing(ctx, SAGA_AUDIT)
       expectServiceMissing(ctx, SAGA_IDEMPOTENCY)
-      rmSync(join(process.cwd(), 'sessions', sagaId), { recursive: true, force: true })
+      rmSync(chainRoot, { recursive: true, force: true })
     }
   })
 })

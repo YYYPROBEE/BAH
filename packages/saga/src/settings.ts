@@ -5,11 +5,19 @@
  * 因此这里保留一份**行为一致**的手写实现。错误前缀固定为 `bah-saga: `。
  */
 
-import { BahError } from '@bah/util'
+import {
+  BahError,
+  readConfigPositiveInteger,
+  rejectUnknownConfigKeys,
+} from '@bah/util'
 
 import type { CompBackoffSettings, SagaFeatureFlags, SagaSettings } from './types.ts'
 
 const PREFIX = 'bah-saga: '
+
+const configFail = (message: string, detail: Readonly<Record<string, unknown>>): never => {
+  fail(message, detail)
+}
 
 const ALLOWED = [
   'dbPath',
@@ -72,9 +80,7 @@ function rejectUnknownKeys(
   allowed: readonly string[],
   where: string,
 ): void {
-  const unknown = Object.keys(record).filter((key) => !allowed.includes(key))
-  if (unknown.length === 0) return
-  fail(`${where} 出现未知配置键：${unknown.join(', ')}（可写：${allowed.join(' / ')}）`, { unknown })
+  rejectUnknownConfigKeys(record, allowed, where, configFail)
 }
 
 function readString(
@@ -95,12 +101,7 @@ function readPositiveInteger(
   key: string,
   fallback: number,
 ): number {
-  const value = record[key]
-  if (value === undefined) return fallback
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
-    fail(`${key} 必须是 ≥ 1 的整数`, { key, value })
-  }
-  return value
+  return readConfigPositiveInteger(record, key, '', fallback, configFail) ?? fallback
 }
 
 function readPositiveNumber(

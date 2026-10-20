@@ -70,6 +70,8 @@ export class ApprovalService {
   private readonly onSettled: ((settled: SettledApproval) => void) | undefined
   private readonly responders = new Map<string, ApprovalResponder>()
   private readonly pending = new Map<string, PendingApproval>()
+  /** dispose 之后到达的请求一律立即取消（不能再进仲裁等 TTL）。 */
+  private disposed = false
 
   constructor(options: ApprovalServiceOptions) {
     this.sessionId = options.sessionId
@@ -116,6 +118,10 @@ export class ApprovalService {
    * @param next waterfall 的下游（先交还控制权：下游若已裁决，以它为准）
    */
   async handle<T extends ApprovalInputLike>(input: T, next: (value: T) => Promise<T>): Promise<T> {
+    // dispose 与 `await next()` 并发时，请求不能变成无人结算的孤儿
+    if (this.disposed) {
+      return this.settleNow(input, { decision: 'cancelled', reason: 'approval-cancelled' }, 'dispose')
+    }
     const challenge = this.issueChallenge(input)
     if (challenge !== undefined && 'failure' in challenge) {
       return this.settleNow(input, { decision: 'unavailable', reason: challenge.failure }, 'challenge')
@@ -132,6 +138,9 @@ export class ApprovalService {
         { decision: 'unavailable', reason: `approval-request-failed: ${describeThrown(error)}` },
         'downstream',
       )
+    }
+    if (this.disposed) {
+      return this.settleNow(input, { decision: 'cancelled', reason: 'approval-cancelled' }, 'dispose')
     }
 
     if (downstream.decision.decision !== 'unavailable') {
@@ -161,6 +170,7 @@ export class ApprovalService {
    * 在途请求一律归一化为 `cancelled`（默认拒绝方向），绝不放行。
    */
   dispose(): void {
+    this.disposed = true
     for (const pending of [...this.pending.values()]) pending.cancel()
   }
 
@@ -253,11 +263,23 @@ export class ApprovalService {
         const view = this.viewFor(responder, input, challenge, controller.signal, answer)
         try {
           const attached = responder.attach(view)
-          void Promise.resolve(attached).catch(() => {
-            finish({ decision: 'unavailable', reason: 'approval-responder-error' }, responder.id)
+          void Promise.resolve(attached).catch((error: unknown) => {
+            finish(
+              {
+                decision: 'unavailable',
+                reason: `approval-responder-error: ${describeThrown(error)}`,
+              },
+              responder.id,
+            )
           })
-        } catch {
-          finish({ decision: 'unavailable', reason: 'approval-responder-error' }, responder.id)
+        } catch (error) {
+          finish(
+            {
+              decision: 'unavailable',
+              reason: `approval-responder-error: ${describeThrown(error)}`,
+            },
+            responder.id,
+          )
         }
       }
     })

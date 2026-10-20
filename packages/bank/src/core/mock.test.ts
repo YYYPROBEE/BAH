@@ -121,7 +121,9 @@ describe('T-BANK-007 日累计权威口径', () => {
     expect(preview.dailyUsedCents).toBe(200_000)
     expect(preview.dailyLimitCents).toBe(500_000)
     expect(preview.remainingCents).toBe(300_000)
-    expect(preview.verdict).toBe('allow')
+    // 同一收款人、同一金额在 2 分钟内重复 → 疑似重复提交（warn，不阻断）
+    expect(preview.verdict).toBe('warn')
+    expect(preview.risks.map((risk) => risk.code)).toContain('duplicate-transfer')
   })
 })
 
@@ -474,3 +476,74 @@ async function rejection(run: () => Promise<unknown>): Promise<{ code: string }>
   }
   throw new Error('预期抛出结构化错误，但调用成功了')
 }
+
+describe('幂等键（可选，防同参数重复提交）', () => {
+  it('同键同参数：只扣款一次，返回首笔 txnId，重试票据仍核销', async () => {
+    const core = setup()
+    const before = await core.balance(ACCOUNT)
+    const first = await core.createTransfer(
+      { ...transfer({ amountCents: 1_000 }), idempotencyKey: 'idem-1' },
+      ticket(core, { amountCents: 1_000 }),
+    )
+    const second = await core.createTransfer(
+      { ...transfer({ amountCents: 1_000 }), idempotencyKey: 'idem-1' },
+      ticket(core, { amountCents: 1_000 }),
+    )
+
+    const after = await core.balance(ACCOUNT)
+    expect(second.txnId).toBe(first.txnId)
+    expect(second.balanceCents).toBe(first.balanceCents)
+    expect(after.balanceCents).toBe(before.balanceCents - 1_000)
+    expect(core.tickets.status(second.ticketId)).toBe('redeemed')
+  })
+
+  it('同键换参数：idempotency-conflict（不复用旧结果）', async () => {
+    const core = setup()
+    await core.createTransfer(
+      { ...transfer({ amountCents: 1_000 }), idempotencyKey: 'idem-2' },
+      ticket(core, { amountCents: 1_000 }),
+    )
+    await expect(
+      core.createTransfer(
+        { ...transfer({ amountCents: 2_000 }), idempotencyKey: 'idem-2' },
+        ticket(core, { amountCents: 2_000 }),
+      ),
+    ).rejects.toMatchObject({ code: 'idempotency-conflict' })
+  })
+})
+
+describe('幂等表软上限', () => {
+  it('超过 1024 条后清扫过期键（不无界增长）', async () => {
+    let now = NOW
+    const core = new MockBankCore({ data: dataset(), now: () => now })
+    let ticketSeq = 0
+    const ticketAt = (amountCents: number): TicketRef => {
+      ticketSeq += 1
+      const id = asTicketId(`idem-t-${ticketSeq}`)
+      const binding: TicketBinding = {
+        sessionId: asSessionId('s-bank'),
+        tool: 'transfer_money',
+        fingerprint: `fp-${id}`,
+        amountCents,
+        expiresAt: now + 60_000,
+      }
+      core.tickets.issue(id, binding, now)
+      core.tickets.approve(id, now)
+      return { ticketId: id, binding }
+    }
+
+    for (let index = 0; index < 1024; index += 1) {
+      await core.createTransfer(
+        { ...transfer({ amountCents: 1 }), idempotencyKey: `idem-${index}` },
+        ticketAt(1),
+      )
+    }
+    // 推进到所有幂等键过期，再写入一条触发清扫
+    now += 11 * 60_000
+    await core.createTransfer(
+      { ...transfer({ amountCents: 1 }), idempotencyKey: 'idem-after-expiry' },
+      ticketAt(1),
+    )
+    expect((await core.balance(ACCOUNT)).balanceCents).toBeLessThan(NOW)
+  })
+})

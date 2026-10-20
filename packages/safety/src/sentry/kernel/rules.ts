@@ -124,7 +124,7 @@ export function scanToolArgs(args: unknown, options: ScanToolArgsOptions = {}): 
     findings.push({
       id: rule.id,
       family: rule.family ?? 'unknown',
-      hit: (match[0] as string).slice(0, 60),
+      hit: (match[0] ?? '').slice(0, 60),
       note: rule.note ?? '',
     })
   }

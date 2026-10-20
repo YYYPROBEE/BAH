@@ -17,6 +17,7 @@ export interface TransferInput {
   readonly amountCents: number
   readonly payee: TransferReq['payee']
   readonly when?: string
+  readonly idempotencyKey?: string
 }
 
 /** 读取收款人。 */
@@ -46,10 +47,12 @@ export function parseTransferInput(args: Readonly<Record<string, unknown>>): Tra
     throw new BahError('tool-args-invalid', 'bank-tools: amount 必须大于 0（单位：元）', { amount })
   }
   const when = readOptionalString(args, 'when', 'transfer')
+  const idempotencyKey = readOptionalString(args, 'idempotencyKey', 'transfer')
   return {
     amountCents: yuanToCents(amount),
     payee: parsePayee(args),
     ...(when === undefined ? {} : { when }),
+    ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
   }
 }
 

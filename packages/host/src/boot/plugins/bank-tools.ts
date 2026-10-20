@@ -15,6 +15,7 @@
 
 import {
   BANK_CHALLENGE,
+  BANK_COMPUTE,
   BANK_IDENTITY,
   BANK_TICKET_GUARD,
   BANK_TOOL_NAME_SET,
@@ -25,6 +26,7 @@ import {
   createBankChallengePort,
   createBankTools,
   createMockVerifyProvider,
+  defaultCompute,
   provideBankGovernance,
   restoreSessionIdentity,
   yuanToCents,
@@ -173,16 +175,15 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
 
       const audit: BankAudit = {
         append: (type, data) => {
-          // 领域键由本包声明（`tools/events.ts` 的模块增强），运行期按同一 append 落账。
-          // `ignorable: true`：平台 reader（`deriveMessages`）不认识领域族，必须显式可跳过；
-          // 否则下一条请求装配会把它当成 required-on-read 的缺失而拒绝（施工单 03 §1.5）。
-          appendIgnorable(session, type, data)
+          // 领域键由本包声明（`tools/events.ts` 的模块增强）；统一走 `appendDomain`，
+          // 落账一律补 `ignorable: true`（平台 reader 不认识领域族）。
+          session.appendDomain(type, data, { ignorable: true })
         },
       }
       // 票据生命周期账本（施工单 09 §3）：每次转移落 `ticket/*`，核销属主仍是 bank-core
       const tickets = new TicketLedger({
         record: (record) => {
-          appendIgnorable(session, record.type, record.data)
+          session.appendDomain(record.type, record.data, { ignorable: true })
         },
       })
       // 强验证端口：审批服务用它在红级 ask 里签发 / 提交挑战（施工单 09 §6）
@@ -209,6 +210,18 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
           riskyCallThreshold: config.riskyCallThreshold,
         },
         now: run.now,
+        // `safety:sandbox` 在场时走 worker 硬隔离；未装该行（单测 / 最小装配）退回进程内求值。
+        // 按调用取服务：base bundle 的行序不参与判决，插件后装也能生效。
+        compute: async (request) => {
+          let seam
+          try {
+            seam = ctx.get(BANK_COMPUTE)
+          } catch (error) {
+            if ((error as { code?: string }).code !== 'service-missing') throw error
+            seam = defaultCompute
+          }
+          return seam(request)
+        },
       }
 
       const registry = ctx.get(TOOLS_SERVICE)
@@ -297,20 +310,5 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
  * 09 的 credentials 走同一事件名即可复用回放恢复逻辑。
  */
 function appendIdentityBound(session: SessionApi, data: IdentityBoundData): void {
-  appendIgnorable(session, 'identity/bound', data)
-}
-
-/**
- * 按领域键落账（`ignorable: true`）。
- *
- * `SessionApi.append` 的签名收窄在平台事件表上；领域事件由各包模块增强声明，
- * 这里做一次形状适配（与施工单 08 的 `audit` 出口同一策略）。
- */
-function appendIgnorable(session: SessionApi, type: string, data: unknown): void {
-  const append = session.append as unknown as (
-    type: string,
-    data: unknown,
-    options: { ignorable: boolean },
-  ) => unknown
-  append(type, data, { ignorable: true })
+  session.appendDomain('identity/bound', data, { ignorable: true })
 }

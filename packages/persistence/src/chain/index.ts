@@ -282,7 +282,9 @@ export function merkleRootOf(leaves: readonly string[]): string {
     }
     level = next
   }
-  return level[0] as string
+  const root = level[0]
+  if (root === undefined) throw new BahError('chain-empty', 'bah-saga: chain-empty: Merkle 叶集为空')
+  return root
 }
 
 /** epoch ms → 锚定分组 `YYYY-MM`（UTC；只用于分组，不参与因果判定）。 */

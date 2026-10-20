@@ -3,6 +3,16 @@ import { describe, expect, it } from 'vitest'
 
 import { UsageLedger } from './usage.ts'
 
+/** 取抛出物的 code（不引入额外测试依赖）。 */
+function codeOf(run: () => void): string | undefined {
+  try {
+    run()
+    return undefined
+  } catch (error) {
+    return (error as { code?: string }).code
+  }
+}
+
 describe('UsageLedger（施工单 05 §3 成本账本）', () => {
   it('T-LLM-004 usage 记账：每 turn 汇总 input/output tokens', () => {
     const ledger = new UsageLedger()
@@ -30,5 +40,13 @@ describe('UsageLedger（施工单 05 §3 成本账本）', () => {
     const ledger = new UsageLedger()
     expect(() => ledger.record(-1, { input: 1, output: 1 })).toThrowError(BahError)
     expect(() => ledger.record(1.5, { input: 1, output: 1 })).toThrowError(/turn 必须是非负整数/)
+  })
+
+  it('usage 数值必须是有限非负数（NaN / 负数不得静默入账）', () => {
+    const ledger = new UsageLedger()
+    expect(codeOf(() => ledger.record(1, { input: Number.NaN, output: 1 }))).toBe(
+      'llm-usage-invalid',
+    )
+    expect(codeOf(() => ledger.record(1, { input: 1, output: -1 }))).toBe('llm-usage-invalid')
   })
 })

@@ -17,7 +17,6 @@ import { BANK_CHALLENGE } from '@bah/bank'
 import { APPROVAL_SERVICE, ApprovalService, createHeadlessResponder } from '@bah/interaction'
 import type { ApprovalInputLike } from '@bah/interaction'
 import { SESSION_SERVICE } from '@bah/runtime'
-import type { SessionApi } from '@bah/runtime'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
@@ -67,7 +66,7 @@ export const approvalPlugin: HostPlugin<ApprovalSettings> = {
         // 银行侧提供的强验证端口（红级挑战链；施工单 09 §6）
         challenges: ctx.get(BANK_CHALLENGE),
         record: (record) => {
-          appendIgnorable(session, record.type, record.data)
+          session.appendDomain(record.type, record.data, { ignorable: true })
         },
       })
 
@@ -131,14 +130,4 @@ function toResponderDecision(value: AutoDecision): 'allowed-once' | 'rejected' |
     case 'cancel':
       return 'cancelled'
   }
-}
-
-/** 按领域键落账（`ignorable: true`；平台 reader 不认识领域族）。 */
-function appendIgnorable(session: SessionApi, type: string, data: unknown): void {
-  const append = session.append as unknown as (
-    type: string,
-    data: unknown,
-    options: { ignorable: boolean },
-  ) => unknown
-  append(type, data, { ignorable: true })
 }

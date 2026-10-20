@@ -34,8 +34,7 @@ describe('TraceLog·环缓冲按会话分桶', () => {
     expect(trace.recent(10).map((record) => record.seq)).toEqual([1, 2])
   })
 
-  it('缺省会话与空串会话都归到 unknown 桶', () => {
-    const trace = new TraceLog()
+  it('缺省会话与空串会话都归到 unknown 桶', () => {    const trace = new TraceLog()
     trace.append({ kind: 'no-session' })
     trace.append({ session: '', kind: 'empty-session' })
     expect([...trace.rings.keys()]).toEqual(['unknown'])
@@ -136,5 +135,17 @@ describe('TraceLog·计数指标', () => {
     expect(trace.recent(2).map((record) => record.n)).toEqual([3, 4])
     expect(trace.recent(1, 's0').map((record) => record.n)).toEqual([4])
     expect(trace.recent(10, 's0').map((record) => record.n)).toEqual([0, 2, 4])
+  })
+})
+
+describe('TraceLog·会话桶 LRU', () => {
+  it('超过 maxSessions 淘汰最久未写入的桶，命中即刷新', () => {
+    const trace = new TraceLog({ maxSessions: 2, now: () => AT })
+    trace.append({ session: 'a', kind: 'x' })
+    trace.append({ session: 'b', kind: 'x' })
+    trace.append({ session: 'a', kind: 'x' })
+    trace.append({ session: 'c', kind: 'x' })
+
+    expect([...trace.rings.keys()]).toEqual(['a', 'c'])
   })
 })

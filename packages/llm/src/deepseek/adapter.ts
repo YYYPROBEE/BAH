@@ -197,11 +197,12 @@ export class DeepSeekAdapter implements LlmAdapter {
       })
 
       if (!response.ok) {
-        const detail = await response.text()
+        const body = await response.text()
+        // 上游响应体可能含密钥/内部错误页：只进 detail，不进面向用户的 message
         throw new BahError(
           'llm-http-error',
-          `deepseek: POST /chat/completions 失败 HTTP ${response.status}${detail === '' ? '' : `：${truncate(detail)}`}`,
-          { status: response.status },
+          `deepseek: POST /chat/completions 失败 HTTP ${response.status}`,
+          { status: response.status, body: truncate(body) },
         )
       }
 

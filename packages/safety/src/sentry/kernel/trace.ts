@@ -52,6 +52,8 @@ export interface TraceOptions {
   readonly ringSize?: number
   /** 攒够多少条落一次盘（1 = 每条即写）。 */
   readonly flushThreshold?: number
+  /** 会话桶上限（LRU 淘汰；默认 256）。 */
+  readonly maxSessions?: number
   /** 时钟注入（缺省 `Date.now`；`ts` 由它换算成 ISO 串）。 */
   readonly now?: () => number
 }
@@ -63,6 +65,8 @@ export class TraceLog {
   readonly ringSize: number
   /** 攒够多少条落一次盘（1 = 每条即写）。 */
   readonly flushThreshold: number
+  /** 会话桶上限（超出按 LRU 淘汰；防止长驻进程按会话数无界增长）。 */
+  readonly maxSessions: number
   /** 按会话分桶的环缓冲。 */
   readonly rings = new Map<string, TraceRecord[]>()
   /** 全局递增序号（跨会话单调，作为对账锚点）。 */
@@ -89,6 +93,7 @@ export class TraceLog {
   constructor(options: TraceOptions = {}) {
     this.ringSize = options.ringSize ?? 500
     this.flushThreshold = options.flushThreshold ?? 1
+    this.maxSessions = options.maxSessions ?? 256
     this.sink = options.sink
     this.clock = options.now ?? (() => Date.now())
   }
@@ -108,7 +113,14 @@ export class TraceLog {
     const ring = this.rings.get(bucket)
     if (ring === undefined) {
       this.rings.set(bucket, [record])
+      if (this.rings.size > this.maxSessions) {
+        const oldest = this.rings.keys().next().value
+        if (oldest !== undefined) this.rings.delete(oldest)
+      }
     } else {
+      // 命中即移到队尾（LRU）；Map 的插入顺序就是淘汰顺序
+      this.rings.delete(bucket)
+      this.rings.set(bucket, ring)
       ring.push(record)
       if (ring.length > this.ringSize) ring.shift()
     }
@@ -157,8 +169,9 @@ export class TraceLog {
    */
   recent(n: number = 50, session?: string): TraceRecord[] {
     if (session !== undefined) return (this.rings.get(session) ?? []).slice(-n)
-    const all: TraceRecord[] = []
-    for (const ring of this.rings.values()) all.push(...ring)
-    return all.sort((left, right) => Number(left.seq) - Number(right.seq)).slice(-n)
+    // 每个桶只取尾部 n 条再合并：跨会话全量排序会把长驻进程的内存/CPU 拖成 O(总记录数)
+    const candidates: TraceRecord[] = []
+    for (const ring of this.rings.values()) candidates.push(...ring.slice(-n))
+    return candidates.sort((left, right) => Number(left.seq) - Number(right.seq)).slice(-n)
   }
 }

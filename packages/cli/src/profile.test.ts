@@ -213,6 +213,12 @@ describe('patch 层读取', () => {
     expect(captureThrown(() => parsePatch([{ config: {} }], 'p.yml')).message).toContain('第 1 行')
     // id / use 会被 trim
     expect(parsePatch([{ id: ' x ', use: ' y ' }], 'p.yml')).toEqual([{ id: 'x', use: 'y' }])
+    // 非字符串 / 空字符串 / 数组 config 都在载入时拒绝（不做类型断言）
+    expect(captureThrown(() => parsePatch([{ id: 1 }], 'p.yml')).code).toBe('invalid-patch')
+    expect(captureThrown(() => parsePatch([{ id: 'x', use: '' }], 'p.yml')).code).toBe('invalid-patch')
+    expect(captureThrown(() => parsePatch([{ id: 'x', config: [] }], 'p.yml')).code).toBe('invalid-patch')
+    // 通过本层类型检查、但 host 归一化拒绝的行：错误要补上"第几行"
+    expect(captureThrown(() => parsePatch([{ id: '   ' }], 'p.yml')).message).toContain('第 1 行')
   })
 
   it('YAML 语法错误 → invalid-yaml（而不是 yaml 库的原始异常）', () => {

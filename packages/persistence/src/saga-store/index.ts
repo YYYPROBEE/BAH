@@ -8,6 +8,22 @@
 import { BahError, canonicalJson, sha256Hex } from '@bah/util'
 
 import { migrate } from './migrations/index.ts'
+import {
+  mapCompensation,
+  mapDlq,
+  mapIdempotency,
+  mapResidual,
+  mapSnapshot,
+  mapStep,
+  mapTarget,
+  mapTemplate,
+  mapTicket,
+  mapTransaction,
+  rowNumber,
+  rowString,
+} from './row-mappers.ts'
+
+import type { Row } from './row-mappers.ts'
 import { loadSqlite } from './sqlite.ts'
 
 import type { DatabaseSync } from 'node:sqlite'
@@ -46,32 +62,46 @@ export interface TxHooks {
   readonly beforeCommit?: () => void
 }
 
-/** `@bah/persistence` 侧暴露的 store 句柄（结构与 `@bah/saga` 的 `SagaStore` 兼容）。 */
-export interface SagaStoreHandle {
+/** 事务生命周期与句柄关闭。 */
+export interface SagaStoreHandleLifecycle {
   tx<T>(fn: (tx: SagaTxHandle) => T, hooks?: TxHooks): T
+  /** 关闭连接（宿主插件在 dispose 时调用）。 */
+  close(): void
+}
+
+/** 事务/步骤读写。 */
+export interface SagaStoreHandleTransactionOps {
   loadTransaction(sagaId: string): SagaTransaction | undefined
   casState(sagaId: string, from: SagaState, to: SagaState, version: number, at: number): boolean
   listSteps(sagaId: string): readonly SagaStep[]
   upsertStep(step: SagaStep): void
   activeSagas(): readonly string[]
   listAllSagas(filter?: { readonly state?: SagaState; readonly businessType?: string }): readonly SagaTransaction[]
-  /** 模板注册表（配置期）：写入一条版本。 */
-  insertTemplate(template: CompTemplate): void
-  /** ACTIVE 模板的最新版本（按 `target_tool`）。 */
-  findActiveTemplate(toolName: string): CompTemplate | undefined
-  /** 按 `(template_id, template_version)` 读回冻结版本。 */
-  readTemplate(templateId: string, templateVersion: number): CompTemplate | undefined
-  /** 目标系统登记读取（SA-16 §8：批 6 补，供 host 提供 `bah:target-registry`）。 */
-  readTarget(targetSystem: string): TargetSystemRow | undefined
-  listTargets(): readonly TargetSystemRow[]
-  /** 运维/装配期登记目标（补偿自动化的前置事实）。 */
-  upsertTarget(target: TargetSystemRow): void
-  /** 关闭连接（宿主插件在 dispose 时调用）。 */
-  close(): void
 }
 
-/** 单提交段内的行级原语（结构与 `@bah/saga` 的 `SagaTx` 兼容）。 */
-export interface SagaTxHandle {
+/** 补偿模板注册表。 */
+export interface SagaStoreHandleTemplateOps {
+  insertTemplate(template: CompTemplate): void
+  findActiveTemplate(toolName: string): CompTemplate | undefined
+  readTemplate(templateId: string, templateVersion: number): CompTemplate | undefined
+}
+
+/** 目标系统登记。 */
+export interface SagaStoreHandleTargetOps {
+  readTarget(targetSystem: string): TargetSystemRow | undefined
+  listTargets(): readonly TargetSystemRow[]
+  upsertTarget(target: TargetSystemRow): void
+}
+
+/** `@bah/persistence` 侧暴露的 store 句柄（结构与 `@bah/saga` 的 `SagaStore` 兼容）。 */
+export interface SagaStoreHandle
+  extends SagaStoreHandleLifecycle,
+    SagaStoreHandleTransactionOps,
+    SagaStoreHandleTemplateOps,
+    SagaStoreHandleTargetOps {}
+
+/** 事务与步骤原语。 */
+export interface SagaTxHandleTransactionOps {
   insertTransaction(row: SagaTransaction): void
   readTransaction(sagaId: string): SagaTransaction | undefined
   casState(sagaId: string, from: SagaState, to: SagaState, version: number, at: number): boolean
@@ -81,13 +111,25 @@ export interface SagaTxHandle {
   readStep(stepId: string): SagaStep | undefined
   listSteps(sagaId: string): readonly SagaStep[]
   updateStep(row: SagaStep): void
+}
+
+/** 补偿绑定原语。 */
+export interface SagaTxHandleCompensationOps {
   bindCompensation(sagaId: string, stepId: string, template: CompTemplate): void
   listCompensations(sagaId: string): readonly CompensatingAction[]
   updateCompensation(row: CompensatingAction): void
+}
+
+/** 幂等信封原语。 */
+export interface SagaTxHandleIdempotencyOps {
   insertIdempotency(row: IdempotencyRecord): boolean
   readIdempotency(idemKey: string): IdempotencyRecord | undefined
   takeoverIdempotency(idemKey: string, owner: string, leaseExpiry: number): boolean
   completeIdempotency(idemKey: string, responseDigest: string, fingerprint: string): void
+}
+
+/** 处置、账本、快照与冻结原语。 */
+export interface SagaTxHandleDispositionOps {
   insertDlq(row: DlqEntry): void
   insertTicket(row: SuspensionTicket): void
   readTicket(ticketId: string): SuspensionTicket | undefined
@@ -95,8 +137,6 @@ export interface SagaTxHandle {
   listResiduals(sagaId: string): readonly ResidualLedgerEntry[]
   insertSnapshot(row: StateSnapshot): void
   readLatestSnapshot(sagaId: string): StateSnapshot | undefined
-  putVault(vaultId: string, cipherText: Uint8Array, keyVersion: number, classification: string): void
-  readVault(vaultId: string): VaultSensitive | undefined
   dlqDepth(): number
   listDlqPending(): readonly DlqEntry[]
   readDlq(dlqId: string): DlqEntry | undefined
@@ -104,176 +144,19 @@ export interface SagaTxHandle {
   freezeSaga(sagaId: string, frozen: boolean, at: number): void
 }
 
-/* ─────────────────────────────── 行映射 ─────────────────────────────── */
-
-type Row = Record<string, unknown>
-
-const str = (value: unknown): string => value as string
-const num = (value: unknown): number => value as number
-const optStr = (value: unknown): string | undefined => (value === null ? undefined : (value as string))
-const optNum = (value: unknown): number | undefined => (value === null ? undefined : (value as number))
-
-function parseStringArray(raw: unknown): readonly string[] {
-  const parsed: unknown = JSON.parse(str(raw))
-  if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string')) {
-    throw new BahError('invalid-row', 'bah-saga: invalid-row: JSON 列必须是字符串数组', { raw })
-  }
-  return parsed
+/** 敏感数据金库原语。 */
+export interface SagaTxHandleVaultOps {
+  putVault(vaultId: string, cipherText: Uint8Array, keyVersion: number, classification: string): void
+  readVault(vaultId: string): VaultSensitive | undefined
 }
 
-function mapTransaction(row: Row): SagaTransaction {
-  return {
-    sagaId: str(row['saga_id']),
-    parentSagaId: optStr(row['parent_saga_id']),
-    businessType: str(row['business_type']),
-    traceId: str(row['trace_id']),
-    state: str(row['state']) as SagaState,
-    version: num(row['version']),
-    timeoutBudgetMs: num(row['timeout_budget_ms']),
-    compStrategy: str(row['comp_strategy']) as CompStrategy,
-    initiator: str(row['initiator']),
-    frozen: num(row['frozen']) === 1,
-    createdAt: num(row['created_at']),
-    updatedAt: num(row['updated_at']),
-  }
-}
-
-function mapStep(row: Row): SagaStep {
-  return {
-    stepId: str(row['step_id']),
-    sagaId: str(row['saga_id']),
-    seqNo: num(row['seq_no']),
-    topologyDeps: parseStringArray(row['topology_deps']),
-    toolName: str(row['tool_name']),
-    endpoint: str(row['endpoint']),
-    sideEffectClass: str(row['side_effect_class']) as SideEffectClass,
-    idempotencyKey: str(row['idempotency_key']),
-    idempotencyNonce: str(row['idempotency_nonce']),
-    state: str(row['state']) as StepState,
-    attempts: num(row['attempts']),
-    maxAttempts: num(row['max_attempts']),
-    probeEndpoint: optStr(row['probe_endpoint']),
-    deadlineMs: num(row['deadline_ms']),
-    requestDigest: optStr(row['request_digest']),
-    responseDigest: optStr(row['response_digest']),
-  }
-}
-
-function mapTemplate(row: Row): CompTemplate {
-  return {
-    templateId: str(row['template_id']),
-    templateVersion: num(row['template_version']),
-    targetTool: str(row['target_tool']),
-    compKind: str(row['comp_kind']) as CompKind,
-    compEndpoint: str(row['comp_endpoint']),
-    compIdempotent: num(row['comp_idempotent']) === 1,
-    deadlineRule: optStr(row['deadline_rule']),
-    residualRules: parseStringArray(row['residual_rules']),
-    approvalRequired: num(row['approval_required']) === 1,
-    amountThreshold: optNum(row['amount_threshold']),
-    payloadProjection: str(row['payload_projection']),
-    status: str(row['status']),
-  }
-}
-
-function mapTarget(row: Row): TargetSystemRow {
-  return {
-    targetSystem: str(row['target_system']),
-    idempotencySupport: str(row['idempotency_support']) as TargetSystemRow['idempotencySupport'],
-    idempotencyTtlS: optNum(row['idempotency_ttl_s']),
-    probeEndpoint: optStr(row['probe_endpoint']),
-    lagSeconds: num(row['lag_seconds']),
-    attestDigest: optStr(row['attest_digest']),
-    registeredAt: num(row['registered_at']),
-  }
-}
-
-function mapCompensation(row: Row): CompensatingAction {  return {
-    compId: str(row['comp_id']),
-    sagaId: str(row['saga_id']),
-    stepId: str(row['step_id']),
-    templateId: str(row['template_id']),
-    templateVersion: num(row['template_version']),
-    compKind: str(row['comp_kind']) as CompKind,
-    compIdempotencyKey: str(row['comp_idempotency_key']),
-    payloadDigest: str(row['payload_digest']),
-    state: str(row['state']) as CompState,
-    attempts: num(row['attempts']),
-    maxAttempts: num(row['max_attempts']),
-    backoffPolicy: str(row['backoff_policy']),
-    compDeadline: optNum(row['comp_deadline']),
-    approverId: optStr(row['approver_id']),
-    residualAmount: num(row['residual_amount']),
-    residualType: optStr(row['residual_type']),
-    costEstimate: optNum(row['cost_estimate']),
-  }
-}
-
-function mapIdempotency(row: Row): IdempotencyRecord {
-  return {
-    idemKey: str(row['idem_key']),
-    namespace: str(row['namespace']) as IdemNamespace,
-    sagaId: str(row['saga_id']),
-    targetSystem: str(row['target_system']),
-    requestDigest: str(row['request_digest']),
-    responseDigest: optStr(row['response_digest']),
-    fingerprint: optStr(row['fingerprint']),
-    status: str(row['status']) as IdempotencyRecord['status'],
-    leaseOwner: optStr(row['lease_owner']),
-    leaseExpiry: optNum(row['lease_expiry']),
-  }
-}
-
-function mapDlq(row: Row): DlqEntry {
-  return {
-    dlqId: str(row['dlq_id']),
-    sagaId: str(row['saga_id']),
-    source: str(row['source']) as DlqEntry['source'],
-    reason: str(row['reason']),
-    contextRef: optStr(row['context_ref']),
-    replayGuide: optStr(row['replay_guide']),
-    enteredAt: num(row['entered_at']),
-    slaDeadline: num(row['sla_deadline']),
-    disposition: optStr(row['disposition']),
-  }
-}
-
-function mapTicket(row: Row): SuspensionTicket {
-  return {
-    ticketId: str(row['ticket_id']),
-    sagaId: str(row['saga_id']),
-    reason: str(row['reason']) as SuspensionTicket['reason'],
-    contextSnapshotRef: optStr(row['context_snapshot_ref']),
-    costCompare: optStr(row['cost_compare']),
-    slaDeadline: num(row['sla_deadline']),
-    approverId: optStr(row['approver_id']),
-    decision: optStr(row['decision']),
-    decidedAt: optNum(row['decided_at']),
-  }
-}
-
-function mapResidual(row: Row): ResidualLedgerEntry {
-  return {
-    residualId: str(row['residual_id']),
-    sagaId: str(row['saga_id']),
-    compId: optStr(row['comp_id']),
-    residualType: str(row['residual_type']),
-    amount: num(row['amount']),
-    note: optStr(row['note']),
-    reconciled: num(row['reconciled']) === 1,
-  }
-}
-
-function mapSnapshot(row: Row): StateSnapshot {
-  return {
-    snapshotId: str(row['snapshot_id']),
-    sagaId: str(row['saga_id']),
-    stepSeq: optNum(row['step_seq']),
-    contextDigest: str(row['context_digest']),
-    contextVaultRef: optStr(row['context_vault_ref']),
-    llmDecisionDigest: optStr(row['llm_decision_digest']),
-  }
-}
+/** 单提交段内的行级原语（结构与 `@bah/saga` 的 `SagaTx` 兼容）。 */
+export interface SagaTxHandle
+  extends SagaTxHandleTransactionOps,
+    SagaTxHandleCompensationOps,
+    SagaTxHandleIdempotencyOps,
+    SagaTxHandleDispositionOps,
+    SagaTxHandleVaultOps {}
 
 /* ─────────────────────────────── store ─────────────────────────────── */
 
@@ -411,7 +294,7 @@ class SqliteSagaStore implements SagaStoreHandle {
           ORDER BY created_at, saga_id`,
       )
       .all() as Row[]
-    return rows.map((row) => str(row['saga_id']))
+    return rows.map((row) => rowString(row['saga_id']))
   }
 
   /* ── 模板注册表（配置期） ── */
@@ -855,10 +738,10 @@ class SqliteSagaStore implements SagaStoreHandle {
       | undefined
     if (row === undefined) return undefined
     return {
-      vaultId: str(row['vault_id']),
+      vaultId: rowString(row['vault_id']),
       cipherText: new Uint8Array(row['cipher_text'] as Uint8Array),
-      keyVersion: num(row['key_version']),
-      classification: str(row['classification']),
+      keyVersion: rowNumber(row['key_version']),
+      classification: rowString(row['classification']),
     }
   }
 

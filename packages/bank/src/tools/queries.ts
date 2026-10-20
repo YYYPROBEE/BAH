@@ -12,7 +12,7 @@ import { BahError } from '@bah/util'
 import type { ToolDefinition, ToolExecContext } from '@bah/core'
 
 import type { Account, Transaction, TxnCategory } from '../core/index.ts'
-import { bankIds, formatYuan } from '../core/index.ts'
+import { bankIds, formatYuan, PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX, toPct } from '../core/index.ts'
 import { DAY_MS, monthKey, periodRange, previousMonth } from '../core/time.ts'
 import { requireAccount, requireUserId, tailOf } from './accounts.ts'
 import { readEnum, readOptionalObject, readOptionalPositiveInteger, readOptionalString, readString } from './args.ts'
@@ -148,7 +148,15 @@ export function createTxnQueryTool(
       const category = readEnum(args, 'category', 'txn_query', TXN_CATEGORIES)
       const direction = readEnum(args, 'direction', 'txn_query', ['in', 'out'] as const)
       const page = readOptionalPositiveInteger(args, 'page', 'txn_query') ?? 1
-      const limit = Math.min(100, readOptionalPositiveInteger(args, 'limit', 'txn_query') ?? 20)
+      const cursor = readOptionalString(args, 'cursor', 'txn_query')
+      const limit = Math.min(
+        PAGE_LIMIT_MAX,
+        readOptionalPositiveInteger(args, 'limit', 'txn_query') ?? PAGE_LIMIT_DEFAULT,
+      )
+      // 游标直收（上一页 nextCursor）；给了游标就忽略 page，结果页按偏移换算
+      const offset = cursor === undefined ? (page - 1) * limit : Number(cursor)
+      const effectivePage =
+        Number.isSafeInteger(offset) && offset >= 0 ? Math.floor(offset / limit) + 1 : page
 
       const queried = await deps.core.queryTransactions({
         userId: bankIds.user(userId),
@@ -156,15 +164,14 @@ export function createTxnQueryTool(
         from,
         to,
         ...(category === undefined ? {} : { category }),
+        ...(direction === undefined ? {} : { direction }),
         limit,
-        ...(page === 1 ? {} : { cursor: String((page - 1) * limit) }),
+        ...(offset === 0 ? {} : { cursor: String(offset) }),
       })
-      const items = queried.items
-        .filter((txn) => direction === undefined || txn.direction === direction)
-        .map(toTxnView)
+      const items = queried.items.map(toTxnView)
       const result: TxnQueryResult = {
         items,
-        page,
+        page: effectivePage,
         limit,
         hasMore: queried.nextCursor !== undefined,
         ...(queried.nextCursor === undefined ? {} : { nextCursor: queried.nextCursor }),
@@ -345,9 +352,13 @@ export async function buildBillAnalysis(
     previousOut += report.totalOutCents
   }
   const momChangePct =
-    previousOut > 0 ? Math.round(((totalOutCents - previousOut) / previousOut) * 10_000) / 100 : undefined
+    previousOut > 0 ? toPct(totalOutCents - previousOut, previousOut) : undefined
 
   const categoryLines = toCategoryLines(byCategory, totalOutCents)
+  const comparedPeriod = baselineMonths[0]
+  if (comparedPeriod === undefined) {
+    throw new BahError('period-invalid', 'bank-tools: 账单对比期为空（内部错误）', { period })
+  }
   const result: BillAnalysisResult = {
     period,
     months,
@@ -356,7 +367,7 @@ export async function buildBillAnalysis(
     byCategory: categoryLines,
     anomalies,
     ...(momChangePct === undefined ? {} : { momChangePct }),
-    comparedPeriod: baselineMonths[0] as string,
+    comparedPeriod,
     ...(withPayees
       ? {
           byPayee: await collectPayees(deps, userId, account, months, totalOutCents),
@@ -375,7 +386,7 @@ function toCategoryLines(
     .map(([category, amountCents]) => ({
       category,
       amountCents,
-      sharePct: totalOutCents === 0 ? 0 : Math.round((amountCents / totalOutCents) * 10_000) / 100,
+      sharePct: toPct(amountCents, totalOutCents),
     }))
     .sort((left, right) =>
       right.amountCents === left.amountCents
@@ -392,8 +403,11 @@ async function collectPayees(
   months: readonly string[],
   totalOutCents: number,
 ): Promise<BillPayeeLine[]> {
-  const first = months[0] as string
-  const last = months[months.length - 1] as string
+  const first = months[0]
+  const last = months[months.length - 1]
+  if (first === undefined || last === undefined) {
+    throw new BahError('period-invalid', 'bank-tools: 账单月份为空（内部错误）', { months })
+  }
   const range = { start: periodRange(first).start, end: periodRange(last).end }
   const byPayee = new Map<string, number>()
   let cursor: string | undefined
@@ -403,7 +417,7 @@ async function collectPayees(
       accountId: account.id,
       from: range.start,
       to: range.end,
-      limit: 100,
+      limit: PAGE_LIMIT_MAX,
       ...(cursor === undefined ? {} : { cursor }),
     })
     for (const txn of queried.items) {
@@ -417,7 +431,7 @@ async function collectPayees(
     .map(([payee, amountCents]) => ({
       payee,
       amountCents,
-      sharePct: totalOutCents === 0 ? 0 : Math.round((amountCents / totalOutCents) * 10_000) / 100,
+      sharePct: toPct(amountCents, totalOutCents),
     }))
     .sort((left, right) =>
       right.amountCents === left.amountCents

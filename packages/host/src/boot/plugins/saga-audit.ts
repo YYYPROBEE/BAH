@@ -15,15 +15,18 @@ import { SAGA_AUDIT, SAGA_CLOCK } from '@bah/saga'
 import type { AuditSettings } from '@bah/persistence'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
+import { SESSION_FILES } from './persistence.ts'
 
 export const sagaAuditPlugin: HostPlugin<AuditSettings> = {
   id: 'bank:saga-audit',
 
   plugin: {
     name: 'bank:saga-audit',
-    inject: [SAGA_CLOCK.id],
+    inject: [SAGA_CLOCK.id, SESSION_FILES.id],
     apply(ctx, settings) {
       const clock = ctx.get(SAGA_CLOCK)
+      // 与 persistence 的生效会话根同源：部署改 root / 加 --jsonl 时链路不分裂
+      const chainRoot = resolve(ctx.get(SESSION_FILES).root)
       ctx.provide(
         SAGA_AUDIT,
         createSagaAudit({
@@ -33,7 +36,7 @@ export const sagaAuditPlugin: HostPlugin<AuditSettings> = {
           signedTypes: settings.signedTypes,
           signingKeyPath: settings.signingKeyPath,
           anchorTargets: settings.anchorTargets,
-          rootDir: resolve(process.cwd(), 'sessions'),
+          rootDir: chainRoot,
         }),
       )
     },

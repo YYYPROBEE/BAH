@@ -212,7 +212,7 @@ export function assembleRequest(input: AssembleRequestInput): RequestAssembly {
   if (composed.header.length > 0) {
     messages.push({ role: 'system', content: [{ kind: 'text', text: composed.header }] })
   }
-  messages.push(...toLlmMessages(buildModelHistory(input.session.events())))
+  messages.push(...toLlmMessages(buildModelHistory(input.session.eventsView())))
   if (contextTexts.length > 0) {
     messages.push({ role: 'user', content: [{ kind: 'text', text: contextTexts.join('\n\n') }] })
   }

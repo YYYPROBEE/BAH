@@ -103,6 +103,29 @@ describe('reduceSaga 唯一转移函数', () => {
     ])
     expect(recovered.steps['step-1']).toBe('EXECUTED')
 
+    const probedRecovered = fold([
+      event('saga/created'),
+      event('saga/step-planned', 'step-1'),
+      event('saga/recovered', 'step-1#probe'),
+    ])
+    expect(probedRecovered.steps['step-1']).toBe('PROBING')
+
+    const dlqRecovered = fold([
+      event('saga/created'),
+      event('saga/step-planned', 'step-1'),
+      event('saga/recovered', 'step-1#dlq'),
+    ])
+    expect(dlqRecovered.steps['step-1']).toBe('UNRESOLVED')
+
+    // 未知恢复动作必须 fail-loud（回放遇到新动作不能静默停在 PLANNED）
+    expect(() =>
+      fold([
+        event('saga/created'),
+        event('saga/step-planned', 'step-1'),
+        event('saga/recovered', 'step-1#future-action'),
+      ]),
+    ).toThrow(/saga-unreduced-recovery/)
+
     const before = fold([event('saga/created')])
     expect(reduceSaga(before, event('saga/tick'))).toEqual(before)
     // 白名单之外的未知事件必须 fail-loud：新状态事件漏接不能悄悄不推进

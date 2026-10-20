@@ -105,7 +105,7 @@ export class TokenizerVault {
     const replaced: TokenReplacement[] = []
     for (const [type, pattern] of PII_PATTERNS) {
       // A1：按"去重后的全体原文"做全量替换，杜绝重复 PII 残留
-      const originals = [...new Set(matchAll(text, pattern).map((match) => match[0] as string))]
+      const originals = [...new Set(matchAll(text, pattern).map((match) => match[0] ?? ''))]
       for (const original of originals) {
         const token = `⟦TK:${type}:${this.randomHex()}⟧`
         this.map.set(token, { original, type, source })
@@ -125,7 +125,7 @@ export class TokenizerVault {
   detect(text: string): PiiDetection[] {
     const hits: PiiDetection[] = []
     for (const [type, pattern] of PII_PATTERNS) {
-      for (const match of matchAll(text, pattern)) hits.push({ type, masked: maskValue(match[0] as string) })
+      for (const match of matchAll(text, pattern)) hits.push({ type, masked: maskValue(match[0] ?? '') })
     }
     return hits
   }

@@ -77,6 +77,7 @@ export function createTransferCreateTool(
           payee: input.payee,
           amountCents: input.amountCents,
           channel: 'app',
+          ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
         },
         ticket,
       )

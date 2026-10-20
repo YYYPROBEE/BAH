@@ -179,6 +179,9 @@ function chainBreakCount(ctx: Context): number {
   try {
     return ctx.get(SAGA_AUDIT).verify().ok ? 0 : 1
   } catch {
+    // 审计服务不可用与"链确实断了"是不同故障：分别计数，避免 SLO 面板把启动顺序问题
+    // 当成数据完整性事故（仍按 1 计入，安全侧宁可高估）。
+    chainVerifyErrors += 1
     return 1
   }
 }
@@ -197,6 +200,21 @@ export type AlertEventSink = (event: AlertEvent) => void
 
 const sinks = new Set<AlertEventSink>()
 
+/** 告警出口自身失败的累计数（SLO 面板可读；不反向影响业务路径）。 */
+let sinkErrors = 0
+/** 审计链校验抛错（服务不可用 / IO 失败）的累计数，区别于"链断"。 */
+let chainVerifyErrors = 0
+
+/** 告警出口失败计数（进程级；暴露给运维面板与测试）。 */
+export function alertSinkErrorCount(): number {
+  return sinkErrors
+}
+
+/** 审计链校验抛错计数（与 `chainBreakCount` 的"断链"分开观察）。 */
+export function alertChainVerifyErrorCount(): number {
+  return chainVerifyErrors
+}
+
 /** 订阅告警汇；返回退订 disposer（可直接交给 `ctx.effect`）。 */
 export function registerAlertSink(fn: AlertEventSink): Disposer {
   sinks.add(fn)
@@ -211,7 +229,8 @@ function fanout(event: AlertEvent): void {
     try {
       sink(event)
     } catch {
-      // 告警出口的失败不反向影响业务路径；生产由宿主日志兜底。
+      // 告警出口的失败不反向影响业务路径；计数后由宿主日志兜底。
+      sinkErrors += 1
     }
   }
 }

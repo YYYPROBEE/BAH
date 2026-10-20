@@ -10,9 +10,25 @@
  */
 
 import { parentPort, workerData } from 'node:worker_threads'
+import { dirname, isAbsolute, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import type { SandboxJob, SandboxWorkerResult } from './protocol.ts'
 import type { SandboxHandlerModule } from './protocol.ts'
+
+/**
+ * worker 侧模块完整性复核：执行体必须落在本目录（`sandbox-runtime/**`）内。
+ *
+ * 父侧登记表已经解析过路径，但"判决不依赖单点"——父侧被绕过时 worker 仍拒绝越界路径。
+ */
+function assertModuleWithinRuntime(moduleUrl: string): void {
+  const selfDir = dirname(fileURLToPath(import.meta.url))
+  const target = fileURLToPath(moduleUrl)
+  const rel = relative(selfDir, target)
+  if (rel.length === 0 || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`sandbox-handler-path-outside-runtime: ${moduleUrl}`)
+  }
+}
 
 /** 把结论送回父侧（父侧已 terminate 时静默忽略——那条路已有判决）。 */
 function post(result: SandboxWorkerResult): void {
@@ -38,6 +54,7 @@ async function main(): Promise<void> {
   const job = workerData as SandboxJob
   let handler: SandboxHandlerModule['SANDBOX_HANDLER']
   try {
+    assertModuleWithinRuntime(job.moduleUrl)
     const loaded: unknown = await import(job.moduleUrl)
     handler = readHandler(loaded, job.moduleUrl)
   } catch (error) {

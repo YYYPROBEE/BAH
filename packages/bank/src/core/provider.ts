@@ -19,6 +19,7 @@ import type {
   Transaction,
   TxnCategory,
   TxnChannel,
+  TxnDirection,
   UserId,
   WealthProduct,
 } from './model.ts'
@@ -49,6 +50,8 @@ export interface TxnQuery {
   /** 结束时刻（含）。 */
   readonly to?: number
   readonly category?: TxnCategory
+  /** 收支方向（下推到核心查询，避免分页后过滤导致每页缩水）。 */
+  readonly direction?: TxnDirection
   /** 每页条数（缺省 20，上限 100）。 */
   readonly limit?: number
   /** 游标（上一页返回的 `nextCursor`）。 */
@@ -77,7 +80,13 @@ export interface BillReport {
 }
 
 /** 风控规则名（五条，施工单 07 §4.3）。 */
-export type RiskRule = 'insufficient-balance' | 'daily-limit' | 'payee' | 'night-amount' | 'velocity'
+export type RiskRule =
+  | 'insufficient-balance'
+  | 'daily-limit'
+  | 'payee'
+  | 'night-amount'
+  | 'velocity'
+  | 'duplicate'
 
 /** 风险级别：`block` 会让预检判决为 block，`warn` 只提示（最终 ask/deny 由治理平面决定）。 */
 export type RiskSeverity = 'warn' | 'block'
@@ -115,6 +124,8 @@ export interface TransferReq {
   }
   readonly amountCents: number
   readonly channel: TxnChannel
+  /** 可选幂等键（同键 + 同参数在 TTL 窗口内只扣款一次；重复调用返回首笔结果）。 */
+  readonly idempotencyKey?: string
 }
 
 /** 试算 + 风控预检结果（施工单 07 §0 第 4 条：当日已累计与剩余额度是权威口径）。 */

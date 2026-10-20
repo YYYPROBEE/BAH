@@ -67,6 +67,9 @@ export interface TicketRecord {
 export class TicketStore {
   private readonly records = new Map<string, TicketRecord>()
 
+  /** 票据表软上限：超过后清理终态 / 过期票据（活动票据永不丢弃）。 */
+  private static readonly MAX_RECORDS = 2048
+
   /** 已登记票据数（运维 / 用例观察用）。 */
   get size(): number {
     return this.records.size
@@ -89,9 +92,20 @@ export class TicketStore {
         now,
       })
     }
+    this.prune(now)
     const record: TicketRecord = { ticketId, binding, status: 'issued', issuedAt: now }
     this.records.set(ticketId, record)
     return record
+  }
+
+  /** 超上限时清理不可能再转移的票据（终态或已过期）；活动票据不丢。 */
+  private prune(now: number): void {
+    if (this.records.size < TicketStore.MAX_RECORDS) return
+    for (const [ticketId, record] of this.records) {
+      const terminal = record.status === 'redeemed' || record.status === 'blocked'
+      if (terminal || record.binding.expiresAt <= now) this.records.delete(ticketId)
+      if (this.records.size < TicketStore.MAX_RECORDS / 2) break
+    }
   }
 
   /**

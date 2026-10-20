@@ -209,10 +209,22 @@ export function parsePatch(doc: unknown, from: string): readonly PluginRow[] {
     const where = `${from} 第 ${index + 1} 行`
     const record = expectObject(item, where)
     rejectUnknown(record, ['id', 'use', 'config'], where)
+    const id = record['id']
+    if (typeof id !== 'string' || id.length === 0) {
+      throw bootError('invalid-patch', `${where}.id 必须是非空字符串`, { from, index })
+    }
+    const use = record['use']
+    if (use !== undefined && (typeof use !== 'string' || use.length === 0)) {
+      throw bootError('invalid-patch', `${where}.use 必须是非空字符串`, { from, index })
+    }
+    const config = record['config']
+    if (config !== undefined && (typeof config !== 'object' || config === null || Array.isArray(config))) {
+      throw bootError('invalid-patch', `${where}.config 必须是对象`, { from, index })
+    }
     const row: PluginRow = {
-      id: typeof record['id'] === 'string' ? record['id'] : '',
-      ...(record['use'] === undefined ? {} : { use: record['use'] as string }),
-      ...(record['config'] === undefined ? {} : { config: record['config'] as Readonly<Record<string, unknown>> }),
+      id,
+      ...(use === undefined ? {} : { use }),
+      ...(config === undefined ? {} : { config: config as Readonly<Record<string, unknown>> }),
     }
     try {
       return normalizeRow(row, where)

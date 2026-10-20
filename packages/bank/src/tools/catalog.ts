@@ -16,7 +16,7 @@ import { createVerifyTool } from './verification.ts'
 import { createWealthCompareTool, createWealthListTool, createWealthPurchaseTool } from './wealth.ts'
 
 /** 名字 → 工厂（穷尽表：漏一个工具就编译失败）。 */
-const FACTORIES: Readonly<Record<BankToolName, (deps: BankToolDeps) => ToolDefinition<any, any>>> = {
+const FACTORIES: Readonly<Record<BankToolName, (deps: BankToolDeps) => ToolDefinition<unknown, unknown>>> = {
   'account_list': createAccountListTool,
   'account_balance': createAccountBalanceTool,
   'txn_query': createTxnQueryTool,
@@ -43,6 +43,6 @@ export const BANK_TOOL_FACTORY_NAMES: readonly BankToolName[] = Object.keys(
  *
  * 工具定义是闭包：依赖在创建时注入，`execute` 不再读取全局单例。
  */
-export function createBankTools(deps: BankToolDeps): readonly ToolDefinition<any, any>[] {
+export function createBankTools(deps: BankToolDeps): readonly ToolDefinition<unknown, unknown>[] {
   return BANK_TOOL_SPECS.map((spec) => FACTORIES[spec.name](deps))
 }

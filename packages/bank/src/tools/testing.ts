@@ -56,7 +56,7 @@ export interface BankHarness {
   readonly deps: BankToolDeps
   readonly core: MockBankCore
   readonly verify: VerifyService
-  readonly tools: ReadonlyMap<string, ToolDefinition<any, any>>
+  readonly tools: ReadonlyMap<string, ToolDefinition<unknown, unknown>>
   readonly audits: AuditRecord[]
   readonly ctx: ToolExecContext
   call(name: string, args?: Readonly<Record<string, unknown>>, callId?: string): Promise<unknown>

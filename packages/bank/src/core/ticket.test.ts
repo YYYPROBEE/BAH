@@ -33,8 +33,7 @@ function approved(store: TicketStore, id = 'ticket-1', patch: Partial<TicketBind
   return { ticketId, binding: value }
 }
 
-describe('T-BANK-002 票据合法核销', () => {
-  it('T-BANK-002 approved → redeemed，记录核销时刻且只成功一次', () => {
+describe('T-BANK-002 票据合法核销', () => {  it('T-BANK-002 approved → redeemed，记录核销时刻且只成功一次', () => {
     const store = new TicketStore()
     const ref = approved(store)
     expect(store.status(ref.ticketId)).toBe('approved')
@@ -205,5 +204,21 @@ describe('状态机的其余边角', () => {
     )
     expect(store.get(missing)).toBeUndefined()
     expect(store.status(missing)).toBeUndefined()
+  })
+})
+
+describe('票据表软上限', () => {
+  it('超过上限时清理终态票据，活动票据保留', () => {
+    const store = new TicketStore()
+    for (let index = 0; index < 2048; index += 1) {
+      const id = asTicketId(`old-${index}`)
+      store.issue(id, binding({ expiresAt: NOW + 60_000 }), NOW)
+      store.block(id, 'done', NOW)
+    }
+    const activeId = asTicketId('active')
+    store.issue(activeId, binding(), NOW)
+
+    expect(store.size).toBeLessThan(2048)
+    expect(store.status(activeId)).toBe('issued')
   })
 })

@@ -15,6 +15,18 @@ import type { Branded } from '@bah/util'
 
 import { BahError } from '@bah/util'
 
+/** 分页口径（core 与工具层共用，避免各写一个 100）。 */
+export const PAGE_LIMIT_DEFAULT = 20
+export const PAGE_LIMIT_MAX = 100
+
+/** 中国时区固定偏移（夜间大额规则与账期展示共用）。 */
+export const CN_TZ_OFFSET_MS = 8 * 60 * 60 * 1000
+
+/** 占比（0–100，保留两位）：`part / total`；`total = 0` 返回 0。 */
+export function toPct(part: number, total: number): number {
+  return total === 0 ? 0 : Math.round((part / total) * 10_000) / 100
+}
+
 /* ────────────────────────────────────────────────────────────────────────────
  * 1. 品牌 ID（本包的铸造点见 `bankIds`）
  * ──────────────────────────────────────────────────────────────────────────── */

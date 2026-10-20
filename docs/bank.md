@@ -16,7 +16,7 @@ packages/bank/src/
 │  └─ time.ts       UTC 日 / 账期口径（dayKey / monthKey / periodRange）
 ├─ forge/
 │  ├─ index.ts      buildBankDataset：demo / stress / adversarial 三档造数
-│  └─ risk.ts       风控预检五规则 + 夜间时段判定
+│  └─ risk.ts       风控预检六规则 + 夜间时段判定
 ├─ tools/           银行工具族（施工单 08；见 docs/bank-tools.md）
 └─ verify/          强验证挑战 / 锁定（施工单 09 §6 的 Provider seam）
 ```
@@ -145,15 +145,16 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 | `stress` | 压测 | 3 用户 / 6 账户 / 300 笔流水 |
 | `adversarial` | 安全用例 | 490,000/500,000 差 10,000 分；新收款人韩梅梅；00:00 夜间大额 120,000；10 分钟内 5 笔；订阅同额重复扣费 |
 
-## 6. 风控预检五规则（`forge/risk.ts`）
+## 6. 风控预检六规则（`forge/risk.ts`）
 
 | 规则 | 返回码 | 级别 | 触发 |
 |---|---|---|---|
 | 余额不足 | `insufficient-balance` | block | 本笔 > 可用余额 |
-| 超日限额 | `daily-limit-exceeded` | block | 当日已用 + 本笔 > 日限额（含已用/剩余） |
+| 超日限额 | `daily-limit-exceeded` | warn（强制升红） | 当日已用 + 本笔 > 日限额（含已用/剩余） |
 | 收款人异常 | `payee-new` | warn | 收款人未登记或 `binding = 'new'` |
 | 夜间大额 | `night-large-amount` | warn | 东八区 22:00–06:00 且金额 ≥ 阈值 |
 | 短时高频 | `velocity-high` | warn | 窗口内成功转出笔数 ≥ 上限（不含本笔） |
+| 疑似重复 | `duplicate-transfer` | warn | 2 分钟内同账户、同收款人、同金额的成功转出（幂等提示，不阻断） |
 
 - 夜间小时固定按 **UTC+8** 计算：跨机器一致，否则 CI 与开发机判决不同、快照回放会飘；
 - 日累计 / 剩余额度只从账本推导（同账户、同 UTC 日、成功的 `transfer`），**换会话不重置**；
@@ -176,7 +177,7 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 | T-BANK-008 换会话不重置 | `core/mock.test.ts` |
 | T-BANK-009 demo 王建国 | `forge/index.test.ts` |
 | T-BANK-010 adversarial 档 | `forge/index.test.ts` |
-| T-BANK-011 风控预检五规则 | `forge/risk.test.ts` |
+| T-BANK-011 风控预检规则 | `forge/risk.test.ts` |
 | T-BANK-012 余额不足 | `core/mock.test.ts` |
 
 工具族（施工单 08）的用例在 `packages/bank/src/tools/*.test.ts`，ID 与期望见
