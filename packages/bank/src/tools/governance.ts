@@ -414,9 +414,7 @@ async function transferPreview(
       amountCents: input.amountCents,
       channel: 'app',
     })
-    const blocked = preview.risks.find(
-      (risk) => risk.severity === 'block' && risk.rule !== 'daily-limit',
-    )
+    const blocked = preview.risks.find((risk) => risk.severity === 'block')
     if (blocked !== undefined) {
       return { deny: { kind: 'deny', code: blocked.code, reason: blocked.message } }
     }

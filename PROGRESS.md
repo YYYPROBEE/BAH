@@ -19,7 +19,7 @@
 | 08 | 银行工具族 | 插件线 | [x] | 14 个 P0 工具 / 三级判决与票据桥接 / presenter 契约 / 目录门禁 / headless 实跑；出口清单见 §29，偏差见 §30，待确认见 §31 |
 | 09 | 三级权限审批票据 | 插件线 | [x] | 判定矩阵 + 五条附加规则 / `@bah/interaction` 审批服务与票据账本 / 身份绑定渠道 / 红级挑战链 / headless 幕 3；出口清单见 §32，偏差见 §33，待确认见 §34 |
 | 10 | 安全防护层 sentry | 插件线 | [x] | **批次 A+B 已交付**：内核七件 + 89 用例（§38，偏差 R119–R126）；四接缝接线 / 注入矩阵五攻击面 / 幻觉防护四机制 / 熔断锁存与显式解冻 / 宿主行 `safety:sentry`（§40，偏差 R127–R135） |
-| 11 | 沙箱运行时 | 插件线 | [ ] | `sandbox-policy` + `sandbox-runtime` 已落地（档位/硬杀/三态失败/门禁，见 §36）；**出口第 5 条未闭合**：`analysis_calc` 仍在进程内跑，未接沙箱 seam |
+| 11 | 沙箱运行时 | 插件线 | [x] | `sandbox-policy` + `sandbox-runtime` 已落地（档位/硬杀/三态失败/门禁，见 §36）；宿主行 `safety:sandbox` 已接 `analysis_calc`（`BANK_COMPUTE` seam，2026-10-20） |
 | 12 | 审计轨迹与回放测试 | 阶段 7（建议项） | [x] | **仅 test-support 节选**（快照录制回放 + 确定性）；TraceLog / 报表 / 对抗用例库属插件线；出口清单见 §20，偏差见 §21 |
 | 13 | Web 前端 | 插件线 | [ ] | `apps/web` 纯原生骨架已就位 |
 | 14 | 移动 H5 与跨场景规划 | 插件线 | [ ] | |
@@ -751,7 +751,7 @@ identity/bound → turn/start → step/start → request/header → system/messa
 | 2 | `sandbox-policy` 按**调用**解析（默认 → 会话 override → 显式批准档） | ✓ | `policy.ts` 的 `resolve()`；`policy.test.ts` 22 例（含同档幂等、取消、`viewOf`、批准一次性与过期清扫） |
 | 3 | 结构化失败三分上报规格 | ✓ | `protocol.ts` 的 `SandboxOutcome` 四态 + `runner.record()` 落 `sandbox/{done,refused,error,timeout}`；`admit()` 的载荷超限与不可序列化两条 |
 | 4 | 模型生成代码一律不得进入 `none`（门禁 + 单测） | ✓ | 运行期：`policy.ts` 的 `model-code-to-none`（T-SBX-006 三条用例：默认档、批准档、`grant('none')` 直接拒）；静态：`pnpm gate` 的 `sandbox` 项（235 个源文件扫描 + worker 加载链零包名 import 校验） |
-| 5 | 演示通道：`analysis_calc` 在 `compute-bounded` 内跑通 | **✗ 未闭合** | 沙箱侧已就绪（`handlers/compute.ts` 跑同一门语言并通过 worker 通道用例）；**缺宿主接线**：`bank:tools` 仍在用进程内 `defaultCompute`。见 §37 R113 |
+| 5 | 演示通道：`analysis_calc` 在 `compute-bounded` 内跑通 | ✓ | 宿主行 `safety:sandbox` 提供 `BANK_COMPUTE` seam（登记 `compute` 执行体）；`bank:tools` 按调用取服务，base bundle 默认安装；worker 端到端用例见 `host/src/boot/plugins/{sandbox,bank-tools}.test.ts` |
 
 **实测规模**（2026-10-19 20:12，本机 Node 22.17 / vitest 3.2.7）：
 
@@ -774,7 +774,7 @@ Node 直接加载 `.ts` worker 入口需要 `--experimental-strip-types`，因�
 
 | ID | 项 | 处理 |
 |---|---|---|
-| R113 | **出口第 5 条未闭合**：`analysis_calc` 还没接沙箱 seam | 沙箱侧与语言侧都就绪，缺一个宿主插件行 `safety:sandbox`（提供 `BANK_COMPUTE` 服务键 + 登记表注册 `compute` 执行体）供 `bank:tools` 取用。约 0.5 人日。**"沙箱环境"这项当前只有策略与运行时、没有真实调用链**，答辩口径必须如实说明 |
+| R113 | ~~**出口第 5 条未闭合**：`analysis_calc` 还没接沙箱 seam~~ **已闭合（2026-10-20）** | 新增宿主行 `safety:sandbox`：提供 `BANK_COMPUTE` 服务键、登记 `compute` 执行体、注入 `SandboxRunner`；`bank:tools` 按调用取服务（未装该行时回退进程内，单测/最小装配）。base bundle 默认安装；`sandbox.test.ts`（worker 求值 + 结局映射）与 `bank-tools.test.ts`（sandbox 行端到端）覆盖 |
 | R114 | 受限语言从 `@bah/bank` 收口到 `@bah/safety`，`bank/tools/compute.ts` 变成映射层（`program-*` → `compute-*`） | 工具面口径与 10 条既有用例不变（实测仍全绿）；理由：语言留在业务包会让"谁能执行模型代码"没有单一属主，两份实现迟早分叉。`bank` 因此新增 `@bah/safety` 依赖（单向，safety 不含领域知识） |
 | R115 | 施工单 11 §3 的 "子进程受限执行 / native addon 加固"未做 | 按原文 "native addon 只作可选加固，不在交付主线"；当前是**逻辑隔离**（无 IO 原语 + 能力白名单 + 堆/时限 + 硬杀），文档 §6 已写明，不宣称 OS 级隔离 |
 | R116 | `maxPayloadBytes` 用序列化后的**字符数**判定，不是 UTF-8 字节数 | 256KB / 1MB 量级的准入判定足够；若要精确计费口径需换 `Buffer.byteLength`，一并影响 `none` 档，暂不做 |

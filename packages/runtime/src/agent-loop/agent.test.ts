@@ -342,6 +342,58 @@ describe('T-LOOP-004 steer', () => {
 })
 
 describe('T-LOOP-005 interrupt', () => {
+  it('同批工具执行中中断：剩余调用补记 tool-interrupted，且不再执行', async () => {
+    let lateExecuted = 0
+    await withHarness(
+      {
+        steps: [
+          {
+            content: [
+              { kind: 'tool-call', id: 'call-stop', name: 'stop_tool', args: {} },
+              { kind: 'tool-call', id: 'call-late', name: 'late_tool', args: {} },
+            ],
+            finishReason: 'tool-calls',
+          },
+        ],
+        prepare: (harness) => {
+          harness.tools.register({
+            name: 'stop_tool',
+            description: '执行中触发中断',
+            schema: { type: 'object' },
+            tier: { level: 'green' },
+            execute: async () => {
+              harness.loop.interrupt('用户按下停止')
+              return 'stopped'
+            },
+          })
+          harness.tools.register({
+            name: 'late_tool',
+            description: '本批剩余调用',
+            schema: { type: 'object' },
+            tier: { level: 'green' },
+            execute: async () => {
+              lateExecuted += 1
+              return 'late'
+            },
+          })
+        },
+      },
+      async (harness) => {
+        harness.loop.send('跑两个工具')
+        await harness.loop.run()
+
+        expect(lateExecuted).toBe(0)
+        expect(
+          payloads(harness.events(), 'tool/result').map((result) => [result.callId, result.code]),
+        ).toEqual([
+          ['call-stop', undefined],
+          ['call-late', 'tool-interrupted'],
+        ])
+        expect(harness.types()).toContain('turn/end')
+      },
+    )
+  })
+
   it('T-LOOP-005 turn/end.reason=aborted，AbortSignal 传播到 llm.stream（新 turn 换新 controller）', async () => {
     let captured: AbortSignal | undefined
     let streams = 0
@@ -684,7 +736,9 @@ describe('T-LOOP-013 JSONL 落盘', () => {
       test.ctx.get(TOOLS_SERVICE).register(OK_TOOL)
 
       const dir = mkdtempSync(join(tmpdir(), 'bah-loop-'))
-      const backend = new JsonlPersistence({ fsync: false, warn: () => {} })
+      // 本用例验证 seq 与投影的落盘一致性；PII 掩码会改写字符串（默认开启），
+      // 这里关掉掩码；掩码本身由 persistence 的专项用例覆盖。
+      const backend = new JsonlPersistence({ fsync: false, warn: () => {}, redact: false })
       try {
         const handle = backend.create(dir, sessionId, { now: 1_000 })
         // 落账面：会话服务 + JSONL 句柄（阶段 6 的 profile 会把两者装配成一条链）
@@ -1140,3 +1194,41 @@ class PrepareFailingAdapter implements LlmAdapter {
     return this.inner.stream(call, signal)
   }
 }
+
+describe('T-LOOP-014 收尾段异常', () => {
+  it('usage/summary 落账失败：turn/end 仍落账，异常随后抛出', async () => {
+    await withTestContext(async (test) => {
+      const clock = fixedClock({ start: 1_000 })
+      provideSession(test.ctx, { sessionId: asSessionId('s-close-error'), now: clock.now })
+      provideTools(test.ctx)
+      provideSystemPrompt(test.ctx)
+      provideAgents(test.ctx)
+      const base = test.ctx.get(SESSION_SERVICE)
+      test.ctx.get(TOOLS_SERVICE).register(OK_TOOL)
+
+      const session: SessionApi = {
+        ...base,
+        append<S extends SessionEventType>(
+          type: S,
+          data: SessionEventMap[S],
+          options?: AppendOptions,
+        ): SessionEvent<S> {
+          if (type === 'usage/summary') throw new Error('summary sink down')
+          return base.append(type, data, options)
+        },
+      }
+      const registry = new LlmAdapterRegistry()
+      registry.register(new MockLlmAdapter({ script: { steps: [textStep('好的')] } }))
+      const loop = new AgentLoop({
+        ctx: test.ctx,
+        session,
+        registry,
+        config: { model: 'mock:mock-chat' },
+        now: clock.now,
+      })
+      loop.send('你好')
+      await expect(loop.run()).rejects.toThrow(/summary sink down/)
+      expect(session.events().some((event) => event.type === 'turn/end')).toBe(true)
+    })
+  })
+})

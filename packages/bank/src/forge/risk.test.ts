@@ -36,7 +36,7 @@ describe('T-BANK-011 五规则各有触发样例与返回码', () => {
     expect(findings[0]?.detail).toMatchObject({ availableCents: 1_000, amountCents: 2_000 })
   })
 
-  it('T-BANK-011 超日限额 → block / daily-limit-exceeded（带当日已用与剩余）', () => {
+  it('T-BANK-011 超日限额 → warn / daily-limit-exceeded（强制升红，带当日已用与剩余）', () => {
     const findings = checkTransferRisks(input({ amountCents: 2_000, dailyUsedCents: 499_000 }))
     expect(findings.map((item) => item.code)).toEqual(['daily-limit-exceeded'])
     expect(findings[0]?.detail).toMatchObject({ dailyUsedCents: 499_000, remainingCents: 1_000 })

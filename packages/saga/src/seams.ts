@@ -25,10 +25,10 @@ import type {
 
 /* ────────────────────────────── 存储接缝 ────────────────────────────── */
 
-/** 状态/幂等/模板表的读写接缝（sqlite 事务唯一入口）。 */
-export interface SagaStore {
-  /** 单提交段（BEGIN IMMEDIATE → COMMIT/ROLLBACK）。 */
-  tx<T>(fn: (tx: SagaTx) => T): T
+/** 事务/步骤读写（协调器主路径）。 */
+export interface SagaStoreTransactionOps {
+  /** 单提交段（BEGIN IMMEDIATE → COMMIT/ROLLBACK）；可选提交前钩子用于审计缓冲落盘。 */
+  tx<T>(fn: (tx: SagaTx) => T, hooks?: { readonly beforeCommit?: () => void }): T
   loadTransaction(sagaId: string): SagaTransaction | undefined
   casState(sagaId: string, from: SagaState, to: SagaState, version: number, at: number): boolean
   listSteps(sagaId: string): readonly SagaStep[]
@@ -36,20 +36,30 @@ export interface SagaStore {
   /** `idx_saga_active` 命中（非终态）。 */
   activeSagas(): readonly string[]
   listAllSagas(filter?: { readonly state?: SagaState; readonly businessType?: string }): readonly SagaTransaction[]
-  // 模板注册表（配置期；SA-07 §4 批 3 回写）
+}
+
+/** 补偿模板注册表（配置期）。 */
+export interface SagaStoreTemplateOps {
   /** 写入一条模板版本；重复 `(templateId, templateVersion)` 由调用方先查重（版本不可覆盖）。 */
   insertTemplate(template: CompTemplate): void
   /** ACTIVE 模板的最新版本（按 `target_tool`）；配置期读，不开事务。 */
   findActiveTemplate(toolName: string): CompTemplate | undefined
   /** 按计划期冻结的 `(templateId, templateVersion)` 读回。 */
   readTemplate(templateId: string, templateVersion: number): CompTemplate | undefined
-  // 目标系统登记（SA-16 §8 批 6 回写：消除 `bah:target-registry` 无提供者）
-  /** 读一条目标系统承诺；未登记返回 `undefined`（补偿侧按 `unknown-target` 拒自动补偿）。 */
+}
+
+/** 目标系统登记（补偿自动化的前置事实）。 */
+export interface SagaStoreTargetOps {
   readTarget(targetSystem: string): TargetSystem | undefined
   listTargets(): readonly TargetSystem[]
-  /** 运维/装配期登记目标（补偿自动化的前置事实）。 */
   upsertTarget(target: TargetSystem): void
 }
+
+/** 状态/幂等/模板表的读写接缝（sqlite 事务唯一入口）。 */
+export interface SagaStore
+  extends SagaStoreTransactionOps,
+    SagaStoreTemplateOps,
+    SagaStoreTargetOps {}
 
 /**
  * 单提交段内的**行级原语**（SA-08/09/10/11/12/13 全部按本签名调用）。
@@ -59,41 +69,45 @@ export interface SagaStore {
  * 纪律二：需要"成败判定"的原语返回 `boolean`（插入/接管/CAS），其余均为 `void`。
  * **本清单已冻结**：任何新单新增成员必须回写 SA-07 §4。
  */
-export interface SagaTx {
-  // 事务
+/** 事务与步骤原语。 */
+export interface SagaTxTransactionOps {
   insertTransaction(row: SagaTransaction): void
   readTransaction(sagaId: string): SagaTransaction | undefined
   casState(sagaId: string, from: SagaState, to: SagaState, version: number, at: number): boolean
   loadTransactionByTicket(ticketId: string): SagaTransaction | undefined
   listAllSagas(filter?: { readonly state?: SagaState; readonly businessType?: string }): readonly SagaTransaction[]
-  // 步骤
   insertStep(row: SagaStep): void
   readStep(stepId: string): SagaStep | undefined
   listSteps(sagaId: string): readonly SagaStep[]
   updateStep(row: SagaStep): void
-  // 补偿绑定
+}
+
+/** 补偿绑定原语。 */
+export interface SagaTxCompensationOps {
   bindCompensation(sagaId: string, stepId: string, template: CompTemplate): void
   listCompensations(sagaId: string): readonly CompensatingAction[]
   updateCompensation(row: CompensatingAction): void
-  // 幂等信封
+}
+
+/** 幂等信封原语。 */
+export interface SagaTxIdempotencyOps {
   /** true = 本条插入成功（键未被占用）。 */
   insertIdempotency(row: IdempotencyRecord): boolean
   readIdempotency(idemKey: string): IdempotencyRecord | undefined
   /** true = 租约过期成功接管。 */
   takeoverIdempotency(idemKey: string, owner: string, leaseExpiry: number): boolean
   completeIdempotency(idemKey: string, responseDigest: string, fingerprint: string): void
-  // 处置与账本
+}
+
+/** 处置、账本、快照与冻结原语。 */
+export interface SagaTxDispositionOps {
   insertDlq(row: DlqEntry): void
   insertTicket(row: SuspensionTicket): void
   readTicket(ticketId: string): SuspensionTicket | undefined
   insertResidual(row: ResidualLedgerEntry): void
   listResiduals(sagaId: string): readonly ResidualLedgerEntry[]
-  // 快照与金库
   insertSnapshot(row: StateSnapshot): void
   readLatestSnapshot(sagaId: string): StateSnapshot | undefined
-  putVault(vaultId: string, cipherText: Uint8Array, keyVersion: number, classification: string): void
-  readVault(vaultId: string): VaultSensitive | undefined
-  // 处置与冻结（SA-10 / SA-12 / SA-13 共用）
   /** 未处置 DLQ 条数（告警阈值判定用）。 */
   dlqDepth(): number
   listDlqPending(): readonly DlqEntry[]
@@ -102,6 +116,20 @@ export interface SagaTx {
   /** 冻结只拦新发射，不改状态（SA-12）。 */
   freezeSaga(sagaId: string, frozen: boolean, at: number): void
 }
+
+/** 敏感数据金库原语。 */
+export interface SagaTxVaultOps {
+  putVault(vaultId: string, cipherText: Uint8Array, keyVersion: number, classification: string): void
+  readVault(vaultId: string): VaultSensitive | undefined
+}
+
+/** 单提交段内的全部行级原语（由五组窄接口组合；调用方按需只依赖其中一组）。 */
+export interface SagaTx
+  extends SagaTxTransactionOps,
+    SagaTxCompensationOps,
+    SagaTxIdempotencyOps,
+    SagaTxDispositionOps,
+    SagaTxVaultOps {}
 
 /* ────────────────────────────── 审计/时钟/模板/幂等 ────────────────────────────── */
 
@@ -115,6 +143,8 @@ export interface SagaAudit {
   ): { seqInSaga: number; recordHash: string }
   verify(sagaId?: string): { ok: boolean; brokenAt?: number }
   anchor(period: string): Promise<{ merkleRoot: string; targets: readonly string[] }>
+  /** 可选延迟写能力：事务内 append 只进缓冲，COMMIT 前统一落盘（JSONL 链实现）。 */
+  beginDeferred?(): { flush(): void; discard(): void }
 }
 
 /** 确定性时钟（测试可注入；全链路的唯一时间来源，对应 A6）。 */

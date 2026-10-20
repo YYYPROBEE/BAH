@@ -26,7 +26,7 @@ import type {
   UserId,
   WealthProduct,
 } from './model.ts'
-import { bankIds } from './model.ts'
+import { bankIds, PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX, toPct } from './model.ts'
 import type {
   Balance,
   BankCoreProvider,
@@ -75,6 +75,12 @@ export class MockBankCore implements BankCoreProvider {
   private txnSeq: number
   private payeeSeq: number
   private holdingSeq: number
+  /** 幂等键 → 首笔结果（10 分钟窗口；只防"同参数重复提交"，不替代票据）。 */
+  private readonly idempotency = new Map<
+    string,
+    { readonly fingerprint: string; readonly result: TransferResult; readonly expiresAt: number }
+  >()
+  private static readonly IDEMPOTENCY_TTL_MS = 10 * 60_000
 
   constructor(options: MockBankCoreOptions) {
     const { data } = options
@@ -124,9 +130,10 @@ export class MockBankCore implements BankCoreProvider {
       .filter((item) => query.from === undefined || item.at >= query.from)
       .filter((item) => query.to === undefined || item.at <= query.to)
       .filter((item) => query.category === undefined || item.category === query.category)
+      .filter((item) => query.direction === undefined || item.direction === query.direction)
       .sort((left, right) => right.at - left.at || (left.id < right.id ? 1 : -1))
 
-    const limit = Math.min(100, Math.max(1, query.limit ?? 20))
+    const limit = Math.min(PAGE_LIMIT_MAX, Math.max(1, query.limit ?? PAGE_LIMIT_DEFAULT))
     const offset = parseCursor(query.cursor)
     const items = matched.slice(offset, offset + limit)
     const next = offset + limit < matched.length ? String(offset + limit) : undefined
@@ -163,7 +170,7 @@ export class MockBankCore implements BankCoreProvider {
 
     const comparedPeriod = previousMonth(period)
     const previous = this.outflowOf(query, comparedPeriod)
-    const momChangePct = previous > 0 ? Math.round(((totalOutCents - previous) / previous) * 10_000) / 100 : undefined
+    const momChangePct = previous > 0 ? toPct(totalOutCents - previous, previous) : undefined
     return {
       period,
       totalInCents,
@@ -198,6 +205,7 @@ export class MockBankCore implements BankCoreProvider {
       dailyLimitCents,
       payeeBinding: payee?.binding ?? 'new',
       recentOutCount: this.recentOutCount(account.id, at),
+      duplicateRecent: this.hasRecentDuplicate(account.id, req.payee.name, req.amountCents, at),
       at,
       limits: this.limitsConfig,
     })
@@ -241,6 +249,22 @@ export class MockBankCore implements BankCoreProvider {
     }
 
     const at = this.now()
+    const idemKey = req.idempotencyKey?.trim()
+    const fingerprint = `${req.payee.name}|${req.payee.phone ?? ''}|${req.amountCents}`
+    if (idemKey !== undefined && idemKey.length > 0) {
+      const cached = this.idempotency.get(idemKey)
+      if (cached !== undefined && cached.expiresAt > at) {
+        if (cached.fingerprint !== fingerprint) {
+          throw new BahError('idempotency-conflict', 'bank: 幂等键已用于不同的转账参数', {
+            idempotencyKey: idemKey,
+          })
+        }
+        // 重试的票据仍要核销（否则账本出现 approved 悬挂），但不再扣款
+        this.tickets.redeem(ticket, at)
+        return { ...cached.result, ticketId: ticket.ticketId }
+      }
+      if (cached !== undefined) this.idempotency.delete(idemKey)
+    }
     // 核销（可能抛）：必须在任何账本变更之前
     this.tickets.redeem(ticket, at)
 
@@ -268,7 +292,7 @@ export class MockBankCore implements BankCoreProvider {
 
     const dailyUsedCents = this.dailyUsedCents(account.id, at)
     const dailyLimitCents = this.dailyLimitOf(account.id)
-    return {
+    const result: TransferResult = {
       txnId: transaction.id,
       ticketId: ticket.ticketId,
       amountCents: req.amountCents,
@@ -279,6 +303,22 @@ export class MockBankCore implements BankCoreProvider {
       dailyLimitCents,
       remainingCents: Math.max(0, dailyLimitCents - dailyUsedCents),
       at,
+    }
+    if (idemKey !== undefined && idemKey.length > 0) {
+      this.idempotency.set(idemKey, {
+        fingerprint,
+        result,
+        expiresAt: at + MockBankCore.IDEMPOTENCY_TTL_MS,
+      })
+      this.pruneIdempotency(at)
+    }
+    return result
+  }
+
+  private pruneIdempotency(now: number): void {
+    if (this.idempotency.size < 1024) return
+    for (const [key, entry] of this.idempotency) {
+      if (entry.expiresAt <= now) this.idempotency.delete(key)
     }
   }
 
@@ -396,6 +436,28 @@ export class MockBankCore implements BankCoreProvider {
       .filter((item) => item.direction === 'out' && item.status === 'success')
       .filter((item) => item.at > from && item.at <= at)
       .length
+  }
+
+  /** 2 分钟内同账户、同收款人、同金额的成功转出（疑似重复提交）。 */
+  private hasRecentDuplicate(
+    accountId: AccountId,
+    payeeName: string,
+    amountCents: number,
+    at: number,
+  ): boolean {
+    const name = payeeName.trim()
+    if (name.length === 0) return false
+    const from = at - 120_000
+    return this.transactions.some(
+      (item) =>
+        item.accountId === accountId &&
+        item.direction === 'out' &&
+        item.status === 'success' &&
+        item.amountCents === amountCents &&
+        item.counterparty.name === name &&
+        item.at > from &&
+        item.at <= at,
+    )
   }
 
   /** 账户的日限额：第一张正常卡片的日限额，否则用全局兜底阈值。 */

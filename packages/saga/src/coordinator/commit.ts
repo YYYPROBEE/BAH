@@ -13,17 +13,7 @@ import { SAGA_AUDIT, SAGA_STORE } from '../seams.ts'
 
 import type { Context } from '@bah/core'
 
-import type { SagaAudit, SagaTx } from '../seams.ts'
-
-/** 审计服务可选的内部延迟写能力（不是跨包公开契约）。 */
-interface DeferrableAudit extends SagaAudit {
-  beginDeferred?(): { flush(): void; discard(): void }
-}
-
-/** store 的可选提交前钩子（实现侧扩展，不改变冻结接口）。 */
-interface StoreWithCommitHook {
-  tx<T>(fn: (tx: SagaTx) => T, hooks?: { readonly beforeCommit?: () => void }): T
-}
+import type { SagaTx } from '../seams.ts'
 
 /**
  * 在单个提交段内执行 `fn`。
@@ -32,11 +22,11 @@ interface StoreWithCommitHook {
  */
 export function commitSegment<T>(ctx: Context, fn: (tx: SagaTx) => T): T {
   const store = ctx.get(SAGA_STORE)
-  const audit = ctx.get(SAGA_AUDIT) as DeferrableAudit
+  const audit = ctx.get(SAGA_AUDIT)
   const deferred = audit.beginDeferred?.()
 
   try {
-    return (store as unknown as StoreWithCommitHook).tx(fn, {
+    return store.tx(fn, {
       beforeCommit: () => deferred?.flush(),
     })
   } catch (error) {

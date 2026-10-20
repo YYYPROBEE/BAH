@@ -36,15 +36,27 @@ export function readOptionalObject(
   return readObject(source, key, where)
 }
 
+/** 单个字符串参数的默认上限（防止模型把 10MB 文本塞进落盘与 wire）。 */
+const MAX_STRING_LENGTH = 4096
+
 /** 读非空字符串。 */
 export function readString(
   source: Readonly<Record<string, unknown>>,
   key: string,
   where: string,
+  maxLength: number = MAX_STRING_LENGTH,
 ): string {
   const value = source[key]
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw argsError(`${where}.${key} 必须是非空字符串`, { key, where })
+  }
+  if (value.length > maxLength) {
+    throw argsError(`${where}.${key} 超过长度上限 ${maxLength}（收到 ${value.length}）`, {
+      key,
+      where,
+      maxLength,
+      length: value.length,
+    })
   }
   return value.trim()
 }
@@ -54,11 +66,20 @@ export function readOptionalString(
   source: Readonly<Record<string, unknown>>,
   key: string,
   where: string,
+  maxLength: number = MAX_STRING_LENGTH,
 ): string | undefined {
   const value = source[key]
   if (value === undefined || value === null) return undefined
   if (typeof value !== 'string') {
     throw argsError(`${where}.${key} 必须是字符串`, { key, where })
+  }
+  if (value.length > maxLength) {
+    throw argsError(`${where}.${key} 超过长度上限 ${maxLength}（收到 ${value.length}）`, {
+      key,
+      where,
+      maxLength,
+      length: value.length,
+    })
   }
   const trimmed = value.trim()
   return trimmed.length === 0 ? undefined : trimmed

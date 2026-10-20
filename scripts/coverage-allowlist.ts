@@ -122,7 +122,32 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
   {
     package: 'bank',
     scope: 'forge/',
-    why: '造数确定性（seeded 三档）与风控预检五规则（施工单 07 §4）',
+    why: '造数确定性（seeded 三档）与风控预检规则（施工单 07 §4）',
+  },
+  {
+    package: 'saga',
+    scope: 'state-machine/',
+    why: 'saga 状态机：唯一转移函数 / 非法出边 / 未知事件 fail-loud（资金补偿状态不可静默失真）',
+  },
+  {
+    package: 'saga',
+    scope: 'coordinator/commit.ts',
+    why: '单提交段：sqlite 业务写 + 审计 fsync + COMMIT 的顺序不变量（SA-08）',
+  },
+  {
+    package: 'saga',
+    scope: 'alert/sink.ts',
+    why: '告警出口扇出：单 sink 失败不得阻断后续（观测链路）',
+  },
+  {
+    package: 'saga',
+    scope: 'probe/classify.ts',
+    why: '补偿探诊分类：未知/成功/失败三态分类错误会导致重复补偿或漏补偿',
+  },
+  {
+    package: 'saga',
+    scope: 'view/causality.ts',
+    why: '因果视图：审计链回放的顺序判定（错序会让补偿方向反转）',
   },
   {
     package: 'knowledge',

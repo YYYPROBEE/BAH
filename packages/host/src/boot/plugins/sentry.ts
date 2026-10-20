@@ -21,7 +21,7 @@ import {
   type TraceSink,
 } from '@bah/safety'
 import { AGENTS_SERVICE, SESSION_SERVICE, TOOLS_SERVICE } from '@bah/runtime'
-import type { AgentId, SessionApi } from '@bah/runtime'
+import type { AgentId } from '@bah/runtime'
 import type { TicketId } from '@bah/core'
 import { BahError } from '@bah/util'
 
@@ -59,7 +59,9 @@ export const sentryPlugin: HostPlugin<SentryPluginSettings> = {
         }
       } else if (config.trace.sink === 'session') {
         traceSink = (lines) => {
-          for (const line of lines) appendIgnorable(session, 'sentry/trace', JSON.parse(line))
+          for (const line of lines) {
+            session.appendDomain('sentry/trace', JSON.parse(line), { ignorable: true })
+          }
         }
       }
 
@@ -67,7 +69,7 @@ export const sentryPlugin: HostPlugin<SentryPluginSettings> = {
         sessionId: run.sessionId,
         now: run.now,
         record: (type, data) => {
-          appendIgnorable(session, type, data)
+          session.appendDomain(type, data, { ignorable: true })
         },
         toolTier: (name) => {
           if (!tools.has(name)) return undefined
@@ -103,14 +105,4 @@ export const sentryPlugin: HostPlugin<SentryPluginSettings> = {
     }
     return settings
   },
-}
-
-/** 按领域键落账（`ignorable: true`；平台 reader 不认识治理族，施工单 10 硬约束 6）。 */
-function appendIgnorable(session: SessionApi, type: string, data: unknown): void {
-  const append = session.append as unknown as (
-    type: string,
-    data: unknown,
-    options: { ignorable: boolean },
-  ) => unknown
-  append(type, data, { ignorable: true })
 }

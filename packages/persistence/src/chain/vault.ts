@@ -124,7 +124,7 @@ function vaultKey(settings: VaultSettings, keyVersion = settings.keyVersion): Bu
   try {
     pem = readFileSync(settings.signingKeyPath)
   } catch {
-    throw new BahError('signing-key-missing', `bah-saga: signing-key-missing: ${settings.signingKeyPath}`, {
+    throw new BahError('signing-key-missing', 'bah-saga: signing-key-missing', {
       signingKeyPath: settings.signingKeyPath,
     })
   }

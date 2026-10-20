@@ -119,6 +119,7 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       'bank:knowledge',
       'interaction:approval',
       'safety:sentry',
+      'safety:sandbox',
       'bank:saga-store',
       'bank:saga',
       'bank:saga-audit',

@@ -72,5 +72,6 @@ worker 入口按运行位置解析：调用者是 `.ts` 就用 `src/sandbox-runt
   native addon 加固按施工单 11 §3 明示不在交付主线。
 - `maxPayloadBytes` 按序列化后的字符数计，不是 UTF-8 字节数（对 256KB / 1MB 量级的判定足够，
   但别把它当精确计费口径）。
-- 演示通道 `analysis_calc` → `compute-bounded` 的 seam 接线尚未接上（工具仍在进程内跑），
-  这是施工单 11 出口标准第 5 条的未完项，见 `PROGRESS.md` §37。
+- 演示通道 `analysis_calc` → `compute-bounded` 已由宿主行 `safety:sandbox` 接线
+  （`BANK_COMPUTE` 服务键 + 登记表注册 `compute` 执行体，base bundle 默认安装）；
+  未装该行的最小装配（单测）回退进程内实现。

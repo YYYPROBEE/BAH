@@ -103,6 +103,7 @@ export const BANK_TOOL_SPECS = [
         },
         direction: { type: 'string', description: '收支方向：in（收入）/ out（支出）' },
         page: { type: 'integer', description: '页码，从 1 开始（缺省 1）' },
+        cursor: { type: 'string', description: '游标（上一页返回的 nextCursor；与 page 二选一）' },
         limit: { type: 'integer', description: '每页条数（缺省 20，上限 100）' },
       },
     },
@@ -197,6 +198,10 @@ export const BANK_TOOL_SPECS = [
         payee: PAYEE_SCHEMA,
         remark: { type: 'string', description: '转账附言（可选）' },
         when: { type: 'string', description: '执行时间：now（缺省）/ ISO 时间（定时转账属 P1，当前会拒绝）' },
+        idempotencyKey: {
+          type: 'string',
+          description: '可选幂等键：网络重试/重复提交时复用同一键，10 分钟内同参数只扣款一次',
+        },
       },
       required: ['amount', 'payee'],
     },

@@ -90,11 +90,15 @@ const FUNCTIONS: Readonly<Record<string, (values: readonly number[]) => number>>
   },
   round: (values) => {
     if (values.length !== 1) throw new ProgramError('program-invalid', 'round 只接受一个参数')
-    return Math.round(values[0] as number)
+    const value = values[0]
+    if (value === undefined) throw new ProgramError('program-invalid', 'round 缺少参数')
+    return Math.round(value)
   },
   abs: (values) => {
     if (values.length !== 1) throw new ProgramError('program-invalid', 'abs 只接受一个参数')
-    return Math.abs(values[0] as number)
+    const value = values[0]
+    if (value === undefined) throw new ProgramError('program-invalid', 'abs 缺少参数')
+    return Math.abs(value)
   },
 }
 
@@ -130,7 +134,8 @@ function tokenize(code: string): Token[] {
   const tokens: Token[] = []
   let index = 0
   while (index < code.length) {
-    const char = code[index] as string
+    const char = code[index]
+    if (char === undefined) break
     if (/\s/.test(char)) {
       index += 1
       continue

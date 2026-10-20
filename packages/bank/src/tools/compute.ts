@@ -10,10 +10,14 @@
  * 硬杀），这条默认路径只服务单测与无沙箱的最小装配。
  */
 
+import { defineService } from '@bah/core'
 import { ProgramError, runProgram } from '@bah/safety'
 import { BahError } from '@bah/util'
 
 import type { ComputeRequest, ComputeResult, ComputeSeam } from './types.ts'
+
+/** 沙箱提供的受限计算接缝（可选服务；缺省走本文件的进程内实现）。 */
+export const BANK_COMPUTE = defineService<ComputeSeam>('bank:compute')
 
 /** 默认运算预算（与超时无关的确定性上限）。 */
 export const DEFAULT_MAX_OPERATIONS = 10_000

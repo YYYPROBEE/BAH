@@ -43,6 +43,9 @@ import type { ToolRegistry } from './registry.ts'
 /** `ask` 分支（`PreExecuteVerdict` 的一个分支）。 */
 type AskVerdict = Extract<PreExecuteVerdict, { kind: 'ask' }>
 
+/** 工具参数序列化后的硬上限（防止模型用 10MB 文本撑爆落盘与上游 wire）。 */
+const MAX_TOOL_ARGS_BYTES = 64 * 1024
+
 /** 管线依赖（全部显式注入，便于单测替换时钟与落账面）。 */
 export interface ToolPipelineOptions {
   readonly ctx: Context
@@ -95,11 +98,30 @@ export class ToolPipeline {
         new BahError('tool-interrupted', 'tools: 调用已取消（未执行）', { tool: call.name }),
       )
     }
-    let definition: ToolDefinition<any, any>
+    let definition: ToolDefinition<unknown, unknown>
     try {
       definition = this.registry.get(call.name)
     } catch (error) {
       return this.notExecutable(call, error)
+    }
+    let argsSize: number
+    try {
+      argsSize = JSON.stringify(call.args)?.length ?? 0
+    } catch (error) {
+      return this.notExecutable(
+        call,
+        new BahError('tool-args-invalid', 'tools: 工具参数无法序列化', { cause: String(error) }),
+      )
+    }
+    if (argsSize > MAX_TOOL_ARGS_BYTES) {
+      return this.notExecutable(
+        call,
+        new BahError(
+          'tool-args-too-large',
+          `tools: 工具参数 ${argsSize} 字节超过上限 ${MAX_TOOL_ARGS_BYTES}`,
+          { bytes: argsSize, limit: MAX_TOOL_ARGS_BYTES },
+        ),
+      )
     }
     const fingerprint = fingerprintOf(call)
     const startedAt = this.now()
@@ -210,7 +232,7 @@ export class ToolPipeline {
   /** ⑤ 环绕分发：最内层是工具体执行，外层包裹由 `tools/execute` listener 提供。 */
   private async invoke(
     call: ToolCallInput,
-    definition: ToolDefinition<any, any>,
+    definition: ToolDefinition<unknown, unknown>,
   ): Promise<unknown> {
     const innermost: ToolExecutor = async (target) =>
       definition.execute(target.args, this.execContext(target.callId))
@@ -222,7 +244,7 @@ export class ToolPipeline {
   private async approve(
     call: ToolCallInput,
     ask: AskVerdict,
-    definition: ToolDefinition<any, any>,
+    definition: ToolDefinition<unknown, unknown>,
   ): Promise<PreExecuteVerdict> {
     const ticket = this.mintTicket(call, ask)
     const challenge: ApprovalChallenge | undefined = ask.challenge

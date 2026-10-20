@@ -6,10 +6,11 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { asSessionId } from '@bah/test-support'
+import { asSessionId, createTestContext } from '@bah/test-support'
 import type { TicketId } from '@bah/core'
 
-import { createPipelineHarness, TEST_CONFIG } from './testing.ts'
+import { createDeps, createPipelineHarness, TEST_CONFIG, type AuditRecord } from './testing.ts'
+import { provideBankGovernance, type TicketLifecycle } from './governance.ts'
 import { VerifyService } from '../verify/index.ts'
 
 /** 800 元白名单收款人（demo 的王建国）。 */
@@ -245,6 +246,103 @@ describe('审批失败路径', () => {
       expect(h.core.tickets.size).toBe(0)
     } finally {
       await h.dispose()
+    }
+  })
+})
+
+describe('票据记账旁路：账本异常不改写主流程', () => {
+  it('status 抛错 → 落 ticket/ledger-failed(result)，监听器不冒泡', async () => {
+    const test = createTestContext()
+    const audits: AuditRecord[] = []
+    const { deps } = createDeps({ now: () => 1_000, audits })
+    const badDeps = {
+      ...deps,
+      tickets: {
+        ...deps.tickets,
+        status: () => {
+          throw new Error('ledger down')
+        },
+      },
+    } as unknown as typeof deps
+    try {
+      provideBankGovernance({ ctx: test.ctx, sessionId: asSessionId('s-bank'), deps: badDeps })
+      expect(() =>
+        test.ctx.events.emit('tools/result', {
+          callId: 'c-x',
+          name: 'x',
+          isError: false,
+          content: [],
+          durationMs: 0,
+        }),
+      ).not.toThrow()
+      expect(
+        audits.some(
+          (record) =>
+            record.type === 'ticket/ledger-failed' &&
+            (record.data as { op?: string }).op === 'result',
+        ),
+      ).toBe(true)
+    } finally {
+      await test.dispose()
+    }
+  })
+
+  it('lifecycle 抛错且审计出口也失联：仍然不冒泡（资金路径优先）', async () => {
+    const test = createTestContext()
+    const audits: AuditRecord[] = []
+    const { deps, core } = createDeps({ now: () => 1_000, audits })
+    const ticketId = 'ticket:c-x' as TicketId
+    const binding = {
+      sessionId: asSessionId('s-bank'),
+      tool: 'transfer_create',
+      fingerprint: 'fp',
+      amountCents: 100,
+      expiresAt: 999_999,
+    }
+    core.tickets.issue(ticketId, binding, 1)
+    core.tickets.approve(ticketId, 1)
+    core.tickets.redeem({ ticketId, binding }, 1)
+
+    const lifecycle: TicketLifecycle = {
+      issue: () => undefined,
+      approve: () => undefined,
+      redeem: () => {
+        throw new Error('ledger down')
+      },
+      consume: () => undefined,
+      block: () => {
+        throw new Error('ledger down')
+      },
+    }
+    const badDeps = {
+      ...deps,
+      audit: {
+        append: () => {
+          throw new Error('audit down')
+        },
+      },
+    } as unknown as typeof deps
+
+    try {
+      provideBankGovernance({
+        ctx: test.ctx,
+        sessionId: asSessionId('s-bank'),
+        deps: badDeps,
+        lifecycle,
+      })
+      // 已核销 + isError：先 redeem 再 block，两步都抛；审计也抛，仍不得冒泡
+      expect(() =>
+        test.ctx.events.emit('tools/result', {
+          callId: 'c-x',
+          name: 'x',
+          isError: true,
+          code: 'boom',
+          content: [],
+          durationMs: 0,
+        }),
+      ).not.toThrow()
+    } finally {
+      await test.dispose()
     }
   })
 })

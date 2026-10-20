@@ -80,7 +80,12 @@ export interface TicketLedgerOptions {
  */
 export class TicketLedger {
   private readonly records = new Map<string, TicketLedgerEntry>()
+  /** callId → ticketId 反向索引（`forCall` 是收尾热路径，不能每次全表扫）。 */
+  private readonly byCall = new Map<string, string>()
   private readonly record: InteractionRecordSink | undefined
+
+  /** 账本软上限：超过后清理终态 / 过期票据（活动票据永不丢弃）。 */
+  private static readonly MAX_RECORDS = 2048
 
   constructor(options: TicketLedgerOptions = {}) {
     this.record = options.record
@@ -102,6 +107,7 @@ export class TicketLedger {
         ticketId: input.ticketId,
       })
     }
+    this.prune(input.at)
     const entry: TicketLedgerEntry = {
       ticketId: input.ticketId,
       callId: input.callId,
@@ -113,6 +119,8 @@ export class TicketLedger {
       issuedAt: input.at,
     }
     this.records.set(entry.ticketId, entry)
+    // 一个调用最多一张票据：保留先签发者，避免后来的重复调用改写映射
+    if (!this.byCall.has(entry.callId)) this.byCall.set(entry.callId, entry.ticketId)
     this.record?.({
       type: 'ticket/issued',
       data: {
@@ -199,12 +207,22 @@ export class TicketLedger {
     return this.records.get(ticketId)
   }
 
+  /** 超上限时清理终态 / 过期票据；活动票据不丢。 */
+  private prune(now: number): void {
+    if (this.records.size < TicketLedger.MAX_RECORDS) return
+    for (const [ticketId, entry] of this.records) {
+      const terminal = entry.status === 'consumed' || entry.status === 'blocked'
+      if (!terminal && entry.expiresAt > now) continue
+      this.records.delete(ticketId)
+      if (this.byCall.get(entry.callId) === ticketId) this.byCall.delete(entry.callId)
+      if (this.records.size < TicketLedger.MAX_RECORDS / 2) break
+    }
+  }
+
   /** 按调用 ID 读取票据（一个调用最多一张票据）。 */
   forCall(callId: string): TicketLedgerEntry | undefined {
-    for (const entry of this.records.values()) {
-      if (entry.callId === callId) return entry
-    }
-    return undefined
+    const ticketId = this.byCall.get(callId)
+    return ticketId === undefined ? undefined : this.records.get(ticketId)
   }
 
   /** 全量只读视图（审计导出用；顺序 = 签发顺序）。 */

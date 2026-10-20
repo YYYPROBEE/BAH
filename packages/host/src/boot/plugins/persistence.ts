@@ -23,6 +23,8 @@ import { readBoolean, readString, rejectUnknownKeys } from '../config.ts'
 
 /** 会话文件定位服务（宿主打印"落盘在哪"用，避免宿主自己拼路径）。 */
 export interface SessionFiles {
+  /** 会话根目录（`root` / `--jsonl` 生效值；saga 审计链跟它同根）。 */
+  readonly root: string
   /** 某会话的 JSONL 文件路径（会话尚未创建时返回**将要**写入的路径）。 */
   fileOf(sessionId: SessionId): string
 }
@@ -70,7 +72,10 @@ export const persistencePlugin: HostPlugin<PersistenceSettings> = {
         handles.clear()
       })
 
-      ctx.provide<SessionFiles>(SESSION_FILES, { fileOf: (sessionId) => join(dirOf(sessionId), 'session.jsonl') })
+      ctx.provide<SessionFiles>(SESSION_FILES, {
+        root,
+        fileOf: (sessionId) => join(dirOf(sessionId), 'session.jsonl'),
+      })
 
       ctx.events.on('session/event', (envelope) => {
         const key = String(envelope.session)

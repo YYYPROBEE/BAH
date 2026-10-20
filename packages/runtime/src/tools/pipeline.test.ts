@@ -452,3 +452,72 @@ describe('tools/execute 环绕', () => {
     })
   })
 })
+
+describe('参数预算', () => {
+  it('参数超过 64KB → tool-args-too-large，不执行也不落 tool/call', async () => {
+    await withHarness(async (h) => {
+      let executed = 0
+      h.registry.register(
+        tool({
+          name: 'bank:big',
+          execute: async () => {
+            executed += 1
+            return 'ok'
+          },
+        }),
+      )
+      const result = await h.pipeline.execute({
+        callId: 'c-big',
+        name: 'bank:big',
+        args: { blob: 'x'.repeat(70 * 1024) },
+      })
+      expect(result.result.code).toBe('tool-args-too-large')
+      expect(executed).toBe(0)
+      expect(h.log().some((event) => event.type === 'tool/call')).toBe(false)
+    })
+  })
+
+  it('参数无法序列化（循环引用）→ tool-args-invalid', async () => {
+    await withHarness(async (h) => {
+      h.registry.register(tool({ name: 'bank:cyclic' }))
+      const circular: Record<string, unknown> = {}
+      circular['self'] = circular
+      const result = await h.pipeline.execute({
+        callId: 'c-cyclic',
+        name: 'bank:cyclic',
+        args: circular,
+      })
+      expect(result.result.code).toBe('tool-args-invalid')
+    })
+  })
+})
+
+describe('取消短路', () => {
+  it('signal 已取消 → tool-interrupted，不执行工具体', async () => {
+    await withHarness(async (h) => {
+      let executed = 0
+      h.registry.register(
+        tool({
+          name: 'bank:probe',
+          execute: async () => {
+            executed += 1
+            return 'ok'
+          },
+        }),
+      )
+      const controller = new AbortController()
+      controller.abort()
+      const pipeline = new ToolPipeline({
+        ctx: h.test.ctx,
+        registry: h.registry,
+        session: h.session,
+        guard: h.guard,
+        sessionId: h.session.sessionId,
+        signal: controller.signal,
+      })
+      const result = await pipeline.execute(CALL)
+      expect(result.result.code).toBe('tool-interrupted')
+      expect(executed).toBe(0)
+    })
+  })
+})

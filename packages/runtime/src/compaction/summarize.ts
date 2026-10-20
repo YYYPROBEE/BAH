@@ -31,8 +31,20 @@ import type {
   SummaryTextInput,
 } from './types.ts'
 
-/** 估算用的字符/token 比（中英文混排的保守值；只用于阈值判定，不参与计费）。 */
+/** 估算用的字符/token 比（ASCII 混排的保守值；只用于阈值判定，不参与计费）。 */
 const CHARS_PER_TOKEN = 4
+
+/** CJK 字符按 1 token/字估算（中文 provider 的实际 tokenizer 接近 0.6–1）。 */
+function isCjk(codePoint: number): boolean {
+  return (
+    (codePoint >= 0x3400 && codePoint <= 0x4dbf) ||
+    (codePoint >= 0x4e00 && codePoint <= 0x9fff) ||
+    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+    (codePoint >= 0x3040 && codePoint <= 0x30ff) ||
+    (codePoint >= 0xac00 && codePoint <= 0xd7af) ||
+    (codePoint >= 0x20000 && codePoint <= 0x2fa1f)
+  )
+}
 
 /** 允许的配置键（未知键 fail-loud，施工单 00 §9「misconfiguration 必须 fail-loud」）。 */
 const CONFIG_KEYS = new Set(['maxTokens', 'maxTurns', 'keepRecentTurns'])
@@ -99,10 +111,32 @@ function optionalPositiveInteger(value: unknown, name: string): number | undefin
  * 2. 度量与触发判定
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 文本 → token 估算（向上取整）。 */
+/** 文本 → token 估算（向上取整；CJK 按 1 token/字，ASCII 按 4 字符/token）。 */
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / CHARS_PER_TOKEN)
+  let cjk = 0
+  let other = 0
+  for (const char of text) {
+    if (isCjk(char.codePointAt(0) ?? 0)) cjk += 1
+    else other += 1
+  }
+  return Math.ceil(cjk + other / CHARS_PER_TOKEN)
 }
+
+/** 非模型可见的平台事件：参与压缩水位时不贡献 token（显式列出，新增类型必须表态）。 */
+const NON_MESSAGE_EVENTS: ReadonlySet<string> = new Set([
+  'turn/start',
+  'turn/end',
+  'step/start',
+  'step/end',
+  'request/header',
+  'request/context',
+  'assistant/attempt',
+  'tool/call',
+  'approval/asked',
+  'approval/decided',
+  'usage/summary',
+  'compaction/summary',
+])
 
 /** 单条事件的 token 估算（只有模型可见的消息类事件算，审计事件不算）。 */
 export function estimateEventTokens(event: AnySessionEvent): number {
@@ -114,7 +148,14 @@ export function estimateEventTokens(event: AnySessionEvent): number {
     case 'tool/result':
       return estimateTokens(textOfBlocks(event.data.content))
     default:
-      return 0
+      // 领域事件（`ignorable`）不参与模型历史；平台事件表新增类型时必须显式归类，
+      // 否则压缩水位会被静默低估（报告 Q-M3）。
+      if (event.ignorable === true || NON_MESSAGE_EVENTS.has(event.type)) return 0
+      throw new BahError(
+        'compaction-unestimated-event',
+        `compaction: 未知事件 ${event.type} 没有 token 估算口径（压缩水位会失真）`,
+        { type: event.type, seq: event.seq },
+      )
   }
 }
 

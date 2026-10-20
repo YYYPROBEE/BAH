@@ -51,10 +51,11 @@ async function bootWith(
   bank: Readonly<Record<string, unknown>>,
   sessionId: string,
   jsonlDir?: string,
+  extraRows: readonly PluginRow[] = [],
 ): Promise<Awaited<ReturnType<typeof boot>>> {
   const options: BootOptions = {
     profile: { name: 'fx', bundles: ['fx'], hmr: false },
-    bundles: [{ name: 'fx', rows: rows(bank) }],
+    bundles: [{ name: 'fx', rows: [...rows(bank), ...extraRows] }],
     layers: [],
     catalog: createCatalog(),
     run: {
@@ -124,6 +125,53 @@ describe('bank:tools 配置（fail-loud）', () => {
 })
 
 describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
+  it('analysis_calc 经 compute seam 求值（未装 sandbox 行时回退进程内）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-calc-'))
+    const app = await bootWith({ demoUserId: 'u-1', seed: 7, datasetTier: 'demo' }, 's-bank-calc', dir)
+    try {
+      const definition = app.ctx.get(TOOLS_SERVICE).get('analysis_calc')
+      const result = await definition.execute(
+        { code: '1 + 2 * 3' },
+        {
+          sessionId: asSessionId('s-bank-calc'),
+          callId: 'c-calc',
+          signal: new AbortController().signal,
+        },
+      )
+      expect(result).toMatchObject({ value: 7 })
+    } finally {
+      await app.dispose('test')
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('analysis_calc 在 safety:sandbox 在场时经 worker 执行并落 sandbox 审计', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-sandbox-'))
+    const app = await bootWith(
+      { demoUserId: 'u-1', seed: 7, datasetTier: 'demo' },
+      's-bank-sandbox',
+      dir,
+      [{ id: 'safety:sandbox', config: {} }],
+    )
+    try {
+      const definition = app.ctx.get(TOOLS_SERVICE).get('analysis_calc')
+      const result = await definition.execute(
+        { code: '1 + 2 * 3' },
+        {
+          sessionId: asSessionId('s-bank-sandbox'),
+          callId: 'c-calc-sandbox',
+          signal: new AbortController().signal,
+        },
+      )
+      expect(result).toMatchObject({ value: 7 })
+      const events = app.ctx.get(SESSION_SERVICE).events()
+      expect(events.some((event) => String(event.type) === 'sandbox/done')).toBe(true)
+    } finally {
+      await app.dispose('test')
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('mock 模型调 account_balance → 绿级放行 → 卡片数据落账', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bah-bank-tools-'))
     const app = await bootWith({ demoUserId: 'u-1', seed: 7, datasetTier: 'demo' }, 's-bank-e2e', dir)

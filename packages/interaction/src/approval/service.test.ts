@@ -320,7 +320,7 @@ describe('归一化与默认拒绝', () => {
     })
   })
 
-  it('应答者 attach 同步抛错：unavailable approval-responder-error', async () => {
+  it('应答者 attach 同步抛错：unavailable approval-responder-error（保留原始原因）', async () => {
     const service = new ApprovalService({ sessionId, now: clock().now })
     service.attach({
       id: 'broken',
@@ -331,7 +331,7 @@ describe('归一化与默认拒绝', () => {
     const result = await service.handle(request(), async (value) => value)
     expect(result.decision).toEqual({
       decision: 'unavailable',
-      reason: 'approval-responder-error',
+      reason: expect.stringMatching(/^approval-responder-error: .*渠道不可达/),
     })
   })
 
@@ -344,7 +344,7 @@ describe('归一化与默认拒绝', () => {
       },
     })
     const result = await service.handle(request(), async (value) => value)
-    expect(result.decision.reason).toBe('approval-responder-error')
+    expect(result.decision.reason).toMatch(/^approval-responder-error: .*渠道不可达/)
   })
 
   it('下游已裁决（allowed-once）时不再仲裁，原样返回', async () => {
@@ -512,5 +512,35 @@ describe('注册与销毁', () => {
     const result = await pending
     expect(result.decision).toEqual({ decision: 'cancelled', reason: 'approval-cancelled' })
     expect(settled).toEqual(['dispose:cancelled'])
+  })
+
+  it('dispose 之后到达的请求立即取消，不进入仲裁', async () => {
+    const settled: string[] = []
+    const service = new ApprovalService({
+      sessionId,
+      now: clock().now,
+      onSettled: (item) => settled.push(`${item.by}:${item.decision}`),
+    })
+    service.dispose()
+
+    const result = await service.handle(request(), async (value) => value)
+    expect(result.decision).toEqual({ decision: 'cancelled', reason: 'approval-cancelled' })
+    expect(settled).toEqual(['dispose:cancelled'])
+  })
+
+  it('dispose 发生在 await next 期间：返回后立即取消，不留下孤儿 pending', async () => {
+    const service = new ApprovalService({ sessionId, now: clock().now })
+    let release: (() => void) | undefined
+    const pending = service.handle(request(), (value) =>
+      new Promise((resolve) => {
+        release = () => resolve(value)
+      }),
+    )
+    await Promise.resolve()
+    service.dispose()
+    release?.()
+    const result = await pending
+    expect(result.decision).toEqual({ decision: 'cancelled', reason: 'approval-cancelled' })
+    expect(service.pendingCount).toBe(0)
   })
 })

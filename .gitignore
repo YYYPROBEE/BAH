@@ -8,6 +8,8 @@ sessions/
 coverage/
 coverage-*/
 .tmp-rag/
+.tmp-*/
+*.check.txt
 *.db
 *.db-journal
 *.sqlite

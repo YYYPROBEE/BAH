@@ -2,12 +2,13 @@
  * 上下文压缩单测（施工单 05 §5；T-CMP-001 / 003）。
  */
 
-import { asSessionId, withTestContext } from '@bah/test-support'
+import { asSessionId, captureThrown, withTestContext } from '@bah/test-support'
 import { describe, expect, it } from 'vitest'
 
 import type { TicketId } from '@bah/core'
 
 import { SESSION_SERVICE, provideSession, type SessionApi } from '../session/service.ts'
+import type { AnySessionEvent } from '../session/types.ts'
 import { buildModelHistory } from '../system-prompt/reconcile.ts'
 import {
   collapseEvents,
@@ -121,10 +122,12 @@ describe('resolveCompactionConfig（阈值配置化，无硬编码）', () => {
 })
 
 describe('度量（阈值判定用）', () => {
-  it('token 估算按 4 字符/token 向上取整；图片块不计', () => {
+  it('token 估算按分类计数：CJK 1 token/字，ASCII 4 字符/token；图片块不计', () => {
     expect(estimateTokens('')).toBe(0)
     expect(estimateTokens('abcd')).toBe(1)
     expect(estimateTokens('abcde')).toBe(2)
+    expect(estimateTokens('你好世界')).toBe(4)
+    expect(estimateTokens('你好ab')).toBe(3)
     expect(
       estimateEventTokens({
         seq: 1,
@@ -146,6 +149,18 @@ describe('度量（阈值判定用）', () => {
     expect(
       estimateEventTokens({ seq: 1, at: 0, formatVersion: 1, type: 'turn/start', data: { turn: 1 } }),
     ).toBe(0)
+    // 未知事件必须表态：静默按 0 会让压缩水位系统性低估
+    expect(
+      captureThrown(() =>
+        estimateEventTokens({
+          seq: 9,
+          at: 0,
+          formatVersion: 1,
+          type: 'future/event',
+          data: {},
+        } as unknown as AnySessionEvent),
+      ).code,
+    ).toBe('compaction-unestimated-event')
   })
 
   it('shouldCompact：完整 turn 数不够时不压缩；token 未达水位且 turn 未超阈值时不压缩', async () => {

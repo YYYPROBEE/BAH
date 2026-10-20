@@ -7,6 +7,7 @@
  */
 
 import type { PayeeBinding, BankLimits } from '../core/model.ts'
+import { CN_TZ_OFFSET_MS } from '../core/model.ts'
 import type { RiskFinding } from '../core/provider.ts'
 
 /** 一次转账预检的输入（全部是权威口径：余额与日累计来自账本）。 */
@@ -20,15 +21,17 @@ export interface TransferRiskInput {
   readonly payeeBinding: PayeeBinding
   /** 短时窗口内已成功的转出笔数（不含本笔）。 */
   readonly recentOutCount: number
+  /** 2 分钟内同收款人同金额的成功转出（疑似重复提交；只告警不阻断）。 */
+  readonly duplicateRecent?: boolean
   /** 发生时刻（epoch ms）。 */
   readonly at: number
   readonly limits: BankLimits
 }
 
 /**
- * 五条预检规则（顺序固定，便于审计对表）。
+ * 预检规则（顺序固定，便于审计对表）。
  *
- * 级别约定：余额不足 / 超日限额 = `block`；收款人异常 / 夜间大额 / 短时高频 = `warn`
+ * 级别约定：余额不足 / 超日限额 = `block`；收款人异常 / 夜间大额 / 短时高频 / 疑似重复 = `warn`
  * （升级为 deny 的权力在治理平面，核心不替它做决定）。
  */
 export function checkTransferRisks(input: TransferRiskInput): RiskFinding[] {
@@ -48,9 +51,10 @@ export function checkTransferRisks(input: TransferRiskInput): RiskFinding[] {
   if (input.dailyUsedCents + input.amountCents > input.dailyLimitCents) {
     findings.push({
       rule: 'daily-limit',
-      severity: 'block',
+      // 与执行侧同语义：日限额不放行"静默通过"，而是强制升红走人工审批（治理平面决定 ask/deny）
+      severity: 'warn',
       code: 'daily-limit-exceeded',
-      message: `超出当日转账额度：已用 ${input.dailyUsedCents} 分，剩余 ${remainingCents} 分`,
+      message: `超出当日转账额度：已用 ${input.dailyUsedCents} 分，剩余 ${remainingCents} 分（需人工审批）`,
       detail: {
         dailyUsedCents: input.dailyUsedCents,
         dailyLimitCents: input.dailyLimitCents,
@@ -65,6 +69,15 @@ export function checkTransferRisks(input: TransferRiskInput): RiskFinding[] {
       severity: 'warn',
       code: 'payee-new',
       message: '新收款人：首次向该收款人转账，需人工确认',
+    })
+  }
+
+  if (input.duplicateRecent === true) {
+    findings.push({
+      rule: 'duplicate',
+      severity: 'warn',
+      code: 'duplicate-transfer',
+      message: '疑似重复转账：2 分钟内向同一收款人转过相同金额，请确认不是重复提交',
     })
   }
 
@@ -113,5 +126,5 @@ export function isNight(at: number, limits: BankLimits): boolean {
  * 上判决不同，快照回放也会飘。演示场景固定中国时区，这里直接按 UTC+8 算。
  */
 function chinaHour(at: number): number {
-  return new Date(at + 8 * 60 * 60 * 1000).getUTCHours()
+  return new Date(at + CN_TZ_OFFSET_MS).getUTCHours()
 }

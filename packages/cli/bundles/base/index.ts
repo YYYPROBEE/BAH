@@ -30,6 +30,8 @@ export const bundle: Bundle = {
     // 安全防护层（施工单 10）：也在 bank:tools 之后（要 bank:ticket-guard 做熔断吊销）；
     // 只做四接缝接线 + 幻觉防护，判决阈值全部走 safety:sentry 配置
     { id: 'safety:sentry' },
+    // 沙箱执行（施工单 11）：给 analysis_calc 提供 `bank:compute` seam（worker + 硬杀）
+    { id: 'safety:sandbox' },
     // Saga 补偿与审计层（SA-07）：存储底座 → 协调器（提供时钟）→ 审计链（等时钟就绪）
     { id: 'bank:saga-store', config: { dbPath: 'sessions/saga.sqlite' } },
     { id: 'bank:saga' },

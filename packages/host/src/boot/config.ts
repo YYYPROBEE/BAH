@@ -8,10 +8,23 @@
  * 纪律：所有错误都是结构化 `BahError` + `bah-boot: ` 前缀，绝不静默回退（施工单 00 §9）。
  */
 
-import { BahError } from '@bah/util'
+import {
+  BahError,
+  readConfigBoolean,
+  readConfigEnum,
+  readConfigPositiveInteger,
+  rejectUnknownConfigKeys,
+} from '@bah/util'
 
 /** boot 错误统一前缀（施工单 06 §4）。 */
 export const BOOT_PREFIX = 'bah-boot: '
+
+const invalidConfig = (message: string, detail: Readonly<Record<string, unknown>>): never => {
+  throw bootError('invalid-config', message, detail)
+}
+const unknownConfig = (message: string, detail: Readonly<Record<string, unknown>>): never => {
+  throw bootError('unknown-config-key', message, detail)
+}
 
 /**
  * 构造 boot 错误。
@@ -46,13 +59,7 @@ export function rejectUnknownKeys(
   allowed: readonly string[],
   where: string,
 ): void {
-  const unknown = Object.keys(record).filter((key) => !allowed.includes(key))
-  if (unknown.length === 0) return
-  throw bootError(
-    'unknown-config-key',
-    `${where} 出现未知配置键：${unknown.join(', ')}（可写：${allowed.join(' / ')}${allowed.length === 0 ? '无' : ''}）`,
-    { where, unknown },
-  )
+  rejectUnknownConfigKeys(record, allowed, where, unknownConfig)
 }
 
 /**
@@ -129,15 +136,7 @@ export function readBoolean(
   where: string,
   fallback: boolean,
 ): boolean {
-  const value = record[key]
-  if (value === undefined) return fallback
-  if (typeof value !== 'boolean') {
-    throw bootError('invalid-config', `${where}.${key} 必须是布尔（收到 ${describeValue(value)}）`, {
-      where,
-      key,
-    })
-  }
-  return value
+  return readConfigBoolean(record, key, where, fallback, invalidConfig)
 }
 
 /**
@@ -150,15 +149,7 @@ export function readPositiveInteger(
   key: string,
   where: string,
 ): number | undefined {
-  const value = record[key]
-  if (value === undefined) return undefined
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
-    throw bootError('invalid-config', `${where}.${key} 必须是正整数（收到 ${describeValue(value)}）`, {
-      where,
-      key,
-    })
-  }
-  return value
+  return readConfigPositiveInteger(record, key, where, undefined, invalidConfig)
 }
 
 /**
@@ -197,16 +188,7 @@ export function readEnum<T extends string>(
   where: string,
   allowed: readonly T[],
 ): T | undefined {
-  const value = record[key]
-  if (value === undefined) return undefined
-  if (typeof value !== 'string' || !(allowed as readonly string[]).includes(value)) {
-    throw bootError(
-      'invalid-config',
-      `${where}.${key} 只能是 ${allowed.join(' / ')}（收到 ${describeValue(value)}）`,
-      { where, key },
-    )
-  }
-  return value as T
+  return readConfigEnum(record, key, where, allowed, undefined, invalidConfig)
 }
 
 /**

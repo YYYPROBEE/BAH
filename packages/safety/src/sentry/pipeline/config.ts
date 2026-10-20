@@ -11,7 +11,13 @@
  * 所以校验原语在这里自成一套（行为一致：按键拒绝 + 类型化 `BahError`）。
  */
 
-import { BahError } from '@bah/util'
+import {
+  BahError,
+  readConfigBoolean,
+  readConfigEnum,
+  readConfigPositiveInteger,
+  rejectUnknownConfigKeys,
+} from '@bah/util'
 
 import type { ExtraRule } from '../kernel/index.ts'
 
@@ -306,19 +312,20 @@ function sentryConfigError(code: string, message: string, detail?: unknown): Bah
   return new BahError(code, `bah-sentry: ${message}`, detail)
 }
 
+const invalidSentry = (message: string, detail: Readonly<Record<string, unknown>>): never => {
+  throw sentryConfigError('sentry-invalid-config', message, detail)
+}
+const unknownSentry = (message: string, detail: Readonly<Record<string, unknown>>): never => {
+  throw sentryConfigError('sentry-unknown-config-key', message, detail)
+}
+
 /** 拒绝未声明的键。 */
 function rejectUnknown(
   record: Readonly<Record<string, unknown>>,
   allowed: readonly string[],
   where: string,
 ): void {
-  const unknown = Object.keys(record).filter((key) => !allowed.includes(key))
-  if (unknown.length === 0) return
-  throw sentryConfigError(
-    'sentry-unknown-config-key',
-    `${where} 出现未知配置键：${unknown.join(', ')}（可写：${allowed.join(' / ')}）`,
-    { where, unknown },
-  )
+  rejectUnknownConfigKeys(record, allowed, where, unknownSentry)
 }
 
 /** 取一个子配置段（未写 = 空对象；非对象即抛）。 */
@@ -367,16 +374,7 @@ function readBoolean(
   where: string,
   fallback: boolean,
 ): boolean {
-  const value = record[key]
-  if (value === undefined) return fallback
-  if (typeof value !== 'boolean') {
-    throw sentryConfigError(
-      'sentry-invalid-config',
-      `${where}.${key} 必须是布尔（收到 ${describe(value)}）`,
-      { where, key },
-    )
-  }
-  return value
+  return readConfigBoolean(record, key, where, fallback, invalidSentry)
 }
 
 /** 读正整数（未写取默认值）。 */
@@ -386,16 +384,7 @@ function readPositiveInteger(
   where: string,
   fallback: number,
 ): number {
-  const value = record[key]
-  if (value === undefined) return fallback
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
-    throw sentryConfigError(
-      'sentry-invalid-config',
-      `${where}.${key} 必须是正整数（收到 ${describe(value)}）`,
-      { where, key },
-    )
-  }
-  return value
+  return readConfigPositiveInteger(record, key, where, fallback, invalidSentry) ?? fallback
 }
 
 /** 读字符串数组（未写返回 `undefined`；空串成员即抛）。 */
@@ -424,16 +413,7 @@ function readEnum<T extends string>(
   allowed: readonly T[],
   fallback: T,
 ): T {
-  const value = record[key]
-  if (value === undefined) return fallback
-  if (typeof value !== 'string' || !(allowed as readonly string[]).includes(value)) {
-    throw sentryConfigError(
-      'sentry-invalid-config',
-      `${where}.${key} 只能是 ${allowed.join(' / ')}（收到 ${describe(value)}）`,
-      { where, key },
-    )
-  }
-  return value as T
+  return readConfigEnum(record, key, where, allowed, fallback, invalidSentry) ?? fallback
 }
 
 /** 读追加规则（逐条校验并按字符串编译正则，失败即抛）。 */

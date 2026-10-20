@@ -188,3 +188,19 @@ describe('阻断', () => {
     expect(ledger.block('ticket:c1', 'tool-failed', 12).status).toBe('blocked')
   })
 })
+
+describe('票据账本软上限', () => {
+  it('超过上限时清理终态票据，并同步移除 call 索引', () => {
+    const ledger = new TicketLedger()
+    for (let index = 0; index < 2048; index += 1) {
+      const ticketId = `t-${index}`
+      ledger.issue(issue({ ticketId, callId: `c-${index}` }))
+      ledger.block(ticketId, 'done', 11)
+    }
+    ledger.issue(issue({ ticketId: 't-active', callId: 'c-active', expiresAt: 100_000 }))
+
+    expect(ledger.size).toBeLessThan(2048)
+    expect(ledger.forCall('c-0')).toBeUndefined()
+    expect(ledger.forCall('c-active')?.ticketId).toBe('t-active')
+  })
+})

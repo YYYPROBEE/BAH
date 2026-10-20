@@ -18,7 +18,6 @@ import { BANK_IDENTITY } from '@bah/bank'
 import { KNOWLEDGE_SERVICE, createFixtureKnowledgePort, createHttpKnowledgePort, createKnowledgeTools } from '@bah/knowledge'
 import type { FixtureKnowledgeOptions, KnowledgePort } from '@bah/knowledge'
 import { SESSION_SERVICE, TOOLS_SERVICE } from '@bah/runtime'
-import type { SessionApi } from '@bah/runtime'
 import { BahError } from '@bah/util'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
@@ -223,7 +222,7 @@ export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
           }
         },
         onAnswered: ({ response }) => {
-          appendIgnorable(session, 'knowledge/answered', {
+          session.appendDomain('knowledge/answered', {
             traceId: response.traceId,
             kind: response.kind,
             verdict: response.verdict,
@@ -231,10 +230,10 @@ export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
             citationCount: response.citations.length,
             answerChars: response.answer.length,
             at: run.now(),
-          })
+          }, { ignorable: true })
         },
         onQueried: ({ response }) => {
-          appendIgnorable(session, 'knowledge/queried', {
+          session.appendDomain('knowledge/queried', {
             traceId: response.traceId,
             kind: response.kind,
             visibleCount: response.visibleCount,
@@ -242,7 +241,7 @@ export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
             reasonCode: response.reasonCode ?? null,
             citationCount: response.evidence.length,
             at: run.now(),
-          })
+          }, { ignorable: true })
         },
       })
 
@@ -252,14 +251,4 @@ export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
   },
 
   validate: parseKnowledgeSettings,
-}
-
-/** 领域事件落账：`SessionApi.append` 的公开键是平台族，领域事件用同一增强机制追加。 */
-function appendIgnorable(session: SessionApi, type: string, data: unknown): void {
-  const append = session.append as unknown as (
-    type: string,
-    data: unknown,
-    options: { ignorable: boolean },
-  ) => unknown
-  append(type, data, { ignorable: true })
 }

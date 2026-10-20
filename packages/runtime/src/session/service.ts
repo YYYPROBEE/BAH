@@ -19,13 +19,20 @@ import type {
   SessionEventType,
 } from './types.ts'
 
-/** 落账面：七段管线只需要 `append`。 */
+/** 落账面：七段管线只需要 `append` / `appendDomain`。 */
 export interface SessionSink {
   append<S extends SessionEventType>(
     type: S,
     data: SessionEventMap[S],
     options?: AppendOptions,
   ): SessionEvent<S>
+  /**
+   * 领域事件通道（`ticket/*`、`sentry/*`、`identity/bound` 等）。
+   *
+   * 平台事件表之外的事件族走这里：`data` 不受编译期形状校验，但落账统一补
+   * `ignorable: true`，旧 reader 跳过而不是把领域事件当成日志空洞。
+   */
+  appendDomain(type: string, data: unknown, options?: { readonly ignorable?: true }): AnySessionEvent
 }
 
 /** 会话服务（`runtime:session`）。 */
@@ -36,6 +43,8 @@ export interface SessionApi extends SessionSink {
   readonly formatVersion: number
   /** 全量只读事件视图。 */
   events(): readonly AnySessionEvent[]
+  /** 全量只读视图（内部热路径，不拷贝；调用方必须只读）。 */
+  eventsView(): readonly AnySessionEvent[]
   /** 最后一条事件的 `seq`。 */
   lastSeq(): number
   /** 从日志派生模型历史（施工单 03 §1.4）。 */
@@ -78,9 +87,16 @@ export function provideSession(ctx: Context, options: ProvideSessionOptions): Di
       return event
     },
 
+    appendDomain(type, data, appendOptions) {
+      const event = store.appendDomain(type, data, appendOptions)
+      ctx.events.emit('session/event', { session: options.sessionId, event })
+      return event
+    },
+
     events: () => store.events(),
+    eventsView: () => store.eventsView(),
     lastSeq: () => store.lastSeq(),
-    deriveMessages: (deriveOptions) => deriveMessages(store.events(), deriveOptions),
+    deriveMessages: (deriveOptions) => deriveMessages(store.eventsView(), deriveOptions),
   }
 
   return ctx.provide(SESSION_SERVICE, api)

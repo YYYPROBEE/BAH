@@ -54,6 +54,7 @@ import type {
   SessionPersistence,
   StatInfo,
 } from '../persistence/index.ts'
+import { redactSessionEvent, redactValue } from './redact.ts'
 
 /** 本 reader 支持的逻辑格式版本。升级时必须同步 `SESSION_FORMAT_VERSION`（runtime/session/types.ts）。 */
 export const JSONL_FORMAT_VERSION = 1
@@ -61,13 +62,17 @@ export const JSONL_FORMAT_VERSION = 1
 /** 规范文件名：`session.jsonl` / `session.vN.jsonl`。 */
 const FILE_PATTERN = /^session(?:\.v(\d+))?\.jsonl$/
 
-/** `stat` 只读文件开头的这么多字节（header 一定在首行内）。 */
+/** `stat` 只读首行的分块大小（header 可能超过 4 KiB：按行读到 `\n` 为止）。 */
 const HEADER_SCAN_BYTES = 4096
+/** header 行的硬上限（防止损坏文件把整个会话读进内存）。 */
+const HEADER_MAX_BYTES = 1024 * 1024
 
 /** JSONL 后端选项。 */
 export interface JsonlOptions {
   /** 每次 append 后是否 `fsync`（默认 true；测试可关掉换速度）。 */
   readonly fsync?: boolean
+  /** 落盘前是否做 PII 掩码（默认 true；原文只留在进程内，不落日志）。 */
+  readonly redact?: boolean
   /** 告警出口（默认 `console.warn`；测试注入收集器）。 */
   readonly warn?: (message: string) => void
 }
@@ -82,10 +87,12 @@ interface LoadedSession {
 
 export class JsonlPersistence implements SessionPersistence {
   private readonly fsync: boolean
+  private readonly redact: boolean
   private readonly warn: (message: string) => void
 
   constructor(options: JsonlOptions = {}) {
     this.fsync = options.fsync ?? true
+    this.redact = options.redact ?? true
     this.warn = options.warn ?? ((message) => console.warn(message))
   }
 
@@ -99,13 +106,19 @@ export class JsonlPersistence implements SessionPersistence {
     mkdirSync(dir, { recursive: true })
     const path = join(dir, 'session.jsonl')
     if (existsSync(path)) {
-      throw new BahError('session-exists', `jsonl: 会话已存在，拒绝覆写：${path}`, { path })
+      throw new BahError('session-exists', 'jsonl: 会话已存在，拒绝覆写', { path })
     }
     const header: SessionHeader = {
       sessionId,
       formatVersion: JSONL_FORMAT_VERSION,
       createdAt: options.now ?? Date.now(),
-      ...(options.meta === undefined ? {} : { meta: options.meta }),
+      ...(options.meta === undefined
+        ? {}
+        : {
+            meta: (this.redact ? redactValue(options.meta) : options.meta) as Readonly<
+              Record<string, unknown>
+            >,
+          }),
     }
     writeFileSync(path, `${encodeSessionHeaderLine(header)}\n`, 'utf8')
     if (this.fsync) fsyncFile(path)
@@ -149,9 +162,19 @@ export class JsonlPersistence implements SessionPersistence {
     for (const entry of readdirSync(root, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue
       const dir = join(root, entry.name)
-      // 只有含规范分代文件的目录才算会话目录
-      if (!existsSync(join(dir, 'session.jsonl')) && !hasVersionedFile(dir)) continue
-      found.push({ ...this.stat(dir), dir })
+      // 一次 readdir 同时完成"是不是会话目录"与"选最高代"
+      const generation = highestGeneration(readdirSync(dir))
+      if (generation === undefined) continue
+      const path = generationPath(dir, generation)
+      const header = this.readHeader(path)
+      found.push({
+        sessionId: header.sessionId,
+        formatVersion: header.formatVersion,
+        generation,
+        bytes: statSync(path).size,
+        path,
+        dir,
+      })
     }
     return found.sort((left, right) => (left.dir < right.dir ? -1 : left.dir > right.dir ? 1 : 0))
   }
@@ -176,6 +199,7 @@ export class JsonlPersistence implements SessionPersistence {
       events,
       writable,
       fsync: this.fsync,
+      redact: this.redact,
     })
   }
 
@@ -194,20 +218,35 @@ export class JsonlPersistence implements SessionPersistence {
     return { header, events, generation, path }
   }
 
-  /** 只扫首行取 header（不解码 body）。 */
+  /** 按块读到首个换行取 header（不解码 body；超长视为损坏）。 */
   private readHeader(path: string): SessionHeader {
-    const buffer = Buffer.alloc(HEADER_SCAN_BYTES)
     const fd = openSync(path, 'r')
-    let read = 0
+    const chunks: Buffer[] = []
+    let total = 0
+    let newline = -1
     try {
-      read = readSync(fd, buffer, 0, HEADER_SCAN_BYTES, 0)
+      while (newline < 0) {
+        const buffer = Buffer.alloc(HEADER_SCAN_BYTES)
+        const read = readSync(fd, buffer, 0, HEADER_SCAN_BYTES, total)
+        if (read === 0) break
+        total += read
+        chunks.push(buffer.subarray(0, read))
+        newline = buffer.subarray(0, read).indexOf(0x0a)
+        if (newline >= 0) newline += total - read
+        if (total > HEADER_MAX_BYTES) {
+          throw new BahError('session-header-invalid', `jsonl: header 超过上限：${path}`, {
+            path,
+            limit: HEADER_MAX_BYTES,
+          })
+        }
+      }
     } finally {
       closeSync(fd)
     }
-    const firstLine = buffer.subarray(0, read).toString('utf8').split('\n')[0] ?? ''
+    const firstLine = Buffer.concat(chunks).toString('utf8').split('\n')[0] ?? ''
     const header = parseSessionHeaderLine(firstLine)
     if (header === undefined) {
-      throw new BahError('session-header-invalid', `jsonl: 首行不是合法 header：${path}`, { path })
+      throw new BahError('session-header-invalid', 'jsonl: 首行不是合法 header', { path })
     }
     const meta = header['meta']
     return {
@@ -249,22 +288,23 @@ function generationPath(dir: string, generation: number): string {
 
 /** 在目录里选数值最高的规范代。 */
 function resolveGeneration(dir: string): { path: string; generation: number } {
+  const generation = highestGeneration(readdirSync(dir))
+  if (generation === undefined) {
+    throw new BahError('session-missing', `jsonl: 目录里没有规范分代文件：${dir}`, { dir })
+  }
+  return { path: generationPath(dir, generation), generation }
+}
+
+/** 从文件名列表选最高规范代；没有返回 `undefined`。 */
+function highestGeneration(names: readonly string[]): number | undefined {
   let best = -1
-  for (const name of readdirSync(dir)) {
+  for (const name of names) {
     const matched = FILE_PATTERN.exec(name)
     if (!matched) continue
     const generation = matched[1] === undefined ? 0 : Number(matched[1])
     if (generation > best) best = generation
   }
-  if (best < 0) {
-    throw new BahError('session-missing', `jsonl: 目录里没有规范分代文件：${dir}`, { dir })
-  }
-  return { path: generationPath(dir, best), generation: best }
-}
-
-/** 目录里是否有任意分代文件（`list` 判会话目录用）。 */
-function hasVersionedFile(dir: string): boolean {
-  return readdirSync(dir).some((name) => FILE_PATTERN.test(name))
+  return best < 0 ? undefined : best
 }
 
 /** 对一个路径做 fsync（不存在则静默：只读句柄没必要 fsync）。 */
@@ -288,6 +328,7 @@ class JsonlHandle implements SessionHandle {
 
   private readonly log: SessionEvent[]
   private readonly fsyncEnabled: boolean
+  private readonly redactEnabled: boolean
   /** 懒打开的追加 fd：进程内一个会话只开一次。 */
   private fd: number | undefined
 
@@ -298,6 +339,7 @@ class JsonlHandle implements SessionHandle {
     readonly events: readonly SessionEvent[]
     readonly writable: boolean
     readonly fsync: boolean
+    readonly redact: boolean
   }) {
     this.header = options.header
     this.path = options.path
@@ -305,6 +347,7 @@ class JsonlHandle implements SessionHandle {
     this.writable = options.writable
     this.log = [...options.events]
     this.fsyncEnabled = options.fsync
+    this.redactEnabled = options.redact
   }
 
   events(): readonly SessionEvent[] {
@@ -317,10 +360,12 @@ class JsonlHandle implements SessionHandle {
         path: this.path,
       })
     }
+    // 落盘副本脱敏；进程内的原始事件不被改写（live 会话仍可继续用原文）
+    const stored = this.redactEnabled ? redactSessionEvent(event) : event
     const fd = this.ensureFd()
-    writeSync(fd, `${encodeJsonLine(event)}\n`)
+    writeSync(fd, `${encodeJsonLine(stored)}\n`)
     if (this.fsyncEnabled) fsyncSync(fd)
-    this.log.push(event)
+    this.log.push(stored)
   }
 
   flush(): Promise<void> {

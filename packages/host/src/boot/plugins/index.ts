@@ -19,6 +19,7 @@ import { promptPlugin } from './prompt.ts'
 import { sagaPlugin } from './saga.ts'
 import { sagaAuditPlugin } from './saga-audit.ts'
 import { sagaStorePlugin } from './saga-store.ts'
+import { sandboxPlugin } from './sandbox.ts'
 import { sentryPlugin } from './sentry.ts'
 import { sessionPlugin } from './session.ts'
 import { toolsPlugin } from './tools.ts'
@@ -36,6 +37,7 @@ export const HOST_PLUGINS: readonly HostPlugin<any>[] = [
   knowledgePlugin,
   approvalPlugin,
   sentryPlugin,
+  sandboxPlugin,
   sagaStorePlugin,
   sagaPlugin,
   sagaAuditPlugin,
@@ -53,6 +55,7 @@ export {
   sagaPlugin,
   sagaAuditPlugin,
   sagaStorePlugin,
+  sandboxPlugin,
   sentryPlugin,
   sessionPlugin,
   toolsPlugin,
