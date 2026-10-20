@@ -99,10 +99,16 @@ export class ToolCallDispatcher {
     return this.pipeline.execute(toolCallInputOf(call))
   }
 
-  /** 并行批次准入：参数可解析且工具为 green（只读）。 */
+  /**
+   * 并行批次准入：参数可解析、绿级只读/无副作用、且本 turn 没有被判 deny。
+   *
+   * 绿级工具按治理矩阵不会触发 ask，因此“待审批”不会出现在并行批次里；
+   * 一旦同指纹已被 deny，必须回到串行路径复用原判决（不能借并发绕开 guard）。
+   */
   canRunConcurrently(call: AssembledToolCall): boolean {
     if (call.parseError !== undefined || call.args === undefined) return false
-    return this.pipeline.isReadOnly(call.name)
+    const input = toolCallInputOf(call)
+    return this.pipeline.isReadOnly(call.name) && !this.pipeline.isDenied(input)
   }
 
   /** 按模型给出的顺序串行执行（工具之间可能有依赖，并发属插件线的显式选择）。 */

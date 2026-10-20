@@ -5,7 +5,7 @@
  * `user/message` 落账序列、工具体是否真的执行、卡片产物。不碰私有字段。
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { asSessionId, captureRejection, createTestContext, fixedClock, type TestContext } from '@bah/test-support'
 
@@ -522,12 +522,259 @@ describe('取消短路', () => {
   })
 })
 
+describe('B3 回调边界与结果落账顺序', () => {
+  it('presenter / projector / finalizer 抛错 → 工具结果仍成功，逐项落 callback-failed', async () => {
+    await withHarness(async (h) => {
+      h.registry.register(
+        tool({
+          name: 'bank:probe',
+          projectContent: () => {
+            throw new Error('project boom')
+          },
+          finalizeContent: () => {
+            throw new Error('finalize boom')
+          },
+          presentCall: () => {
+            throw new Error('call boom')
+          },
+          presentResult: () => {
+            throw new Error('result boom')
+          },
+        }),
+      )
+
+      const execution = await h.pipeline.execute(CALL)
+
+      expect(execution.result.isError).toBe(false)
+      expect(execution.callCard).toBeUndefined()
+      expect(execution.resultCard).toBeUndefined()
+      const failed = h.log().filter((event) => event.type === 'tool/callback-failed')
+      expect(failed.map((event) => event.data.stage)).toEqual([
+        'present-call',
+        'project-content',
+        'finalize-content',
+        'present-result',
+      ])
+      expect(h.log().filter((event) => event.type === 'tool/result')).toHaveLength(1)
+    })
+  })
+
+  it('tools/post-execute 监听器抛错 → 按 accept 继续，结果落账并审计', async () => {
+    await withHarness(async (h) => {
+      h.test.ctx.events.on('tools/post-execute', () => {
+        throw new Error('post boom')
+      })
+      h.registry.register(
+        tool({
+          name: 'bank:probe',
+          projectContent: () => [{ type: 'text', text: '原始内容' }],
+        }),
+      )
+
+      const execution = await h.pipeline.execute(CALL)
+
+      expect(execution.result.isError).toBe(false)
+      expect(execution.result.content).toEqual([{ type: 'text', text: '原始内容' }])
+      expect(
+        h
+          .log()
+          .some(
+            (event) =>
+              event.type === 'tool/callback-failed' && event.data.stage === 'post-execute',
+          ),
+      ).toBe(true)
+    })
+  })
+
+  it('tools/result 监听器抛错 → 后续监听器仍执行；tool/result 先落账再广播', async () => {
+    await withHarness(async (h) => {
+      const seen: string[] = []
+      let persistedWhenBroadcast = false
+      h.test.ctx.events.on('tools/result', (result) => {
+        seen.push(`first:${result.callId}`)
+        persistedWhenBroadcast = h
+          .log()
+          .some((event) => event.type === 'tool/result' && event.data.callId === result.callId)
+        throw new Error('listener boom')
+      })
+      h.test.ctx.events.on('tools/result', (result) => {
+        seen.push(`second:${result.callId}`)
+      })
+      h.registry.register(tool({ name: 'bank:probe', projectContent: () => [{ type: 'text', text: 'ok' }] }))
+
+      const execution = await h.pipeline.execute(CALL)
+
+      expect(execution.result.isError).toBe(false)
+      expect(seen).toEqual(['first:c1', 'second:c1'])
+      expect(persistedWhenBroadcast).toBe(true)
+      expect(h.log().filter((event) => event.type === 'tool/result')).toHaveLength(1)
+      expect(
+        h
+          .log()
+          .some(
+            (event) =>
+              event.type === 'tool/callback-failed' && event.data.stage === 'emit-result',
+          ),
+      ).toBe(true)
+    })
+  })
+
+  it('deny 路径同样先落账后广播，且广播失败不影响后续监听器', async () => {
+    await withHarness(async (h) => {
+      h.registry.register(tool({ name: 'bank:probe' }))
+      h.test.ctx.events.on('tools/pre-execute', (input) => ({
+        ...input,
+        verdict: { kind: 'deny', reason: '拒绝', code: 'denied' },
+      }))
+      let second = 0
+      h.test.ctx.events.on('tools/result', () => {
+        throw new Error('listener boom')
+      })
+      h.test.ctx.events.on('tools/result', () => {
+        second += 1
+      })
+
+      const execution = await h.pipeline.execute(CALL)
+
+      expect(execution.result.isError).toBe(true)
+      expect(execution.result.code).toBe('denied')
+      expect(second).toBe(1)
+      expect(h.log().filter((event) => event.type === 'tool/result')).toHaveLength(1)
+    })
+  })
+
+  it('未知工具：落 tool/result 并广播，不进入执行段', async () => {
+    await withHarness(async (h) => {
+      let broadcast = 0
+      h.test.ctx.events.on('tools/result', () => {
+        broadcast += 1
+      })
+
+      const execution = await h.pipeline.execute({ callId: 'c-missing', name: 'missing', args: {} })
+
+      expect(execution.result.isError).toBe(true)
+      expect(execution.result.code).toBe('tool-missing')
+      expect(broadcast).toBe(1)
+      expect(h.log().filter((event) => event.type === 'tool/result')).toHaveLength(1)
+    })
+  })
+
+  it('结果循环引用 → 渲染回退固定文本，工具结果仍是成功', async () => {
+    await withHarness(async (h) => {
+      const circular: Record<string, unknown> = {}
+      circular['self'] = circular
+      h.registry.register(
+        tool({
+          name: 'bank:probe',
+          execute: async () => circular,
+        }),
+      )
+
+      const execution = await h.pipeline.execute(CALL)
+
+      expect(execution.result.isError).toBe(false)
+      expect(execution.result.content[0]?.type).toBe('text')
+      expect(
+        h
+          .log()
+          .some(
+            (event) =>
+              event.type === 'tool/callback-failed' && event.data.stage === 'project-content',
+          ),
+      ).toBe(true)
+    })
+  })
+
+  it('审计通道自身失败 → 回调失败仍不反噬主流程（console.error 留痕）', async () => {
+    await withHarness(async (h) => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      h.test.ctx.events.on('session/event', ({ event }) => {
+        if (event.type === 'tool/callback-failed') throw new Error('audit down')
+      })
+      h.registry.register(
+        tool({
+          name: 'bank:probe',
+          projectContent: () => {
+            throw new Error('project boom')
+          },
+        }),
+      )
+
+      const execution = await h.pipeline.execute(CALL)
+
+      expect(execution.result.isError).toBe(false)
+      expect(spy).toHaveBeenCalled()
+      spy.mockRestore()
+    })
+  })
+
+  it('自定义 emitResult 抛错 → 权威结果已落账并审计 emit-result', async () => {
+    await withHarness(async (h) => {
+      const pipeline = new ToolPipeline({
+        ctx: h.test.ctx,
+        registry: h.registry,
+        session: h.session,
+        guard: h.guard,
+        sessionId: h.session.sessionId,
+        now: () => 1_000,
+        emitResult: () => {
+          throw new Error('emit boom')
+        },
+      })
+      h.registry.register(tool({ name: 'bank:probe' }))
+
+      const execution = await pipeline.execute(CALL)
+
+      expect(execution.result.isError).toBe(false)
+      expect(h.log().filter((event) => event.type === 'tool/result')).toHaveLength(1)
+      expect(
+        h
+          .log()
+          .some(
+            (event) =>
+              event.type === 'tool/callback-failed' && event.data.stage === 'emit-result',
+          ),
+      ).toBe(true)
+    })
+  })
+
+  it('未注入 now / signal / emitResult → 默认实现可用', async () => {
+    await withHarness(async (h) => {
+      const pipeline = new ToolPipeline({
+        ctx: h.test.ctx,
+        registry: h.registry,
+        session: h.session,
+        guard: h.guard,
+        sessionId: h.session.sessionId,
+      })
+      h.registry.register(tool({ name: 'bank:probe' }))
+      let broadcast = 0
+      h.test.ctx.events.on('tools/result', () => {
+        broadcast += 1
+      })
+
+      const execution = await pipeline.execute(CALL)
+
+      expect(execution.result.isError).toBe(false)
+      expect(execution.result.durationMs).toBeGreaterThanOrEqual(0)
+      expect(broadcast).toBe(1)
+    })
+  })
+})
+
 describe('isReadOnly', () => {
   it('未注册工具返回 false（并行批次准入不抛）', async () => {
     await withHarness(async (h) => {
       expect(h.pipeline.isReadOnly('missing')).toBe(false)
       h.registry.register(tool({ name: 'bank:probe' }))
-      expect(h.pipeline.isReadOnly('bank:probe')).toBe(true)
+      // 绿级但没有副作用声明 = 保守拒绝（不能只信 tier）
+      expect(h.pipeline.isReadOnly('bank:probe')).toBe(false)
+      h.registry.register(tool({ name: 'bank:probe-write', sideEffect: 'write' }))
+      expect(h.pipeline.isReadOnly('bank:probe-write')).toBe(false)
+      h.registry.register(tool({ name: 'bank:probe-read', sideEffect: 'read' }))
+      expect(h.pipeline.isReadOnly('bank:probe-read')).toBe(true)
+      h.registry.register(tool({ name: 'bank:probe-pure', sideEffect: 'none' }))
+      expect(h.pipeline.isReadOnly('bank:probe-pure')).toBe(true)
     })
   })
 })

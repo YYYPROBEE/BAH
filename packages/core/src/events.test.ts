@@ -242,3 +242,37 @@ describe('注册表与 @mode 契约', () => {
     expect(seen).toEqual(['passthrough'])
   })
 })
+
+describe('emitIsolated（B3：记账广播失败隔离）', () => {
+  it('前一个监听器抛错，后续监听器仍执行，异常交给 onError', async () => {
+    const events = new BahEvents()
+    const seen: string[] = []
+    const errors: unknown[] = []
+
+    events.on('tools/result', () => {
+      seen.push('first')
+      throw new Error('listener boom')
+    })
+    events.on('tools/result', () => {
+      seen.push('second')
+    })
+
+    events.emitIsolated('tools/result', {} as never, (error) => {
+      errors.push(error)
+    })
+
+    expect(seen).toEqual(['first', 'second'])
+    expect(errors).toHaveLength(1)
+    expect((errors[0] as Error).message).toBe('listener boom')
+  })
+
+  it('没有监听器 / 没有 onError 时也不抛（广播不反噬落账方）', () => {
+    const events = new BahEvents()
+    events.on('tools/result', () => {
+      throw new Error('listener boom')
+    })
+
+    expect(() => events.emitIsolated('tools/result', {} as never)).not.toThrow()
+    expect(() => events.emitIsolated('session/event', {} as never)).not.toThrow()
+  })
+})

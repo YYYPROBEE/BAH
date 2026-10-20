@@ -607,13 +607,41 @@ export class AgentLoop implements Agent {
         )
       }),
     )
+    const flushErrors: unknown[] = []
     for (const buffer of buffers) {
-      buffer.flush(this.session, (result) => this.ctx.events.emit('tools/result', result))
+      try {
+        buffer.flush(this.session, (result) => this.emitToolsResultIsolated(result))
+      } catch (error) {
+        // 一个缓冲写失败不能阻止后续缓冲 flush（失败内容已由 buffer 聚合）。
+        flushErrors.push(error)
+      }
     }
-    const failed = outcomes.find(
-      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
-    )
-    if (failed !== undefined) throw failed.reason
+    const rejected = outcomes
+      .filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
+      .map((outcome) => outcome.reason)
+    if (flushErrors.length > 0 || rejected.length > 0) {
+      throw new AggregateError(
+        [...flushErrors, ...rejected],
+        `agent: 并行批次失败（flush ${flushErrors.length} / 执行 ${rejected.length}）`,
+      )
+    }
+  }
+
+  /** 并行批次 flush 时的 `tools/result` 广播：逐个 listener 隔离，失败落审计。 */
+  private emitToolsResultIsolated(result: ToolResultData): void {
+    this.ctx.events.emitIsolated('tools/result', result, (error) => {
+      try {
+        this.session.append('tool/callback-failed', {
+          stage: 'emit-result',
+          callId: result.callId,
+          code: error instanceof BahError ? error.code : 'tool-failed',
+          reason: messageOf(error),
+          at: this.now(),
+        })
+      } catch (auditError) {
+        console.error('bah-agent: tools/result 广播失败且审计落账失败', auditError)
+      }
+    })
   }
 
   /** 解析并冻结调用（成功 = 请求已发出；失败统一转成 `assistant/attempt`）。 */

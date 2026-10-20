@@ -33,6 +33,7 @@ export function createEchoTool(prefix: string): ToolDefinition<{ text: string },
       required: ['text'],
     },
     tier: { level: 'green' },
+    sideEffect: 'none',
     execute: (args) => Promise.resolve({ text: `${prefix}${args.text}` }),
     projectContent: (result) => [{ type: 'text', text: result.text }],
   }

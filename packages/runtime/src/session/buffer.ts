@@ -30,13 +30,29 @@ export class SessionEventBuffer {
     this.ops.push({ kind: 'emit-result', result })
   }
 
-  /** 按记录顺序写入真实会话并广播结果。 */
+  /**
+   * 按记录顺序写入真实会话并广播结果。
+   *
+   * 失败隔离：单条 append / emit 抛错不阻断后续条目；全部尝试完后抛 `AggregateError`。
+   * 无论成功失败，本次缓冲都会被清空（try/finally），不会在重试时重复写。
+   */
   flush(sink: SessionSink, emitResult: (result: ToolResultData) => void): void {
-    for (const op of this.ops) {
-      if (op.kind === 'append') op.run(sink)
-      else emitResult(op.result)
+    const errors: unknown[] = []
+    try {
+      for (const op of this.ops) {
+        try {
+          if (op.kind === 'append') op.run(sink)
+          else emitResult(op.result)
+        } catch (error) {
+          errors.push(error)
+        }
+      }
+    } finally {
+      this.ops.length = 0
     }
-    this.ops.length = 0
+    if (errors.length > 0) {
+      throw new AggregateError(errors, `session-buffer: ${errors.length} 条写入失败`)
+    }
   }
 }
 

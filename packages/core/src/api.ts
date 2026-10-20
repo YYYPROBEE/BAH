@@ -148,6 +148,20 @@ export interface Events {
   emit<K extends EventName>(name: K, payload: BahEventMap[K]): void
 
   /**
+   * 单向通知（失败隔离）：逐个监听器 `try/catch`，一个抛错不阻断后续监听器。
+   *
+   * 只用于“记账广播”（`tools/result`、`session/event`）：权威结果已经落账，
+   * 广播失败不能让调用方回滚或丢失后续观察者。
+   *
+   * @param onError 每个被捕获的异常都会回调（调用方负责落审计）
+   */
+  emitIsolated<K extends EventName>(
+    name: K,
+    payload: BahEventMap[K],
+    onError?: (error: unknown, event: K) => void,
+  ): void
+
+  /**
    * 顺序 await 每个监听器，顺序与注册一致。
    *
    * @mode serial —— 有顺序依赖的处理（`agent/turn-stopping`）
@@ -422,6 +436,13 @@ export interface ToolDefinition<A = unknown, R = unknown> {
   schema: ToolSchema
   /** 权限级别（定义处声明，治理平面解释）。 */
   tier: ToolTier
+  /**
+   * 副作用声明（并行批次准入依据）。
+   *
+   * `none` = 纯计算；`read` = 只读外部状态；`write` = 可能改动资金/票据/账户。
+   * 缺省视为**不可并发**（保守）：只有 `none` / `read` 且 tier=green 才进入并行批次。
+   */
+  sideEffect?: 'none' | 'read' | 'write'
   /** 工具体。抛错由管线归一化为 `isError` 结果，不冒泡到主循环（T-TOOL-007）。 */
   execute(args: A, ctx: ToolExecContext): Promise<R>
   /** 执行预置内容（文本 / 图片）。 */
