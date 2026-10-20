@@ -10,6 +10,7 @@ import { defineService } from '@bah/core'
 import type { Context, Disposer, ServiceKey, SessionEvent, SessionEventMap, SessionId } from '@bah/core'
 
 import { deriveMessages } from './derive.ts'
+import { currentSessionBuffer } from './buffer.ts'
 import { SessionStore, type SessionClock } from './store.ts'
 import type {
   AnySessionEvent,
@@ -80,7 +81,24 @@ export function provideSession(ctx: Context, options: ProvideSessionOptions): Di
     sessionId: options.sessionId,
     formatVersion: store.formatVersion,
 
-    append(type, data, appendOptions) {
+    append<S extends SessionEventType>(
+      type: S,
+      data: SessionEventMap[S],
+      appendOptions?: AppendOptions,
+    ): SessionEvent<S> {
+      const buffer = currentSessionBuffer()
+      if (buffer !== undefined) {
+        buffer.record((sink) => sink.append(type, data, appendOptions))
+        // 缓冲期不分配真实 seq；调用方不依赖返回值（flush 时由真实 sink 分配）
+        return {
+          seq: 0,
+          at: 0,
+          formatVersion: store.formatVersion,
+          type,
+          data,
+          ...(appendOptions?.ignorable === undefined ? {} : { ignorable: appendOptions.ignorable }),
+        } as SessionEvent<S>
+      }
       const event = store.append(type, data, appendOptions)
       // 存储层按键取类型，广播面统一成判别联合（`AnySessionEvent`）
       ctx.events.emit('session/event', { session: options.sessionId, event: event as AnySessionEvent })
@@ -88,6 +106,18 @@ export function provideSession(ctx: Context, options: ProvideSessionOptions): Di
     },
 
     appendDomain(type, data, appendOptions) {
+      const buffer = currentSessionBuffer()
+      if (buffer !== undefined) {
+        buffer.record((sink) => sink.appendDomain(type, data, appendOptions))
+        return {
+          seq: 0,
+          at: 0,
+          formatVersion: store.formatVersion,
+          type,
+          data,
+          ignorable: appendOptions?.ignorable ?? true,
+        } as AnySessionEvent
+      }
       const event = store.appendDomain(type, data, appendOptions)
       ctx.events.emit('session/event', { session: options.sessionId, event })
       return event

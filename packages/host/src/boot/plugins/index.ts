@@ -6,6 +6,7 @@
  */
 
 import type { HostPlugin, PluginCatalog } from '../../plugin-manager/index.ts'
+import { toAnyHostPlugin, type AnyHostPlugin, type AnyHostPluginInput } from '../../plugin-manager/index.ts'
 import { bootError } from '../config.ts'
 
 import { agentPlugin } from './agent.ts'
@@ -25,7 +26,7 @@ import { sessionPlugin } from './session.ts'
 import { toolsPlugin } from './tools.ts'
 
 /** base bundle 的插件集（施工单 06 §3：内核 + 主循环 + 模型层 + 工具管线 + 持久化）。 */
-export const HOST_PLUGINS: readonly HostPlugin<any>[] = [
+export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   sessionPlugin,
   toolsPlugin,
   promptPlugin,
@@ -41,7 +42,7 @@ export const HOST_PLUGINS: readonly HostPlugin<any>[] = [
   sagaStorePlugin,
   sagaPlugin,
   sagaAuditPlugin,
-]
+].map(toAnyHostPlugin)
 
 export {
   agentPlugin,
@@ -66,13 +67,23 @@ export {
  *
  * @throws `BahError('duplicate-plugin')` 清单内 id 重复（会让"use 指向谁"依赖声明顺序）
  */
-export function createCatalog(plugins: readonly HostPlugin<any>[] = HOST_PLUGINS): PluginCatalog {
-  const catalog: Record<string, HostPlugin<any>> = {}
+export function createCatalog(plugins?: readonly AnyHostPlugin[]): PluginCatalog
+export function createCatalog(plugins: readonly HostPluginLike[]): PluginCatalog
+export function createCatalog(plugins: readonly HostPluginLike[] = HOST_PLUGINS): PluginCatalog {
+  const catalog: Record<string, AnyHostPlugin> = {}
   for (const item of plugins) {
-    if (catalog[item.id] !== undefined) {
-      throw bootError('duplicate-plugin', `依赖清单里插件 id ${item.id} 重复`, { id: item.id })
+    const erased = toAnyHostPlugin(item as AnyHostPluginInput)
+    if (catalog[erased.id] !== undefined) {
+      throw bootError('duplicate-plugin', `依赖清单里插件 id ${erased.id} 重复`, { id: erased.id })
     }
-    catalog[item.id] = item
+    catalog[erased.id] = erased
   }
   return catalog
+}
+
+/** 结构化的插件清单输入（接受任意配置类型的 `HostPlugin<P>`）。 */
+export interface HostPluginLike {
+  readonly id: string
+  readonly plugin: unknown
+  readonly validate: (config: Readonly<Record<string, unknown>>) => unknown
 }

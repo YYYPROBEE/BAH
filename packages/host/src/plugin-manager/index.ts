@@ -10,12 +10,43 @@
  * （施工单 02 §5）。再排一次序会让"启动顺序"有两个真相。
  */
 
-import { describeThrown } from '@bah/core'
+import { describeThrown, erasePlugin } from '@bah/core'
 
-import type { PluginV2 } from '@bah/core'
+import type { ErasedPlugin, PluginV2 } from '@bah/core'
 
 import { BOOT_PREFIX, bootError } from '../boot/config.ts'
 import type { ResolvedRow } from '../boot/profile-plugins.ts'
+
+/**
+ * 依赖清单输入：任意配置类型的 `HostPlugin<P>`（存在类型的结构面）。
+ *
+ * `plugin` 用 `unknown` 接收，`toAnyHostPlugin` 里统一擦除一次。
+ */
+export interface AnyHostPluginInput {
+  readonly id: string
+  readonly plugin: unknown
+  readonly validate: (config: Readonly<Record<string, unknown>>) => unknown
+}
+
+/** 依赖清单里实际存储的擦除形态。 */
+export interface AnyHostPlugin {
+  readonly id: string
+  readonly plugin: ErasedPlugin
+  readonly validate: (config: Readonly<Record<string, unknown>>) => unknown
+}
+
+/** 把具体插件擦除成清单可存储的形态（幂等）。 */
+export function toAnyHostPlugin(input: AnyHostPluginInput | AnyHostPlugin): AnyHostPlugin {
+  const plugin = input.plugin
+  const erased = isErased(plugin) ? plugin : erasePlugin(plugin as PluginV2<never>)
+  return { id: input.id, plugin: erased, validate: input.validate }
+}
+
+function isErased(plugin: unknown): plugin is ErasedPlugin {
+  if (typeof plugin !== 'object' || plugin === null) return false
+  const schema = (plugin as { config?: { validate?: unknown } }).config
+  return typeof schema?.validate === 'function'
+}
 
 /**
  * 依赖清单里的一项：插件实现 + 它的配置校验器。
@@ -37,17 +68,26 @@ export interface HostPlugin<P = unknown> {
 }
 
 /** 依赖清单：`use` → 插件项。 */
-export type PluginCatalog = Readonly<Record<string, HostPlugin<any>>>
+export type PluginCatalog = Readonly<Record<string, AnyHostPlugin>>
+
+/** 清单输入：允许直接传具体类型的 `HostPlugin<P>`（构造时统一擦除）。 */
+export type PluginCatalogInput = Readonly<Record<string, AnyHostPluginInput | AnyHostPlugin>>
 
 /** 校验通过、可以 `ctx.use()` 的一行。 */
 export interface ValidatedRow extends ResolvedRow {
-  readonly plugin: PluginV2<any>
+  readonly plugin: ErasedPlugin
   readonly settings: unknown
 }
 
 /** 插件管理器。 */
 export class PluginManager {
-  constructor(private readonly catalog: PluginCatalog) {}
+  private readonly catalog: PluginCatalog
+
+  constructor(catalog: PluginCatalogInput) {
+    this.catalog = Object.fromEntries(
+      Object.entries(catalog).map(([id, item]) => [id, toAnyHostPlugin(item)]),
+    )
+  }
 
   /** 依赖清单里的全部插件 id（顺序 = 声明顺序，报错与 dump 用）。 */
   ids(): readonly string[] {
@@ -64,7 +104,7 @@ export class PluginManager {
    *
    * @throws `BahError('unknown-plugin')` 依赖清单里没有这个插件
    */
-  get(use: string): HostPlugin<any> {
+  get(use: string): AnyHostPlugin {
     const found = this.catalog[use]
     if (found === undefined) {
       throw bootError(
@@ -107,14 +147,18 @@ export class PluginManager {
       seenPlugins.add(row.use)
 
       const host = this.get(row.use)
-      validated.push({ ...row, plugin: host.plugin, settings: this.validateConfig(row, host) })
+      validated.push({
+        ...row,
+        plugin: host.plugin,
+        settings: this.validateConfig(row, host),
+      })
     }
 
     return validated
   }
 
   /** 单个插件的配置校验：`bah-boot: ` 错误原样上抛，其余包一层可读理由。 */
-  private validateConfig(row: ResolvedRow, host: HostPlugin<any>): unknown {
+  private validateConfig(row: ResolvedRow, host: AnyHostPlugin): unknown {
     try {
       return host.validate(row.config)
     } catch (error) {

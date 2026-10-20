@@ -61,6 +61,8 @@ export interface ToolPipelineOptions {
   readonly signal?: AbortSignal
   /** 没有 `projectContent` 时的默认内容渲染。 */
   readonly renderContent?: ContentRenderer
+  /** `tools/result` 的派发出口（并行批次用它先缓冲，默认直接 emit）。 */
+  readonly emitResult?: (result: ToolResultData) => void
 }
 
 export class ToolPipeline {
@@ -72,6 +74,7 @@ export class ToolPipeline {
   private readonly now: () => number
   private readonly signal: AbortSignal
   private readonly renderContent: ContentRenderer
+  private readonly emitResult: (result: ToolResultData) => void
 
   constructor(options: ToolPipelineOptions) {
     this.ctx = options.ctx
@@ -82,6 +85,17 @@ export class ToolPipeline {
     this.now = options.now ?? (() => Date.now())
     this.signal = options.signal ?? new AbortController().signal
     this.renderContent = options.renderContent ?? defaultRender
+    this.emitResult =
+      options.emitResult ?? ((result) => this.ctx.events.emit('tools/result', result))
+  }
+
+  /** 是否绿级只读工具（并行批次只允许这一类）。 */
+  isReadOnly(name: string): boolean {
+    try {
+      return this.registry.get(name).tier.level === 'green'
+    } catch {
+      return false
+    }
   }
 
   /**
@@ -217,7 +231,7 @@ export class ToolPipeline {
     }
 
     // 冻结的权威结果：同步通知（票据记账 / 审计 / UI）
-    this.ctx.events.emit('tools/result', result)
+    this.emitResult(result)
     // 唯一面向模型的结果落账
     this.session.append('tool/result', result)
     // 追加校正上下文（FIFO，落在 tool/result 之后 → 模型先看到结果再看到纠正）
@@ -313,7 +327,7 @@ export class ToolPipeline {
       reason: verdict.reason,
       durationMs: 0,
     }
-    this.ctx.events.emit('tools/result', result)
+    this.emitResult(result)
     this.session.append('tool/result', result)
     return { result, callCard, additionalContexts: [] }
   }

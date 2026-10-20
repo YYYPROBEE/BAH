@@ -27,7 +27,11 @@ import { asRecord, readEnum, rejectUnknownKeys } from '../config.ts'
 const CHANNELS = ['web', 'mobile', 'im', 'desktop', 'headless', 'sdk'] as const
 
 /** 默认主循环配置（base 的默认 = 真实 provider；headless 用 patch 换成 mock）。 */
-const DEFAULT_LOOP: AgentLoopConfig = { model: 'deepseek:deepseek-chat', maxSteps: 32 }
+const DEFAULT_LOOP: AgentLoopConfig = {
+  model: 'deepseek:deepseek-chat',
+  maxSteps: 32,
+  parallelReadTools: true,
+}
 
 /** `core:agent` 的配置。 */
 export interface AgentSettings {

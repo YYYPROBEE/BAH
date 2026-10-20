@@ -16,7 +16,7 @@ import type { CompactionThresholds } from '../compaction/types.ts'
 export const DEFAULT_MAX_STEPS = 32
 
 /** 允许的配置键（未知键 fail-loud）。 */
-const CONFIG_KEYS = new Set(['model', 'params', 'compaction', 'maxSteps'])
+const CONFIG_KEYS = new Set(['model', 'params', 'compaction', 'maxSteps', 'parallelReadTools'])
 
 /** 允许的采样参数键（其余一律拒绝：静默忽略会让"调了没生效"成为隐藏行为）。 */
 const PARAM_KEYS = new Set(['temperature', 'topP', 'maxTokens', 'stop'])
@@ -30,6 +30,8 @@ export interface AgentLoopConfig {
   readonly compaction?: CompactionThresholds
   /** 单 turn step 上限（缺省 `DEFAULT_MAX_STEPS`）。 */
   readonly maxSteps: number
+  /** 同批连续 green 只读工具是否并发执行（缺省 true；写/审批永远串行）。 */
+  readonly parallelReadTools: boolean
 }
 
 /**
@@ -47,7 +49,7 @@ export function resolveAgentLoopConfig(input: unknown): AgentLoopConfig {
     if (!CONFIG_KEYS.has(key)) {
       throw new BahError(
         'agent-invalid-config',
-        `agent: 未知配置键 ${key}（可调项只有 model / params / compaction / maxSteps）`,
+        `agent: 未知配置键 ${key}（可调项只有 model / params / compaction / maxSteps / parallelReadTools）`,
         { key },
       )
     }
@@ -70,10 +72,15 @@ export function resolveAgentLoopConfig(input: unknown): AgentLoopConfig {
     record['compaction'] === undefined
       ? undefined
       : resolveCompactionConfig(record['compaction'])
+  const parallelReadTools =
+    record['parallelReadTools'] === undefined
+      ? true
+      : booleanValue(record['parallelReadTools'], 'parallelReadTools')
 
   return {
     model: model.trim(),
     maxSteps,
+    parallelReadTools,
     ...(params === undefined ? {} : { params }),
     ...(compaction === undefined ? {} : { compaction }),
   }
@@ -118,6 +125,18 @@ export function resolveParams(input: unknown): LlmParams {
   return params
 }
 
+/** 布尔校验。 */
+function booleanValue(value: unknown, name: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new BahError(
+      'agent-invalid-config',
+      `agent: ${name} 必须是布尔（收到 ${String(value)}）`,
+      { name, value },
+    )
+  }
+  return value
+}
+
 /** 闭区间数值校验。 */
 function inRange(value: unknown, name: string, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) {
@@ -131,8 +150,7 @@ function inRange(value: unknown, name: string, min: number, max: number): number
 }
 
 /** 正整数校验。 */
-function positiveInteger(value: unknown, name: string): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+function positiveInteger(value: unknown, name: string): number {  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     throw new BahError(
       'agent-invalid-config',
       `agent: ${name} 必须是正整数（收到 ${String(value)}）`,

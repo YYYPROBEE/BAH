@@ -134,7 +134,6 @@ export interface InteractionSessionEventMap {
 }
 
 declare module '@bah/core' {
-  // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
   interface SessionEventMap extends InteractionSessionEventMap {}
 }
 

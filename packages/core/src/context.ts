@@ -20,6 +20,7 @@ import type {
   Context,
   Disposer,
   EffectDisposer,
+  ErasedPlugin,
   EventMode,
   EventName,
   Events,
@@ -29,7 +30,7 @@ import type {
 } from './api.ts'
 import { coreError, describeThrown } from './errors.ts'
 import { BahEvents } from './events.ts'
-import { describeUnresolved, findInjectCycle, resolveConfig } from './plugin.ts'
+import { describeUnresolved, erasePlugin, findInjectCycle, resolveConfig } from './plugin.ts'
 import { BahScope, createIsolate } from './scope.ts'
 import { ServiceRegistry } from './service.ts'
 import {
@@ -133,6 +134,13 @@ export class BahContext implements Context {
    * 而配置错误的抛出**仍是同步的**——「载入即抛」不能让调用方漏掉。
    */
   use<P>(plugin: PluginV2<P>, config?: P): Promise<this> {
+    return this.useErased(erasePlugin(plugin), config)
+  }
+
+  /**
+   * 注册一个已擦除配置类型的插件（内部装配面使用；调用方需先完成配置校验）。
+   */
+  useErased(plugin: ErasedPlugin, config?: unknown): Promise<this> {
     if (this.currentPhase === 'disposed' || this.currentPhase === 'installing') {
       throw coreError(
         'plugin-late-registration',

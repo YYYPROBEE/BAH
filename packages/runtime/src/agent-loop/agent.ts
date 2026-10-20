@@ -44,7 +44,8 @@ import type {
 
 import { runCompaction } from '../compaction/apply.ts'
 import type { SessionApi } from '../session/service.ts'
-import type { AnySessionEvent, ToolCallRecord, TurnEndReason } from '../session/types.ts'
+import { SessionEventBuffer, withSessionBuffer } from '../session/buffer.ts'
+import type { AnySessionEvent, ToolCallRecord, ToolResultData, TurnEndReason } from '../session/types.ts'
 import { SYSTEM_PROMPT_SERVICE } from '../system-prompt/index.ts'
 import { RuntimeContextQueue } from '../system-prompt/reconcile.ts'
 import type { PromptRegistry } from '../system-prompt/registry.ts'
@@ -77,7 +78,7 @@ import {
   toSessionBlocks,
 } from './request.ts'
 import { forkSession, type ForkInfo, type ForkRequest } from './rollback.ts'
-import { ToolCallDispatcher, interruptedResult, observeToolCalls } from './tool-calls.ts'
+import { ToolCallDispatcher, interruptedResult, observeToolCalls, toolCallInputOf } from './tool-calls.ts'
 import { resolveAgentLoopConfig, type AgentLoopConfig } from './config.ts'
 
 export {
@@ -544,7 +545,8 @@ export class AgentLoop implements Agent {
         pipeline: this.pipeline(signal),
         session: this.session,
       })
-      for (const [index, call] of calls.entries()) {
+      let index = 0
+      while (index < calls.length) {
         // 取消边界：中断后同批剩余的调用（可能含写操作）一律不执行，只补结构化的
         // `tool-interrupted` 结果；正在执行的调用不打断（写操作要保原子性）。
         if (signal.aborted) {
@@ -553,6 +555,24 @@ export class AgentLoop implements Agent {
           }
           return
         }
+        const call = calls[index]
+        if (call === undefined) break
+        if (this.config.parallelReadTools && dispatcher.canRunConcurrently(call)) {
+          const batch: AssembledToolCall[] = []
+          while (index < calls.length) {
+            const next = calls[index]
+            if (next === undefined || !dispatcher.canRunConcurrently(next)) break
+            batch.push(next)
+            index += 1
+          }
+          if (batch.length > 1) await this.runParallelBatch(batch, signal)
+          else {
+            const only = batch[0]
+            if (only !== undefined) await dispatcher.execute(only)
+          }
+          continue
+        }
+        index += 1
         await dispatcher.execute(call)
       }
     } catch (error) {
@@ -563,6 +583,37 @@ export class AgentLoop implements Agent {
     } finally {
       stopObserving()
     }
+  }
+
+  /**
+   * 并行执行一批 green 只读调用，并按调用顺序 flush 事件。
+   *
+   * 执行阶段彼此重叠；持久化事件、领域审计与 `tools/result` 广播全部进入 per-call
+   * 缓冲，批次结束按模型给出的调用顺序回放——对模型/审计而言与串行完全同序。
+   */
+  private async runParallelBatch(
+    calls: readonly AssembledToolCall[],
+    signal: AbortSignal,
+  ): Promise<void> {
+    const buffers = calls.map(() => new SessionEventBuffer())
+    const outcomes = await Promise.allSettled(
+      calls.map((call, index) => {
+        const buffer = buffers[index]
+        if (buffer === undefined) throw new Error('agent: 并行缓冲区缺失')
+        return withSessionBuffer(buffer, () =>
+          this.pipeline(signal, (result) => buffer.emitResult(result)).execute(
+            toolCallInputOf(call),
+          ),
+        )
+      }),
+    )
+    for (const buffer of buffers) {
+      buffer.flush(this.session, (result) => this.ctx.events.emit('tools/result', result))
+    }
+    const failed = outcomes.find(
+      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+    )
+    if (failed !== undefined) throw failed.reason
   }
 
   /** 解析并冻结调用（成功 = 请求已发出；失败统一转成 `assistant/attempt`）。 */
@@ -583,7 +634,10 @@ export class AgentLoop implements Agent {
   }
 
   /** 本 turn 的工具管线（持有本 turn 的取消信号；guard 与主循环共享）。 */
-  private pipeline(signal: AbortSignal): ToolPipeline {
+  private pipeline(
+    signal: AbortSignal,
+    emitResult?: (result: ToolResultData) => void,
+  ): ToolPipeline {
     return new ToolPipeline({
       ctx: this.ctx,
       registry: this.tools,
@@ -592,6 +646,7 @@ export class AgentLoop implements Agent {
       sessionId: this.session.sessionId,
       now: this.now,
       signal,
+      ...(emitResult === undefined ? {} : { emitResult }),
     })
   }
 

@@ -43,7 +43,6 @@ export const SESSION_EVENT_TYPES = [
 ] as const
 
 declare module '@bah/core' {
-  // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
   interface SessionEventMap {
     /** 一个 turn 开始（`turn` 自 1 递增）。 */
     'turn/start': { turn: number }

@@ -377,6 +377,9 @@ describe('T-LOOP-005 interrupt', () => {
             },
           })
         },
+        // 本用例钉串行取消语义：并行只读批次会让两个调用同时启动，
+        // "剩余调用不执行"不再成立（并行语义见新增用例）。
+        config: { model: 'mock:mock-chat', parallelReadTools: false },
       },
       async (harness) => {
         harness.loop.send('跑两个工具')
@@ -827,6 +830,9 @@ describe('主循环 · 补充用例（无编号）', () => {
     expect(
       captureThrown(() => resolveAgentLoopConfig({ model: 'm', compaction: {} })).code,
     ).toBe('compaction-invalid-config')
+    expect(
+      captureThrown(() => resolveAgentLoopConfig({ model: 'm', parallelReadTools: 'yes' })).code,
+    ).toBe('agent-invalid-config')
   })
 
   it('配置校验通过后的形状（默认 maxSteps / 参数解析 / 压缩配置透传）', () => {
@@ -1230,5 +1236,73 @@ describe('T-LOOP-014 收尾段异常', () => {
       await expect(loop.run()).rejects.toThrow(/summary sink down/)
       expect(session.events().some((event) => event.type === 'turn/end')).toBe(true)
     })
+  })
+})
+
+describe('T-LOOP-015 只读工具并行（P-P4）', () => {
+  it('两个 green 调用并发执行；事件仍按调用顺序 flush', async () => {
+    let active = 0
+    let maxActive = 0
+    await withHarness(
+      {
+        steps: [
+          {
+            content: [
+              { kind: 'tool-call', id: 'call-slow', name: 'slow_tool', args: {} },
+              { kind: 'tool-call', id: 'call-fast', name: 'fast_tool', args: {} },
+            ],
+            finishReason: 'tool-calls',
+          },
+        ],
+        prepare: (harness) => {
+          harness.tools.register({
+            name: 'slow_tool',
+            description: '慢只读工具',
+            schema: { type: 'object' },
+            tier: { level: 'green' },
+            execute: async () => {
+              harness.session.appendDomain('read/slow', {}, { ignorable: true })
+              active += 1
+              maxActive = Math.max(maxActive, active)
+              await new Promise((resolve) => setTimeout(resolve, 20))
+              active -= 1
+              return 'slow'
+            },
+          })
+          harness.tools.register({
+            name: 'fast_tool',
+            description: '快只读工具',
+            schema: { type: 'object' },
+            tier: { level: 'green' },
+            execute: async () => {
+              harness.session.appendDomain('read/fast', {}, { ignorable: true })
+              active += 1
+              maxActive = Math.max(maxActive, active)
+              active -= 1
+              return 'fast'
+            },
+          })
+        },
+      },
+      async (harness) => {
+        harness.loop.send('并行查两个')
+        await harness.loop.run()
+
+        expect(maxActive).toBe(2)
+        // 事件顺序仍是模型给出的调用顺序（slow → fast），不是完成顺序
+        expect(payloads(harness.events(), 'tool/call').map((call) => call.name)).toEqual([
+          'slow_tool',
+          'fast_tool',
+        ])
+        expect(payloads(harness.events(), 'tool/result').map((result) => result.callId)).toEqual([
+          'call-slow',
+          'call-fast',
+        ])
+        // 领域审计也走同一缓冲：按调用顺序，而不是完成顺序
+        expect(
+          harness.events().filter((event) => event.type.startsWith('read/')).map((event) => event.type),
+        ).toEqual(['read/slow', 'read/fast'])
+      },
+    )
   })
 })
