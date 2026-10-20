@@ -1011,7 +1011,89 @@ ticket/redeemed → ticket/consumed → tool/result → assistant/message → st
 
 **测试面**：`packages/bank/src/core/ticket.test.ts` 新增 `revokeAll` 两条；`packages/bank/src/tools/governance.test.ts` 新增声明级 `tier/decided` 一条；`packages/host/.../sentry.test.ts` 改为窄端口断言 + `session` sink + 生产护栏；`config.test.ts` / `control.test.ts` 跟随默认开关调整。
 
+## 43. 2026-10-21 修复决议与 QuickJS 延后
+
+> 依据：`temp/BAH双文档核对与修复方法报告-2026-10-21.md` 及其双角度复审。本节记录决议；**未改源码**，工作树仍为 17 项未提交。
+
+| # | 决议 | 落地/口径 |
+|---|---|---|
+| 1 | 验收目标 = **门禁全绿** | 先 `pnpm gate` 15/15；`pnpm check` 的 4 个红步依次清：`test:coverage`（9 文件）、`gate`（tracked-sources）、`test:snapshot`（2 红）、`rag:check`（63 passed / 9 failed，minCases 65） |
+| 2 | RAG 改判前先做**判决 golden** | 固化 72 条 `(verdict, reason_code)`，改后只允许目标 9 条变化；非目标漂移数必须为 0 |
+| 3 | 日限额口径 = **允许人工审批放行** | 代码不改（`risk.ts` `warn` + `tier.ts` 升红已符合）；撤回验收报告「日限额在扣款之后才算」的表述，对外写「超限强制人工审批」 |
+| 4 | **QuickJS 延后**（P2/RFC） | 见 43.1；不进本轮工单 |
+
+### 43.1 QuickJS 是什么、为什么不现在做
+
+- **是什么**：一个可编译为 WASM 的小型 JS 引擎。给一段 JS 文本 + 内存上限，就能在宿主进程内执行**任意 JS**（循环/函数/字符串/数组），可被外部中断。
+- **方案想用它做什么**：把 `analysis_calc` 现在的自研 DSL 换成模型可写任意 JS 的 `run_script`。
+- **现状**：`packages/safety/src/sandbox-runtime/language.ts`（395 行）语法里没有 `while/for`、函数定义、模块访问、IO；「模型代码碰不到宿主」是**语法上写不出来**，不是靠探针证明。执行仍在 `worker_threads` + `resourceLimits` + 墙钟硬杀里。
+- **它买到的是能力，不是安全**：安全面反而多一层（第三方 C 引擎编译的 WASM、供应链、CVE、Node22/Windows/打包三条链），而 `run_script` 当前不在 14 个工具目录里。
+- **准入三条**（缺一不启动）：① 产品确认 6 个月内要 `run_script` 且 DSL 扩展不可行；② spike 给出三条链真实可行性；③ 接受威胁模型变更并在 `NOTICE.md` 逐项登记。
+
+### 43.2 待确认：幂等键的用户维度
+
+`mock.ts:252-253` 的 key 与 fingerprint 都不含用户；修法 `key = userId:accountId:rawKey`（`account.userId` 已在 `mock.ts:271` 可用）。
+可达性比复审更窄：`demo`（`forge/index.ts:154`）与 `adversarial`（`forge/index.ts:320`）都是单用户，**只有 `stress`（`forge/index.ts:192`，3 用户）或真实多用户适配器可复现**。
+需装配方回答的不是「是否多用户共享 core」，而是「**同一会话会不会换人**」——`SessionIdentityStore.bind` 允许覆盖（`identity.ts:32`），而 core 是 per-process（`bank-tools.ts:114`）。
+
+**口径**：§41 的规模数字（1094/126、12/12、26）为历史值；本时点实测 132 文件 / 1159 passed、gate 14/15、snapshot 2 红/4 绿、rag 63/9、覆盖率 9 文件 11 条 ERROR。
 
 
 
 
+
+## 44. 2026-10-21 阶段 A 施工回执（门禁全绿）
+
+> §43 里的数字是**施工前基线**（1159 passed / gate 14-15 / snapshot 2 红 / rag 63-9 / 覆盖率 9 文件 11 条 ERROR）。本节是施工后的实测值，每个数字都附命令。
+
+| 项 | 施工前 | 施工后 | 命令 |
+|---|---|---|---|
+| 单测 | 132 文件 / 1159 | **137 文件 / 1178 passed** | `pnpm test` |
+| 类型 | 0 | **0** | `pnpm typecheck` |
+| Lint | 0 | **0** | `pnpm lint` |
+| 构建 | 0 | **0** | `pnpm build` |
+| 门禁 | 14/15 | **15/15** | `pnpm gate` |
+| 本地 CI | 5 绿 / 4 红 / 1 skip | **exit 0：9 绿 + e2e skip** | `pnpm check` |
+| 快照 | 2 failed / 4 passed | **6/6** | `pnpm test:snapshot` |
+| 覆盖率 | 9 文件 / 11 条 ERROR | **0 条** | `pnpm test:coverage` |
+| RAG | 63 passed / 9 failed | **75 passed / 0 failed** | `node scripts/rag.mjs check` |
+
+e2e 仍为 SKIP（无 `DEEPSEEK_API_KEY`），按 §0.1 口径不算「全部通过」。
+
+### 44.1 三处必须记住的结论
+
+**① 快照新顺序才是正确因果，旧快照固化了缺陷。**
+`ticket/*` 是挂在 `tools/result` 上的监听器补记的（`governance.ts:255`），观察者事件只能在被观察事件落账**之后**写。旧快照记的是「先 emit 广播、后 append `tool/result`」——观察者跑到了被观察对象前面。614aa0f 修掉了顺序，却在 message 里写「headless-basic 快照逐字节不变」并用 `BAH_ALLOW_NO_SNAPSHOT=1` 放行；**那句断言是错的**。本次重录只动 seq 16–18 三行，内容逐字节相同。
+
+**② 判决曾经依赖下层自律，而不是本层显式约束。**
+`Entailer.judge` 内部本来就有「含数字返回 None」（`entailment.py:44`），所以 verify.py 一直「看起来没问题」。但把这层守卫拿掉——换一个不设防的 entailer——被改写的数字就能被判成 `support="pass"`，只有 verdict 被后续对账拉回 RED。逐 claim 的审计字段已被污染。现在 `verify.py` 显式不咨询 entailer，`test_verdict_golden.py` 用 `entailerCalls` 把这条不变量冻结成可 diff 的观测量。
+
+**③ 既有弱点（本轮未扩大，需产品口径）：「数字对、文本胡说」判 GREEN。**
+`_claim_supported` 对数字 claim 只要求 label 命中 + 数值对账，文本其余部分不校。收紧它会让基准线 V01（`赎回费率为1.50%` 依赖 label 命中）也掉到 AMBER，属判决口径变更，不在本轮范围。
+
+### 44.2 覆盖率：11 → 0 的构成
+
+补测（真覆盖）：`alert/sink.ts` 函数 0%、`state-machine` CAS 版本冲突、`commit.ts` 三条失败映射 + flush/COMMIT 顺序、`saga-store` `:memory:` 与缺省路径、`policy` 默认时钟、`deepseek/adapter` 默认 fetch、`cli/run` 的 HMR 三个闭包（`reload` + 两个 `warn`）。
+最后两条是同一类问题：**单测一律注入替身，导致线上真正生效的默认分支从未被执行**。
+
+`run.ts` 的覆盖手法值得复用：不抢 `fs.watchFile` 的 25ms 轮询窗口，而是把 `watchFile` 换成「注册即触发」替身——注册点位于 boot 读完 patch 之后、turn 开始之前，时序被结构性地消掉，不是靠 sleep 撞上的。
+
+豁免（缺口运行期不可达，非蒙混）：`bank/forge/index.ts`（`pick()` 空候选守卫，三个调用点都是 4 元素字面量元组，`seededRandom` 值域 [0,1)）、`host/boot/persistence.ts`（`warn` 与 `jsonl/backend.ts:96` 默认实现逐字等价，且告警只在读路径触发，本插件只写不读）。理由与移除条件写在 `vitest.config.ts` 的 `coverage.exclude` 里。
+负控：撤掉这两条豁免 → 恰好回红 3 条（forge 行×2 + persistence 函数×1），证明确实是豁免在承担缺口。
+
+### 44.3 门禁设计上的两处互斥（需上层定策略）
+
+1. **`snapshot-fresh` 与「纯重构」互斥。** `SENSITIVE` 覆盖 `packages/{runtime,llm,bank,saga,persistence,safety,host/boot}/src`，任何改动都要求同场景快照**字节变化**。行为等价的重构重录后 diff 恒为 0，CI 下不可满足；而 `BAH_ALLOW_NO_SNAPSHOT=1` 被 §0.2 判为不算通过。§44.2 的两处豁免就是这么来的。
+2. **干净工作树无法通过 `snapshot-fresh`。** 本机无 `origin/main` 时基线取 HEAD，diff 为空即判失败（`verify-snapshot-fresh.ts:62-75`，fail-closed 而非 fail-open）。所以本机在**已提交干净**的状态下必须显式给基线：
+   `BAH_SNAPSHOT_BASE=614aa0f pnpm gate`。CI 恒有 `BAH_SNAPSHOT_BASE`，不受影响。
+
+### 44.4 本机环境噪声（非仓库缺陷）
+
+- `pnpm check` 偶发被宿主 `node-safe-delete` shim 拦在清理 `coverage/` 或 `coverage/.tmp`（>50 项）。跑前 `rm -rf coverage .ci-artifacts` 即可。
+- `wmic.exe` 被宿主安全策略禁用，与本仓库无关。
+
+### 44.5 下一步
+
+- **阶段 B**：C6 幂等键加 actor 维度（S0，离资金最近）→ C8 Saga 用 `ctx.effect` 托管 + 取消 → C9 disposer 失败隔离。
+- `§43.2` 的未决项仍未答：**同一会话会不会换人**（决定 D-6 是 R1 还是 R2，修法不变）。
+- 待产品/合规签核：`_REASON_RANK` 的顺序（现为 §5 建议值：NUMERIC_MISMATCH 0 → AMBER_INFERRED 5）。
