@@ -36,6 +36,7 @@ export const SESSION_EVENT_TYPES = [
   'assistant/attempt',
   'tool/call',
   'tool/result',
+  'tool/callback-failed',
   'approval/asked',
   'approval/decided',
   'usage/summary',
@@ -76,6 +77,20 @@ declare module '@bah/core' {
     'tool/call': ToolCallData
     /** 工具结果（**唯一**面向模型的结果；isError 也走这里）。 */
     'tool/result': ToolResultData
+    /**
+     * 工具回调失败（presenter / projector / post-execute 等边界内抛错）。
+     *
+     * 权威结果仍然照常落账；这里只记录“某个纯函数/监听器坏了”，供审计与修复定位。
+     */
+    'tool/callback-failed': {
+      /** 出错的阶段：present-call / project-content / post-execute / finalize-content / present-result / emit-result。 */
+      readonly stage: string
+      readonly callId: string
+      /** 失败理由码（`BahError.code` 优先，否则 `tool-failed`）。 */
+      readonly code: string
+      readonly reason: string
+      readonly at: number
+    }
     /** 审批请求已发起（票据与调用绑定）。 */
     'approval/asked': {
       ticketId: TicketId

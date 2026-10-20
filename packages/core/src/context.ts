@@ -66,6 +66,14 @@ class OwnedEvents implements Events {
     this.source.emit(name, payload)
   }
 
+  emitIsolated<K extends EventName>(
+    name: K,
+    payload: BahEventMap[K],
+    onError?: (error: unknown, event: K) => void,
+  ): void {
+    this.source.emitIsolated(name, payload, onError)
+  }
+
   serial<K extends EventName>(name: K, payload: BahEventMap[K]): Promise<void> {
     return this.source.serial(name, payload)
   }

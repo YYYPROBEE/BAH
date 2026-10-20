@@ -86,15 +86,69 @@ export class ToolPipeline {
     this.signal = options.signal ?? new AbortController().signal
     this.renderContent = options.renderContent ?? defaultRender
     this.emitResult =
-      options.emitResult ?? ((result) => this.ctx.events.emit('tools/result', result))
+      options.emitResult ??
+      ((result) => {
+        // 记账广播：单个 listener 抛错不得阻断后续 listener，也不得回滚已落账结果。
+        this.ctx.events.emitIsolated('tools/result', result, (error) => {
+          this.auditCallbackFailure('emit-result', result.callId, error)
+        })
+      })
   }
 
-  /** 是否绿级只读工具（并行批次只允许这一类）。 */
+  /**
+   * 是否可进入并行批次：绿级 + 显式只读/无副作用。
+   *
+   * 只看 tier 不够：`verify_*` 也是绿级但会写尝试次数；没有 `sideEffect` 声明一律保守拒绝。
+   */
   isReadOnly(name: string): boolean {
     try {
-      return this.registry.get(name).tier.level === 'green'
+      const definition = this.registry.get(name)
+      return (
+        definition.tier.level === 'green' &&
+        (definition.sideEffect === 'read' || definition.sideEffect === 'none')
+      )
     } catch {
       return false
+    }
+  }
+
+  /** 本 turn 已判 deny 的同名同参调用不得进入并行批次（必须串行复用原判决）。 */
+  isDenied(call: ToolCallInput): boolean {
+    return this.guard.check(fingerprintOf(call)) !== undefined
+  }
+
+  /** 非权威回调的统一边界：抛错 → 落审计 + 回退安全值。 */
+  private safe<T>(stage: string, callId: string, run: () => T, fallback: T): T {
+    try {
+      return run()
+    } catch (error) {
+      this.auditCallbackFailure(stage, callId, error)
+      return fallback
+    }
+  }
+
+  /** 回调失败审计：审计自身再失败也不能反噬主流程。 */
+  private auditCallbackFailure(stage: string, callId: string, error: unknown): void {
+    try {
+      this.session.append('tool/callback-failed', {
+        stage,
+        callId,
+        code: errorCodeOf(error),
+        reason: messageOf(error),
+        at: this.now(),
+      })
+    } catch (auditError) {
+      // 审计通道本身不可用时，至少让运维能在进程日志里看到（不静默吞错）。
+      console.error('bah-tools: tool/callback-failed 审计落账失败', auditError)
+    }
+  }
+
+  /** 广播权威结果（自定义出口如并行缓冲也要包一层）。 */
+  private emitResultSafely(result: ToolResultData): void {
+    try {
+      this.emitResult(result)
+    } catch (error) {
+      this.auditCallbackFailure('emit-result', result.callId, error)
     }
   }
 
@@ -151,7 +205,12 @@ export class ToolPipeline {
     })
 
     // ② 待执行卡片（纯函数；卡片进渠道，业务逻辑不进渠道）
-    const callCard = definition.presentCall?.(call.args)
+    const callCard = this.safe<UiCard | undefined>(
+      'present-call',
+      call.callId,
+      () => definition.presentCall?.(call.args),
+      undefined,
+    )
 
     // ③ 执行前判决（默认 allow；唯一阻断点）
     const pre: PreExecuteInput = await this.ctx.events.waterfall('tools/pre-execute', {
@@ -186,15 +245,27 @@ export class ToolPipeline {
     // ⑥ 预置内容 → 后置判决
     let content: readonly ContentBlock[] = isError
       ? [{ type: 'text', text: reason ?? '工具执行失败' }]
-      : (definition.projectContent?.(payload) ?? this.renderContent(payload))
+      : this.safe(
+          'project-content',
+          call.callId,
+          () => definition.projectContent?.(payload) ?? this.renderContent(payload),
+          fallbackContent(payload),
+        )
     const additionalContexts: string[] = []
 
     if (!isError) {
-      const post: PostExecuteInput = await this.ctx.events.waterfall('tools/post-execute', {
-        call,
-        content,
-        verdict: { kind: 'accept' },
-      })
+      let post: PostExecuteInput
+      try {
+        post = await this.ctx.events.waterfall('tools/post-execute', {
+          call,
+          content,
+          verdict: { kind: 'accept' },
+        })
+      } catch (error) {
+        // 后置监听器坏了不等于工具执行坏了：按 accept 继续，落审计。
+        this.auditCallbackFailure('post-execute', call.callId, error)
+        post = { call, content, verdict: { kind: 'accept' } }
+      }
       switch (post.verdict.kind) {
         case 'accept':
           break
@@ -218,7 +289,12 @@ export class ToolPipeline {
     }
 
     // ⑦ 内容不变量（同步、纯函数）→ 冻结权威结果
-    content = definition.finalizeContent?.([...content]) ?? content
+    content = this.safe(
+      'finalize-content',
+      call.callId,
+      () => definition.finalizeContent?.([...content]) ?? content,
+      content,
+    )
 
     const result: ToolResultData = {
       callId: call.callId,
@@ -230,16 +306,22 @@ export class ToolPipeline {
       durationMs: this.now() - startedAt,
     }
 
-    // 冻结的权威结果：同步通知（票据记账 / 审计 / UI）
-    this.emitResult(result)
-    // 唯一面向模型的结果落账
+    // 权威结果先落账，再广播：广播失败不能阻止日志留下结果。
     this.session.append('tool/result', result)
+    this.emitResultSafely(result)
     // 追加校正上下文（FIFO，落在 tool/result 之后 → 模型先看到结果再看到纠正）
     for (const text of additionalContexts) {
       this.session.append('user/message', { content: text, source: 'context' })
     }
 
-    const resultCard = isError ? undefined : definition.presentResult?.(call.args, payload)
+    const resultCard = isError
+      ? undefined
+      : this.safe<UiCard | undefined>(
+          'present-result',
+          call.callId,
+          () => definition.presentResult?.(call.args, payload),
+          undefined,
+        )
     return { result, callCard, resultCard, additionalContexts }
   }
 
@@ -313,6 +395,7 @@ export class ToolPipeline {
       durationMs: 0,
     }
     this.session.append('tool/result', result)
+    this.emitResultSafely(result)
     return { result, additionalContexts: [] }
   }
 
@@ -327,8 +410,8 @@ export class ToolPipeline {
       reason: verdict.reason,
       durationMs: 0,
     }
-    this.emitResult(result)
     this.session.append('tool/result', result)
+    this.emitResultSafely(result)
     return { result, callCard, additionalContexts: [] }
   }
 
@@ -357,6 +440,23 @@ const defaultRender: ContentRenderer = (result) => [
     text: typeof result === 'string' ? result : (JSON.stringify(result) ?? String(result)),
   },
 ]
+
+/**
+ * 渲染器的最后兜底：projectContent 抛错时用。
+ *
+ * 先尝试 JSON 化（保留可读结果）；循环引用等再抛错就退到固定说明，绝不让渲染失败
+ * 把一次成功的工具执行变成失败。
+ */
+function fallbackContent(payload: unknown): readonly ContentBlock[] {
+  if (typeof payload === 'string') return [{ type: 'text', text: payload }]
+  try {
+    const json = JSON.stringify(payload)
+    if (json !== undefined) return [{ type: 'text', text: json }]
+  } catch {
+    // fall through
+  }
+  return [{ type: 'text', text: '工具已执行成功，但结果无法渲染为文本（callback-failed 已审计）。' }]
+}
 
 /** 任意抛出物 → 可读理由（非 Error 也要留文本）。 */
 function messageOf(error: unknown): string {

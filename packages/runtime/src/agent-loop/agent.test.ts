@@ -22,7 +22,7 @@ import {
   withTestContext,
   type TestContext,
 } from '@bah/test-support'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { SessionEvent, SessionEventMap, ToolDefinition } from '@bah/core'
 import { LlmAdapterRegistry } from '@bah/llm'
@@ -39,6 +39,7 @@ import { MockLlmAdapter, textStep, toolCallStep, type MockStep } from '@bah/llm/
 import { JsonlPersistence } from '@bah/persistence'
 
 import { AGENTS_SERVICE, provideAgents } from '../agent/index.ts'
+import { currentSessionBuffer } from '../session/buffer.ts'
 import { deriveMessages } from '../session/derive.ts'
 import { SESSION_SERVICE, provideSession, type SessionApi } from '../session/service.ts'
 import type { AppendOptions, AnySessionEvent, SessionEventType } from '../session/types.ts'
@@ -91,6 +92,8 @@ interface HarnessOptions {
   readonly seed?: (session: SessionApi) => void
   /** 装配完成后、跑用例前挂监听器。 */
   readonly prepare?: (harness: Harness) => void
+  /** 包一层会话（B3 并行 flush 失败隔离用）。 */
+  readonly wrapSession?: (session: SessionApi) => SessionApi
 }
 
 async function withHarness(
@@ -111,7 +114,8 @@ async function withHarness(
     const registry = new LlmAdapterRegistry()
     registry.register(options.wrapAdapter === undefined ? mock : options.wrapAdapter(mock))
 
-    const session = test.ctx.get(SESSION_SERVICE)
+    const rawSession = test.ctx.get(SESSION_SERVICE)
+    const session = options.wrapSession?.(rawSession) ?? rawSession
     options.seed?.(session)
     const loop = new AgentLoop({
       ctx: test.ctx,
@@ -1260,6 +1264,7 @@ describe('T-LOOP-015 只读工具并行（P-P4）', () => {
             description: '慢只读工具',
             schema: { type: 'object' },
             tier: { level: 'green' },
+            sideEffect: 'read',
             execute: async () => {
               harness.session.appendDomain('read/slow', {}, { ignorable: true })
               active += 1
@@ -1274,6 +1279,7 @@ describe('T-LOOP-015 只读工具并行（P-P4）', () => {
             description: '快只读工具',
             schema: { type: 'object' },
             tier: { level: 'green' },
+            sideEffect: 'read',
             execute: async () => {
               harness.session.appendDomain('read/fast', {}, { ignorable: true })
               active += 1
@@ -1302,6 +1308,85 @@ describe('T-LOOP-015 只读工具并行（P-P4）', () => {
         expect(
           harness.events().filter((event) => event.type.startsWith('read/')).map((event) => event.type),
         ).toEqual(['read/slow', 'read/fast'])
+      },
+    )
+  })
+
+  it('并行批次 flush 失败隔离：后续缓冲继续 flush，结果广播失败落审计，最终聚合报错', async () => {
+    let active = 0
+    let maxActive = 0
+    let auditAttempts = 0
+    const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await withHarness(
+      {
+        steps: [
+          {
+            content: [
+              { kind: 'tool-call', id: 'call-slow', name: 'slow_tool', args: {} },
+              { kind: 'tool-call', id: 'call-fast', name: 'fast_tool', args: {} },
+            ],
+            finishReason: 'tool-calls',
+          },
+        ],
+        wrapSession: (session): SessionApi => ({
+          ...session,
+          append: ((type: string, data: unknown, options?: AppendOptions) => {
+            if (type === 'tool/callback-failed' && currentSessionBuffer() === undefined) {
+              auditAttempts += 1
+              // 第一条审计成功落账，第二条让审计通道也失败（覆盖 console.error 兜底）。
+              if (auditAttempts >= 2) throw new Error('audit down')
+            }
+            return session.append(type as never, data as never, options)
+          }) as SessionApi['append'],
+          // 执行期（有 buffer）正常记录；flush 期（无 buffer）让领域事件写失败。
+          appendDomain: (type, data, options) => {
+            if (currentSessionBuffer() === undefined && type.startsWith('read/')) {
+              throw new Error(`flush boom: ${type}`)
+            }
+            return session.appendDomain(type, data, options)
+          },
+        }),
+        prepare: (harness) => {
+          harness.test.ctx.events.on('tools/result', () => {
+            throw new Error('broadcast boom')
+          })
+          const register = (name: string, ms: number): void => {
+            harness.tools.register({
+              name,
+              description: `${name} 只读工具`,
+              schema: { type: 'object' },
+              tier: { level: 'green' },
+              sideEffect: 'read',
+              execute: async () => {
+                active += 1
+                maxActive = Math.max(maxActive, active)
+                await delay(ms)
+                active -= 1
+                harness.session.appendDomain(`read/${name}`, {}, { ignorable: true })
+                return name
+              },
+            })
+          }
+          register('slow_tool', 20)
+          register('fast_tool', 1)
+        },
+      },
+      async (harness) => {
+        harness.loop.send('并行查两个')
+        await expect(harness.loop.run()).rejects.toThrow(/并行批次失败/)
+        expect(maxActive).toBe(2)
+        const callbackFailures = harness
+          .events()
+          .filter(
+            (event) =>
+              event.type === 'tool/callback-failed' && event.data.stage === 'emit-result',
+          )
+        expect(callbackFailures.length).toBeGreaterThan(0)
+        expect(auditAttempts).toBeGreaterThanOrEqual(2)
+        expect(spy).toHaveBeenCalled()
+        spy.mockRestore()
       },
     )
   })
