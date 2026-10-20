@@ -312,3 +312,31 @@ describe('显式批准档（一次性 + 时效）', () => {
     expect(decision.granted).toBe('compute-bounded')
   })
 })
+
+describe('缺省装配：不注入时钟与档位表时的兜底', () => {
+  // 生产装配（Config 未写 `sandbox.clock` / `sandbox.specs`）走的就是这条路径。
+  // 单测此前一律注入固定钟，导致 `now ?? (() => Date.now())` 的默认分支从未被执行——
+  // 而它恰恰是真实部署里唯一会生效的那一支。
+  it('无参构造可用：兜底档 query-only，时钟退化为 Date.now()', () => {
+    const policy = new SandboxPolicy()
+    expect(policy.baseTierOf('未声明的工具')).toBe('query-only')
+
+    // 默认档表未声明该工具 → 解析到 query-only，且规格来自 DEFAULT_TIER_SPECS
+    const decision = policy.resolve({ tool: '未声明的工具', codeSource: 'trusted' }, 's-default')
+    expect(decision.tier).toBe('query-only')
+    expect(decision.limits).toEqual(DEFAULT_TIER_SPECS['query-only'])
+  })
+
+  it('默认时钟会被批准时效读取（不抛、且立即生效）', () => {
+    const policy = new SandboxPolicy({ defaults: { analysis_calc: 'query-only' } })
+    // grant 内部用 this.now() 计算 expiresAt：默认箭头必须在这里被真正调用
+    expect(() => policy.grant('s-default', 'fp-default', 'compute-bounded', 60_000)).not.toThrow()
+
+    const decision = policy.resolve(
+      { tool: 'analysis_calc', codeSource: 'model', fingerprint: 'fp-default' },
+      's-default',
+    )
+    expect(decision.tier).toBe('compute-bounded')
+    expect(decision.granted).toBe('compute-bounded')
+  })
+})
