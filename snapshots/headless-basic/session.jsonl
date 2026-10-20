@@ -14,9 +14,9 @@
 {"seq":13,"at":1700000000000,"formatVersion":1,"type":"ticket/approved","data":{"ticketId":"ticket:call-1","callId":"call-1","name":"transfer_create","at":1700000000000},"ignorable":true}
 {"seq":14,"at":1700000000000,"formatVersion":1,"type":"approval/decided","data":{"ticketId":"ticket:call-1","decision":"allowed-once"}}
 {"seq":15,"at":1700000000000,"formatVersion":1,"type":"transfer/created","data":{"result":{"txnId":"t-new-9","ticketId":"ticket:call-1","amountCents":80000,"feeCents":0,"payeeName":"王建国","balanceCents":1154567,"availableCents":1154567,"dailyUsedCents":80000,"dailyLimitCents":500000,"remainingCents":420000,"at":1700000000000}},"ignorable":true}
-{"seq":16,"at":1700000000000,"formatVersion":1,"type":"ticket/redeemed","data":{"ticketId":"ticket:call-1","callId":"call-1","name":"transfer_create","at":1700000000000},"ignorable":true}
-{"seq":17,"at":1700000000000,"formatVersion":1,"type":"ticket/consumed","data":{"ticketId":"ticket:call-1","callId":"call-1","name":"transfer_create","at":1700000000000},"ignorable":true}
-{"seq":18,"at":1700000000000,"formatVersion":1,"type":"tool/result","data":{"callId":"call-1","name":"transfer_create","isError":false,"content":[{"type":"text","text":"转账成功：¥800.00 → 王建国；流水号 t-new-9，票据 ticket:call-1；余额 ¥11,545.67。"}],"durationMs":0}}
+{"seq":16,"at":1700000000000,"formatVersion":1,"type":"tool/result","data":{"callId":"call-1","name":"transfer_create","isError":false,"content":[{"type":"text","text":"转账成功：¥800.00 → 王建国；流水号 t-new-9，票据 ticket:call-1；余额 ¥11,545.67。"}],"durationMs":0}}
+{"seq":17,"at":1700000000000,"formatVersion":1,"type":"ticket/redeemed","data":{"ticketId":"ticket:call-1","callId":"call-1","name":"transfer_create","at":1700000000000},"ignorable":true}
+{"seq":18,"at":1700000000000,"formatVersion":1,"type":"ticket/consumed","data":{"ticketId":"ticket:call-1","callId":"call-1","name":"transfer_create","at":1700000000000},"ignorable":true}
 {"seq":19,"at":1700000000000,"formatVersion":1,"type":"assistant/message","data":{"content":[],"toolCalls":[{"callId":"call-1","name":"transfer_create","args":{"amount":800,"payee":{"name":"王建国","phone":"13900002222"},"remark":"房租"}}]}}
 {"seq":20,"at":1700000000000,"formatVersion":1,"type":"step/end","data":{"turn":1,"step":1}}
 {"seq":21,"at":1700000000000,"formatVersion":1,"type":"step/start","data":{"turn":1,"step":2}}
