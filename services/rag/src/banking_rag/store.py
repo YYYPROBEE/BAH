@@ -180,6 +180,14 @@ class EmbedVersionMismatch(RuntimeError):
     """库里同时存在多个嵌入版本（O15 指纹闸）。"""
 
 
+class TraceConflict(RuntimeError):
+    """同一 trace 重复写入（Idempotency-Key 重放）；审计只追加，不覆盖。"""
+
+    def __init__(self, trace_id: str) -> None:
+        super().__init__(f"trace 已存在：{trace_id}")
+        self.trace_id = trace_id
+
+
 class Store:
     """一个 SQLite 文件一个 Store；请求内短连接，WAL 由连接本身保证。"""
 
@@ -467,6 +475,9 @@ class Store:
         ):
             return set()
         day = principal.now.date().isoformat()
+        # 产品范围：product_id 非空 → 本产品 + 通用（product_id IS NULL）；
+        # product_id 为空 → 默认仅通用，只有服务端显式授予 full_scope 的角色才看全量。
+        full_scope = 1 if bool(getattr(principal, "full_scope", False)) else 0
         rows = conn.execute(
             """
             SELECT c.chunk_id
@@ -480,6 +491,11 @@ class Store:
               AND d.status = 'active'
               AND (d.valid_from IS NULL OR d.valid_from <= ?)
               AND (d.valid_to IS NULL OR d.valid_to >= ?)
+              AND (
+                ? = 1
+                OR c.product_id IS NULL
+                OR c.product_id = ?
+              )
             """,
             (
                 principal.role,
@@ -489,6 +505,8 @@ class Store:
                 MAX_TIER,
                 day,
                 day,
+                full_scope,
+                principal.product_id,
             ),
         ).fetchall()
         return {int(row["chunk_id"]) for row in rows}
@@ -669,41 +687,36 @@ class Store:
         breaker_state: str = "CLOSED",
         cache_hit: int = 0,
     ) -> None:
-        conn.execute(
-            """
-            INSERT INTO retrieval_log (
-              trace_id, session_id, query_norm, predicate_json, visible_count,
-              evidence_ids, route, verdict, reason_code, latency_ms, created_at,
-              channels_json, breaker_state, cache_hit
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(trace_id) DO UPDATE SET
-              visible_count=excluded.visible_count,
-              evidence_ids=excluded.evidence_ids,
-              route=excluded.route,
-              verdict=excluded.verdict,
-              reason_code=excluded.reason_code,
-              latency_ms=excluded.latency_ms,
-              channels_json=excluded.channels_json,
-              breaker_state=excluded.breaker_state,
-              cache_hit=excluded.cache_hit
-            """,
-            (
-                trace_id,
-                session_id,
-                query_norm,
-                predicate_json,
-                visible_count,
-                json.dumps(evidence_ids),
-                route,
-                verdict,
-                reason_code,
-                latency_ms,
-                created_at,
-                channels_json,
-                breaker_state,
-                cache_hit,
-            ),
-        )
+        # 审计只追加：冲突由主键唯一约束暴露（重放 → 409），绝不 UPDATE 覆盖。
+        try:
+            conn.execute(
+                """
+                INSERT INTO retrieval_log (
+                  trace_id, session_id, query_norm, predicate_json, visible_count,
+                  evidence_ids, route, verdict, reason_code, latency_ms, created_at,
+                  channels_json, breaker_state, cache_hit
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    trace_id,
+                    session_id,
+                    query_norm,
+                    predicate_json,
+                    visible_count,
+                    json.dumps(evidence_ids),
+                    route,
+                    verdict,
+                    reason_code,
+                    latency_ms,
+                    created_at,
+                    channels_json,
+                    breaker_state,
+                    cache_hit,
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            conn.rollback()
+            raise TraceConflict(trace_id) from exc
         conn.commit()
 
     def log_answer(
@@ -723,48 +736,68 @@ class Store:
         tokens_in: int = 0,
         tokens_out: int = 0,
     ) -> None:
-        conn.execute(
-            """
-            INSERT INTO answer_log (
-              trace_id, session_id, answer_text, verdict, reason_code,
-              tokens_in, tokens_out, latency_ms, created_at,
-              verify_json, generator, model
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(trace_id) DO UPDATE SET
-              answer_text=excluded.answer_text,
-              verdict=excluded.verdict,
-              reason_code=excluded.reason_code,
-              tokens_in=excluded.tokens_in,
-              tokens_out=excluded.tokens_out,
-              latency_ms=excluded.latency_ms,
-              verify_json=excluded.verify_json,
-              generator=excluded.generator,
-              model=excluded.model
-            """,
-            (
-                trace_id,
-                session_id,
-                answer_text,
-                verdict,
-                reason_code,
-                tokens_in,
-                tokens_out,
-                latency_ms,
-                created_at,
-                verify_json,
-                generator,
-                model,
-            ),
-        )
+        # 审计只追加：答案日志同样不允许覆盖。
+        try:
+            conn.execute(
+                """
+                INSERT INTO answer_log (
+                  trace_id, session_id, answer_text, verdict, reason_code,
+                  tokens_in, tokens_out, latency_ms, created_at,
+                  verify_json, generator, model
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    trace_id,
+                    session_id,
+                    answer_text,
+                    verdict,
+                    reason_code,
+                    tokens_in,
+                    tokens_out,
+                    latency_ms,
+                    created_at,
+                    verify_json,
+                    generator,
+                    model,
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            conn.rollback()
+            raise TraceConflict(trace_id) from exc
         conn.commit()
 
-    def audit(self, conn: sqlite3.Connection, trace_id: str) -> dict[str, Any] | None:
-        retrieval = conn.execute(
-            "SELECT * FROM retrieval_log WHERE trace_id = ?", (trace_id,)
+    @staticmethod
+    def trace_exists(conn: sqlite3.Connection, trace_id: str) -> bool:
+        row = conn.execute(
+            "SELECT 1 FROM retrieval_log WHERE trace_id = ?", (trace_id,)
         ).fetchone()
-        answer = conn.execute(
-            "SELECT * FROM answer_log WHERE trace_id = ?", (trace_id,)
-        ).fetchone()
+        return row is not None
+
+    def audit(
+        self,
+        conn: sqlite3.Connection,
+        trace_id: str,
+        *,
+        session_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """读取一条审计；传入 session_id 时只返回该会话自己的 trace。"""
+
+        if session_id is None:
+            retrieval = conn.execute(
+                "SELECT * FROM retrieval_log WHERE trace_id = ?", (trace_id,)
+            ).fetchone()
+            answer = conn.execute(
+                "SELECT * FROM answer_log WHERE trace_id = ?", (trace_id,)
+            ).fetchone()
+        else:
+            retrieval = conn.execute(
+                "SELECT * FROM retrieval_log WHERE trace_id = ? AND session_id = ?",
+                (trace_id, session_id),
+            ).fetchone()
+            answer = conn.execute(
+                "SELECT * FROM answer_log WHERE trace_id = ? AND session_id = ?",
+                (trace_id, session_id),
+            ).fetchone()
         if retrieval is None and answer is None:
             return None
         session_id = str(retrieval["session_id"]) if retrieval is not None else ""
@@ -798,7 +831,14 @@ class Store:
             "evidence": evidence,
         }
 
-    def recent_audits(self, conn: sqlite3.Connection, limit: int = 20) -> list[dict[str, Any]]:
+    def recent_audits(
+        self,
+        conn: sqlite3.Connection,
+        session_id: str,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """只列本会话的 trace；跨会话读取一律不可见。"""
+
         rows = conn.execute(
             """
             SELECT r.trace_id, r.session_id, r.query_norm, r.visible_count,
@@ -806,10 +846,11 @@ class Store:
                    a.generator, a.model
             FROM retrieval_log r
             LEFT JOIN answer_log a ON a.trace_id = r.trace_id
+            WHERE r.session_id = ?
             ORDER BY r.rowid DESC
             LIMIT ?
             """,
-            (limit,),
+            (session_id, limit),
         ).fetchall()
         return [dict(row) for row in rows]
 

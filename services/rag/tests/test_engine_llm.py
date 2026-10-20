@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi.testclient import TestClient
-from helpers import ask
+from helpers import ask, auth_headers, make_authenticator
 
 from banking_rag.llm import LLMReply
 from banking_rag.main import create_app
@@ -38,9 +38,13 @@ def test_llm_generation_produces_green_answer(store: Store) -> None:
     llm = ScriptedLLM(
         ['{"insufficient": false, "claims": [{"text": "赎回到账时间为T+1", "markers": ["K2"]}]}']
     )
-    with TestClient(create_app(store, llm=llm)) as client:
+    with TestClient(
+        create_app(store, llm=llm, authenticator=make_authenticator())
+    ) as client:
         payload = ask(client, "赎回要几天到账？")
-        audit = client.get(f"/v1/audit/{payload['traceId']}").json()
+        audit = client.get(
+            f"/v1/audit/{payload['traceId']}", headers=auth_headers()
+        ).json()
 
     assert payload["kind"] == "answer"
     assert payload["verdict"] == "GREEN"
@@ -58,9 +62,13 @@ def test_entailment_rescues_paraphrase_as_amber(store: Store) -> None:
             '{"support": true}',
         ]
     )
-    with TestClient(create_app(store, llm=llm)) as client:
+    with TestClient(
+        create_app(store, llm=llm, authenticator=make_authenticator())
+    ) as client:
         payload = ask(client, "赎回要几天到账？")
-        audit = client.get(f"/v1/audit/{payload['traceId']}").json()
+        audit = client.get(
+            f"/v1/audit/{payload['traceId']}", headers=auth_headers()
+        ).json()
 
     assert payload["kind"] == "answer"
     assert payload["verdict"] == "AMBER_INFERRED"
@@ -77,7 +85,9 @@ def test_entailment_failure_is_red(store: Store) -> None:
             '{"support": false}',
         ]
     )
-    with TestClient(create_app(store, llm=llm)) as client:
+    with TestClient(
+        create_app(store, llm=llm, authenticator=make_authenticator())
+    ) as client:
         payload = ask(client, "赎回要几天到账？")
 
     assert payload["kind"] == "refusal"

@@ -1,0 +1,294 @@
+{
+  "cases": {
+    "V01-green-number-and-literal": {
+      "claims": [
+        {
+          "entailment": "skipped",
+          "literal": "pass",
+          "markers": [
+            "K1"
+          ],
+          "support": "pass"
+        }
+      ],
+      "numbers": [
+        {
+          "match": true,
+          "raw": "1.50%",
+          "source": "K1",
+          "unit": "%"
+        }
+      ],
+      "reasonCode": null,
+      "verdict": "GREEN"
+    },
+    "V02-numeric-mismatch": {
+      "claims": [
+        {
+          "entailment": "skipped",
+          "literal": "fail",
+          "markers": [
+            "K1"
+          ],
+          "support": "fail"
+        }
+      ],
+      "numbers": [
+        {
+          "match": false,
+          "raw": "15%",
+          "source": "K1",
+          "unit": "%"
+        }
+      ],
+      "reasonCode": "NUMERIC_MISMATCH",
+      "verdict": "RED"
+    },
+    "V03-missing-citation": {
+      "claims": [
+        {
+          "entailment": "skipped",
+          "literal": "fail",
+          "markers": [],
+          "support": "fail"
+        }
+      ],
+      "numbers": [
+        {
+          "match": false,
+          "raw": "1.50%",
+          "source": "",
+          "unit": "%"
+        }
+      ],
+      "reasonCode": "MISSING_CITATION",
+      "verdict": "RED"
+    },
+    "V04-unresolved-marker": {
+      "claims": [
+        {
+          "entailment": "skipped",
+          "literal": "fail",
+          "markers": [
+            "K9"
+          ],
+          "support": "fail"
+        }
+      ],
+      "numbers": [
+        {
+          "match": false,
+          "raw": "1.50%",
+          "source": "K9",
+          "unit": "%"
+        }
+      ],
+      "reasonCode": "SPAN_UNRESOLVED",
+      "verdict": "RED"
+    },
+    "V05-literal-failure-no-number": {
+      "claims": [
+        {
+          "entailment": "skipped",
+          "literal": "fail",
+          "markers": [
+            "K1"
+          ],
+          "support": "fail"
+        }
+      ],
+      "numbers": [],
+      "reasonCode": "UNSUPPORTED_CLAIM",
+      "verdict": "AMBER_INFERRED"
+    },
+    "V06-tplus-mismatch": {
+      "claims": [
+        {
+          "entailment": "skipped",
+          "literal": "fail",
+          "markers": [
+            "K2"
+          ],
+          "support": "fail"
+        }
+      ],
+      "numbers": [
+        {
+          "match": false,
+          "raw": "T+9",
+          "source": "K2",
+          "unit": "天"
+        }
+      ],
+      "reasonCode": "NUMERIC_MISMATCH",
+      "verdict": "RED"
+    },
+    "V07-unit-mismatch": {
+      "claims": [
+        {
+          "entailment": "skipped",
+          "literal": "fail",
+          "markers": [
+            "K1"
+          ],
+          "support": "fail"
+        }
+      ],
+      "numbers": [
+        {
+          "match": false,
+          "raw": "0.8 元",
+          "source": "K1",
+          "unit": "元"
+        }
+      ],
+      "reasonCode": "NUMERIC_MISMATCH",
+      "verdict": "RED"
+    },
+    "V08-number-cannot-borrow-other-evidence": {
+      "claims": [
+        {
+          "entailment": "skipped",
+          "literal": "fail",
+          "markers": [
+            "K2"
+          ],
+          "support": "fail"
+        }
+      ],
+      "numbers": [
+        {
+          "match": false,
+          "raw": "0.8%",
+          "source": "K2",
+          "unit": "%"
+        }
+      ],
+      "reasonCode": "NUMERIC_MISMATCH",
+      "verdict": "RED"
+    },
+    "V09-require-citations-false-no-marker": {
+      "claims": [
+        {
+          "entailment": "skipped",
+          "literal": "fail",
+          "markers": [],
+          "support": "fail"
+        }
+      ],
+      "numbers": [
+        {
+          "match": false,
+          "raw": "1.50%",
+          "source": "",
+          "unit": "%"
+        }
+      ],
+      "reasonCode": "MISSING_CITATION",
+      "verdict": "AMBER_INFERRED"
+    },
+    "V10-numeric-skips-literal-similarity": {
+      "claims": [
+        {
+          "entailment": "skipped",
+          "literal": "fail",
+          "markers": [
+            "K1"
+          ],
+          "support": "fail"
+        }
+      ],
+      "numbers": [
+        {
+          "match": true,
+          "raw": "7天",
+          "source": "K1",
+          "unit": "天"
+        },
+        {
+          "match": false,
+          "raw": "1.51%",
+          "source": "K1",
+          "unit": "%"
+        }
+      ],
+      "reasonCode": "NUMERIC_MISMATCH",
+      "verdict": "RED"
+    },
+    "X01-numeric-text-hallucinated": {
+      "claims": [
+        {
+          "entailment": "skipped",
+          "literal": "pass",
+          "markers": [
+            "K1"
+          ],
+          "support": "pass"
+        }
+      ],
+      "numbers": [
+        {
+          "match": true,
+          "raw": "0.8%",
+          "source": "K1",
+          "unit": "%"
+        }
+      ],
+      "reasonCode": null,
+      "verdict": "GREEN"
+    },
+    "X02-numeric-mismatch-entailer-cannot-rescue": {
+      "claims": [
+        {
+          "entailment": "skipped",
+          "literal": "fail",
+          "markers": [
+            "K1"
+          ],
+          "support": "fail"
+        }
+      ],
+      "numbers": [
+        {
+          "match": false,
+          "raw": "1.2%",
+          "source": "K1",
+          "unit": "%"
+        }
+      ],
+      "reasonCode": "NUMERIC_MISMATCH",
+      "verdict": "RED"
+    },
+    "X03-non-numeric-entailer-passes": {
+      "claims": [
+        {
+          "entailment": "pass",
+          "literal": "fail",
+          "markers": [
+            "K1"
+          ],
+          "support": "pass"
+        }
+      ],
+      "numbers": [],
+      "reasonCode": "UNSUPPORTED_CLAIM",
+      "verdict": "AMBER_INFERRED"
+    }
+  },
+  "entailerCalls": {
+    "V01-green-number-and-literal": 0,
+    "V02-numeric-mismatch": 0,
+    "V03-missing-citation": 0,
+    "V04-unresolved-marker": 0,
+    "V05-literal-failure-no-number": 0,
+    "V06-tplus-mismatch": 0,
+    "V07-unit-mismatch": 0,
+    "V08-number-cannot-borrow-other-evidence": 0,
+    "V09-require-citations-false-no-marker": 0,
+    "V10-numeric-skips-literal-similarity": 0,
+    "X01-numeric-text-hallucinated": 0,
+    "X02-numeric-mismatch-entailer-cannot-rescue": 0,
+    "X03-non-numeric-entailer-passes": 1
+  },
+  "formatVersion": 1
+}

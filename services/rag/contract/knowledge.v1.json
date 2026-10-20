@@ -31,67 +31,13 @@
           },
           "title": "AnswerOptions",
           "type": "object"
-        },
-        "Principal": {
-          "additionalProperties": false,
-          "properties": {
-            "audience": {
-              "title": "Audience",
-              "type": "string"
-            },
-            "channel": {
-              "title": "Channel",
-              "type": "string"
-            },
-            "now": {
-              "format": "date-time",
-              "title": "Now",
-              "type": "string"
-            },
-            "productId": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "title": "Productid"
-            },
-            "region": {
-              "title": "Region",
-              "type": "string"
-            },
-            "role": {
-              "title": "Role",
-              "type": "string"
-            }
-          },
-          "required": [
-            "role",
-            "audience",
-            "channel",
-            "region",
-            "now"
-          ],
-          "title": "Principal",
-          "type": "object"
         }
       },
       "additionalProperties": false,
+      "description": "请求体只描述问题本身：身份/会话/注入命中/trace 全部由服务端派生。",
       "properties": {
         "answerOptions": {
           "$ref": "#/$defs/AnswerOptions"
-        },
-        "injectionHit": {
-          "default": false,
-          "title": "Injectionhit",
-          "type": "boolean"
-        },
-        "principal": {
-          "$ref": "#/$defs/Principal"
         },
         "query": {
           "maxLength": 512,
@@ -103,28 +49,10 @@
           "default": "knowledge.v1",
           "title": "Schemaversion",
           "type": "string"
-        },
-        "sessionId": {
-          "title": "Sessionid",
-          "type": "string"
-        },
-        "traceId": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Traceid"
         }
       },
       "required": [
-        "sessionId",
-        "query",
-        "principal"
+        "query"
       ],
       "title": "AnswerRequest",
       "type": "object"
@@ -419,55 +347,6 @@
       "type": "object"
     },
     "QueryRequest": {
-      "$defs": {
-        "Principal": {
-          "additionalProperties": false,
-          "properties": {
-            "audience": {
-              "title": "Audience",
-              "type": "string"
-            },
-            "channel": {
-              "title": "Channel",
-              "type": "string"
-            },
-            "now": {
-              "format": "date-time",
-              "title": "Now",
-              "type": "string"
-            },
-            "productId": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "title": "Productid"
-            },
-            "region": {
-              "title": "Region",
-              "type": "string"
-            },
-            "role": {
-              "title": "Role",
-              "type": "string"
-            }
-          },
-          "required": [
-            "role",
-            "audience",
-            "channel",
-            "region",
-            "now"
-          ],
-          "title": "Principal",
-          "type": "object"
-        }
-      },
       "additionalProperties": false,
       "properties": {
         "limits": {
@@ -476,9 +355,6 @@
           },
           "title": "Limits",
           "type": "object"
-        },
-        "principal": {
-          "$ref": "#/$defs/Principal"
         },
         "query": {
           "maxLength": 512,
@@ -490,28 +366,10 @@
           "default": "knowledge.v1",
           "title": "Schemaversion",
           "type": "string"
-        },
-        "sessionId": {
-          "title": "Sessionid",
-          "type": "string"
-        },
-        "traceId": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Traceid"
         }
       },
       "required": [
-        "sessionId",
-        "query",
-        "principal"
+        "query"
       ],
       "title": "QueryRequest",
       "type": "object"
@@ -794,10 +652,6 @@
           "title": "Schemaversion",
           "type": "string"
         },
-        "sessionId": {
-          "title": "Sessionid",
-          "type": "string"
-        },
         "traceIds": {
           "items": {
             "type": "string"
@@ -808,7 +662,6 @@
         }
       },
       "required": [
-        "sessionId",
         "traceIds",
         "answerText"
       ],
