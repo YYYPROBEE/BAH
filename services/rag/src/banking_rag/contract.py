@@ -27,11 +27,18 @@ class ApiModel(BaseModel):
 
 
 class Principal(ApiModel):
+    """认证上下文派生的身份（不再是请求体字段）。
+
+    `full_scope` 只由服务端按角色策略设置：product_id 为空时默认只允许通用文档，
+    显式授予全量策略的角色才置 True。
+    """
+
     role: str
     audience: str
     channel: str
     region: str
     product_id: str | None = None
+    full_scope: bool = False
     now: datetime
 
 
@@ -42,22 +49,16 @@ class AnswerOptions(ApiModel):
 
 
 class AnswerRequest(ApiModel):
+    """请求体只描述问题本身：身份/会话/注入命中/trace 全部由服务端派生。"""
+
     schema_version: str = "knowledge.v1"
-    trace_id: str | None = None
-    session_id: str
     query: str = Field(min_length=1, max_length=512)
-    principal: Principal
     answer_options: AnswerOptions = Field(default_factory=AnswerOptions)
-    # 由上游 sentry 透传的注入特征命中（RAG 不重复建检测器；缺省 false 保持兼容）。
-    injection_hit: bool = False
 
 
 class QueryRequest(ApiModel):
     schema_version: str = "knowledge.v1"
-    trace_id: str | None = None
-    session_id: str
     query: str = Field(min_length=1, max_length=512)
-    principal: Principal
     limits: dict[str, int] = Field(default_factory=lambda: {"topK": 8, "maxEvidenceChars": 6000})
 
 
@@ -67,7 +68,6 @@ class VerifyOptions(ApiModel):
 
 class VerifyRequest(ApiModel):
     schema_version: str = "knowledge.v1"
-    session_id: str
     trace_ids: list[str] = Field(min_length=1)
     answer_text: str = Field(min_length=1, max_length=4000)
     options: VerifyOptions = Field(default_factory=VerifyOptions)

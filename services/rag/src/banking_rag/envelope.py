@@ -67,9 +67,13 @@ def _decode_base64_hits(text: str) -> list[str]:
 
 
 def neutralize(text: str) -> Neutralized:
-    """返回中和后的文本与命中标签；替换保持字符数不变（等长无害符）。"""
+    """返回中和后的文本与命中标签；替换保持字符数不变（等长无害符）。
 
-    cleaned, removed = _strip_invisible(text)
+    先做 NFKC（全角/兼容字符归一），再剥离零宽/双向控制/Unicode tag，
+    最后匹配指令模式；否则 `ＩＧＮＯＲＥ`、夹零宽的 `IG​NORE` 都能绕过。
+    """
+
+    cleaned, removed = _strip_invisible(unicodedata.normalize("NFKC", text))
     hits: list[str] = []
     if removed:
         hits.append("invisible_chars")
@@ -104,8 +108,7 @@ SYSTEM_TEMPLATE = """你是银行知识问答的生成器，只能使用【证�
 6. 使用简体中文；全部 claim 合计不超过 {max_chars} 字。"""
 
 
-def _evidence_block(item: Evidence) -> str:
-    body = neutralize(item.text).text
+def _evidence_block(item: Evidence, body: str) -> str:
     clause = item.clause_no or "-"
     return (
         f'<evidence marker="{item.marker}" doc="{item.doc_id}" '
@@ -119,9 +122,9 @@ def build_envelope(query: str, evidence: list[Evidence], *, max_chars: int = 600
     hits.extend(safe_query.hits)
     blocks: list[str] = []
     for item in evidence:
-        block = _evidence_block(item)
-        hits.extend(neutralize(item.text).hits)
-        blocks.append(block)
+        safe_evidence = neutralize(item.text)
+        hits.extend(safe_evidence.hits)
+        blocks.append(_evidence_block(item, safe_evidence.text))
     user = f"【问题】\n{safe_query.text}\n\n【证据】\n" + "\n".join(blocks)
     return Envelope(
         messages=[

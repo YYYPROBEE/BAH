@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from pathlib import Path
 
 from banking_rag.breaker import Breaker
@@ -67,6 +68,51 @@ def test_manual_reset_is_the_only_unlock_path(tmp_path: Path) -> None:
     assert breaker.is_locked(conn, "s-1") is False
     events = [row["event"] for row in conn.execute("SELECT event FROM breaker_log")]
     assert "RESET" in events
+
+
+def test_reset_keeps_actor_and_reason_in_audit(tmp_path: Path) -> None:
+    conn = make_conn(tmp_path / "breaker.sqlite")
+    breaker = Breaker(clock=lambda: 1000.0)
+    for _ in range(3):
+        breaker.record(conn, "s-1", "RED", "SCOPE_EMPTY")
+    breaker.reset(conn, "s-1", actor="console:alice")
+
+    row = conn.execute(
+        "SELECT actor, reason FROM breaker_log WHERE event='RESET'"
+    ).fetchone()
+    assert row is not None
+    assert row["actor"] == "console:alice"
+    assert row["reason"] == "SCOPE_EMPTY"
+
+
+def test_concurrent_red_records_are_not_lost(tmp_path: Path) -> None:
+    db = tmp_path / "breaker.sqlite"
+    conn = make_conn(db)
+    conn.close()
+    breaker = Breaker(clock=lambda: 1000.0, threshold=99)
+    barrier = threading.Barrier(2)
+
+    def worker() -> None:
+        thread_conn = sqlite3.connect(db, timeout=10)
+        thread_conn.row_factory = sqlite3.Row
+        try:
+            barrier.wait()
+            breaker.record(thread_conn, "s-race", "RED", "SCOPE_EMPTY")
+        finally:
+            thread_conn.close()
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    verify_conn = sqlite3.connect(db)
+    verify_conn.row_factory = sqlite3.Row
+    try:
+        assert breaker.state(verify_conn, "s-race").consecutive_red == 2
+    finally:
+        verify_conn.close()
 
 
 def test_injection_hits_lock_within_window(tmp_path: Path) -> None:

@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass, field
 
 from .config import ENTAILMENT_ENABLED, ENTAILMENT_MAX_TOKENS
+from .envelope import neutralize
 from .llm import LLM, LLMError
 
 NUMBER_RE = re.compile(r"\d")
@@ -44,15 +45,17 @@ class Entailer:
             # 含数字的结论只能由字面层/对账通过，蕴含层不救。
             return None
 
+        # 证据先中和再送判定器：避免证据里的指令影响"支持/不支持"判断。
+        safe_evidence = neutralize(evidence_text).text
         key = hashlib.sha256(
-            f"{getattr(self.llm, 'name', 'llm')}|{claim}|{evidence_text[:MAX_EVIDENCE_CHARS]}".encode()
+            f"{getattr(self.llm, 'name', 'llm')}|{claim}|{safe_evidence[:MAX_EVIDENCE_CHARS]}".encode()
         ).hexdigest()
         if key in self._cache:
             return self._cache[key]
 
         user = (
             "【证据】\n"
-            f"{evidence_text[:MAX_EVIDENCE_CHARS]}\n\n"
+            f"{safe_evidence[:MAX_EVIDENCE_CHARS]}\n\n"
             "【结论】\n"
             f"{claim}\n\n"
             "证据是否直接支持该结论？"
@@ -78,15 +81,18 @@ class Entailer:
 
 
 def _parse(raw: str) -> bool | None:
+    """只接受 JSON（SYSTEM 已要求 JSON）。
+
+    旧实现的子串判断会把"不支持"先命中"支持"而返回 True；这里直接拒绝非 JSON，
+    解析失败一律 None（跳过蕴含，不擅自判真）。
+    """
+
     text = FENCE_RE.sub("", raw).strip()
     try:
         payload = json.loads(text)
     except json.JSONDecodeError:
-        lowered = text.lower()
-        if "true" in lowered or "支持" in lowered:
-            return True
-        if "false" in lowered or "不支持" in lowered:
-            return False
+        return None
+    if not isinstance(payload, dict):
         return None
     value = payload.get("support")
     if isinstance(value, bool):

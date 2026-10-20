@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import uuid
@@ -40,7 +41,7 @@ from .retrieve import (
     lookup,
     search,
 )
-from .store import Store
+from .store import Store, TraceConflict
 from .verify import verify_answer
 
 ALIASES: tuple[tuple[str, str], ...] = (
@@ -74,6 +75,18 @@ LOOKUP_ANSWER_TEMPLATE = "{label}为{value}{unit}[{marker}]。"
 
 def new_trace_id() -> str:
     return f"tr-{uuid.uuid4().hex[:16]}"
+
+
+def trace_for(subject: str, idempotency_key: str | None) -> str:
+    """服务端生成 trace；`Idempotency-Key` 只映射成确定性 trace，不信任客户端字段。
+
+    重放同一个 key（同一 subject）会落到同一 trace，审计主键冲突 → 409。
+    """
+
+    if not idempotency_key:
+        return new_trace_id()
+    digest = hashlib.sha256(f"{subject}\x00{idempotency_key}".encode("utf-8")).hexdigest()[:16]
+    return f"tr-idem-{digest}"
 
 
 def _elapsed_ms(started: float) -> int:
@@ -122,16 +135,25 @@ class Engine:
         self.entailer = Entailer(llm)
 
     # ── 对外：/v1/answer ──────────────────────────────────────────────────
-    def answer(self, request: AnswerRequest) -> AnswerResponse:
+    def answer(
+        self,
+        request: AnswerRequest,
+        principal: Principal,
+        session_id: str,
+        trace_id: str,
+    ) -> AnswerResponse:
         started = time.perf_counter()
-        trace_id = request.trace_id or new_trace_id()
-        principal = request.principal
         conn = self.store.connect()
         try:
-            if self.breaker.is_locked(conn, request.session_id):
+            # 先做幂等闸：重放同一 trace 直接 409，不重复计数熔断。
+            if self.store.trace_exists(conn, trace_id):
+                raise TraceConflict(trace_id)
+            if self.breaker.is_locked(conn, session_id):
                 return self._refuse(
                     conn,
-                    request,
+                    principal,
+                    session_id,
+                    request.query,
                     trace_id,
                     "LOCKED",
                     "BREAKER_LOCKED",
@@ -141,7 +163,14 @@ class Engine:
                 )
             if region_mismatch(request.query, principal.region):
                 return self._refuse(
-                    conn, request, trace_id, "RED", "SCOPE_EMPTY", started
+                    conn,
+                    principal,
+                    session_id,
+                    request.query,
+                    trace_id,
+                    "RED",
+                    "SCOPE_EMPTY",
+                    started,
                 )
 
             visible = self.store.visible_chunk_ids(conn, principal)
@@ -150,14 +179,29 @@ class Engine:
                 visible = self._filter_visible_by_product(conn, visible, products[0])
             if not visible:
                 return self._refuse(
-                    conn, request, trace_id, "RED", "SCOPE_EMPTY", started, visible=visible
+                    conn,
+                    principal,
+                    session_id,
+                    request.query,
+                    trace_id,
+                    "RED",
+                    "SCOPE_EMPTY",
+                    started,
+                    visible=visible,
                 )
 
             if len(products) >= 2:
                 candidates = self._candidates(conn, principal, products)
                 if len(candidates) >= 2:
                     return self._disambiguate(
-                        conn, request, trace_id, candidates, visible, started
+                        conn,
+                        principal,
+                        session_id,
+                        request.query,
+                        trace_id,
+                        candidates,
+                        visible,
+                        started,
                     )
 
             route = "lookup" if is_lookup_query(request.query) else "hybrid"
@@ -202,7 +246,9 @@ class Engine:
             if not evidence:
                 return self._refuse(
                     conn,
-                    request,
+                    principal,
+                    session_id,
+                    request.query,
                     trace_id,
                     "RED",
                     "EMPTY_RETRIEVAL",
@@ -235,7 +281,9 @@ class Engine:
                 except InsufficientEvidence:
                     return self._refuse(
                         conn,
-                        request,
+                        principal,
+                        session_id,
+                        request.query,
                         trace_id,
                         "RED",
                         "INSUFFICIENT_EVIDENCE",
@@ -248,16 +296,10 @@ class Engine:
             generation_ms = _elapsed_ms(generation_started)
 
             verify_started = time.perf_counter()
-            cell_values = [
-                str(row["value_text"])
-                for row in self.store.cells_for(
-                    conn, [item.chunk_id for item in evidence]
-                )
-            ]
             verified = verify_answer(
                 generation.text,
                 evidence,
-                cell_values,
+                self._cells_by_marker(conn, evidence),
                 require_citations=request.answer_options.require_citations,
                 trace_id=trace_id,
                 entailer=self.entailer,
@@ -267,7 +309,9 @@ class Engine:
             if verified.verdict == "RED":
                 return self._refuse(
                     conn,
-                    request,
+                    principal,
+                    session_id,
+                    request.query,
                     trace_id,
                     "RED",
                     verified.reason_code or "UNSUPPORTED_CLAIM",
@@ -280,6 +324,7 @@ class Engine:
                     model=generation.model,
                     tokens=(generation.prompt_tokens, generation.completion_tokens),
                     verified=verified,
+                    injection_hits=generation.envelope_hits,
                 )
 
             final_text = generation.text
@@ -305,7 +350,9 @@ class Engine:
 
             self._record_and_audit(
                 conn,
-                request,
+                principal,
+                session_id,
+                request.query,
                 trace_id,
                 visible=visible,
                 evidence_ids=[item.chunk_id for item in evidence],
@@ -319,19 +366,24 @@ class Engine:
                 model=generation.model,
                 tokens=(generation.prompt_tokens, generation.completion_tokens),
                 verified=verified,
+                injection_hits=generation.envelope_hits,
             )
             return response
         finally:
             conn.close()
 
     # ── 对外：/v1/query（只返回证据/取数） ──────────────────────────────
-    def query(self, request: QueryRequest) -> QueryResponse:
+    def query(
+        self,
+        request: QueryRequest,
+        principal: Principal,
+        session_id: str,
+        trace_id: str,
+    ) -> QueryResponse:
         started = time.perf_counter()
-        trace_id = request.trace_id or new_trace_id()
-        principal = request.principal
         conn = self.store.connect()
         try:
-            if self.breaker.is_locked(conn, request.session_id):
+            if self.breaker.is_locked(conn, session_id):
                 return QueryResponse(
                     trace_id=trace_id,
                     kind="refusal",
@@ -434,13 +486,16 @@ class Engine:
             conn.close()
 
     # ── 对外：/v1/verify ─────────────────────────────────────────────────
-    def verify(self, request: VerifyRequest) -> VerifyResponse:
+    def verify(self, request: VerifyRequest, session_id: str) -> VerifyResponse:
         conn = self.store.connect()
         try:
             evidence: list[Evidence] = []
             for trace_id in request.trace_ids:
+                # 只允许校验本会话自己的 trace。
                 row = conn.execute(
-                    "SELECT evidence_ids FROM retrieval_log WHERE trace_id = ?", (trace_id,)
+                    "SELECT evidence_ids FROM retrieval_log "
+                    "WHERE trace_id = ? AND session_id = ?",
+                    (trace_id, session_id),
                 ).fetchone()
                 if row is None:
                     continue
@@ -456,20 +511,29 @@ class Engine:
                     reason_code="SPAN_UNRESOLVED",
                     latency_ms=Latency(total=0),
                 )
-            cell_values = [
-                str(cell["value_text"])
-                for cell in self.store.cells_for(conn, [item.chunk_id for item in evidence])
-            ]
             return verify_answer(
                 request.answer_text,
                 evidence,
-                cell_values,
+                self._cells_by_marker(conn, evidence),
                 require_citations=request.options.require_citations,
                 trace_id=request.trace_ids[0] if request.trace_ids else None,
                 entailer=self.entailer,
             )
         finally:
             conn.close()
+
+    def _cells_by_marker(
+        self, conn, evidence: list[Evidence]
+    ) -> dict[str, list[str]]:
+        """cell 值按 marker 分组（含单位），数值校验不得跨证据取用。"""
+
+        by_chunk: dict[int, list[str]] = {}
+        for row in self.store.cells_for(conn, [item.chunk_id for item in evidence]):
+            unit = str(row["unit"] or "")
+            by_chunk.setdefault(int(row["chunk_id"]), []).append(
+                f"{row['value_text']}{unit}"
+            )
+        return {item.marker: by_chunk.get(item.chunk_id, []) for item in evidence}
 
     # ── 内部 ─────────────────────────────────────────────────────────────
     def _evidence_for_chunks(self, conn, chunk_ids: list[int]) -> list[Evidence]:
@@ -525,7 +589,9 @@ class Engine:
     def _disambiguate(
         self,
         conn,
-        request: AnswerRequest,
+        principal: Principal,
+        session_id: str,
+        query: str,
         trace_id: str,
         candidates: list[Candidate],
         visible: set[int],
@@ -543,7 +609,9 @@ class Engine:
         )
         self._record_and_audit(
             conn,
-            request,
+            principal,
+            session_id,
+            query,
             trace_id,
             visible=visible,
             evidence_ids=[],
@@ -563,7 +631,9 @@ class Engine:
     def _refuse(
         self,
         conn,
-        request: AnswerRequest,
+        principal: Principal,
+        session_id: str,
+        query: str,
         trace_id: str,
         verdict: str,
         reason_code: str,
@@ -577,6 +647,7 @@ class Engine:
         model: str | None = None,
         tokens: tuple[int, int] = (0, 0),
         verified: VerifyResponse | None = None,
+        injection_hits: list[str] | None = None,
         count_breaker: bool = True,
         breaker_state: str | None = None,
     ) -> AnswerResponse:
@@ -598,7 +669,9 @@ class Engine:
         )
         self._record_and_audit(
             conn,
-            request,
+            principal,
+            session_id,
+            query,
             trace_id,
             visible=visible or set(),
             evidence_ids=evidence_ids or [],
@@ -612,6 +685,7 @@ class Engine:
             model=model,
             tokens=tokens,
             verified=verified,
+            injection_hits=injection_hits or [],
             count_breaker=count_breaker,
             breaker_state=breaker_state,
         )
@@ -620,7 +694,9 @@ class Engine:
     def _record_and_audit(
         self,
         conn,
-        request: AnswerRequest,
+        principal: Principal,
+        session_id: str,
+        query: str,
         trace_id: str,
         *,
         visible: set[int],
@@ -635,19 +711,21 @@ class Engine:
         model: str | None,
         tokens: tuple[int, int],
         verified: VerifyResponse | None,
+        injection_hits: list[str] | None = None,
         count_breaker: bool = True,
         breaker_state: str | None = None,
     ) -> None:
         if count_breaker:
             self.breaker.record(
                 conn,
-                request.session_id,
+                session_id,
                 verdict,
                 reason_code,
-                injection_hit=request.injection_hit,
+                # 注入命中只信服务端 envelope 的检测结果，不接受请求体。
+                injection_hit=bool(injection_hits),
             )
-        state = breaker_state or self.breaker.status(conn, request.session_id)
-        now = request.principal.now.isoformat()
+        state = breaker_state or self.breaker.status(conn, session_id)
+        now = principal.now.isoformat()
         verify_payload = (
             json.dumps(verified.model_dump(by_alias=True, mode="json"), ensure_ascii=False)
             if verified is not None
@@ -656,11 +734,9 @@ class Engine:
         self.store.log_retrieval(
             conn,
             trace_id=trace_id,
-            session_id=request.session_id,
-            query_norm=request.query,
-            predicate_json=json.dumps(
-                request.principal.model_dump(mode="json"), ensure_ascii=False
-            ),
+            session_id=session_id,
+            query_norm=query,
+            predicate_json=json.dumps(principal.model_dump(mode="json"), ensure_ascii=False),
             visible_count=len(visible),
             evidence_ids=evidence_ids,
             route=route,
@@ -674,7 +750,7 @@ class Engine:
         self.store.log_answer(
             conn,
             trace_id=trace_id,
-            session_id=request.session_id,
+            session_id=session_id,
             answer_text=answer_text,
             verdict=verdict,
             reason_code=reason_code,
