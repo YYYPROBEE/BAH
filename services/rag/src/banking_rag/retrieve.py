@@ -1,19 +1,18 @@
-"""检索与取数的骨架版。
+"""混合检索：FTS5 × sqlite-vec 双通道 → RRF 融合 → 证据。
 
-真实实现应：FTS5 + sqlite-vec 双通道 → RRF → tier 权重。本文件先做 FTS5/LIKE +
-关键词打分，保证 ACL 先过滤、证据可引用、cell 可取数；向量通道留 TODO。
-
-纪律：本文件不生成答案，只返回证据/取数；生成与校验在 engine.py。
+纪律：两通道共享同一个 `visible_ids`（O1 两段式），受限 chunk 不参与打分；
+本文件不生成答案，只返回证据/取数与可回放的通道追踪。
 """
 
 from __future__ import annotations
 
 import re
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from .config import MAX_EVIDENCE_CHARS, TOP_K
+from .config import CHANNEL_CANDIDATES, MAX_EVIDENCE_CHARS, TOP_K
 from .contract import Evidence
+from .fuse import ChannelHit, FusedHit, as_channel_hits, rrf_fuse
 from .store import ChunkRow, Store
 
 QUESTION_WORDS = (
@@ -111,6 +110,12 @@ class LookupHit:
     cell_id: int
 
 
+@dataclass
+class SearchResult:
+    evidence: list[Evidence]
+    trace: dict[str, object] = field(default_factory=dict)
+
+
 def evidence_from_rows(rows: list[tuple[ChunkRow, float]]) -> list[Evidence]:
     """把检索结果变成带 marker 的证据；超出预算时整条丢弃。"""
 
@@ -136,15 +141,75 @@ def evidence_from_rows(rows: list[tuple[ChunkRow, float]]) -> list[Evidence]:
     return evidence
 
 
+def _tiers(conn: sqlite3.Connection, ids: list[int]) -> dict[int, int]:
+    if not ids:
+        return {}
+    placeholders = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"""
+        SELECT c.chunk_id, d.tier
+        FROM chunks c JOIN docs d ON d.doc_id = c.doc_id
+        WHERE c.chunk_id IN ({placeholders})
+        """,
+        ids,
+    ).fetchall()
+    return {int(row["chunk_id"]): int(row["tier"]) for row in rows}
+
+
+def _channel_trace(hits: list[ChannelHit]) -> list[dict[str, object]]:
+    return [
+        {"chunkId": hit.chunk_id, "rank": hit.rank, "score": round(hit.score, 6)}
+        for hit in hits
+    ]
+
+
 def search(
     store: Store,
     conn: sqlite3.Connection,
     visible_ids: set[int],
     query: str,
     top_k: int = TOP_K,
-) -> list[Evidence]:
-    rows = store.search_chunks(conn, visible_ids, extract_terms(query), top_k)
-    return evidence_from_rows(rows)
+) -> SearchResult:
+    """双通道检索 + RRF。向量通道不可用时退化为 FTS5 单通道（R-2）。"""
+
+    terms = extract_terms(query)
+    fts_rows = store.fts_ranked(conn, visible_ids, terms, CHANNEL_CANDIDATES)
+    vec_rows: list[tuple[int, float]] = []
+    vec_error: str | None = None
+
+    if store.embedding_on and visible_ids:
+        try:
+            query_vector = store.embedder.embed_query(query)
+            vec_rows = store.vector_ranked(conn, visible_ids, query_vector, CHANNEL_CANDIDATES)
+        except Exception as exc:  # noqa: BLE001 - 向量通道失败不阻断主链路
+            vec_error = f"{type(exc).__name__}: {exc}"
+
+    fts_hits = as_channel_hits(fts_rows)
+    vec_hits = as_channel_hits(vec_rows)
+    channels: dict[str, list[ChannelHit]] = {"fts5": fts_hits}
+    if vec_hits or vec_error is None:
+        channels["vector"] = vec_hits
+
+    candidates = list({hit.chunk_id for hit in fts_hits + vec_hits})
+    tiers = _tiers(conn, candidates)
+    fused: list[FusedHit] = rrf_fuse(channels, tiers, top_k=top_k)
+
+    rows = store.chunks_by_ids(conn, [hit.chunk_id for hit in fused])
+    ordered: list[tuple[ChunkRow, float]] = []
+    for hit in fused:
+        row = rows.get(hit.chunk_id)
+        if row is not None:
+            ordered.append((row, hit.score))
+
+    trace: dict[str, object] = {
+        "rrfK": 60,
+        "terms": terms,
+        "fts5": _channel_trace(fts_hits),
+        "vector": _channel_trace(vec_hits),
+        "fused": [hit.as_dict() for hit in fused],
+        "vectorError": vec_error,
+    }
+    return SearchResult(evidence=evidence_from_rows(ordered), trace=trace)
 
 
 def _cell_score(query: str, row_key: str, header_text: str, col_key: str, unit: str) -> float:

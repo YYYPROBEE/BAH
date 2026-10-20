@@ -60,6 +60,8 @@ export interface SessionHandle {
   append(event: SessionEvent): void
   /** 落盘（fsync）。 */
   flush(): Promise<void>
+  /** 释放底层句柄（可选：读取式 / 无 fd 的实现可不提供）。 */
+  close?(): void
 }
 
 /** 会话持久化后端。 */

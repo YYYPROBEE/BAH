@@ -19,6 +19,7 @@
     "gate": "tsx scripts/run-gates.ts",
     "bah": "tsx packages/cli/src/main.ts",
     "tool-catalog": "tsx scripts/build-tool-catalog.ts",
+    "sentry:fp": "tsx scripts/sentry-fp-scan.ts",
     "rag:dev": "node scripts/rag.mjs dev",
     "rag:test": "node scripts/rag.mjs test",
     "rag:check": "node scripts/rag.mjs check",

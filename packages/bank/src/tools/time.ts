@@ -56,8 +56,16 @@ export function shiftMonth(period: string, count: number): string {
       period,
     })
   }
-  const total = Number(matched[1]) * 12 + (Number(matched[2]) - 1) + count
+  const monthValue = Number(matched[2])
+  // `2026-13` 不能静默滚进相邻账期：与 `core/time.ts` 的 `parsePeriod` 同口径
+  if (monthValue < 1 || monthValue > 12) {
+    throw new BahError('period-invalid', `bank-tools: 账期月份必须在 01–12（收到 ${period}）`, {
+      period,
+      month: monthValue,
+    })
+  }
+  const total = Number(matched[1]) * 12 + (monthValue - 1) + count
   const year = Math.floor(total / 12)
-  const month = (total % 12 + 12) % 12
+  const month = ((total % 12) + 12) % 12
   return `${String(year).padStart(4, '0')}-${String(month + 1).padStart(2, '0')}`
 }

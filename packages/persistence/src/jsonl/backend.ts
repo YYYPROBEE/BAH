@@ -34,7 +34,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 
-import { BahError } from '@bah/util'
+import { BahError, assertSafePathSegment } from '@bah/util'
 import {
   encodeJsonLine,
   encodeSessionHeaderLine,
@@ -94,6 +94,8 @@ export class JsonlPersistence implements SessionPersistence {
     sessionId: SessionId,
     options: { readonly meta?: Readonly<Record<string, unknown>>; readonly now?: number } = {},
   ): SessionHandle {
+    // 目录由调用方拼好，但会话 ID 本身也必须合法：防止任何入口把 `../` 漏进来
+    assertSafePathSegment(String(sessionId), 'sessionId')
     mkdirSync(dir, { recursive: true })
     const path = join(dir, 'session.jsonl')
     if (existsSync(path)) {
@@ -156,12 +158,10 @@ export class JsonlPersistence implements SessionPersistence {
 
   flush(handle: SessionHandle): Promise<void> {
     // 只读句柄没有待落盘的写入：直接返回（Windows 上对只读句柄 fsync 会 EPERM）
-    if (!handle.writable) return Promise.resolve()
-    fsyncFile(handle.path)
-    return Promise.resolve()
+    return handle.flush()
   }
 
-  /** 构造句柄（flush 直接对文件 fsync，不反向持有持久化实例）。 */
+  /** 构造句柄（写句柄自己持有 fd，flush 不再重新 open/close）。 */
   private handle(
     header: SessionHeader,
     path: string,
@@ -176,10 +176,6 @@ export class JsonlPersistence implements SessionPersistence {
       events,
       writable,
       fsync: this.fsync,
-      flush: () => {
-        fsyncFile(path)
-        return Promise.resolve()
-      },
     })
   }
 
@@ -283,7 +279,7 @@ function fsyncFile(path: string): void {
   }
 }
 
-/** 文件句柄实现：追加即落盘（按选项 fsync）。 */
+/** 文件句柄实现：常驻 fd 追加（按选项 fsync；不再每条事件 open/close 一遍）。 */
 class JsonlHandle implements SessionHandle {
   readonly header: SessionHeader
   readonly path: string
@@ -292,7 +288,8 @@ class JsonlHandle implements SessionHandle {
 
   private readonly log: SessionEvent[]
   private readonly fsyncEnabled: boolean
-  private readonly flushImpl: () => Promise<void>
+  /** 懒打开的追加 fd：进程内一个会话只开一次。 */
+  private fd: number | undefined
 
   constructor(options: {
     readonly header: SessionHeader
@@ -301,7 +298,6 @@ class JsonlHandle implements SessionHandle {
     readonly events: readonly SessionEvent[]
     readonly writable: boolean
     readonly fsync: boolean
-    readonly flush: () => Promise<void>
   }) {
     this.header = options.header
     this.path = options.path
@@ -309,7 +305,6 @@ class JsonlHandle implements SessionHandle {
     this.writable = options.writable
     this.log = [...options.events]
     this.fsyncEnabled = options.fsync
-    this.flushImpl = options.flush
   }
 
   events(): readonly SessionEvent[] {
@@ -322,17 +317,30 @@ class JsonlHandle implements SessionHandle {
         path: this.path,
       })
     }
-    const fd = openSync(this.path, 'a')
-    try {
-      writeSync(fd, `${encodeJsonLine(event)}\n`)
-      if (this.fsyncEnabled) fsyncSync(fd)
-    } finally {
-      closeSync(fd)
-    }
+    const fd = this.ensureFd()
+    writeSync(fd, `${encodeJsonLine(event)}\n`)
+    if (this.fsyncEnabled) fsyncSync(fd)
     this.log.push(event)
   }
 
   flush(): Promise<void> {
-    return this.flushImpl()
+    if (!this.writable) return Promise.resolve()
+    if (this.fsyncEnabled) fsyncSync(this.ensureFd())
+    return Promise.resolve()
+  }
+
+  /** 释放 fd（宿主在会话关闭 / dispose 时调用；重复调用幂等）。 */
+  close(): void {
+    if (this.fd === undefined) return
+    try {
+      closeSync(this.fd)
+    } finally {
+      this.fd = undefined
+    }
+  }
+
+  private ensureFd(): number {
+    this.fd ??= openSync(this.path, 'a')
+    return this.fd
   }
 }

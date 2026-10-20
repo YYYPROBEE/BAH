@@ -9,8 +9,9 @@
 CLI（headless）
   → knowledge_answer（@bah/knowledge）
   → POST /v1/answer（services/rag）
-  → ACL 谓词 → FTS5(trigram) → cells → 抽取式生成
-  → span 对齐 + 数值对账 + 状态机
+  → ACL 谓词 → FTS5 × sqlite-vec → RRF(tier) → cells
+  → LLM 生成（抽取式降级）
+  → span 对齐 + 蕴含判定 + 数值对账 + 状态机
   → 已校验答案/拒答/消歧
   → CLI 打印知识卡（答案 + 引用）
 ```
@@ -21,24 +22,24 @@ CLI（headless）
 |---|---|---|
 | ACL 六元组前置过滤 | `store.visible_chunk_ids` | role/audience/channel/region/product/now；缺失即 fail-closed |
 | 时效窗 / 状态 / tier | `docs` 表 + 谓词 | 旧版 `superseded`、未生效、tier 9 不参与默认检索 |
-| FTS5 中文检索 | `chunks_fts`（trigram） | 骨架先只做词法通道；向量通道待补 |
-| 表格 cell 取数 | `cells` 表 + `retrieve.lookup` | 数值权威是 `value_text` 字符串 |
-| 抽取式生成 | `engine._generate_*` | 答案句直接来自证据/cell，不调 LLM |
-| 引用校验 | `verify.verify_answer` | `[K#]` 必须解析到 evidence；数值必须命中 cell/正文 |
-| 多态拒答 | `engine` | SCOPE_EMPTY / EMPTY_RETRIEVAL / NUMERIC_MISMATCH / BREAKER_LOCKED |
-| 检索级熔断 | `breaker.Breaker` | 连续 3 次 RED → 会话锁定 15 分钟（内存态） |
-| 审计 | `retrieval_log` / `answer_log` | `traceId` 关联；`/v1/audit/{traceId}` 可回放 |
+| FTS5 中文检索 | `chunks_fts`（trigram） | 词法通道 |
+| sqlite-vec 向量通道 | `vec_chunks`（cosine）+ `embed.py` | bge-small-zh-v1.5（fastembed ONNX，本地推理不出网）；绝对距离闸 0.45 |
+| RRF 融合 | `fuse.py` | k=60、tier1×1.2、双通道等权、top8；融合排名写入审计 |
+| 表格 cell 取数 | `cells` 表 + `retrieve.lookup` | 数值权威是 `value_text` 字符串；取数型答案不经 LLM |
+| LLM 生成 | `generator.py` + `llm.py` | DeepSeek（OpenAI 兼容）；结构化 claims+`[K#]`；失败降级抽取式 |
+| 引用校验 | `verify.py` | 字面 span 对齐；失败走蕴含层；数值必须命中 cell/正文 |
+| 蕴含层 | `entailment.py` | 受限二元判定（仅 claim+证据、温度 0、缓存）；数值 claim 不参与 |
+| 多态拒答 | `engine` | SCOPE_EMPTY / EMPTY_RETRIEVAL / NUMERIC_MISMATCH / UNSUPPORTED_CLAIM / BREAKER_LOCKED |
+| 检索级熔断 | `breaker.py` | 连续 3 RED 或 10 分钟 2 次注入命中 → 锁定 15 分钟；SQLite 持久化、人工复位 |
+| 审计 | `retrieval_log` / `answer_log` | 谓词、双通道排名、RRF、校验明细、生成器、熔断状态；`/v1/audit/{traceId}` 可回放 |
+| 证据面板 | `web/evidence_panel`（React+Vite） | `/panel/` 深色回放：六元组→双通道→RRF→span 高亮→逐 claim/数值→终态 |
 | 双模式端口 | `@bah/knowledge` | `http`（真实 sidecar）/ `fixture`（快照/单测） |
 
-未实现（按设计稿后续批次）：
+未实现（按设计稿后续批次，已与需求方确认"以后干"）：
 
-- sqlite-vec 向量通道与 RRF 融合；
-- bge-small-zh 本地嵌入（当前 `embedding: off`，只走词法）；
-- LLM 生成器（当前抽取式；`/v1/answer` 的 `answer` 来自证据/cell）；
-- 蕴含层（LLM 判定）；
-- 真实 PDF/表格/OCR 解析管线（当前 `demo_corpus.py`）；
-- 证据面板（`apps/web` 读取 `/v1/audit/{traceId}`）；
-- O7-v2 三维入库哨兵（当前只做 tier 隔离）。
+- 真实 PDF / DOCX / XLSX 解析管线与结构感知分块（当前 `demo_corpus.py` 10 篇）；
+- 扫描件 OCR 置信度分层（O10）；
+- O7-v2 三维入库哨兵（当前只做 tier 隔离 + 数值锚点配置未接线）。
 
 ## 2. 端点
 
@@ -47,8 +48,11 @@ CLI（headless）
 | POST | `/v1/answer` | 知识回答主路径；只返回已校验答案 / 拒答 / 消歧 |
 | POST | `/v1/query` | 只返回证据/取数（混合问题、调试） |
 | POST | `/v1/verify` | 内部/调试：对给定答案按 traceId 取证据复核 |
-| GET | `/healthz` | 健康检查（`corpusVersion` / `docs` / `chunks` / `embedding`） |
-| GET | `/v1/audit/{traceId}` | 脱敏审计记录 |
+| GET | `/healthz` | 健康检查（`corpusVersion` / `docs` / `chunks` / `embedding` / `embedVersion`） |
+| GET | `/v1/audit/{traceId}` | 脱敏审计记录（含证据正文、双通道排名、校验明细、熔断状态） |
+| GET | `/v1/audit/recent?limit=20` | 最近查询列表（面板左栏） |
+| GET | `/v1/breaker/{sessionId}` | 会话熔断状态与事件流 |
+| GET | `/panel/` | 证据面板（React 构建产物；未构建时 404，不影响 API） |
 
 鉴权：设置 `BAH_KNOWLEDGE_TOKEN` 后，所有 `/v1/*` 需要 `Authorization: Bearer <token>`；`/healthz` 不鉴权。默认只绑 `127.0.0.1`。
 
@@ -106,12 +110,17 @@ python -m venv .venv
 .venv/Scripts/python.exe -m pip install -r requirements.txt   # Windows
 # .venv/bin/python -m pip install -r requirements.txt          # Unix
 
+# 1.1) 嵌入模型（首次，约 90MB；国内可走镜像）
+#  fastembed 缓存布局：services/rag/models/bge-small-zh-v1.5/model_optimized.onnx
+#  离线包直接携带该目录，运行时不再访问网络
+
 # 2) 重建演示语料（可选；首次启动会自动建）
 cd ../..
 pnpm rag:ingest
 
-# 3) 启动 sidecar
-pnpm rag:dev
+# 3) 启动 sidecar（DeepSeek 生成需要 key；无 key 自动降级抽取式）
+DEEPSEEK_API_KEY=sk-... pnpm rag:dev
+# 浏览器打开 http://127.0.0.1:7801/panel/
 
 # 4) 另一个终端跑 CLI
 pnpm bah --profile headless --patch profiles/headless/patch-knowledge.yml \
@@ -179,17 +188,24 @@ pnpm test:coverage # 100% 行覆盖（knowledge 包已进 allowlist）
 Python 侧的锚点：
 
 - `test_predicate.py`：标准/ VIP / mobile / 地区 / 时效 / 缺维度；
-- `test_api.py`：GREEN 引用、VIP 拒答、地区拒答、渠道隔离、消歧、审计、熔断、数值不一致、缺引用；
+- `test_api.py`：GREEN 引用、VIP 拒答、地区拒答、渠道隔离、消歧、审计、熔断、注入命中、数值不一致、缺引用；
 - `test_verify.py`：字面通过 / 数值不一致 / 缺引用 / 未解析 marker / AMBER；
+- `test_vector.py`：向量索引落库、语义改写召回、双通道同作用域、RRF 追踪；
+- `test_fuse.py`：RRF 一致性、tier 先验、tier9 排除、确定性 tie-break；
+- `test_generator.py` / `test_entailment.py`：LLM JSON 解析、降级、蕴含三态、缓存；
+- `test_engine_llm.py`：生成→蕴含→状态机的端到端行为；
+- `test_breaker.py`：跨连接持久化、到期解锁、人工复位、注入窗口、锁定期重试不延长；
 - `test_contract.py`：提交的 `knowledge.v1.json` 与 Pydantic 模型一致。
 
 ## 7. 已知缺口（记账）
 
-| ID | 缺口 | 影响 | 计划 |
+| ID | 缺口 | 影响 | 状态 |
 |---|---|---|---|
-| K-1 | 只有 FTS5，没有向量/RRF | 同义改写召回弱 | 下一批接 sqlite-vec（不可用则 numpy 暴力扫） |
-| K-2 | 抽取式生成，不是 LLM | 表达自然度有限；但引用/数值最稳 | 后续把 `_generate_*` 换成 LLM，校验层不变 |
-| K-3 | 熔断是内存态 | 重启即清空 | 落 SQLite，启动恢复 |
-| K-4 | 没有 `knowledge/answered` 的 schema 门禁 | 事件字段漏写只能靠测试 | 后续纳入 `verify-session-events` 的领域表 |
-| K-5 | 证据面板未接 | 答辩只能看 JSONL/审计 JSON | `apps/web` 读 `/v1/audit/{traceId}` |
-| K-6 | 真实语料解析未接 | 只有 10 篇 demo | `ingest/parse.py` + 哨兵 + 嵌入 |
+| K-1 | ~~只有 FTS5，没有向量/RRF~~ | 同义改写召回弱 | **已关闭**：sqlite-vec + bge-small-zh + RRF |
+| K-2 | ~~抽取式生成，不是 LLM~~ | 表达自然度有限 | **已关闭**：DeepSeek 生成（无 key/失败降级抽取式） |
+| K-3 | ~~熔断是内存态~~ | 重启即清空 | **已关闭**：SQLite `breaker_state` + `breaker_log` + CLI 复位 |
+| K-4 | 没有 `knowledge/answered` 的 schema 门禁 | 事件字段漏写只能靠测试 | 未动（TS 侧） |
+| K-5 | ~~证据面板未接~~ | 答辩只能看 JSONL | **已关闭**：`/panel/`（React+Vite） |
+| K-6 | 真实语料解析未接 | 只有 10 篇 demo | **记账，确认以后干**：PDF/DOCX/XLSX + 结构分块 + 哨兵 |
+| K-7 | FTS5 trigram 对长中文问句召回弱 | 混合检索实际由向量通道兜底 | 可选：jieba 分词或 2-4 gram 展开；当前不影响演示题库 |
+| K-8 | 向量绝对距离闸 0.45 为 demo 语料实测值 | 换语料/换模型需重标 | 配置项 `VECTOR_MAX_DISTANCE`，黄金集首跑后校准 |

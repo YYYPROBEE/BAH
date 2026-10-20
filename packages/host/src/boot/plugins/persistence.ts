@@ -12,6 +12,7 @@ import { join } from 'node:path'
 
 import { defineService } from '@bah/core'
 import { JsonlPersistence } from '@bah/persistence'
+import { assertSafePathSegment } from '@bah/util'
 
 import type { SessionEvent, SessionId } from '@bah/core'
 import type { SessionHandle, JsonlOptions } from '@bah/persistence'
@@ -55,8 +56,19 @@ export const persistencePlugin: HostPlugin<PersistenceSettings> = {
         warn: (message) => console.warn(message),
       } satisfies JsonlOptions)
 
-      const dirOf = (sessionId: SessionId): string => join(root, String(sessionId))
+      const dirOf = (sessionId: SessionId): string => {
+        // 最后一道防线：会话 ID 来自 CLI / 恢复流程，拼路径前必须过白名单
+        const id = String(sessionId)
+        assertSafePathSegment(id, 'sessionId')
+        return join(root, id)
+      }
       const handles = new Map<string, SessionHandle>()
+
+      // 会话关闭 / 插件 dispose 时释放常驻 fd 与内存索引
+      ctx.effect(() => {
+        for (const handle of handles.values()) handle.close?.()
+        handles.clear()
+      })
 
       ctx.provide<SessionFiles>(SESSION_FILES, { fileOf: (sessionId) => join(dirOf(sessionId), 'session.jsonl') })
 

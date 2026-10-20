@@ -110,8 +110,8 @@ describe('control（危险规则 / 参数注入）', () => {
     expect(denied?.data['stage']).toBe('rules')
   })
 
-  it('T-SNT-004 跨场景提权话术（组合风险规则）→ deny', async () => {
-    const test = harness()
+  it('T-SNT-004 跨场景提权话术（组合风险规则，显式开启）→ deny', async () => {
+    const test = harness({ rules: { crossScenario: true } })
     const verdict = await test.preExecute({
       callId: 'call-xsc',
       name: 'transfer_create',

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from helpers import principal
+
 from banking_rag.contract import Principal
 from banking_rag.store import Store
-
-from helpers import principal
 
 
 def visible_docs(store: Store, **overrides: Any) -> set[str]:

@@ -142,6 +142,22 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
       const input = payload as PreExecuteLike
       const downstream = (await next(payload)) as PreExecuteLike
       if (!BANK_TOOL_NAME_SET.has(input.call.name)) return downstream
+
+      // 安全层（sentry）在 bank 评估前先拒：补一条声明级判决，保证 bank 审计链完整。
+      // 与 no-identity 的早期拒绝同口径——不跑预检/decide()，level 记声明级别。
+      if (downstream.verdict.kind === 'deny' && downstream.verdict.code.startsWith('sentry-')) {
+        const spec = specOf(input.call.name as BankToolName)
+        deps.audit.append('tier/decided', {
+          callId: input.call.callId,
+          name: spec.name,
+          level: spec.tier.level,
+          reason: 'declared',
+          verdict: 'deny',
+          code: downstream.verdict.code,
+          at: now(),
+        })
+        return downstream
+      }
       if (downstream.verdict.kind !== 'allow') return downstream
 
       const spec = specOf(input.call.name as BankToolName)
@@ -187,15 +203,17 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
             decision: { decision: 'unavailable', reason: reasonOf(error) },
           }
         }
-        lifecycle?.issue({
-          ticketId,
-          callId: input.callId,
-          name: input.name,
-          fingerprint: binding.fingerprint,
-          amountCents: binding.amountCents,
-          expiresAt: binding.expiresAt,
-          at: issuedAt,
-        })
+        ledgerSafely(deps, ticketId, 'issue', issuedAt, () =>
+          lifecycle?.issue({
+            ticketId,
+            callId: input.callId,
+            name: input.name,
+            fingerprint: binding.fingerprint,
+            amountCents: binding.amountCents,
+            expiresAt: binding.expiresAt,
+            at: issuedAt,
+          }),
+        )
       }
 
       const answered = (await next(payload)) as ApprovalLike
@@ -203,15 +221,20 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
       if (answered.decision.decision === 'allowed-once') {
         try {
           deps.tickets.approve(ticketId, decidedAt)
-          lifecycle?.approve(ticketId, decidedAt)
         } catch (error) {
           // 票据过期等：宁可拒绝，也不带着无效票据去执行
-          lifecycle?.block(ticketId, reasonOf(error), decidedAt)
+          ledgerSafely(deps, ticketId, 'block', decidedAt, () =>
+            lifecycle?.block(ticketId, reasonOf(error), decidedAt),
+          )
           return {
             ...answered,
             decision: { decision: 'unavailable', reason: reasonOf(error) },
           }
         }
+        // 记账失败只留审计证据：core 票据已批准，不能因为账本异常改写审批结论
+        ledgerSafely(deps, ticketId, 'approve', decidedAt, () =>
+          lifecycle?.approve(ticketId, decidedAt),
+        )
       } else {
         const reason = answered.decision.reason ?? `approval-${answered.decision.decision}`
         try {
@@ -219,7 +242,9 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
         } catch {
           // 已关闭的票据（重复应答 / 已核销）不再改写状态；审批结论照常返回
         }
-        lifecycle?.block(ticketId, reason, decidedAt)
+        ledgerSafely(deps, ticketId, 'block', decidedAt, () =>
+          lifecycle?.block(ticketId, reason, decidedAt),
+        )
       }
       return answered
     }),
@@ -230,20 +255,41 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
     ctx.events.on('tools/result', (payload) => {
       const result = payload as ToolResultLike
       const ticketId = ticketIdOf(result.callId)
-      const status = deps.tickets.status(ticketId)
-      if (status === undefined) return
-      const at = now()
-      if (status === 'redeemed') {
-        lifecycle?.redeem(ticketId, at)
-        if (result.isError) lifecycle?.block(ticketId, result.code ?? 'tool-failed', at)
-        else lifecycle?.consume(ticketId, at)
-        return
+      // emit 是同步派发：本监听器抛错会炸穿管线（资金已动、日志记失败）。
+      // 记账只做旁路：任何异常都降级为审计事件，绝不改变 `tool/result` 的权威结论。
+      try {
+        const status = deps.tickets.status(ticketId)
+        if (status === undefined) return
+        const at = now()
+        if (status === 'redeemed') {
+          ledgerSafely(deps, ticketId, 'redeem', at, () => lifecycle?.redeem(ticketId, at))
+          if (result.isError) {
+            ledgerSafely(deps, ticketId, 'block', at, () =>
+              lifecycle?.block(ticketId, result.code ?? 'tool-failed', at),
+            )
+          } else {
+            ledgerSafely(deps, ticketId, 'consume', at, () => lifecycle?.consume(ticketId, at))
+          }
+          return
+        }
+        if (status === 'approved') {
+          ledgerSafely(deps, ticketId, 'block', at, () =>
+            lifecycle?.block(
+              ticketId,
+              result.isError ? (result.code ?? 'tool-failed') : 'not-redeemed',
+              at,
+            ),
+          )
+          return
+        }
+        if (status === 'issued') {
+          ledgerSafely(deps, ticketId, 'block', at, () =>
+            lifecycle?.block(ticketId, 'approval-not-completed', at),
+          )
+        }
+      } catch (error) {
+        reportLedgerFailure(deps, ticketId, 'result', now(), error)
       }
-      if (status === 'approved') {
-        lifecycle?.block(ticketId, result.isError ? (result.code ?? 'tool-failed') : 'not-redeemed', at)
-        return
-      }
-      if (status === 'issued') lifecycle?.block(ticketId, 'approval-not-completed', at)
     }),
   )
 }
@@ -427,4 +473,44 @@ function errorCodeOf(error: unknown): string {
 /** 可读理由。 */
 function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * 票据记账的安全边界：账本异常绝不冒泡到业务路径（资金已动时尤其致命）。
+ *
+ * 失败降级为 `ticket/ledger-failed` 审计事件；审计通道本身也失败时只能放弃——
+ * 但绝不允许因为它改写 `tool/result` 或审批结论。
+ */
+function ledgerSafely(
+  deps: BankToolDeps,
+  ticketId: string,
+  op: 'issue' | 'approve' | 'redeem' | 'consume' | 'block',
+  at: number,
+  action: () => unknown,
+): void {
+  try {
+    action()
+  } catch (error) {
+    reportLedgerFailure(deps, ticketId, op, at, error)
+  }
+}
+
+function reportLedgerFailure(
+  deps: BankToolDeps,
+  ticketId: string,
+  op: 'issue' | 'approve' | 'redeem' | 'consume' | 'block' | 'result',
+  at: number,
+  error: unknown,
+): void {
+  try {
+    deps.audit.append('ticket/ledger-failed', {
+      ticketId,
+      op,
+      code: errorCodeOf(error),
+      reason: reasonOf(error),
+      at,
+    })
+  } catch {
+    // 审计出口也失联：放弃记录，但绝不把异常抛回资金路径
+  }
 }

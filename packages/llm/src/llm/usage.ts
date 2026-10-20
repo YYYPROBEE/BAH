@@ -28,12 +28,23 @@ export class UsageLedger {
    * 记一次调用的用量。
    *
    * @throws `BahError('llm-usage-turn-invalid')` `turn` 不是非负整数
+   * @throws `BahError('llm-usage-invalid')` usage 不是有限非负数（NaN / 负数静默入账会污染成本审计）
    */
   record(turn: number, usage: CallUsage): void {
     if (!Number.isInteger(turn) || turn < 0) {
       throw new BahError('llm-usage-turn-invalid', `llm: turn 必须是非负整数（收到 ${turn}）`, {
         turn,
       })
+    }
+    for (const key of ['input', 'output'] as const) {
+      const value = usage[key]
+      if (!Number.isFinite(value) || value < 0) {
+        throw new BahError('llm-usage-invalid', `llm: usage.${key} 必须是有限非负数（收到 ${String(value)}）`, {
+          turn,
+          field: key,
+          value,
+        })
+      }
     }
     const slot = this.turns.get(turn) ?? { input: 0, output: 0, calls: 0 }
     slot.input += usage.input

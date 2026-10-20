@@ -14,6 +14,13 @@ describe('金额换算（账本一律整数分）', () => {
     expect(yuanToCents(1234.56)).toBe(123_456)
     expect(yuanToCents(0)).toBe(0)
     expect(yuanToCents(0.005)).toBe(1)
+    // 二进制浮点会把 *100 放大成 100.49999999999999：必须按十进制字面值进位
+    expect(yuanToCents(1.005)).toBe(101)
+    expect(yuanToCents(2.675)).toBe(268)
+    expect(yuanToCents(0.615)).toBe(62)
+    // 极小值合法（舍到 0 分），极大值必须被安全整数拦下
+    expect(yuanToCents(1e-7)).toBe(0)
+    expect(captureThrown(() => yuanToCents(1e21)).code).toBe('money-invalid')
   })
 
   it('非法金额 fail-loud（负数 / NaN / Infinity）', () => {

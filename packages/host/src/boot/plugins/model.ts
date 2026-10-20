@@ -52,6 +52,10 @@ export interface ModelSettings {
   readonly chunkSize?: number
   /** mock 的脚本（按调用次序消费；只对 mock 有意义）。 */
   readonly script?: readonly MockStepSettings[]
+  /** 密钥所在的环境变量名（默认 `DEEPSEEK_API_KEY`；随部署变化，不写死在代码里）。 */
+  readonly apiKeyEnv?: string
+  /** 单次请求硬上限（ms；默认 120s）——上游挂起时绝不无限等待。 */
+  readonly requestTimeoutMs?: number
 }
 
 /** 各 provider 的默认模型（不猜能力位：默认值只选各自最通用的对话模型）。 */
@@ -85,13 +89,30 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
   },
 
   validate(config) {
-    rejectUnknownKeys(config, ['provider', 'model', 'baseUrl', ...MOCK_ONLY_KEYS], 'core:model')
+    rejectUnknownKeys(
+      config,
+      ['provider', 'model', 'baseUrl', 'apiKeyEnv', 'requestTimeoutMs', ...MOCK_ONLY_KEYS],
+      'core:model',
+    )
 
     const provider = readEnum(config, 'provider', 'core:model', ['mock', 'deepseek'] as const) ?? 'mock'
     const model = readString(config, 'model', 'core:model') ?? DEFAULT_MODELS[provider]
     const baseUrl = readString(config, 'baseUrl', 'core:model')
     const chunkSize = readPositiveInteger(config, 'chunkSize', 'core:model')
     const script = readScript(config['script'], provider)
+    const apiKeyEnv = readString(config, 'apiKeyEnv', 'core:model')
+    const requestTimeoutMs = readPositiveInteger(config, 'requestTimeoutMs', 'core:model')
+
+    if (provider === 'mock') {
+      const wrong = ['apiKeyEnv', 'requestTimeoutMs'].filter((key) => config[key] !== undefined)
+      if (wrong.length > 0) {
+        throw bootError(
+          'mock-only-config',
+          `core:model 的 ${wrong.join(' / ')} 只对 provider=deepseek 有意义（当前 provider=mock）`,
+          { provider, keys: wrong },
+        )
+      }
+    }
 
     if (provider !== 'mock') {
       const wrong = MOCK_ONLY_KEYS.filter((key) => config[key] !== undefined)
@@ -116,6 +137,8 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
       ...(baseUrl === undefined ? {} : { baseUrl }),
       ...(chunkSize === undefined ? {} : { chunkSize }),
       ...(script === undefined ? {} : { script }),
+      ...(apiKeyEnv === undefined ? {} : { apiKeyEnv }),
+      ...(requestTimeoutMs === undefined ? {} : { requestTimeoutMs }),
     }
   },
 }
@@ -128,10 +151,14 @@ function createAdapter(config: ModelSettings): LlmAdapter {
       ...(config.chunkSize === undefined ? {} : { chunkSize: config.chunkSize }),
     })
   }
-  const apiKey = process.env['DEEPSEEK_API_KEY']
+  // 密钥来源名是配置项：换 vault / 网关注入时不需要改代码
+  const apiKey = process.env[config.apiKeyEnv ?? 'DEEPSEEK_API_KEY']
   return new DeepSeekAdapter({
     ...(apiKey === undefined ? {} : { apiKey }),
     ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
+    ...(config.requestTimeoutMs === undefined
+      ? {}
+      : { requestTimeoutMs: config.requestTimeoutMs }),
   })
 }
 

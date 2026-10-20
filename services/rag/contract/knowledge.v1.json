@@ -85,6 +85,11 @@
         "answerOptions": {
           "$ref": "#/$defs/AnswerOptions"
         },
+        "injectionHit": {
+          "default": false,
+          "title": "Injectionhit",
+          "type": "boolean"
+        },
         "principal": {
           "$ref": "#/$defs/Principal"
         },
@@ -888,6 +893,16 @@
         "VerifyClaim": {
           "additionalProperties": false,
           "properties": {
+            "entailment": {
+              "default": "skipped",
+              "enum": [
+                "pass",
+                "fail",
+                "skipped"
+              ],
+              "title": "Entailment",
+              "type": "string"
+            },
             "index": {
               "title": "Index",
               "type": "integer"

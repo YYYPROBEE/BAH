@@ -80,7 +80,7 @@ import {
   toSessionBlocks,
 } from './request.ts'
 import { forkSession, type ForkInfo, type ForkRequest } from './rollback.ts'
-import { ToolCallDispatcher, observeToolCalls } from './tool-calls.ts'
+import { ToolCallDispatcher, interruptedResult, observeToolCalls } from './tool-calls.ts'
 
 /** 单 turn 的 step 数上限（防"模型无限要工具"；可调项一律走配置，施工单 00 §9 第 4 条）。 */
 export const DEFAULT_MAX_STEPS = 32
@@ -441,6 +441,7 @@ export class AgentLoop implements Agent {
     this.guard.reset()
     this.session.append('turn/start', { turn })
 
+    let failure: { readonly error: unknown } | undefined
     try {
       while (true) {
         if (steps >= this.config.maxSteps) {
@@ -490,18 +491,32 @@ export class AgentLoop implements Agent {
           if (this.inbox.nextStep.length === 0) break
         }
       }
+    } catch (error) {
+      // 兜底：任何逃出 step 的异常（工具未注册、事件监听器抛错、落账失败）都不能让
+      // turn 停留在“未闭合”状态。先记失败原因，收尾段统一落 `turn/end`，最后再抛。
+      failure = { error }
+      turnEnds = { kind: 'failed', reason: `turn 异常终止：${messageOf(error)}` }
     } finally {
       this.abort.end()
     }
 
     const reason: TurnEndReason = turnEnds ?? { kind: 'completed' }
 
-    // turn 边界：压缩判定（只折叠已完整结束的 turn）→ 成本汇总 → 关闭 turn
-    if (this.config.compaction !== undefined) runCompaction(this.session, this.config.compaction)
-    const usage = this.ledger.finishTurn(turn)
-    if (usage !== undefined && usage.calls > 0) this.session.append('usage/summary', usage)
-    this.session.append('turn/end', { turn, reason })
+    // turn 边界：压缩判定（只折叠已完整结束的 turn）→ 成本汇总 → 关闭 turn。
+    // 收尾段自身失败也不能吞掉 `turn/end`——否则日志出现未闭合 turn，回退边界丢失。
+    let closingError: unknown
+    try {
+      if (this.config.compaction !== undefined) runCompaction(this.session, this.config.compaction)
+      const usage = this.ledger.finishTurn(turn)
+      if (usage !== undefined && usage.calls > 0) this.session.append('usage/summary', usage)
+    } catch (error) {
+      closingError = error
+    } finally {
+      this.session.append('turn/end', { turn, reason })
+    }
 
+    if (failure !== undefined) throw failure.error
+    if (closingError !== undefined) throw closingError
     return reason
   }
 
@@ -670,7 +685,17 @@ export class AgentLoop implements Agent {
         pipeline: this.pipeline(signal),
         session: this.session,
       })
-      for (const call of calls) await dispatcher.execute(call)
+      for (const [index, call] of calls.entries()) {
+        // 取消边界：中断后同批剩余的调用（可能含写操作）一律不执行，只补结构化的
+        // `tool-interrupted` 结果；正在执行的调用不打断（写操作要保原子性）。
+        if (signal.aborted) {
+          for (const remaining of calls.slice(index)) {
+            this.session.append('tool/result', interruptedResult(remaining))
+          }
+          return
+        }
+        await dispatcher.execute(call)
+      }
     } catch (error) {
       for (const recovered of recovery.results()) {
         this.session.append('tool/result', recovered.data)

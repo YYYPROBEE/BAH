@@ -168,6 +168,33 @@ describe('状态机的其余边角', () => {
     expect(captureThrown(() => other.block(redeemedRef.ticketId, 'late', NOW)).code).toBe('ticket-closed')
   })
 
+  it('批量吊销：issued / approved → blocked，redeemed / blocked 终态不动', () => {
+    const store = new TicketStore()
+    const pending = approved(store, 'ticket-pending')
+    const issuedId = asTicketId('ticket-issued')
+    store.issue(issuedId, binding(), NOW)
+    const redeemed = approved(store, 'ticket-redeemed')
+    store.redeem(redeemed, NOW)
+    const blocked = approved(store, 'ticket-blocked')
+    store.block(blocked.ticketId, 'approval-rejected', NOW)
+
+    const revoked = store.revokeAll('sentry-breaker-frozen', NOW + 1)
+    expect(revoked.map((record) => record.ticketId)).toEqual([pending.ticketId, issuedId])
+    expect(store.status(pending.ticketId)).toBe('blocked')
+    expect(store.status(issuedId)).toBe('blocked')
+    expect(store.get(issuedId)?.blockedReason).toBe('sentry-breaker-frozen')
+    expect(store.status(redeemed.ticketId)).toBe('redeemed')
+    expect(store.status(blocked.ticketId)).toBe('blocked')
+  })
+
+  it('批量吊销幂等；吊销后的旧票据不能再核销', () => {
+    const store = new TicketStore()
+    const ref = approved(store)
+    expect(store.revokeAll('sentry-breaker-frozen', NOW + 1)).toHaveLength(1)
+    expect(store.revokeAll('sentry-breaker-frozen', NOW + 2)).toHaveLength(0)
+    expect(captureThrown(() => store.redeem(ref, NOW + 3)).code).toBe('ticket-blocked')
+  })
+
   it('未知票据：approve / block / redeem 都是 ticket-unknown；get/status 返回 undefined', () => {
     const store = new TicketStore()
     const missing = asTicketId('ticket-missing')

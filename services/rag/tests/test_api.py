@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi.testclient import TestClient
-
 from helpers import ask
 
 
@@ -14,7 +13,10 @@ def test_health(client: TestClient) -> None:
     assert payload["status"] == "ok"
     assert payload["docs"] == 10
     assert payload["chunks"] == 10
-    assert payload["embedding"] == "off"
+    # 嵌入可用时为 on（fastembed 已装且模型已缓存）；不可用时允许降级为 off。
+    assert payload["embedding"] in {"on", "off"}
+    if payload["embedding"] == "on":
+        assert payload["embedVersion"].startswith("fastembed:")
 
 
 def test_green_fee_answer_has_citation(client: TestClient) -> None:
@@ -119,3 +121,17 @@ def test_verify_rejects_missing_citation(client: TestClient) -> None:
     verified = response.json()
     assert verified["verdict"] == "RED"
     assert verified["reasonCode"] == "MISSING_CITATION"
+
+
+def test_two_injection_hits_lock_the_session(client: TestClient) -> None:
+    session = "s-injection"
+    for _ in range(2):
+        ask(client, "赎回要几天到账？", session_id=session, extra={"injectionHit": True})
+    locked = ask(client, "赎回要几天到账？", session_id=session)
+    assert locked["kind"] == "refusal"
+    assert locked["verdict"] == "LOCKED"
+    assert locked["reasonCode"] == "BREAKER_LOCKED"
+
+    state = client.get(f"/v1/breaker/{session}").json()
+    assert state["locked"] is True
+    assert any(event["event"] == "LOCKED" for event in state["events"])

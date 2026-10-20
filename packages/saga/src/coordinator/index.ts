@@ -75,7 +75,13 @@ export async function runSaga(ctx: Context, sagaId: string, deps: CoordinatorDep
   }
 }
 
-/** 并发池：发起数严格 ≤ limit（结果顺序 = 入参顺序）。 */
+/**
+ * 并发池：发起数严格 ≤ limit（结果顺序 = 入参顺序）。
+ *
+ * 失败语义：**先让所有分支跑完，再抛第一个失败**。不能用 `Promise.all` 的快速失败——
+ * 那会让其余补偿分支变成孤儿写入（还在跑，但事务已经按失败收尾），
+ * 甚至可能改写已经收敛的终态。
+ */
 export async function mapPool<T, R>(
   items: readonly T[],
   limit: number,
@@ -83,15 +89,21 @@ export async function mapPool<T, R>(
 ): Promise<R[]> {
   const out: R[] = new Array(items.length)
   let cursor = 0
+  let failure: { readonly error: unknown } | undefined
   const workers = Array.from({ length: Math.max(1, limit) }, async () => {
     for (;;) {
       const index = cursor
       cursor += 1
       if (index >= items.length) return
-      out[index] = await run(items[index] as T)
+      try {
+        out[index] = await run(items[index] as T)
+      } catch (error) {
+        failure ??= { error }
+      }
     }
   })
   await Promise.all(workers)
+  if (failure !== undefined) throw failure.error
   return out
 }
 

@@ -335,6 +335,26 @@ describe('purchaseWealth（写操作同样过票据）', () => {
       )).code,
     ).toBe('insufficient-balance')
   })
+
+  it('冻结账户购买被拒（account-inactive），票据不消耗', async () => {
+    const frozen: Account = { ...dataset().accounts[0]!, status: 'frozen' }
+    const core = setup({ accounts: [frozen, ...dataset().accounts.slice(1)] })
+    const ref = ticket(core, { tool: 'purchase_wealth', amountCents: 50_000 })
+
+    const error = await rejection(() =>
+      core.purchaseWealth(
+        {
+          userId: USER,
+          accountId: ACCOUNT,
+          productId: bankIds.product('w-1'),
+          amountCents: 50_000,
+        },
+        ref,
+      ),
+    )
+    expect(error.code).toBe('account-inactive')
+    expect(core.tickets.status(ref.ticketId)).toBe('approved')
+  })
 })
 
 /* ── 读操作 ───────────────────────────────────────────────────────────────── */

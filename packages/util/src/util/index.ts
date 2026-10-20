@@ -7,3 +7,5 @@
 
 export * from './canonical.ts'
 export * from './errors.ts'
+export * from './fingerprint.ts'
+export * from './safe-path.ts'

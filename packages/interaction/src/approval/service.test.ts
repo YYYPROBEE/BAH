@@ -309,14 +309,14 @@ describe('归一化与默认拒绝', () => {
     expect(result.decision).toEqual({ decision: 'unavailable', reason: 'approval-invalid-answer' })
   })
 
-  it('下游抛错：unavailable approval-request-failed', async () => {
+  it('下游抛错：unavailable approval-request-failed（保留原始原因）', async () => {
     const service = new ApprovalService({ sessionId, now: clock().now })
     const result = await service.handle(request(), async () => {
       throw new BahError('boom', '下游炸了')
     })
     expect(result.decision).toEqual({
       decision: 'unavailable',
-      reason: 'approval-request-failed',
+      reason: expect.stringMatching(/^approval-request-failed: .*下游炸了/),
     })
   })
 

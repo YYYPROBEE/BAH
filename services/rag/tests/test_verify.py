@@ -56,3 +56,7 @@ def test_extract_numbers_keeps_unit() -> None:
         ("90", "天"),
         ("1.50", "%"),
     ]
+
+
+def test_plus_prefixed_token_is_not_a_number() -> None:
+    assert extract_numbers("赎回到账时间为T+1。") == []

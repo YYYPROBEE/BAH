@@ -13,7 +13,8 @@ describe('sentry 配置（fail-loud）', () => {
     expect(resolveSentrySettings()).toEqual(DEFAULT_SENTRY_SETTINGS)
     expect(DEFAULT_SENTRY_SETTINGS.breaker.denyThreshold).toBe(5)
     expect(DEFAULT_SENTRY_SETTINGS.breaker.windowSeconds).toBe(600)
-    expect(DEFAULT_SENTRY_SETTINGS.rules.crossScenario).toBe(true)
+    // XSC 是部署侧追加规则：默认关，演示/压测 profile 显式打开
+    expect(DEFAULT_SENTRY_SETTINGS.rules.crossScenario).toBe(false)
   })
 
   it('T-SNT-CFG-002 逐层覆盖（阈值 / 窗口 / 白名单 / 预算 / 降级 / 开关）', () => {
@@ -45,6 +46,13 @@ describe('sentry 配置（fail-loud）', () => {
     expect(settings.guard.maxToolsPerTurn).toBe(2)
     expect(settings.honesty).toEqual({ numeric: false, noResult: false })
     expect(settings.trace).toEqual({ ringSize: 10, flushThreshold: 2, sink: 'stderr' })
+  })
+
+  it('T-SNT-CFG-014 trace.sink 支持 session（durable 回放）', () => {
+    expect(resolveSentrySettings({ trace: { sink: 'session' } }).trace.sink).toBe('session')
+    expect(codeOf(() => resolveSentrySettings({ trace: { sink: 'file' } }))).toBe(
+      'sentry-invalid-config',
+    )
   })
 
   it('T-SNT-CFG-003 默认跨场景规则是确定性正则（不是概率检测）', () => {

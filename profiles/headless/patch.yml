@@ -37,6 +37,12 @@
     autoDecision: allow
     autoVerify: true
 
+- id: safety:sentry
+  config:
+    # XSC-001/002 默认关（生产先用真实语料统计误报）；演示/压测 profile 显式打开
+    rules:
+      crossScenario: true
+
 - id: core:agent
   config:
     channel: headless

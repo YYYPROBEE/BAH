@@ -41,7 +41,7 @@ export interface BankSessionEventMap {
     readonly callId: string
     /** 工具名。 */
     readonly name: string
-    /** 判定出的生效级别（未绑定身份等早期拒绝时为声明级别）。 */
+    /** 判定出的生效级别（未绑定身份 / sentry 先拒等早期拒绝时为声明级别）。 */
     readonly level: ToolTierLevel
     /** 升级 / 追加理由。 */
     readonly reason: TierReason
@@ -88,6 +88,14 @@ export interface BankSessionEventMap {
     readonly until: number
     readonly attempts: number
   }
+  /** 票据生命周期记账失败（账本异常不得改动资金结论，只留审计证据）。 */
+  'ticket/ledger-failed': {
+    readonly ticketId: string
+    readonly op: 'issue' | 'approve' | 'redeem' | 'consume' | 'block' | 'result'
+    readonly code: string
+    readonly reason: string
+    readonly at: number
+  }
 }
 
 declare module '@bah/core' {
@@ -116,6 +124,7 @@ export const BANK_SESSION_EVENT_TYPES = [
   'verify/sms',
   'verify/ushield',
   'verify/locked',
+  'ticket/ledger-failed',
 ] as const satisfies readonly BankSessionEventType[]
 
 /**

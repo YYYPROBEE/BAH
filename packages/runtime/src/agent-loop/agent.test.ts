@@ -420,9 +420,12 @@ describe('T-LOOP-006 失败 step 补记', () => {
           ['call-ok', false, undefined],
           ['call-boom', true, 'tool-interrupted'],
         ])
-        // step 收尾了，turn 没有闭合（伪代码：补记后原样抛出）
+        // step 收尾了，turn 也必须闭合：异常逃逸不能留下未闭合 turn（否则回退边界丢失）
         expect(harness.types()).toContain('step/end')
-        expect(harness.types()).not.toContain('turn/end')
+        expect(harness.types()).toContain('turn/end')
+        expect(payloads(harness.events(), 'turn/end').at(-1)).toMatchObject({
+          reason: { kind: 'failed' },
+        })
 
         // 失败路径也必须落承载消息：tool/result 在 assistant/message 之前（施单 04 §7 顺序）
         expect(

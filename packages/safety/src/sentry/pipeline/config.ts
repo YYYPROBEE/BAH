@@ -70,8 +70,13 @@ export interface SentryHonestySettings {
 export interface SentryTraceSettings {
   readonly ringSize: number
   readonly flushThreshold: number
-  /** 落盘出口：`memory` = 只留内存环；`stderr` = 逐批写标准错误（不碰 fs）。 */
-  readonly sink: 'memory' | 'stderr'
+  /**
+   * 落盘出口：
+   * - `memory` = 只留内存环；
+   * - `session` = 逐条落 durable 会话事件（可回放，推荐）；
+   * - `stderr` = 逐批写标准错误（仅演示；生产环境宿主会 fail-loud）。
+   */
+  readonly sink: 'memory' | 'stderr' | 'session'
 }
 
 /** `safety:sentry` 的完整配置（校验后形状）。 */
@@ -110,7 +115,9 @@ export const SENTRY_CONFIG_KEYS = {
  */
 export const DEFAULT_SENTRY_SETTINGS: SentrySettings = {
   detector: { warnThreshold: 0.45, highThreshold: 0.8 },
-  rules: { disabled: [], demoWhitelist: true, crossScenario: true, extra: [] },
+  // XSC-001/002 是"部署侧追加规则"：默认关，演示/压测 profile 显式打开。
+  // 上线前用 `pnpm sentry:fp` 跑真实语料统计（见 docs/sentry.md §10.7）。
+  rules: { disabled: [], demoWhitelist: true, crossScenario: false, extra: [] },
   budget: { totalCalls: 60, riskyCalls: 20, amountYuan: 200_000 },
   breaker: { denyThreshold: 5, windowSeconds: 600, revokeTickets: true },
   degrade: { invalidArgsThreshold: 3 },
@@ -287,7 +294,7 @@ export function resolveSentrySettings(
         trace,
         'sink',
         'safety:sentry.trace',
-        ['memory', 'stderr'] as const,
+        ['memory', 'stderr', 'session'] as const,
         DEFAULT_SENTRY_SETTINGS.trace.sink,
       ),
     },

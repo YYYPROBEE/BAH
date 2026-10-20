@@ -17,4 +17,5 @@ coverage-*/
 __pycache__/
 .pytest_cache/
 services/rag/models/
+services/rag/web/evidence_panel/panel*.png
 .workbuddy/

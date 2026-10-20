@@ -5,14 +5,14 @@
  * 1. 配置 fail-loud（错误消息带 `bah-sentry: ` 前缀）；
  * 2. 端到端：幕 2 注入被工具面拦截（事件序列含 `sentry/*`）、熔断锁存 + 显式解冻恢复；
  * 3. 幻觉防护的 turn-stopping 纠正真的回到 inbox（`user/message.source = context`）；
- * 4. 熔断吊销 bank-core 票据（`revokeAll` 后旧票据不能执行）。
+ * 4. 票据窄端口（`status` + `revokeAll`，不暴露核销入口）。
  */
 
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { BANK_TICKETS } from '@bah/bank'
+import { BANK_TICKET_GUARD } from '@bah/bank'
 import { SENTRY_SERVICE, DEFAULT_SENTRY_SETTINGS } from '@bah/safety'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
 import { asSessionId, captureThrown } from '@bah/test-support'
@@ -132,6 +132,18 @@ describe('safety:sentry 配置（fail-loud）', () => {
     expect(badThreshold.code).toBe('sentry-invalid-config')
     expect(badThreshold.message).toContain('bah-sentry: ')
   })
+
+  it('生产环境禁止 trace.sink=stderr（不可回放，fail-loud）', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      const error = captureThrown(() => sentryPlugin.validate({ trace: { sink: 'stderr' } }))
+      expect(error.code).toBe('sentry-insecure-trace-sink')
+      expect(error.message).toContain('bah-sentry: ')
+      expect(sentryPlugin.validate({ trace: { sink: 'session' } }).trace.sink).toBe('session')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
 })
 
 describe('幕 2：注入在工具面被拦截（sentry/* 事件）', () => {
@@ -234,6 +246,18 @@ describe('幕 2：注入在工具面被拦截（sentry/* 事件）', () => {
 })
 
 describe('熔断：锁存 / 吊销 / 显式解冻', () => {
+  it('票据服务只暴露 status + revokeAll（核销入口不跨包）', async () => {
+    const app = await bootWith({ script: [{ text: '你好' }] })
+    try {
+      const guard = app.ctx.get(BANK_TICKET_GUARD)
+      expect(Object.keys(guard).sort()).toEqual(['revokeAll', 'status'])
+      expect(guard.status('ticket:missing' as TicketId)).toBeUndefined()
+      expect(guard.revokeAll('sentry-breaker-frozen', 1)).toEqual([])
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
   it('T-SNT-008/009/010 连续 5 次拒绝 → 冻结；6th 非绿被拒；显式解冻后恢复正常', async () => {
     const dangerous = (index: number): unknown => ({
       tool: {
@@ -286,54 +310,6 @@ describe('熔断：锁存 / 吊销 / 显式解冻', () => {
     }
   })
 
-  it('吊销全部在途票据：旧票据不能再执行（核销属主仍是 bank-core）', async () => {
-    const app = await bootWith({ script: [{ text: '你好' }] })
-    try {
-      const tickets = app.ctx.get(BANK_TICKETS)
-      const now = 1_792_000_000_000
-      const ticketId = 'ticket:call-revoke' as TicketId
-      const binding = {
-        sessionId: asSessionId('s-ticket-store'),
-        tool: 'transfer_create',
-        fingerprint: 'fp-1',
-        amountCents: 80_000,
-        expiresAt: now + 60_000,
-      }
-      tickets.issue(ticketId, binding, now)
-      tickets.approve(ticketId, now + 1)
-      expect(tickets.revokeAll('sentry-breaker-frozen', now + 2)).toHaveLength(1)
-      expect(tickets.status(ticketId)).toBe('blocked')
-      // 幂等：再吊销一次没有在途票据
-      expect(tickets.revokeAll('sentry-breaker-frozen', now + 3)).toHaveLength(0)
-
-      const error = captureThrown(() => tickets.redeem({ ticketId, binding }, now + 4))
-      expect(error.code).toBe('ticket-blocked')
-    } finally {
-      await app.dispose('test')
-    }
-  })
-  it('对抗用例 6：票据重放被 bank-core 拒绝（单次核销）', async () => {
-    const app = await bootWith({ script: [{ text: '你好' }] })
-    try {
-      const tickets = app.ctx.get(BANK_TICKETS)
-      const now = 1_792_000_000_000
-      const ticketId = 'ticket:call-replay' as TicketId
-      const binding = {
-        sessionId: asSessionId('s-ticket-replay'),
-        tool: 'transfer_create',
-        fingerprint: 'fp-replay',
-        amountCents: 80_000,
-        expiresAt: now + 60_000,
-      }
-      tickets.issue(ticketId, binding, now)
-      tickets.approve(ticketId, now + 1)
-      tickets.redeem({ ticketId, binding }, now + 2)
-      const error = captureThrown(() => tickets.redeem({ ticketId, binding }, now + 3))
-      expect(error.code).toBe('ticket-already-redeemed')
-    } finally {
-      await app.dispose('test')
-    }
-  })
 })
 
 describe('幻觉防护（turn-stopping 纠正真的回到 inbox）', () => {
@@ -414,6 +390,38 @@ describe('装配细节（覆盖率与可观察性）', () => {
       }
     } finally {
       write.mockRestore()
+    }
+  })
+
+  it('trace.sink=session：逐条落 durable 会话事件（可回放）', async () => {
+    const app = await bootWith({
+      approval: false,
+      sentry: { trace: { sink: 'session' } },
+      script: [
+        {
+          tool: {
+            id: 'bad-1',
+            name: 'account_balance',
+            args: { note: 'sudo rm -rf /' },
+          },
+        },
+        { text: '已拒绝。' },
+      ],
+    })
+    try {
+      const events = (await runTurn(app, '查余额')) as readonly {
+        readonly type: string
+        readonly ignorable?: boolean
+        readonly data: unknown
+      }[]
+      const traces = events.filter((event) => event.type === 'sentry/trace')
+      expect(traces.length).toBeGreaterThan(0)
+      expect(traces.every((event) => event.ignorable === true)).toBe(true)
+      expect(
+        traces.some((event) => (event.data as Record<string, unknown>)['kind'] === 'verdict'),
+      ).toBe(true)
+    } finally {
+      await app.dispose('test')
     }
   })
 

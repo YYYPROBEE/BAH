@@ -21,16 +21,17 @@ def ask(
     client: TestClient,
     query: str,
     session_id: str = "s-test",
+    extra: dict[str, Any] | None = None,
     **principal_overrides: Any,
 ) -> dict[str, Any]:
-    response = client.post(
-        "/v1/answer",
-        json={
-            "schemaVersion": "knowledge.v1",
-            "sessionId": session_id,
-            "query": query,
-            "principal": principal(**principal_overrides),
-        },
-    )
+    body: dict[str, Any] = {
+        "schemaVersion": "knowledge.v1",
+        "sessionId": session_id,
+        "query": query,
+        "principal": principal(**principal_overrides),
+    }
+    if extra:
+        body.update(extra)
+    response = client.post("/v1/answer", json=body)
     assert response.status_code == 200, response.text
     return response.json()

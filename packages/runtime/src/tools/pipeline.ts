@@ -84,10 +84,23 @@ export class ToolPipeline {
   /**
    * 执行一次工具调用（七段管线）。
    *
-   * @throws `BahError('tool-missing')` 工具未注册（连 ① 都不进——调用没有一个可执行体）
+   * 未知工具名（模型幻觉 / 拼写错误）**不冒泡**：归一化为 `tool-missing` 的
+   * `isError` 结果，模型下一 step 能据此自愈，turn 也不会因一次幻觉而失去 `turn/end`。
    */
   async execute(call: ToolCallInput): Promise<ToolExecution> {
-    const definition = this.registry.get(call.name)
+    // 取消短路：已中断的 turn 不再开启新的工具调用（执行中的调用不受影响）
+    if (this.signal.aborted) {
+      return this.notExecutable(
+        call,
+        new BahError('tool-interrupted', 'tools: 调用已取消（未执行）', { tool: call.name }),
+      )
+    }
+    let definition: ToolDefinition<any, any>
+    try {
+      definition = this.registry.get(call.name)
+    } catch (error) {
+      return this.notExecutable(call, error)
+    }
     const fingerprint = fingerprintOf(call)
     const startedAt = this.now()
 
@@ -129,7 +142,8 @@ export class ToolPipeline {
       payload = await this.invoke(call, definition)
     } catch (error) {
       isError = true
-      code = 'tool-failed'
+      // 保留工具体抛出的结构化理由码：`tool-failed` 会把审计与自愈都变成瞎子
+      code = errorCodeOf(error)
       reason = messageOf(error)
     }
 
@@ -249,6 +263,23 @@ export class ToolPipeline {
     }
   }
 
+  /** 没有可执行体（工具未注册）：落一条结构化失败结果，不进入管线各段。 */
+  private notExecutable(call: ToolCallInput, error: unknown): ToolExecution {
+    const code = errorCodeOf(error)
+    const reason = messageOf(error)
+    const result: ToolResultData = {
+      callId: call.callId,
+      name: call.name,
+      isError: true,
+      content: [{ type: 'text', text: reason }],
+      code,
+      reason,
+      durationMs: 0,
+    }
+    this.session.append('tool/result', result)
+    return { result, additionalContexts: [] }
+  }
+
   /** 拒执行：工具体一次都不跑，结果带结构化理由码落账。 */
   private reject(call: ToolCallInput, verdict: DenyVerdict, callCard?: UiCard): ToolExecution {
     const result: ToolResultData = {
@@ -294,4 +325,9 @@ const defaultRender: ContentRenderer = (result) => [
 /** 任意抛出物 → 可读理由（非 Error 也要留文本）。 */
 function messageOf(error: unknown): string {
   return error instanceof BahError || error instanceof Error ? error.message : String(error)
+}
+
+/** 任意抛出物 → 结构化理由码（`BahError` 的 code 优先）。 */
+function errorCodeOf(error: unknown): string {
+  return error instanceof BahError ? error.code : 'tool-failed'
 }
