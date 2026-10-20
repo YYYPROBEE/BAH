@@ -64,6 +64,13 @@ export interface SnapshotMeta {
   readonly rows: readonly SnapshotRow[]
   /** 录制时的模型规格（能力位决定提示词装配，必须与录制一致）。 */
   readonly model: { readonly provider: string; readonly spec: ModelSpec }
+  /**
+   * 本场景**真实执行到**的治理平面源码（目录前缀或单文件，相对仓库根）。
+   *
+   * 门禁 `snapshot-fresh` 用它回答“这次改动该由哪个场景重录来背书”：
+   * 只写“装载过”不够，必须写“行为被本场景触发过”。不写 = 不覆盖任何源码。
+   */
+  readonly coveredSources?: readonly string[]
 }
 
 /** 一次录制 / 回放的日期无关摘要（打印用；**不含时间**，否则会破坏确定性叙事）。 */
@@ -298,6 +305,14 @@ function parseMeta(value: unknown, path: string): SnapshotMeta {
     return fail('model.spec 缺 id / providerId')
   }
 
+  const coveredSources = record['coveredSources']
+  if (
+    coveredSources !== undefined &&
+    (!Array.isArray(coveredSources) || coveredSources.some((item) => typeof item !== 'string'))
+  ) {
+    return fail('coveredSources 必须是字符串数组')
+  }
+
   return {
     name: record['name'] as string,
     profile: record['profile'] as string,
@@ -307,5 +322,6 @@ function parseMeta(value: unknown, path: string): SnapshotMeta {
     randomSeed: record['randomSeed'] as number,
     rows: rows as SnapshotRow[],
     model: { provider: modelRecord['provider'] as string, spec: spec as ModelSpec },
+    ...(coveredSources === undefined ? {} : { coveredSources: coveredSources as string[] }),
   }
 }
