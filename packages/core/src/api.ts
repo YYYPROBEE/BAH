@@ -279,6 +279,26 @@ export interface PluginV2<Config = unknown> {
   apply(ctx: Context, config: Config): void | Promise<void>
 }
 
+/**
+ * 擦除配置类型后的插件视图（存在类型的落点）。
+ *
+ * TypeScript 无法表达 `PluginV2<exists C>`；`ConfigSchema` 的逆变又让
+ * `PluginV2<Specific>` 不能赋给 `PluginV2<unknown>`。内核只存这个擦除形态，
+ * 具体类型在 `erasePlugin()` 的 `apply` 包裹里还原一次。
+ */
+export interface ErasedPluginConfigSchema {
+  readonly dict?: Readonly<Record<string, unknown>>
+  /** 已擦除类型的校验器（调用方保证传入配置形状）。 */
+  readonly validate: (input: unknown) => unknown
+}
+
+export interface ErasedPlugin {
+  readonly name: string
+  readonly inject?: readonly string[]
+  readonly config?: ErasedPluginConfigSchema
+  apply(ctx: Context, config: unknown): void | Promise<void>
+}
+
 /* ────────────────────────────────────────────────────────────────────────────
  * SessionEvent envelope（施工单 03 §1.1）
  * ──────────────────────────────────────────────────────────────────────────── */

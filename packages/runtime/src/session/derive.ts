@@ -131,7 +131,7 @@ export function deriveMessages(
 }
 
 /** `assistant/message` → 模型消息（工具调用一并带上，wire 侧靠它配对）。 */
-function assistantMessageOf(data: AssistantEvent['data']): DerivedMessage {
+export function assistantMessageOf(data: AssistantEvent['data']): DerivedMessage {
   return {
     role: 'assistant',
     content: data.content,
@@ -140,7 +140,7 @@ function assistantMessageOf(data: AssistantEvent['data']): DerivedMessage {
 }
 
 /** `tool/result` → 模型消息（唯一面向模型的结果）。 */
-function toolMessageOf(data: ToolResultEvent['data']): DerivedMessage {
+export function toolMessageOf(data: ToolResultEvent['data']): DerivedMessage {
   return {
     role: 'tool',
     callId: data.callId,

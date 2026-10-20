@@ -220,7 +220,7 @@ describe('base 插件集 · 进程内跑通 turn（底座出口的进程内版�
     )
     try {
       expect(app.rows().find((row) => row.id === 'core:agent')?.settings).toEqual({
-        loop: { model: 'deepseek:deepseek-chat', maxSteps: 32 },
+        loop: { model: 'deepseek:deepseek-chat', maxSteps: 32, parallelReadTools: true },
       })
     } finally {
       await app.dispose('test')

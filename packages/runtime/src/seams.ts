@@ -100,7 +100,6 @@ export interface ApprovalInput {
 }
 
 declare module '@bah/core' {
-  // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
   interface BahEventMap {
     /**
      * 会话事件已落账（append-only 日志的唯一观察口；失败补偿也挂这里）。

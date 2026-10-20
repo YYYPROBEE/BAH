@@ -108,7 +108,7 @@ export async function boot(options: BootOptions): Promise<BootedApp> {
   const ctx = createContext()
   try {
     ctx.provide(RUN_SERVICE, options.run)
-    for (const row of rows) await ctx.use(row.plugin, row.settings)
+    for (const row of rows) await ctx.useErased(row.plugin, row.settings)
     await ctx.start()
   } catch (error) {
     await ctx.dispose('boot-failed')

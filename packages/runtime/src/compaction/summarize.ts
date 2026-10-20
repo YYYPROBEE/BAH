@@ -165,6 +165,52 @@ export function countCompleteTurns(events: readonly AnySessionEvent[]): number {
 }
 
 /**
+ * 一次遍历得到的压缩度量（报告 P-P7）：完整 turn、token 水位、seq→turn 归属。
+ *
+ * 三者在原实现里各走一遍全量事件；这里合并为单遍，`planCompaction` 与
+ * `shouldCompact` 共用同一份结果（旧函数仍保留为测试 oracle）。
+ */
+export interface SessionMetrics {
+  readonly turns: readonly number[]
+  readonly tokens: number
+  readonly owner: ReadonlyMap<number, number>
+}
+
+export function analyzeSession(events: readonly AnySessionEvent[]): SessionMetrics {
+  const turnSet = new Set<number>()
+  const owner = new Map<number, number>()
+  let current: number | undefined
+  let tokens = 0
+
+  for (const event of events) {
+    tokens += estimateEventTokens(event)
+    if (event.type === 'turn/start') {
+      current = event.data.turn
+      owner.set(event.seq, current)
+      continue
+    }
+    if (event.type === 'turn/end') {
+      turnSet.add(event.data.turn)
+      owner.set(event.seq, event.data.turn)
+      current = undefined
+      continue
+    }
+    if (current !== undefined) owner.set(event.seq, current)
+  }
+
+  return { turns: [...turnSet].sort((left, right) => left - right), tokens, owner }
+}
+
+function shouldCompactMetrics(
+  metrics: SessionMetrics,
+  thresholds: CompactionThresholds,
+): boolean {
+  if (metrics.turns.length <= thresholds.keepRecentTurns) return false
+  if (thresholds.maxTokens !== undefined && metrics.tokens >= thresholds.maxTokens) return true
+  return thresholds.maxTurns !== undefined && metrics.turns.length > thresholds.maxTurns
+}
+
+/**
  * 是否该压缩。
  *
  * 两个前置条件缺一不可：
@@ -175,15 +221,7 @@ export function shouldCompact(
   events: readonly AnySessionEvent[],
   thresholds: CompactionThresholds,
 ): boolean {
-  const turns = countCompleteTurns(events)
-  if (turns <= thresholds.keepRecentTurns) return false
-
-  if (thresholds.maxTokens !== undefined) {
-    const tokens = events.reduce((sum, event) => sum + estimateEventTokens(event), 0)
-    if (tokens >= thresholds.maxTokens) return true
-  }
-
-  return thresholds.maxTurns !== undefined && turns > thresholds.maxTurns
+  return shouldCompactMetrics(analyzeSession(events), thresholds)
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -235,16 +273,17 @@ export function collapseEvents(events: readonly AnySessionEvent[]): CollapsedEve
  */
 export function planCompaction(input: PlanCompactionInput): CompactionPlan {
   const collapsed = collapseEvents(input.events)
-  const turns = completeTurns(collapsed.kept)
+  const metrics = analyzeSession(collapsed.kept)
 
-  if (!shouldCompact(collapsed.kept, input.thresholds)) {
+  if (!shouldCompactMetrics(metrics, input.thresholds)) {
     return { needed: false, droppedSeqs: [], collapsedTurns: [] }
   }
 
+  const turns = metrics.turns
   const collapseCount = turns.length - input.thresholds.keepRecentTurns
   const targets = turns.slice(0, collapseCount)
   const targetSet = new Set(targets)
-  const owner = turnOwnership(collapsed.kept)
+  const owner = metrics.owner
 
   const droppedSeqs: number[] = []
   const collapsedEvents: AnySessionEvent[] = []

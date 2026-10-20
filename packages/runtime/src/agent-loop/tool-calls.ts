@@ -99,6 +99,12 @@ export class ToolCallDispatcher {
     return this.pipeline.execute(toolCallInputOf(call))
   }
 
+  /** 并行批次准入：参数可解析且工具为 green（只读）。 */
+  canRunConcurrently(call: AssembledToolCall): boolean {
+    if (call.parseError !== undefined || call.args === undefined) return false
+    return this.pipeline.isReadOnly(call.name)
+  }
+
   /** 按模型给出的顺序串行执行（工具之间可能有依赖，并发属插件线的显式选择）。 */
   async executeAll(calls: readonly AssembledToolCall[]): Promise<readonly ToolExecution[]> {
     const executions: ToolExecution[] = []

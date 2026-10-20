@@ -8,7 +8,7 @@ sessions/
 coverage/
 coverage-*/
 .tmp-rag/
-.tmp-*/
+.tmp-*
 *.check.txt
 *.db
 *.db-journal

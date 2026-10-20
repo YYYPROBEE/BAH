@@ -521,3 +521,13 @@ describe('取消短路', () => {
     })
   })
 })
+
+describe('isReadOnly', () => {
+  it('未注册工具返回 false（并行批次准入不抛）', async () => {
+    await withHarness(async (h) => {
+      expect(h.pipeline.isReadOnly('missing')).toBe(false)
+      h.registry.register(tool({ name: 'bank:probe' }))
+      expect(h.pipeline.isReadOnly('bank:probe')).toBe(true)
+    })
+  })
+})

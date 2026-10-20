@@ -24,6 +24,7 @@ interface Step {
 /** 与施工单 01 §5 的四个测试面 + §6 门禁一一对应。 */
 const STEPS: readonly Step[] = [
   { name: 'typecheck', command: 'pnpm typecheck' },
+  { name: 'lint', command: 'pnpm lint' },
   { name: 'test (unit)', command: 'pnpm test' },
   { name: 'test:coverage', command: 'pnpm test:coverage' },
   { name: 'gate', command: 'pnpm gate' },

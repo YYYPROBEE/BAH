@@ -11,6 +11,7 @@ import { SESSION_SERVICE, provideSession, type SessionApi } from '../session/ser
 import type { AnySessionEvent } from '../session/types.ts'
 import { buildModelHistory } from '../system-prompt/reconcile.ts'
 import {
+  analyzeSession,
   collapseEvents,
   countCompleteTurns,
   estimateEventTokens,
@@ -179,6 +180,14 @@ describe('度量（阈值判定用）', () => {
       // turn 数触发
       expect(shouldCompact(session.events(), { maxTurns: 1, keepRecentTurns: 1 })).toBe(true)
       expect(countCompleteTurns(session.events())).toBe(2)
+
+      // 单遍度量必须与三个旧口径逐项一致（oracle）
+      const metrics = analyzeSession(session.events())
+      expect(metrics.turns).toHaveLength(countCompleteTurns(session.events()))
+      expect(metrics.tokens).toBe(
+        session.events().reduce((sum, event) => sum + estimateEventTokens(event), 0),
+      )
+      expect([...metrics.owner.entries()]).toEqual([...turnOwnership(session.events()).entries()])
     })
   })
 })
