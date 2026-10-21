@@ -696,14 +696,14 @@ CLI 的投影重算同时需要 `@bah/persistence`（`projectionDiff` / `PROJECT
 
 ### §10.5 验收清单（覆盖 §7）
 
-- [ ] `pnpm test` 全绿；`pnpm typecheck` / `pnpm lint` 0 错
-- [ ] `pnpm gate` **24/24**（含新增 `verify-audit-cli`）
-- [ ] `pnpm test:coverage`：本单新增文件 100%；他人 5 个文件的既有红项在回执中单列
-- [ ] `pnpm audit:selftest` 退出 0，输出“造链 42 事件 → 审计通过”
-- [ ] 零写验收：临时目录跑完前后条目一致，**无 `-wal` / `-shm` 新增**
-- [ ] `git diff HEAD -- packages/cli/src/cli/run.test.ts` 为空
-- [ ] `docs/audit.md` 显著位置写明 R145（生产链为空）、R146（私钥不在仓库）、R172（`saga.sqlite` 当前为空库）
-- [ ] `PROGRESS.md` §47 回执包含 R163–R172 的落地状态
+- [x] `pnpm test` 全绿；`pnpm typecheck` / `pnpm lint` 0 错
+- [x] `pnpm gate` **24/24**（含新增 `verify-audit-cli`）
+- [x] `pnpm test:coverage`：本单新增文件 100%；他人 5 个文件的既有红项在回执中单列
+- [x] `pnpm audit:selftest` 退出 0，输出“造链 42 事件 → 审计通过”
+- [x] 零写验收：临时目录跑完前后条目一致，**无 `-wal` / `-shm` 新增**
+- [x] `git diff HEAD -- packages/cli/src/cli/run.test.ts` 为空
+- [x] `docs/audit.md` 显著位置写明 R145（生产链为空）、R146（私钥不在仓库）、R172（`saga.sqlite` 当前为空库）
+- [x] `PROGRESS.md` §48 回执包含 R163–R172 的落地状态（因该文件已有他人暂存内容，回执留在工作树、不强行入库）
 
 ### §10.6 负控更新（覆盖 §5）
 
