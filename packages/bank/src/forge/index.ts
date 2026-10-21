@@ -11,7 +11,7 @@
  * 答辩、回放与"数据速查表"都能逐字复现。种子由调用方记录（施工单 12 的会话元数据）。
  */
 
-import { seededRandom } from '@bah/util'
+import { assertNever, seededRandom } from '@bah/util'
 
 import type {
   Account,
@@ -97,6 +97,8 @@ export function buildBankDataset(options: ForgeOptions): BankDataset {
       return { seed: options.seed, tier, now, limits: DEFAULT_LIMITS, ...buildStress(now, random) }
     case 'adversarial':
       return { seed: options.seed, tier, now, limits: DEFAULT_LIMITS, ...buildAdversarial(now) }
+    default:
+      return assertNever(tier, 'forge-tier')
   }
 }
 

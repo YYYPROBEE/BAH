@@ -21,7 +21,8 @@
     "@bah/knowledge": "workspace:*",
     "@bah/persistence": "workspace:*",
     "@bah/saga": "workspace:*",
-    "@bah/util": "workspace:*"
+    "@bah/util": "workspace:*",
+    "@bah/channels": "workspace:*"
   },
   "devDependencies": {
     "@bah/test-support": "workspace:*"

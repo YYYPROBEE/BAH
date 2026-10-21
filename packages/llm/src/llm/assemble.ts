@@ -191,6 +191,9 @@ function toBlock(index: number, slot: Slot): ContentBlock {
         args: parsed.args ?? slot.text,
       }
     }
+    default:
+      // `Slot` 是同一接口上的字面量属性（不是判别联合的对象成员），故收尾取属性而非对象本身
+      return assertNever(slot.kind, 'stream-slot')
   }
 }
 

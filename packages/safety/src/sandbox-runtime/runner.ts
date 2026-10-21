@@ -12,6 +12,8 @@
 import { Worker } from 'node:worker_threads'
 import { fileURLToPath } from 'node:url'
 
+import { assertNever } from '@bah/util'
+
 import type { SandboxPolicy } from '../sandbox-policy/policy.ts'
 import type { SandboxTier, TierSpec } from '../sandbox-policy/tier.ts'
 import { sandboxModuleUrl } from './modules.ts'
@@ -262,6 +264,8 @@ export class SandboxRunner {
       case 'timeout':
         Object.assign(data, { code: 'sandbox-timeout', reason: `超过档位时限 ${String(outcome.timeoutMs)}ms` })
         break
+      default:
+        assertNever(outcome, 'sandbox-outcome')
     }
     this.audit({ type: auditType(outcome), data })
   }
@@ -278,6 +282,8 @@ function auditType(outcome: SandboxOutcome<unknown>): string {
       return 'sandbox/error'
     case 'timeout':
       return 'sandbox/timeout'
+    default:
+      return assertNever(outcome, 'sandbox-outcome')
   }
 }
 

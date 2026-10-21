@@ -18,7 +18,7 @@ import {
   type TierSpec,
 } from '@bah/safety'
 import { BANK_COMPUTE, type ComputeRequest, type ComputeResult } from '@bah/bank'
-import { BahError } from '@bah/util'
+import { BahError, assertNever } from '@bah/util'
 import { SESSION_SERVICE } from '@bah/runtime'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
@@ -86,6 +86,8 @@ export const sandboxPlugin: HostPlugin<SandboxPluginSettings> = {
         registry,
         maxConcurrency: config.maxConcurrency,
         audit,
+        // 审计的 elapsedMs 会进快照逐行比对：回放必须能注入确定钟。
+        now: run.sandboxNow ?? run.now,
       })
 
       const seam = async (request: ComputeRequest): Promise<ComputeResult> => {
@@ -140,6 +142,8 @@ export function unwrapOutcome(outcome: SandboxOutcome<unknown>): ComputeResult {
         tier: outcome.tier,
         timeoutMs: outcome.timeoutMs,
       })
+    default:
+      return assertNever(outcome, 'sandbox-outcome')
   }
 }
 

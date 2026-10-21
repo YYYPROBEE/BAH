@@ -10,7 +10,7 @@
 
 import { defineService } from '@bah/core'
 
-import { assertNever } from '@bah/util'
+import { assertNever, errorCodeOf } from '@bah/util'
 
 import type { SessionId } from '@bah/core'
 
@@ -95,7 +95,7 @@ export function createBankChallengePort(options: BankChallengePortOptions): Bank
           ...(result.lockedUntil === undefined ? {} : { lockedUntil: result.lockedUntil }),
         }
       } catch (error) {
-        const code = errorCodeOf(error)
+        const code = errorCodeOf(error, 'verify-failed')
         const lockedUntil = verify.lockedUntil(sessionId)
         return {
           ok: false,
@@ -130,9 +130,3 @@ function appendAttempt(audit: BankAudit | undefined, channel: StrongAuth, result
   }
 }
 
-/** `BahError` 的 code；其他错误统一 `verify-failed`。 */
-function errorCodeOf(error: unknown): string {
-  return typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
-    ? error.code
-    : 'verify-failed'
-}

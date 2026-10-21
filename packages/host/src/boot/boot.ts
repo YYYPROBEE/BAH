@@ -40,6 +40,12 @@ export interface RunContext {
   readonly jsonlDir?: string
   /** 时钟（落账时间戳与落盘 header 都用它）。 */
   readonly now: () => number
+  /**
+   * 沙箱审计时钟（缺省跟随 `now`）。
+   *
+   * 快照/回放可注入独立计数钟，让 `sandbox/done` 的 `elapsedMs` 与会话事件时间戳解耦。
+   */
+  readonly sandboxNow?: () => number
 }
 
 /** 服务键：`bah:run`（插件以 `inject: ['bah:run']` 声明依赖）。 */

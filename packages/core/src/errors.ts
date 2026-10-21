@@ -25,9 +25,11 @@ export function coreError(code: string, message: string, detail?: unknown): BahE
 /**
  * 把任意抛出物归一成可读理由。
  *
+ * 实现只有一份，在 `@bah/util` 的 `reasonOf`；这里保留 `describeThrown` 这个名字，
+ * 因为它是内核对外的一部分（35 处调用点按这个名字读）。别名而不是转调，
+ * 是为了让"全仓只有一份实现"在 AST 上也成立（`verify-single-error-normalization`）。
+ *
  * `throw 'x'` 这种非 Error 抛出物也必须留下文本——否则日志里只剩 `undefined`，
  * 等于静默吞错（施工单 00 §9 第 5 条）。
  */
-export function describeThrown(thrown: unknown): string {
-  return thrown instanceof Error ? thrown.message : String(thrown)
-}
+export { reasonOf as describeThrown } from '@bah/util'

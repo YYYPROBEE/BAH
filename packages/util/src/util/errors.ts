@@ -33,3 +33,31 @@ export class BahError extends Error {
 export function assertNever(value: never, context = 'unreachable'): never {
   throw new BahError('unreachable-branch', `${context}: ${String(value)}`, { context })
 }
+
+/**
+ * 任意抛出物 → 结构化理由码（**全仓唯一实现**，门禁 `verify-single-error-normalization`）。
+ *
+ * @param error 抛出物（`unknown`：JS 允许抛任何东西）
+ * @param fallback 兜底码。**必须显式传**：`tool-failed` 与 `verify-failed` 的差异是有意的，
+ *   调用方按 code 分支决定是否重试；给兜底码一个默认值会把这种可判别性悄悄抹平
+ *   （`docs/tech-debt-review-2026-10-20.md` 风险提示 3）。
+ */
+export function errorCodeOf(error: unknown, fallback: string): string {
+  if (error instanceof BahError) return error.code
+  // 跨包/跨进程的错误（例如 provider 抛的）未必是本仓的 BahError，按形状取码
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    const code = (error as { code?: unknown }).code
+    if (typeof code === 'string' && code.length > 0) return code
+  }
+  return fallback
+}
+
+/**
+ * 任意抛出物 → 可读理由（非 `Error` 也留文本，禁止静默吞错）。
+ *
+ * 与 `errorCodeOf` 的分工：code 给机器分支，reason 给人看；两者都不许丢信息。
+ */
+export function reasonOf(error: unknown): string {
+  if (error instanceof Error) return error.message.length > 0 ? error.message : error.name
+  return String(error)
+}
