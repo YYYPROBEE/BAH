@@ -19,6 +19,7 @@
     "check:full": "pnpm check && pnpm rag:check",
     "gate": "tsx scripts/run-gates.ts",
     "bah": "tsx packages/cli/src/main.ts",
+    "audit:selftest": "tsx scripts/audit-selftest.ts",
     "tool-catalog": "tsx scripts/build-tool-catalog.ts",
     "sentry:fp": "tsx scripts/sentry-fp-scan.ts",
     "rag:dev": "node scripts/rag.mjs dev",
@@ -27,7 +28,8 @@
     "rag:ingest": "node scripts/rag.mjs ingest",
     "rag:contract": "node scripts/rag.mjs contract",
     "demo:rag": "node scripts/demo-rag.mjs",
-    "lint": "eslint \"packages/*/src/**/*.ts\""
+    "lint": "eslint \"packages/*/src/**/*.ts\"",
+    "web": "tsx packages/cli/src/main.ts --profile web --serve"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
