@@ -58,21 +58,31 @@ interface RagStep {
 
 type Step = CommandStep | VitestStep | E2eStep | RagStep
 
+/** 用例地板：取 2026-10-22 实测值（不是估值），任何一条被删即红。 */
 const STEPS: readonly Step[] = [
   { kind: 'command', name: 'typecheck', command: 'pnpm typecheck' },
   { kind: 'command', name: 'lint', command: 'pnpm lint' },
   { kind: 'command', name: 'build', command: 'pnpm build' },
-  { kind: 'vitest', name: 'test (unit)', minCases: 1100 },
-  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 1100 },
+  { kind: 'vitest', name: 'test (unit)', minCases: 1335 },
+  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 1335 },
   { kind: 'command', name: 'gate', command: 'pnpm gate' },
   { kind: 'e2e', name: 'test:e2e' },
-  { kind: 'vitest', name: 'test:snapshot', config: 'vitest.snapshot.config.ts', minCases: 6 },
-  { kind: 'vitest', name: 'test:web', config: 'vitest.web.config.ts', minCases: 2 },
-  { kind: 'rag', name: 'rag:check', minCases: 65 },
+  { kind: 'vitest', name: 'test:snapshot', config: 'vitest.snapshot.config.ts', minCases: 14 },
+  { kind: 'vitest', name: 'test:web', config: 'vitest.web.config.ts', minCases: 46 },
+  { kind: 'rag', name: 'rag:check', minCases: 75 },
 ]
 
 /** e2e 需要真实密钥；缺失时明确 SKIP。 */
 const hasE2eKey = Boolean(process.env['DEEPSEEK_API_KEY'])
+
+/**
+ * 严格模式（`--ci`）：未执行面不得算通过。
+ *
+ * 与 `CI` 环境变量**刻意分开**：后者还额外要求显式 `BAH_SNAPSHOT_BASE`
+ * （见 resolveSnapshotBase），本地用 `CI=true` 会先卡在快照基线、一步都跑不到，
+ * 于是"无 key 即红"这条语义根本得不到验证。两者职责不同，不可混用。
+ */
+const strictMode = process.argv.includes('--ci')
 
 const outcomes: Outcome[] = []
 let blocked = false
@@ -119,10 +129,17 @@ if (snapshotBase === undefined) {
     const skipped = outcomes.filter((outcome) => outcome.status === 'skipped')
     if (skipped.length === 0) {
       console.log('\n全部通过')
+    } else if (strictMode) {
+      // 严格模式：有面没跑，不得算绿——这是"CI 不撒谎"的唯一判据。
+      console.error(
+        `\n阻断合并：${skipped.length} 步未执行（${skipped.map((item) => item.name).join(', ')}）` +
+          '——严格模式不接受 SKIP',
+      )
+      process.exitCode = 1
     } else {
       console.log(
-        `\n通过 ${outcomes.length - skipped.length} 步，SKIPPED ${skipped.map((item) => item.name).join(', ')}` +
-          '（不算“全部通过”）',
+        `\n通过 ${outcomes.length - skipped.length} 步，未执行面 ${skipped.map((item) => item.name).join(', ')}` +
+          '（本地模式不计为失败；严格模式见 `pnpm check:ci`）',
       )
     }
   }
