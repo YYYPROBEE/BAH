@@ -39,6 +39,17 @@ export function runTickJob(name: TickJobName): void {
   jobs.get(name)?.()
 }
 
+/**
+ * 是否已登记某 job（**纯观测读口**，不改任何行为）。
+ *
+ * 存在理由：插件卸载 / 替换后「job 有没有被正确注销」只能靠它断言。
+ * 不能用 `runTickJob` + `not.toThrow()` 当探针——job 体里的 `ctx.get` 在替换场景下
+ * 仍能成功，探针会永远绿。
+ */
+export function hasTickJob(name: TickJobName): boolean {
+  return jobs.has(name)
+}
+
 /** 记录某 job 最近一次成功运行时刻（M8 心跳）。 */
 export function recordJobHeartbeat(ctx: Context, name: TickJobName, at: number): void {
   let table = heartbeats.get(ctx)

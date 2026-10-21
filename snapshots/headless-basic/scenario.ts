@@ -67,6 +67,10 @@ export const CASE = {
     'packages/safety/src/sentry/',
     'packages/interaction/src/approval/',
     'packages/saga/src/recovery/',
+    // 场景装配了 `bank:saga`（config 为空 → b3/b4 全开）：boot 期就会走 provideSaga
+    // 与 installConvergence，因此这两个路径是**真被执行**的，不是凑覆盖。
+    'packages/saga/src/index.ts',
+    'packages/saga/src/tick/',
   ],
 } as const
 

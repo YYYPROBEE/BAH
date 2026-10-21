@@ -168,6 +168,7 @@ export type {
   ResidualStatementRow,
 } from './recon/residual.ts'
 export {
+  hasTickJob,
   lastJobHeartbeat,
   recordJobHeartbeat,
   registerTickJob,
