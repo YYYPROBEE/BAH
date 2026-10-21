@@ -1,0 +1,179 @@
+{
+  "name": "web-channel",
+  "profile": "headless",
+  "prompts": [
+    "给王建国转 800 元"
+  ],
+  "sessionId": "s-snapshot-web-channel",
+  "clock": {
+    "start": 1700000100000,
+    "step": 1
+  },
+  "randomSeed": 7,
+  "rows": [
+    {
+      "id": "core:session",
+      "use": "core:session",
+      "config": {}
+    },
+    {
+      "id": "core:tools",
+      "use": "core:tools",
+      "config": {}
+    },
+    {
+      "id": "core:prompt",
+      "use": "core:prompt",
+      "config": {}
+    },
+    {
+      "id": "core:model",
+      "use": "core:model",
+      "config": {
+        "provider": "mock",
+        "model": "mock-chat",
+        "chunkSize": 4,
+        "script": [
+          {
+            "tool": {
+              "id": "call-1",
+              "name": "transfer_create",
+              "args": {
+                "amount": 800,
+                "payee": {
+                  "name": "王建国",
+                  "phone": "13900002222"
+                },
+                "remark": "房租"
+              }
+            }
+          },
+          {
+            "text": "已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。"
+          }
+        ]
+      }
+    },
+    {
+      "id": "core:agent",
+      "use": "core:agent",
+      "config": {
+        "channel": "web",
+        "loop": {
+          "model": "mock:mock-chat",
+          "maxSteps": 8
+        },
+        "runtimeContext": {
+          "user": {
+            "name": "张三",
+            "level": "金卡"
+          }
+        }
+      }
+    },
+    {
+      "id": "core:persistence",
+      "use": "core:persistence",
+      "config": {
+        "root": "sessions"
+      }
+    },
+    {
+      "id": "bank:tools",
+      "use": "bank:tools",
+      "config": {
+        "demoUserId": "u-1",
+        "seed": 7,
+        "datasetTier": "demo"
+      }
+    },
+    {
+      "id": "interaction:approval",
+      "use": "interaction:approval",
+      "config": {
+        "responder": "headless",
+        "autoDecision": "allow",
+        "autoVerify": true
+      }
+    },
+    {
+      "id": "safety:sentry",
+      "use": "safety:sentry",
+      "config": {
+        "rules": {
+          "crossScenario": true
+        }
+      }
+    },
+    {
+      "id": "safety:sandbox",
+      "use": "safety:sandbox",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-store",
+      "use": "bank:saga-store",
+      "config": {
+        "dbPath": "sessions/saga.sqlite"
+      }
+    },
+    {
+      "id": "bank:saga",
+      "use": "bank:saga",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-audit",
+      "use": "bank:saga-audit",
+      "config": {}
+    },
+    {
+      "id": "demo:echo",
+      "use": "demo:echo",
+      "config": {
+        "prefix": "[web] "
+      }
+    },
+    {
+      "id": "channel:web",
+      "use": "channel:web",
+      "config": {
+        "port": 0,
+        "host": "127.0.0.1",
+        "staticRoot": "apps/web",
+        "heartbeatMs": 15000
+      }
+    }
+  ],
+  "model": {
+    "provider": "mock",
+    "spec": {
+      "id": "mock-chat",
+      "providerId": "mock",
+      "displayName": "Mock Chat（确定性脚本）",
+      "capabilities": {
+        "toolCall": true,
+        "image": false,
+        "reasoning": true
+      },
+      "contextWindow": 32000
+    }
+  },
+  "coveredSources": [
+    "packages/runtime/src/agent-loop/",
+    "packages/runtime/src/session/",
+    "packages/runtime/src/system-prompt/",
+    "packages/runtime/src/tools/",
+    "packages/runtime/src/seams.ts",
+    "packages/llm/src/llm/",
+    "packages/llm/src/mock/",
+    "packages/bank/src/core/",
+    "packages/bank/src/tools/",
+    "packages/host/src/boot/",
+    "packages/persistence/src/jsonl/",
+    "packages/persistence/src/saga-store/",
+    "packages/safety/src/sentry/",
+    "packages/interaction/src/approval/",
+    "packages/saga/src/recovery/"
+  ]
+}
