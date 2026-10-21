@@ -40,6 +40,19 @@ export interface CliOptions {
   readonly now?: () => number
   /** 环境变量（读 `BAH_HOME`；缺省 `process.env`）。 */
   readonly env?: Readonly<Record<string, string | undefined>>
+  /**
+   * 信号源（缺省 `process`）：`--serve` 的唯一退出路径靠它。
+   *
+   * 测试注入可控 emitter，不必真的给测试进程发 SIGINT——给测试进程发信号是
+   * 全局副作用，会连带打中别的监听器。
+   */
+  readonly signals?: SignalSource
+}
+
+/** 信号源的最小面（`process` 天然满足）。 */
+export interface SignalSource {
+  on(event: 'SIGINT' | 'SIGTERM', listener: () => void): unknown
+  off(event: 'SIGINT' | 'SIGTERM', listener: () => void): unknown
 }
 
 /** 一行用法（错误时附在提示后）。 */
@@ -55,6 +68,7 @@ export const HELP = [
   '  --profile <name>   要启动的 profile（缺省取 bah.yml 的 profile.default）',
   '  --dump-config      打印生效的插件树（含每行来源层）后退出',
   '  --prompt <text>    跑一个 turn（headless 验收用）',
+  '  --serve            启动 profile 后常驻（渠道插件自己开端口；Ctrl+C 退出）',
   '  --patch <file>     叠加一层 patch（可重复；层序最外）',
   '  --home <dir>       home patch 目录（缺省 $BAH_HOME 或 ~/.bah）',
   '  --jsonl <dir>      会话目录（覆盖 core:persistence.root）',
@@ -64,6 +78,8 @@ export const HELP = [
 
 /** 解析后的命令行。 */
 interface Args {
+  /** 常驻（渠道类 profile：web / desktop / im）。渠道无关语义，不做 profile 名分支。 */
+  readonly serve: boolean
   readonly profile?: string
   readonly dumpConfig: boolean
   readonly prompt?: string
@@ -106,20 +122,21 @@ export async function runCli(
   const env = options.env ?? process.env
 
   try {
-    return await runProfile(parsed.args, io, root, now, env)
+    return await runProfile(parsed.args, io, root, now, env, options.signals ?? process)
   } catch (error) {
     io.err(`bah: ${describeThrown(error)}`)
     return 1
   }
 }
 
-/** 启动 profile（`--dump-config` 或跑一个 turn）。 */
+/** 启动 profile（`--dump-config` / `--serve` 或跑一个 turn）。 */
 async function runProfile(
   args: Args,
   io: CliIo,
   root: string,
   now: () => number,
   env: Readonly<Record<string, string | undefined>>,
+  signals: SignalSource,
 ): Promise<number> {
   const name = args.profile ?? readDefaultProfile(root)
   if (name === undefined) {
@@ -164,8 +181,18 @@ async function runProfile(
       io.out(`bah: config HMR 开，监听 ${hmr.files.length} 个 patch 文件（插件行增删需重启）`)
     }
 
+    if (args.serve) {
+      // 常驻模式：渠道插件（channel:web 等）自己监听端口；这里只等信号并把退出码交回壳
+      io.out(`bah: profile ${profile.name} · 会话 ${String(sessionId)} · 常驻中（Ctrl+C 退出）`)
+      await waitForSignal(signals)
+      return 0
+    }
+
     if (args.prompt === undefined) {
-      throw bootError('prompt-missing', '需要 --prompt <text> 才能跑 turn（或加 --dump-config 只看配置）')
+      throw bootError(
+        'prompt-missing',
+        '需要 --prompt <text> 才能跑 turn（或加 --dump-config 只看配置、--serve 常驻）',
+      )
     }
 
     const agent = onlyAgent(app.ctx)
@@ -199,6 +226,7 @@ async function runProfile(
 export function parseArgs(argv: readonly string[]): ParseResult {
   let profile: string | undefined
   let dumpConfig = false
+  let serve = false
   let prompt: string | undefined
   let home: string | undefined
   let jsonl: string | undefined
@@ -261,6 +289,10 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         if (inline !== undefined) return failure(`${flag} 不接受值（写成 ${flag}）`)
         dumpConfig = true
         break
+      case '--serve':
+        if (inline !== undefined) return failure(`${flag} 不接受值（写成 ${flag}）`)
+        serve = true
+        break
       case '-h':
       case '--help':
         if (inline !== undefined) return failure(`${flag} 不接受值（写成 ${flag}）`)
@@ -275,6 +307,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
     ok: true,
     args: {
       dumpConfig,
+      serve,
       help,
       patch,
       ...(profile === undefined ? {} : { profile }),
@@ -284,6 +317,24 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       ...(session === undefined ? {} : { session }),
     },
   }
+}
+
+/**
+ * 等 SIGINT / SIGTERM（`--serve` 的唯一退出路径）。
+ *
+ * 两个信号都要接：容器里停进程发的是 SIGTERM，终端里按的是 SIGINT。
+ * 收到任一即摘掉两个监听并返回——摘干净才不会在多次 run 时叠监听。
+ */
+async function waitForSignal(signals: SignalSource): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const stop = (): void => {
+      signals.off('SIGINT', stop)
+      signals.off('SIGTERM', stop)
+      resolve()
+    }
+    signals.on('SIGINT', stop)
+    signals.on('SIGTERM', stop)
+  })
 }
 
 /** 造一个用法失败结果。 */
