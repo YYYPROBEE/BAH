@@ -97,8 +97,25 @@ export type EventMode = 'emit' | 'serial' | 'parallel' | 'waterfall' | 'bail'
  * M0 只冻结「表存在、事件名是字符串」这一事实；具体事件键与其 `@mode`
  * 在施工单 04 §6 冻结为接缝总表（`docs/` 里的七段管线挂点表同源）。
  * 届时本接口由空索引签名收窄为逐键声明，属**扩展**而非破坏性变更。
+ *
+ * 逐键声明（`context/*`）已经落地：内核自己的事件在这里显式声明，
+ * 其它包按 `declare module '@bah/core'` 的模块增强补键（见 `@bah/saga` 的 `seams.ts`）。
  */
 export interface BahEventMap {
+  /**
+   * 回滚期间某个 disposer 抛错（`disposer-failed` 或该 disposer 自己的理由码）。
+   *
+   * 载荷只放标量：监听器若在回滚中途再登记 effect，等于把"往已回滚的桶里塞清理"引回来。
+   * **稳定契约，只增不改**（已有下游订阅后字段即冻结）。
+   *
+   * @mode emit
+   */
+  'context/rollback-failed': {
+    bucket: string
+    effect: string
+    code: string
+    message: string
+  }
   readonly [event: string]: unknown
 }
 
