@@ -1,0 +1,35 @@
+# sandbox-compute 场景的层 4 overlay（录制用；回放直接读 scenario.json 的 rows）。
+#
+# 1. core:model：三面脚本 —— analysis_calc → 新收款人 120 元 → 余额；
+# 2. bank:tools：stress 档（3 用户）。u-1 在场景基准日无转出，
+#    120 元不会被日限额抢走 `new-payee` 理由（已用 seed=7 复核）。
+
+- id: core:model
+  config:
+    provider: mock
+    model: mock-chat
+    chunkSize: 4
+    script:
+      - tool:
+          id: call-1
+          name: analysis_calc
+          args:
+            code: "round(data.dining / (data.dining + data.transport) * 100)"
+            data: { dining: 620, transport: 180 }
+      - text: 餐饮在交通加餐饮中的占比约为 78%。
+      - tool:
+          id: call-2
+          name: transfer_create
+          args:
+            amount: 120
+            payee: { name: 李小雨, phone: '13700003333' }
+            remark: 新收款人小额测试
+      - text: 已为新收款人李小雨完成 120 元转账（红色级别，已审批并核销）。
+      - tool: { id: call-3, name: account_balance, args: {} }
+      - text: 已查询当前账户余额。
+
+- id: bank:tools
+  config:
+    demoUserId: u-1
+    seed: 7
+    datasetTier: stress
