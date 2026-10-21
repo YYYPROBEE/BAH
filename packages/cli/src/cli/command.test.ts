@@ -34,9 +34,9 @@ describe('parseCommand', () => {
 })
 
 describe('runCli 子命令分流', () => {
-  it('bah audit 走子命令占位并退出 2', async () => {
+  it('bah audit --help 走子命令并退出 0', async () => {
     const captured = capture()
-    expect(await runCli(['audit'], captured.io)).toBe(2)
-    expect(captured.err.join('\n')).toContain('尚未实现')
+    expect(await runCli(['audit', '--help'], captured.io)).toBe(0)
+    expect(captured.out.join('\n')).toContain('bah audit')
   })
 })

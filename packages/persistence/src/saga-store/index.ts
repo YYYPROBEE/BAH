@@ -793,3 +793,6 @@ class SqliteSagaStore implements SagaStoreHandle {
 export function createSagaStore(options: SagaStoreOptions): SagaStoreHandle {
   return new SqliteSagaStore(options)
 }
+
+/** 只读审计使用：加载（并缓存）`node:sqlite`，过滤实验性警告。 */
+export { loadSqlite } from './sqlite.ts'
