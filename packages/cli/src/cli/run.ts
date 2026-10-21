@@ -25,6 +25,8 @@ import type { Context, SessionId } from '@bah/core'
 import { loadBundles } from '../bundles.ts'
 import { renderDumpConfig } from '../dump-config.ts'
 import { readDefaultProfile, readLayers, readProfile, type LayerOptions } from '../profile.ts'
+import { runAudit } from './audit.ts'
+import { parseCommand } from './command.ts'
 
 /** 输出出口（测试注入收集器；生产是 console）。 */
 export interface CliIo {
@@ -105,6 +107,16 @@ export async function runCli(
   io: CliIo,
   options: CliOptions = {},
 ): Promise<number> {
+  const command = parseCommand(argv)
+  switch (command.kind) {
+    case 'audit':
+      return runAudit(argv.slice(1), io, options)
+    case 'run':
+      break
+    default:
+      return assertNever(command, 'command')
+  }
+
   const parsed = parseArgs(argv)
   if (!parsed.ok) {
     io.err(`bah: ${parsed.error}`)
