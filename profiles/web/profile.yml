@@ -1,0 +1,12 @@
+# web（施工单 13）：唯一带 UI 的 profile。
+#
+# 与 headless 的差别只有三处：
+# 1. `core:agent.channel = web`（系统提示词的语气/长度段按 Web 裁剪）；
+# 2. 多一行 `channel:web`（HTTP + SSE + 静态资源 + 审批弹窗应答者）；
+# 3. 审批应答者保持 `none` —— Web 自己要断言"人点了才放行"，不能让 headless 的自动应答者顶包。
+#
+# HMR 关：演示现场改 patch 触发重载会让人误以为"界面自己刷新了"。
+name: web
+bundles: [base]
+patch: ./patch.yml
+hmr: false
