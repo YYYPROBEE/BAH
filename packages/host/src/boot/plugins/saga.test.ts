@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createContext } from '@bah/core'
+import { ChainFile } from '@bah/persistence'
 import {
   hasTickJob,
   SAGA_AUDIT,
@@ -19,6 +20,7 @@ import {
   TARGET_REGISTRY,
   unregisterTickJob,
 } from '@bah/saga'
+import { BahError } from '@bah/util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SESSION_FILES } from './persistence.ts'
@@ -188,6 +190,99 @@ describe('Saga 收敛 job 的生命周期', () => {
       expect(touched.activeSagas).toBe(1)
     } finally {
       await ctx.dispose('test')
+      rmSync(chainRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('T-SA07-010 启动恢复失败：stderr 留痕 + 链上留证（system-startup）', async () => {
+    const app = createContext()
+    const gate = deferred()
+    const logs: string[] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map((item) => String(item)).join(' '))
+    })
+    const chainRoot = mkdtempSync(join(tmpdir(), 'bah-saga-rec-audit-'))
+    // 真 store（`:memory:`）+ 真 audit（链落临时目录）；只让 SAGA_STORE 的读取失败。
+    const ctx: Context = new Proxy(app, {
+      get(target, prop) {
+        if (prop === 'whenReady') return (): Promise<void> => gate.promise
+        if (prop === 'get') {
+          return (key: ServiceKey<unknown>): unknown => {
+            if (key.id === SAGA_STORE.id) throw new BahError('service-missing', '模拟启动恢复失败')
+            return target.get(key)
+          }
+        }
+        const value: unknown = Reflect.get(target, prop, target)
+        return typeof value === 'function' ? (value as (this: unknown) => unknown).bind(target) : value
+      },
+    })
+    try {
+      ctx.provide(SESSION_FILES, {
+        root: chainRoot,
+        fileOf: (session) => join(chainRoot, String(session), 'session.jsonl'),
+      })
+      sagaStorePlugin.plugin.apply(app, sagaStorePlugin.validate({ dbPath: ':memory:' }))
+      await sagaPlugin.plugin.apply(ctx, sagaPlugin.validate({}))
+      sagaAuditPlugin.plugin.apply(app, sagaAuditPlugin.validate({}))
+
+      gate.resolve()
+      await settle()
+
+      // ① stderr 仍然有：审计是补充，不替代"立刻可见"
+      expect(logs.join('\n')).toContain('bah-saga: recovery-failed')
+      // ② 链上有证：系统级事实落进独立链，且不入任何 saga 的链
+      const rows = new ChainFile({ rootDir: chainRoot, fsync: false }).read('system-startup')
+      expect(rows.map((row) => row.t)).toEqual(['saga/recovery-failed'])
+      expect(app.get(SAGA_AUDIT).verify('system-startup').ok).toBe(true)
+      // ③ 审计写失败不影响装配：插件已经装好，服务可读
+      expect(app.get(SAGA_STORE)).toBeDefined()
+    } finally {
+      spy.mockRestore()
+      await app.dispose('test')
+      rmSync(chainRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('T-SA07-011 审计也不可用时：只留 stderr，不把记账失败升级成未处理拒绝', async () => {
+    const app = createContext()
+    const gate = deferred()
+    const logs: string[] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map((item) => String(item)).join(' '))
+    })
+    const chainRoot = mkdtempSync(join(tmpdir(), 'bah-saga-rec-noaudit-'))
+    const ctx: Context = new Proxy(app, {
+      get(target, prop) {
+        if (prop === 'whenReady') return (): Promise<void> => gate.promise
+        if (prop === 'get') {
+          return (key: ServiceKey<unknown>): unknown => {
+            if (key.id === SAGA_STORE.id || key.id === SAGA_AUDIT.id) {
+              throw new BahError('service-missing', '模拟恢复与审计同时不可用')
+            }
+            return target.get(key)
+          }
+        }
+        const value: unknown = Reflect.get(target, prop, target)
+        return typeof value === 'function' ? (value as (this: unknown) => unknown).bind(target) : value
+      },
+    })
+    try {
+      ctx.provide(SESSION_FILES, {
+        root: chainRoot,
+        fileOf: (session) => join(chainRoot, String(session), 'session.jsonl'),
+      })
+      await sagaPlugin.plugin.apply(ctx, sagaPlugin.validate({}))
+
+      gate.resolve()
+      await settle()
+
+      expect(logs.join('\n')).toContain('bah-saga: recovery-failed')
+      // 兜底必须留痕：否则"记账失败"会静默变成"什么都没发生"
+      expect(logs.join('\n')).toContain('bah-saga: recovery-audit-failed')
+      expect(app.phase).toBe('idle')
+    } finally {
+      spy.mockRestore()
+      await app.dispose('test')
       rmSync(chainRoot, { recursive: true, force: true })
     }
   })
