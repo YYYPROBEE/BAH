@@ -5,7 +5,7 @@
  * - 干净库：`file:...?immutable=1` + `readOnly` 打开，不生成 `-wal` / `-shm`；
  * - 有活动 `-wal`：把 `db` + `-wal`（以及存在的 `-shm`）复制到临时目录，
  *   打开副本完成查询后删除；源目录一个字节都不写。
- * - 禁止 `createSagaStore`：它会建库、`migrate`、切 WAL。
+ * - 禁止 saga 存储构造函数：它会建库、`migrate`、切 WAL。
  */
 
 import { copyFileSync, existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
