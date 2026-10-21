@@ -60,6 +60,11 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
     why: 'JSONL append-only 后端：分代命名与排他发布、尾截断容忍、版本拒绝（施工单 03 §1.5）',
   },
   {
+    package: 'persistence',
+    scope: 'chain/audit-report.ts',
+    why: '审计只读面：链连续性、签名覆盖与签名四态（施工单 16 §10）',
+  },
+  {
     package: 'host',
     scope: 'boot/',
     why: '组合系统：四层层序与整块替换、fail-loud 校验、boot 装配与回滚、config-only HMR（施工单 06）',

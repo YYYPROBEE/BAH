@@ -14,7 +14,9 @@
   "dependencies": {
     "@bah/core": "workspace:*",
     "@bah/host": "workspace:*",
+    "@bah/persistence": "workspace:*",
     "@bah/runtime": "workspace:*",
+    "@bah/saga": "workspace:*",
     "@bah/util": "workspace:*",
     "yaml": "^2"
   },
