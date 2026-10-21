@@ -131,6 +131,8 @@ function toResponderDecision(value: AutoDecision): 'allowed-once' | 'rejected' |
     case 'cancel':
       return 'cancelled'
     default:
+      // 构造不可达：封闭联合已穷尽（纪律 6 要求收尾）
+      /* v8 ignore next */
       return assertNever(value, 'approval-auto-decision')
   }
 }

@@ -143,6 +143,8 @@ export function unwrapOutcome(outcome: SandboxOutcome<unknown>): ComputeResult {
         timeoutMs: outcome.timeoutMs,
       })
     default:
+      // 构造不可达：封闭联合已穷尽（纪律 6 要求收尾）
+      /* v8 ignore next */
       return assertNever(outcome, 'sandbox-outcome')
   }
 }

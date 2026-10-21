@@ -192,7 +192,9 @@ function toBlock(index: number, slot: Slot): ContentBlock {
       }
     }
     default:
+      // 构造不可达：封闭联合已穷尽（纪律 6 要求收尾）
       // `Slot` 是同一接口上的字面量属性（不是判别联合的对象成员），故收尾取属性而非对象本身
+      /* v8 ignore next */
       return assertNever(slot.kind, 'stream-slot')
   }
 }

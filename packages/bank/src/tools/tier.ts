@@ -91,6 +91,8 @@ export function tierRank(level: ToolTierLevel): number {
     case 'red':
       return 2
     default:
+      // 构造不可达：封闭联合已穷尽（纪律 6 要求收尾）
+      /* v8 ignore next */
       return assertNever(level, 'tool-tier-level')
   }
 }

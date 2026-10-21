@@ -380,6 +380,8 @@ async function evaluateCall(
         code: decision.code,
       }
     default:
+      // 构造不可达：封闭联合已穷尽（纪律 6 要求收尾）
+      /* v8 ignore next */
       return assertNever(decision, 'governance-decision')
   }
 }
