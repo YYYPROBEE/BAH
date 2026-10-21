@@ -3,6 +3,8 @@
  *
  * 实现全在 `run.ts`（可单测）；`process` 相关的事只在 `../main.ts`。
  */
+export { AUDIT_HELP, AUDIT_USAGE, runAudit } from './audit.ts'
+export { parseCommand, type Command } from './command.ts'
 export {
   HELP,
   USAGE,
