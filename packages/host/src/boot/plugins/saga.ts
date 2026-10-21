@@ -37,29 +37,38 @@ export const sagaPlugin: HostPlugin<ReturnType<typeof parseSagaSettings>> = {
     apply(ctx, settings) {
       provideSaga(ctx, settings)
       const chainRoot = resolve(ctx.get(SESSION_FILES).root)
+      const chain = new ChainFile({ rootDir: chainRoot, fsync: false })
 
+      // ① 收敛注册**在 apply 内同步完成**：此刻 owner 还是 `bank:saga` 的桶，
+      //    两个 tick 任务的 disposer 才会随插件卸载/替换一起回滚。
+      //    它不需要 SAGA_STORE 就绪——登记的是回调，读库发生在回调被触发时
+      //    （放进 `.then()` 会落到 kernel 桶：插件被替换后仍替系统关 Saga）。
+      installConvergence(
+        ctx,
+        settings,
+        () => undefined,
+        async () => [],
+        {
+          projectionDiff: (sagaId) =>
+            projectionDiff(ctx, chain, sagaId, reduceSaga as unknown as ProjectionReducer),
+          readStream: (sagaId): readonly ChainRow[] =>
+            chain.read(sagaId).map((row) => ({ q: row.q, t: row.t, sub: row.sub, hb: row.hb })),
+        },
+        // DLQ 升级等常规告警进进程内汇；邮件/webhook 由渠道适配器消费。
+        (level, message) => {
+          const sink = legacyAlertSink()
+          sink(level, message)
+        },
+      )
+
+      // ② 只有"启动恢复"必须等存储与审计就绪：调度仍不阻塞 apply（否则与后装的
+      //    审计插件互等），但取消权交给 ctx.effect —— 插件卸载后那次 `.then` 不许再跑。
+      //    disposer 同步执行，所以只置一个布尔量，不 await（异步清理要另行登记）。
+      let cancelled = false
       void Promise.all([ctx.whenReady(SAGA_STORE), ctx.whenReady(SAGA_AUDIT)])
         .then(() => {
+          if (cancelled) return
           recoverAll(ctx, settings)
-          // 批 6：把 janitor / recon 接回 tick 注册表，并注入链只读面。
-          const chain = new ChainFile({ rootDir: chainRoot, fsync: false })
-          installConvergence(
-            ctx,
-            settings,
-            () => undefined,
-            async () => [],
-            {
-              projectionDiff: (sagaId) =>
-                projectionDiff(ctx, chain, sagaId, reduceSaga as unknown as ProjectionReducer),
-              readStream: (sagaId): readonly ChainRow[] =>
-                chain.read(sagaId).map((row) => ({ q: row.q, t: row.t, sub: row.sub, hb: row.hb })),
-            },
-            // DLQ 升级等常规告警进进程内汇；邮件/webhook 由渠道适配器消费。
-            (level, message) => {
-              const sink = legacyAlertSink()
-              sink(level, message)
-            },
-          )
         })
         .catch((error: unknown) => {
           // 内核不提供 start 钩子；启动恢复失败必须可见，不能静默吞错。
@@ -67,6 +76,9 @@ export const sagaPlugin: HostPlugin<ReturnType<typeof parseSagaSettings>> = {
             `bah-saga: recovery-failed: ${error instanceof Error ? error.message : String(error)}`,
           )
         })
+      ctx.effect(() => {
+        cancelled = true
+      })
     },
   },
 

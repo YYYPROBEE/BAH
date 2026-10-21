@@ -22,5 +22,13 @@ export default defineConfig({
     exclude: ['**/node_modules/**'],
     passWithNoTests: true,
     testTimeout: 30_000,
+    /**
+     * 场景之间**必须串行**：每个场景都会 `boot()` 一个完整应用，而 `bank:saga-store`
+     * 的 `dbPath` 是仓库级的 `sessions/saga.sqlite`（相对 cwd，不是每个场景独占）。
+     * 多个场景文件并行时是**多个进程抢同一个 sqlite 文件**，随机报
+     * `database is locked`——失败会在文件之间游走，看起来像"某个用例坏了"。
+     * 回放本身是单机重活，串行的总耗时并不比并行差。
+     */
+    fileParallelism: false,
   },
 })

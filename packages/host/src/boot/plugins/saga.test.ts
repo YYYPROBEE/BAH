@@ -10,8 +10,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createContext } from '@bah/core'
-import { SAGA_AUDIT, SAGA_CLOCK, SAGA_IDEMPOTENCY, SAGA_STORE, TARGET_REGISTRY } from '@bah/saga'
-import { describe, expect, it } from 'vitest'
+import {
+  hasTickJob,
+  SAGA_AUDIT,
+  SAGA_CLOCK,
+  SAGA_IDEMPOTENCY,
+  SAGA_STORE,
+  TARGET_REGISTRY,
+  unregisterTickJob,
+} from '@bah/saga'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { SESSION_FILES } from './persistence.ts'
 import { sagaPlugin } from './saga.ts'
@@ -75,6 +83,165 @@ describe('Saga 三插件装配', () => {
       expectServiceMissing(ctx, SAGA_CLOCK)
       expectServiceMissing(ctx, SAGA_AUDIT)
       expectServiceMissing(ctx, SAGA_IDEMPOTENCY)
+      rmSync(chainRoot, { recursive: true, force: true })
+    }
+  })
+})
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * B-2 / B-3：收敛 job 的归属与启动恢复的取消（C8）
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** 一次性宏任务屏障：让已排队的微任务（`Promise.all(...).then`）全部落地。 */
+const settle = (): Promise<void> =>
+  new Promise((done) => {
+    setTimeout(done, 0)
+  })
+
+/** 可控 promise：取消用例靠它消除时序依赖，不赌微任务顺序。 */
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve: () => void = () => undefined
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+describe('Saga 收敛 job 的生命周期', () => {
+  // tick 注册表是模块级单例：用例之间必须清干净，否则一个用例的残留会替另一个"充数"
+  beforeEach(() => {
+    for (const name of ['janitor', 'recon', 'anchor'] as const) unregisterTickJob(name)
+  })
+  afterEach(() => {
+    for (const name of ['janitor', 'recon', 'anchor'] as const) unregisterTickJob(name)
+  })
+
+  it('T-SA07-007 同名替换后旧实例的 tick 任务不再残留（归属在 bank:saga 桶）', async () => {
+    const ctx = createContext()
+    const chainRoot = mkdtempSync(join(tmpdir(), 'bah-saga-scope-'))
+    try {
+      ctx.provide(SESSION_FILES, {
+        root: chainRoot,
+        fileOf: (session) => join(chainRoot, String(session), 'session.jsonl'),
+      })
+      await ctx.use(sagaStorePlugin.plugin, sagaStorePlugin.validate({ dbPath: ':memory:' }))
+      await ctx.use(sagaPlugin.plugin, sagaPlugin.validate({}))
+      await ctx.use(sagaAuditPlugin.plugin, sagaAuditPlugin.validate({}))
+      await ctx.start()
+      await settle()
+
+      expect(hasTickJob('janitor')).toBe(true)
+      expect(hasTickJob('recon')).toBe(true)
+
+      // 换成一个关掉 b3 的同名插件：`installConvergence` 直接 return，不注册任何 job。
+      // 于是「旧实例的 job 有没有被回滚」成为唯一变量——若新实例照常注册，
+      // `jobs.set` 会覆盖同名项，新旧实现在 hasTickJob 上表现完全一致，测不出东西。
+      await ctx.use(sagaPlugin.plugin, sagaPlugin.validate({ features: { b3: false } }))
+      await settle()
+
+      expect(hasTickJob('janitor')).toBe(false)
+      expect(hasTickJob('recon')).toBe(false)
+    } finally {
+      await ctx.dispose('test')
+      rmSync(chainRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('T-SA07-009 未被卸载时启动恢复照常执行（取消守卫不能把正常路径也关掉）', async () => {
+    const app = createContext()
+    const gate = deferred()
+    const touched = { activeSagas: 0 }
+    const store = {
+      activeSagas: (): readonly string[] => {
+        touched.activeSagas += 1
+        return []
+      },
+      listSteps: (): readonly unknown[] => [],
+    }
+    const audit = { append: (): void => undefined }
+    const ctx: Context = new Proxy(app, {
+      get(target, prop) {
+        if (prop === 'whenReady') return (): Promise<void> => gate.promise
+        if (prop === 'get') {
+          return (key: ServiceKey<unknown>): unknown => {
+            if (key.id === SAGA_STORE.id) return store
+            if (key.id === SAGA_AUDIT.id) return audit
+            return target.get(key)
+          }
+        }
+        const value: unknown = Reflect.get(target, prop, target)
+        return typeof value === 'function' ? (value as (this: unknown) => unknown).bind(target) : value
+      },
+    })
+    const chainRoot = mkdtempSync(join(tmpdir(), 'bah-saga-recover-'))
+    try {
+      ctx.provide(SESSION_FILES, {
+        root: chainRoot,
+        fileOf: (session) => join(chainRoot, String(session), 'session.jsonl'),
+      })
+      await sagaPlugin.plugin.apply(ctx, sagaPlugin.validate({}))
+
+      gate.resolve()
+      await settle()
+
+      // 反向断言：卸载才取消。没有这条，"永远不恢复"也能让 T-SA07-008 通过。
+      expect(touched.activeSagas).toBe(1)
+    } finally {
+      await ctx.dispose('test')
+      rmSync(chainRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('T-SA07-008 插件卸载后启动恢复不再执行（whenReady 落地也不跑）', async () => {
+    const app = createContext()
+    const gate = deferred()
+    const touched = { activeSagas: 0 }
+    const store = {
+      activeSagas: (): readonly string[] => {
+        touched.activeSagas += 1
+        return []
+      },
+      listSteps: (): readonly unknown[] => [],
+    }
+    // 审计也要给桩：`recoverAll` 的第一行是 `get(SAGA_STORE)` 紧接 `get(SAGA_AUDIT)`，
+    // 只桩 store 的话它会在触达 `activeSagas` 探针前抛 service-missing——
+    // 探针永远 0，负控就红不了（假绿）。
+    const audit = { append: (): void => undefined }
+    const logs: string[] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map((item) => String(item)).join(' '))
+    })
+    // 只替换三个接缝：whenReady 由用例控制，get 的两个键换成探针。
+    const ctx: Context = new Proxy(app, {
+      get(target, prop) {
+        if (prop === 'whenReady') return (): Promise<void> => gate.promise
+        if (prop === 'get') {
+          return (key: ServiceKey<unknown>): unknown => {
+            if (key.id === SAGA_STORE.id) return store
+            if (key.id === SAGA_AUDIT.id) return audit
+            return target.get(key)
+          }
+        }
+        const value: unknown = Reflect.get(target, prop, target)
+        return typeof value === 'function' ? (value as (this: unknown) => unknown).bind(target) : value
+      },
+    })
+    const chainRoot = mkdtempSync(join(tmpdir(), 'bah-saga-cancel-'))
+    try {
+      ctx.provide(SESSION_FILES, {
+        root: chainRoot,
+        fileOf: (session) => join(chainRoot, String(session), 'session.jsonl'),
+      })
+      await sagaPlugin.plugin.apply(ctx, sagaPlugin.validate({}))
+
+      await ctx.dispose('test')
+      gate.resolve()
+      await settle()
+
+      expect(touched.activeSagas).toBe(0)
+      expect(logs).toEqual([])
+    } finally {
+      spy.mockRestore()
       rmSync(chainRoot, { recursive: true, force: true })
     }
   })

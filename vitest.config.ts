@@ -49,10 +49,12 @@ export default defineConfig({
         'packages/runtime/src/compaction/types.ts',
         // 仿真银行的 Provider 契约：只有接口与类型别名，零可执行行
         'packages/bank/src/core/provider.ts',
-        // 预存缺口（saga 线批 6 的启动恢复接线，08 阶段未改该文件）：
-        // `.then()` 内的收敛回调只在有 active saga / 演练窗口时触发，现有 host 装配用例
-        // 只验证"三插件就绪"；回调本身由 `@bah/saga` 的 convergence / recon 用例覆盖。
-        // 先排除以保持门禁可运行，待 saga 线补一条 tick 触发用例后移除（PROGRESS §30 R88）。
+        // 预存缺口（先排除以保持门禁可运行）。**C8 已补 host 级接线用例**
+        // （T-SA07-007 归属 / 008 卸载即取消 / 009 未卸载照跑），启动恢复与收敛注册
+        // 不再是无覆盖的盲区。剩余缺口只有两个**运行期才触发**的分支：
+        //   - `installConvergence` 的告警闭包：要 janitor 真的报出告警才会执行；
+        //   - `.catch` 里的 recovery-failed 体：要启动恢复自身抛错才会执行。
+        // 移除条件：补一条「janitor 报出告警」或「启动恢复失败」的 host 级用例。
         'packages/host/src/boot/plugins/saga.ts',
         // 缺口只剩一个**运行期不可达**的防御性守卫：`pick()` 的「候选集不能为空」throw。
         // 它的三个调用点全部传入 4 元素字面量元组，`seededRandom` 值域又是 [0,1)，
