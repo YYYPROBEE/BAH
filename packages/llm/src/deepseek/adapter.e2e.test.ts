@@ -1,7 +1,12 @@
 /**
- * DeepSeek 真实流式 e2e（施工单 05 §0 出口标准第 2 条「真实流式可用」）。
+ * DeepSeek 兼容端点的真实流式 e2e（施工单 05 §0 出口标准第 2 条「真实流式可用」）。
  *
  * 无 `DEEPSEEK_API_KEY` 时 `vitest.e2e.config.ts` 连用例都不收集（施工单硬约束 2：缺密钥不红）。
+ *
+ * 端点与模型均由环境变量决定，因此同一个用例可以打官方端点，也可以打任何
+ * OpenAI 兼容网关（如千问平台托管的 deepseek 模型）：
+ * - `DEEPSEEK_BASE_URL`：缺省 `https://api.deepseek.com`
+ * - `DEEPSEEK_MODEL`：缺省 `deepseek-chat`
  */
 
 import { describe, expect, it } from 'vitest'
@@ -11,11 +16,18 @@ import { createDeepSeekAdapter } from './adapter.ts'
 
 const hasApiKey = Boolean(process.env['DEEPSEEK_API_KEY'])
 
-describe.skipIf(!hasApiKey)('DeepSeek 真实流式（e2e）', () => {
+/**
+ * 模型标识：缺省打官方 `deepseek-chat`，换兼容网关时用 `DEEPSEEK_MODEL` 覆盖。
+ *
+ * 不放进 `wire.ts`：wire 只负责映射，不关心"跑哪个模型"；模型由调用方传入。
+ */
+const modelId = process.env['DEEPSEEK_MODEL'] ?? 'deepseek-chat'
+
+describe.skipIf(!hasApiKey)(`DeepSeek 兼容端点真实流式（e2e · ${modelId}）`, () => {
   it('真实 API：出一段文本、结束原因 stop、usage 非零', async () => {
     const adapter = createDeepSeekAdapter()
     const prepared = await adapter.prepareCall({
-      modelId: 'deepseek-chat',
+      modelId,
       messages: [{ role: 'user', content: [{ kind: 'text', text: '只回答两个字：收到' }] }],
       params: { maxTokens: 32, temperature: 0 },
     })
