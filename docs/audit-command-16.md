@@ -640,7 +640,8 @@ CLI 的投影重算同时需要 `@bah/persistence`（`projectionDiff` / `PROJECT
 | 文件 | 性质 | 归属步骤 |
 |---|---|---|
 | `packages/cli/src/cli/command.ts` | 新增：`parseCommand` + `Command` 封闭联合 | 1 |
-| `packages/cli/src/cli/command.test.ts` | 新增：路由与占位退出码 | 1 |
+| `packages/cli/src/cli/command.test.ts` | 新增：路由与 `--help` | 1（步骤 3 更新断言） |
+| `packages/cli/src/cli/command.exhaustive.test.ts` | 新增：未知 `Command.kind` 的 `assertNever` 穷尽性 | 3 |
 | `packages/cli/src/cli/audit.ts` | 新增：flag 解析、`AUDIT_HELP` / `AUDIT_USAGE`、编排与输出 | 1（占位）/ 3（主体） |
 | `packages/cli/src/cli/audit.test.ts` | 新增：flag/退出码/文本/JSON 契约 | 3 |
 | `packages/cli/src/cli/audit-projection.ts` | 新增：immutable / 临时副本 + 投影重算 + 反向缺口 | 3 |
@@ -652,6 +653,7 @@ CLI 的投影重算同时需要 `@bah/persistence`（`projectionDiff` / `PROJECT
 | `packages/persistence/src/chain/chain.test.ts` | 修改：`verifyContinuity` / `verifySignatures` / `verify()` 行为不变 | 2 |
 | `packages/persistence/src/chain/index.ts` | 修改：`rowHash` + 两个新公开方法；`verify()` 行为不变 | 2 |
 | `packages/persistence/src/index.ts` | 修改：导出 `./chain/audit-report.ts`（不放 `chain/index.ts`，避免循环） | 2 |
+| `packages/persistence/src/saga-store/index.ts` | 修改：导出 `loadSqlite`（供只读投影加载 `node:sqlite`） | 3 |
 | `packages/cli/src/cli/run.ts` | 修改：`runCli` 分流；`parseArgs` 一行不改 | 1 |
 | `packages/cli/src/cli/index.ts` | 修改：导出 `parseCommand` / `Command` / `runAudit` / `AUDIT_HELP` / `AUDIT_USAGE` | 1 |
 | `packages/cli/package.json` | 修改：`dependencies` 增 `@bah/persistence`、`@bah/saga` | 2 |
@@ -668,7 +670,7 @@ CLI 的投影重算同时需要 `@bah/persistence`（`projectionDiff` / `PROJECT
 
 **签名四态不变**：`verified` / `invalid` / `skipped-no-key` / `skipped-disabled`。`skipped-no-key` 只在 `signedExpected > 0` 且缺密钥时出现；若链上没有任何“类型内应签”的行，缺密钥不影响结论。
 
-**投影态**在原文四态基础上增加：`skipped-disabled`（用户 `--no-projection`）、`skipped-chain-broken`（链断，投影无意义）、`db-invalid`（库存在但 schema 不可读，退出码 2）。`skipped-no-db` 仍不计异常。
+**投影态**在原文四态基础上增加：`skipped-disabled`（用户 `--no-projection`）、`skipped-chain-broken`（链断，投影无意义）、`diff-error`（重算抛错，按异常计 1）、`db-invalid`（库存在但 schema 不可读，退出码 2）。`skipped-no-db` 仍不计异常。
 
 **锚定态**五态见 R167。锚定叶序必须用 `ChainFile.readAll()` 的稳定排序（`recordedAt, s, q`），与 `anchor()` 同口径。
 
@@ -686,11 +688,11 @@ CLI 的投影重算同时需要 `@bah/persistence`（`projectionDiff` / `PROJECT
 |---|---|---|
 | 1 | `feat(cli): 子命令路由骨架（bah audit 占位）` | §10 文档、`command.ts`、`command.test.ts`、`audit.ts` 占位、`run.ts`、`cli/index.ts` |
 | 2 | `feat(persistence): 拆分链连续性与验签核验` | `chain/index.ts`、`chain.test.ts`、`audit-report.ts`、`audit-report.test.ts`、persistence barrel、依赖/引用/覆盖率名单 |
-| 3 | `feat(cli): bah audit 只读审计命令` | CLI `audit.ts`/`audit.test.ts`、`audit-projection.ts`、`audit-anchors.ts` 及测试 |
+| 3 | `feat(cli): bah audit 只读审计命令` | CLI `audit.ts`/`audit.test.ts`、`audit-projection.ts`、`audit-anchors.ts` 及测试、`command.test.ts` 更新、`command.exhaustive.test.ts`、`saga-store/index.ts` 导出 |
 | 4 | `test(cli): audit:selftest 造链自证` | `scripts/audit-selftest.ts`、root `package.json` |
 | 5 | `feat(gate): verify-audit-cli 与命令文档` | `scripts/verify-audit-cli.ts`、`docs/audit.md`、例外名单清理、`PROGRESS.md` |
 
-**提交纪律**：当前索引里已有他人暂存的 §45 内容。每次只用 `git commit --only <本单路径>`，禁止裸 `git commit`；`PROGRESS.md` 与 `scripts/docs-path-excludes.ts` 若含他人改动，只写工作树、不强行入库，并在回执中说明。新源码在跑 `pnpm gate` 前必须显式 `git add`（`tracked-sources` 要求）。
+**提交纪律**：当前索引里已有他人暂存的 §45 内容与 `@bah/channels` 锁文件改动。每次只用 `git commit --only <本单路径>`，禁止裸 `git commit`；`PROGRESS.md`、`scripts/docs-path-excludes.ts`、`pnpm-lock.yaml` 若含他人改动，只写工作树、不强行入库，并在回执中说明。新源码在跑 `pnpm gate` 前必须显式 `git add`（`tracked-sources` 要求）。
 
 ### §10.5 验收清单（覆盖 §7）
 
