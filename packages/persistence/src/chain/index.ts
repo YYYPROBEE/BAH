@@ -64,6 +64,10 @@ export interface SagaAuditHandle {
     refs?: { happensBefore?: readonly number[]; vaultRef?: string },
   ): { seqInSaga: number; recordHash: string }
   verify(sagaId?: string): { ok: boolean; brokenAt?: number }
+  /** 只验哈希连续性：不读密钥、不验签；缺密钥也能给出链断结论。 */
+  verifyContinuity(sagaId?: string): { ok: boolean; brokenAt?: number }
+  /** 只验签名：缺密钥抛 `signing-key-missing`，验签失败抛 `signature-invalid`。 */
+  verifySignatures(sagaId?: string): { ok: boolean; checked: number }
   anchor(period: string): Promise<{ merkleRoot: string; targets: readonly string[] }>
   /** 内部接缝：协调器单提交段使用；不是跨包公开契约。 */
   beginDeferred?(): DeferredAudit
@@ -177,6 +181,40 @@ export function createSagaAudit(options: SagaAuditOptions): SagaAuditHandle {
     return { seqInSaga: unsigned.q, recordHash }
   }
 
+  function verifyContinuity(sagaId?: string): { ok: boolean; brokenAt?: number } {
+    const rows = sagaId === undefined ? file.readAll() : file.read(sagaId)
+    for (const [, chain] of groupBySaga(rows)) {
+      let prev = GENESIS_HASH
+      for (const row of chain) {
+        if (row.p !== prev || row.r !== rowHash(prev, row)) {
+          return { ok: false, brokenAt: row.q }
+        }
+        prev = row.r
+      }
+    }
+    return { ok: true }
+  }
+
+  function verifySignatures(sagaId?: string): { ok: boolean; checked: number } {
+    const rows = sagaId === undefined ? file.readAll() : file.read(sagaId)
+    const signedCount = rows.filter((row) => row.sig !== undefined).length
+    if (signedCount === 0) return { ok: true, checked: 0 }
+    const keys = signingKeys('verify-key-read', signedCount)
+    let checked = 0
+    for (const row of rows) {
+      if (row.sig === undefined) continue
+      if (!verifyRecord(keys, row.r, row.sig)) {
+        throw new BahError(
+          'signature-invalid',
+          `bah-saga: signature-invalid: 第 ${row.q} 条验签失败（${row.s}）`,
+          { sagaId: row.s, seqInSaga: row.q },
+        )
+      }
+      checked += 1
+    }
+    return { ok: true, checked }
+  }
+
   function verify(sagaId?: string): { ok: boolean; brokenAt?: number } {
     const rows = sagaId === undefined ? file.readAll() : file.read(sagaId)
     const signedCount = rows.filter((row) => row.sig !== undefined).length
@@ -185,7 +223,7 @@ export function createSagaAudit(options: SagaAuditOptions): SagaAuditHandle {
     for (const [chainSaga, chain] of groupBySaga(rows)) {
       let prev = GENESIS_HASH
       for (const row of chain) {
-        const expected = sha256Hex(`${prev}|${canonicalJson(canonicalOf(row))}`)
+        const expected = rowHash(prev, row)
         if (row.p !== prev || row.r !== expected) {
           return { ok: false, brokenAt: row.q }
         }
@@ -234,6 +272,8 @@ export function createSagaAudit(options: SagaAuditOptions): SagaAuditHandle {
   return {
     append,
     verify,
+    verifyContinuity,
+    verifySignatures,
     anchor,
     beginDeferred() {
       if (deferredRows !== undefined) {
@@ -253,6 +293,11 @@ export function createSagaAudit(options: SagaAuditOptions): SagaAuditHandle {
       }
     },
   }
+}
+
+/** 一条链记录的期望 recordHash：写入与所有校验路径的唯一算法入口。 */
+function rowHash(prev: string, row: ChainRecord): string {
+  return sha256Hex(`${prev}|${canonicalJson(canonicalOf(row))}`)
 }
 
 /** 参与哈希的 unsigned 投影（与 append 写入的字段逐键同构）。 */

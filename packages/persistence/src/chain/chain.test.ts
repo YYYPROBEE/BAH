@@ -152,6 +152,51 @@ describe('哈希链', () => {
   })
 })
 
+describe('连续性与验签拆分（施工单 16）', () => {
+  it('verifyContinuity 不读密钥也能定位断链', () => {
+    const dir = root()
+    const chain = audit(dir)
+    chain.append('s1', 'saga/created', { sagaId: 's1' })
+    chain.append('s1', 'saga/step-planned', { sagaId: 's1', stepId: 's1' })
+    expect(chain.verifyContinuity('s1')).toEqual({ ok: true })
+
+    const path = join(dir, 'audit', 's1', 'audit.jsonl')
+    const lines = readFileSync(path, 'utf8').split('\n').filter((line) => line.length > 0)
+    const first = JSON.parse(lines[0] as string) as ChainRecord
+    lines[0] = JSON.stringify({ ...first, d: sha256Hex('tampered') })
+    writeFileSync(path, `${lines.join('\n')}\n`, 'utf8')
+
+    expect(chain.verifyContinuity('s1')).toEqual({ ok: false, brokenAt: 1 })
+  })
+
+  it('verifySignatures 返回 checked；缺密钥与伪签分别抛错', () => {
+    const dir = root()
+    const key = keyFile(dir)
+    const chain = audit(dir, { signingKeyPath: key, signedTypes: [...SIGNED_TYPES] })
+    chain.append('s1', 'saga/comp-issued', { sagaId: 's1', compId: 'c1' })
+    chain.append('s1', 'saga/comp-result', { sagaId: 's1', compId: 'c1' })
+    chain.append('s1', 'saga/created', { sagaId: 's1' })
+    expect(chain.verifySignatures('s1')).toEqual({ ok: true, checked: 2 })
+
+    const noKey = audit(dir, { signingKeyPath: join(dir, 'missing.pem') })
+    expect(() => noKey.verifySignatures('s1')).toThrow(/signing-key-missing/)
+
+    const path = join(dir, 'audit', 's1', 'audit.jsonl')
+    const lines = readFileSync(path, 'utf8').split('\n').filter((line) => line.length > 0)
+    const first = JSON.parse(lines[0] as string) as ChainRecord
+    lines[0] = JSON.stringify({ ...first, sig: Buffer.from('forged').toString('base64') })
+    writeFileSync(path, `${lines.join('\n')}\n`, 'utf8')
+    expect(() => chain.verifySignatures('s1')).toThrow(/signature-invalid/)
+  })
+
+  it('无签名链 verifySignatures 返回 checked=0 且不读密钥', () => {
+    const dir = root()
+    const chain = audit(dir, { signingKeyPath: join(dir, 'missing.pem') })
+    chain.append('s1', 'saga/created', { sagaId: 's1' })
+    expect(chain.verifySignatures('s1')).toEqual({ ok: true, checked: 0 })
+  })
+})
+
 describe('金库与访问审计', () => {
   it('T-SA11-008：事件流不含明文，明文只在 vault；授权读取可还原', () => {
     const dir = root()

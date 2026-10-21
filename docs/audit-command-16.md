@@ -641,8 +641,8 @@ CLI 的投影重算同时需要 `@bah/persistence`（`projectionDiff` / `PROJECT
 |---|---|---|
 | `packages/cli/src/cli/command.ts` | 新增：`parseCommand` + `Command` 封闭联合 | 1 |
 | `packages/cli/src/cli/command.test.ts` | 新增：路由与占位退出码 | 1 |
-| `packages/cli/src/cli/audit.ts` | 新增：flag 解析、`AUDIT_HELP` / `AUDIT_USAGE`、编排与输出 | 1（占位）/ 2（主体） |
-| `packages/cli/src/cli/audit.test.ts` | 新增：flag/退出码/文本/JSON 契约 | 2 |
+| `packages/cli/src/cli/audit.ts` | 新增：flag 解析、`AUDIT_HELP` / `AUDIT_USAGE`、编排与输出 | 1（占位）/ 3（主体） |
+| `packages/cli/src/cli/audit.test.ts` | 新增：flag/退出码/文本/JSON 契约 | 3 |
 | `packages/cli/src/cli/audit-projection.ts` | 新增：immutable / 临时副本 + 投影重算 + 反向缺口 | 3 |
 | `packages/cli/src/cli/audit-projection.test.ts` | 新增：WAL/sidecar/零写/反向缺口 | 3 |
 | `packages/cli/src/cli/audit-anchors.ts` | 新增：全局 Merkle 比对 + 五态 | 3 |
@@ -685,8 +685,8 @@ CLI 的投影重算同时需要 `@bah/persistence`（`projectionDiff` / `PROJECT
 | # | 提交信息 | 只包含 |
 |---|---|---|
 | 1 | `feat(cli): 子命令路由骨架（bah audit 占位）` | §10 文档、`command.ts`、`command.test.ts`、`audit.ts` 占位、`run.ts`、`cli/index.ts` |
-| 2 | `feat(persistence): 拆分链连续性与验签核验` | `chain/index.ts`、`chain.test.ts`、`audit-report.ts`、`audit-report.test.ts`、CLI audit 主体、依赖/引用/覆盖率名单 |
-| 3 | `feat(cli): bah audit 投影与锚定只读审计` | `audit-projection.ts`、`audit-anchors.ts` 及测试 |
+| 2 | `feat(persistence): 拆分链连续性与验签核验` | `chain/index.ts`、`chain.test.ts`、`audit-report.ts`、`audit-report.test.ts`、persistence barrel、依赖/引用/覆盖率名单 |
+| 3 | `feat(cli): bah audit 只读审计命令` | CLI `audit.ts`/`audit.test.ts`、`audit-projection.ts`、`audit-anchors.ts` 及测试 |
 | 4 | `test(cli): audit:selftest 造链自证` | `scripts/audit-selftest.ts`、root `package.json` |
 | 5 | `feat(gate): verify-audit-cli 与命令文档` | `scripts/verify-audit-cli.ts`、`docs/audit.md`、例外名单清理、`PROGRESS.md` |
 
