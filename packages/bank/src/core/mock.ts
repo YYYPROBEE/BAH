@@ -249,9 +249,17 @@ export class MockBankCore implements BankCoreProvider {
     }
 
     const at = this.now()
-    const idemKey = req.idempotencyKey?.trim()
+    const rawKey = req.idempotencyKey?.trim()
+    // 幂等表是 core 实例级的（一进程一 core，见 host/boot/plugins/bank-tools.ts），
+    // 而键由客户端提供。不加 actor 前缀时，A 与 B 用同一个键会互相命中：
+    // B 拿到 A 的 txnId 且自己的账户一分没扣——两个用户都以为转账成功。
+    // 前缀带 account.id 而不只是 userId：同一用户的两个账户各转一笔是两笔独立交易。
+    const idemKey =
+      rawKey === undefined || rawKey.length === 0
+        ? undefined
+        : `${account.userId}:${account.id}:${rawKey}`
     const fingerprint = `${req.payee.name}|${req.payee.phone ?? ''}|${req.amountCents}`
-    if (idemKey !== undefined && idemKey.length > 0) {
+    if (idemKey !== undefined) {
       const cached = this.idempotency.get(idemKey)
       if (cached !== undefined && cached.expiresAt > at) {
         if (cached.fingerprint !== fingerprint) {
@@ -304,7 +312,7 @@ export class MockBankCore implements BankCoreProvider {
       remainingCents: Math.max(0, dailyLimitCents - dailyUsedCents),
       at,
     }
-    if (idemKey !== undefined && idemKey.length > 0) {
+    if (idemKey !== undefined) {
       this.idempotency.set(idemKey, {
         fingerprint,
         result,

@@ -510,6 +510,36 @@ describe('幂等键（可选，防同参数重复提交）', () => {
       ),
     ).rejects.toMatchObject({ code: 'idempotency-conflict' })
   })
+
+  /**
+   * B-1（S0）：幂等表是 **core 实例级**（一进程一 core），键却由客户端提供。
+   * 不加 actor 维度时，两个用户用同一个键会互相命中：后一笔既不扣款、又拿到前一笔的 txnId。
+   * 断言写成 `toBe(before - 1_000)` 而不是 `toBeLessThan(...)`——后者在"只扣了一笔"时也绿，
+   * 而那正是要抓的静默吞没。
+   */
+  it('同键跨用户不串号：两笔独立扣款、txnId 不同', async () => {
+    const data = buildBankDataset({ seed: 1, tier: 'stress', now: NOW })
+    const core = new MockBankCore({ data, now: () => NOW })
+    const [userA, userB] = data.users
+    const accountA = data.accounts.find((item) => item.userId === userA!.id)!
+    const accountB = data.accounts.find((item) => item.userId === userB!.id)!
+    const beforeA = (await core.balance(accountA.id)).balanceCents
+    const beforeB = (await core.balance(accountB.id)).balanceCents
+
+    // 收款人与金额完全相同 → fingerprint 相同；唯一区别是转出账户。
+    const req = (from: typeof accountA.id) => ({
+      ...transfer({ amountCents: 1_000 }),
+      fromAccountId: from,
+      idempotencyKey: 'shared-key',
+    })
+
+    const first = await core.createTransfer(req(accountA.id), ticket(core, { amountCents: 1_000 }))
+    const second = await core.createTransfer(req(accountB.id), ticket(core, { amountCents: 1_000 }))
+
+    expect(second.txnId).not.toBe(first.txnId)
+    expect((await core.balance(accountA.id)).balanceCents).toBe(beforeA - 1_000)
+    expect((await core.balance(accountB.id)).balanceCents).toBe(beforeB - 1_000)
+  })
 })
 
 describe('幂等表软上限', () => {
