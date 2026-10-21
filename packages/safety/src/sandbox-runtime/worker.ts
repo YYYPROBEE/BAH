@@ -35,7 +35,12 @@ function post(result: SandboxWorkerResult): void {
   parentPort?.postMessage(result)
 }
 
-/** 抛出物 → 结构化理由码（非 ProgramError 的意外抛错也要留码）。 */
+/**
+ * 抛出物 → 结构化理由码（非 ProgramError 的意外抛错也要留码）。
+ *
+ * **为什么不去用 `@bah/util` 的 `errorCodeOf`**：本文件在 worker 加载链上，零包名 import
+ * 是硬约束（见文件头）。`verify-single-error-normalization` 为此单列了一条路径例外。
+ */
 function codeOf(error: unknown): string {
   if (typeof error === 'object' && error !== null) {
     const candidate = (error as { code?: unknown }).code
@@ -44,7 +49,7 @@ function codeOf(error: unknown): string {
   return 'sandbox-runtime-error'
 }
 
-/** 抛出物 → 可读消息。 */
+/** 抛出物 → 可读消息（同上：worker 链不能 import `@bah/util`，故本地保留一份）。 */
 function messageOf(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)

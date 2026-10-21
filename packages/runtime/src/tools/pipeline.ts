@@ -19,7 +19,7 @@
  * - 判决顺序改动 = 破坏性变更（施工单 03 硬约束 3）。
  */
 
-import { BahError, assertNever } from '@bah/util'
+import { BahError, assertNever, errorCodeOf, reasonOf } from '@bah/util'
 
 import type {
   ContentBlock,
@@ -133,8 +133,8 @@ export class ToolPipeline {
       this.session.append('tool/callback-failed', {
         stage,
         callId,
-        code: errorCodeOf(error),
-        reason: messageOf(error),
+        code: errorCodeOf(error, 'tool-failed'),
+        reason: reasonOf(error),
         at: this.now(),
       })
     } catch (auditError) {
@@ -238,8 +238,8 @@ export class ToolPipeline {
     } catch (error) {
       isError = true
       // 保留工具体抛出的结构化理由码：`tool-failed` 会把审计与自愈都变成瞎子
-      code = errorCodeOf(error)
-      reason = messageOf(error)
+      code = errorCodeOf(error, 'tool-failed')
+      reason = reasonOf(error)
     }
 
     // ⑥ 预置内容 → 后置判决
@@ -383,8 +383,8 @@ export class ToolPipeline {
 
   /** 没有可执行体（工具未注册）：落一条结构化失败结果，不进入管线各段。 */
   private notExecutable(call: ToolCallInput, error: unknown): ToolExecution {
-    const code = errorCodeOf(error)
-    const reason = messageOf(error)
+    const code = errorCodeOf(error, 'tool-failed')
+    const reason = reasonOf(error)
     const result: ToolResultData = {
       callId: call.callId,
       name: call.name,
@@ -458,12 +458,4 @@ function fallbackContent(payload: unknown): readonly ContentBlock[] {
   return [{ type: 'text', text: '工具已执行成功，但结果无法渲染为文本（callback-failed 已审计）。' }]
 }
 
-/** 任意抛出物 → 可读理由（非 Error 也要留文本）。 */
-function messageOf(error: unknown): string {
-  return error instanceof BahError || error instanceof Error ? error.message : String(error)
-}
 
-/** 任意抛出物 → 结构化理由码（`BahError` 的 code 优先）。 */
-function errorCodeOf(error: unknown): string {
-  return error instanceof BahError ? error.code : 'tool-failed'
-}

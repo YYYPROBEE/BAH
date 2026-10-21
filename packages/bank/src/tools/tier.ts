@@ -9,6 +9,8 @@
  * `config` 只来自 Config（模型输出与用户口头声明不参与判定）。
  */
 
+import { assertNever } from '@bah/util'
+
 import type { ToolTierLevel } from '@bah/core'
 
 import type { TransferPreview } from '../core/provider.ts'
@@ -88,6 +90,8 @@ export function tierRank(level: ToolTierLevel): number {
       return 1
     case 'red':
       return 2
+    default:
+      return assertNever(level, 'tool-tier-level')
   }
 }
 

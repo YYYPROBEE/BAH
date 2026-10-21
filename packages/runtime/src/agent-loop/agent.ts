@@ -27,7 +27,7 @@
  *    `assistant/message`（工具调用的承载消息），最后把错抛出去。
  */
 
-import { BahError, assertNever } from '@bah/util'
+import { BahError, assertNever, reasonOf } from '@bah/util'
 import { UsageLedger, assembleStream } from '@bah/llm'
 
 import type { Context, SessionId } from '@bah/core'
@@ -355,7 +355,7 @@ export class AgentLoop implements Agent {
       // 兜底：任何逃出 step 的异常（工具未注册、事件监听器抛错、落账失败）都不能让
       // turn 停留在“未闭合”状态。先记失败原因，收尾段统一落 `turn/end`，最后再抛。
       failure = { error }
-      turnEnds = { kind: 'failed', reason: `turn 异常终止：${messageOf(error)}` }
+      turnEnds = { kind: 'failed', reason: `turn 异常终止：${reasonOf(error)}` }
     } finally {
       this.abort.end()
     }
@@ -635,7 +635,7 @@ export class AgentLoop implements Agent {
           stage: 'emit-result',
           callId: result.callId,
           code: error instanceof BahError ? error.code : 'tool-failed',
-          reason: messageOf(error),
+          reason: reasonOf(error),
           at: this.now(),
         })
       } catch (auditError) {
@@ -696,7 +696,7 @@ export class AgentLoop implements Agent {
     signal: AbortSignal,
     phase: string,
   ): TurnEndReason {
-    const reason = `${phase}：${messageOf(error)}`
+    const reason = `${phase}：${reasonOf(error)}`
     return isAbortedError(error) || signal.aborted ? this.cancelled(turn, reason) : this.fail(turn, reason)
   }
 
@@ -785,7 +785,3 @@ function isAbortedError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
 }
 
-/** 任意抛出物 → 可读理由（非 Error 也留文本，禁止静默吞错）。 */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}

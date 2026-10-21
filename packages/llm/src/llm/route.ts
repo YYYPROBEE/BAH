@@ -9,7 +9,7 @@
  * 3. 取消**不重试**：用户按了停，换模型继续跑是违背意图。
  */
 
-import { BahError } from '@bah/util'
+import { BahError, reasonOf } from '@bah/util'
 
 import type { LlmAdapterRegistry } from './registry.ts'
 import type { LlmRequest, ModelSpec, PreparedCall, StreamChunk } from './types.ts'
@@ -134,7 +134,3 @@ function isAborted(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
 }
 
-/** 任意抛出物 → 可读理由（非 Error 也留文本，禁止静默吞错）。 */
-function reasonOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}

@@ -17,6 +17,7 @@ import { BANK_CHALLENGE } from '@bah/bank'
 import { APPROVAL_SERVICE, ApprovalService, createHeadlessResponder } from '@bah/interaction'
 import type { ApprovalInputLike } from '@bah/interaction'
 import { SESSION_SERVICE } from '@bah/runtime'
+import { assertNever } from '@bah/util'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
@@ -129,5 +130,7 @@ function toResponderDecision(value: AutoDecision): 'allowed-once' | 'rejected' |
       return 'rejected'
     case 'cancel':
       return 'cancelled'
+    default:
+      return assertNever(value, 'approval-auto-decision')
   }
 }

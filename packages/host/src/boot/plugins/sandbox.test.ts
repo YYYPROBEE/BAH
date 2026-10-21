@@ -5,7 +5,7 @@
 import { createContext } from '@bah/core'
 import { BANK_COMPUTE } from '@bah/bank'
 import { SESSION_SERVICE, provideSession } from '@bah/runtime'
-import { asSessionId, captureThrown } from '@bah/test-support'
+import { asSessionId, captureThrown, fixedClock } from '@bah/test-support'
 import { describe, expect, it } from 'vitest'
 
 import { RUN_SERVICE } from '../boot.ts'
@@ -46,6 +46,37 @@ describe('safety:sandbox 接线', () => {
 
       const events = ctx.get(SESSION_SERVICE).events()
       expect(events.some((event) => String(event.type) === 'sandbox/done')).toBe(true)
+    } finally {
+      await ctx.dispose('test')
+    }
+  })
+
+  it('沙箱审计钟可独立注入：elapsedMs 等于注入钟的步长（不读墙钟）', async () => {
+    // 步长取 4096：无注入时真实墙钟耗时不可能恰好等于它，负控不会被巧合掩盖。
+    const sandboxClock = fixedClock({ start: 1_000, step: 4_096 })
+    const ctx = createContext()
+    const sessionId = asSessionId('s-sandbox-clock')
+    ctx.provide(RUN_SERVICE, { sessionId, now: () => 0, sandboxNow: sandboxClock.tick })
+    provideSession(ctx, { sessionId, now: () => 0 })
+    await ctx.use(
+      sandboxPlugin.plugin,
+      sandboxPlugin.validate({ timeoutMs: 2_000, maxOperations: 10_000, maxConcurrency: 1 }),
+    )
+    await ctx.start()
+    try {
+      const compute = ctx.get(BANK_COMPUTE)
+      const result = await compute({
+        code: '1 + 2 * 3',
+        limits: { timeoutMs: 1_000, maxOperations: 100 },
+      })
+      expect(result.value).toBe(7)
+
+      const done = ctx
+        .get(SESSION_SERVICE)
+        .events()
+        .find((event) => String(event.type) === 'sandbox/done')
+      expect(done).toBeDefined()
+      expect((done?.data as { elapsedMs?: number }).elapsedMs).toBe(4_096)
     } finally {
       await ctx.dispose('test')
     }

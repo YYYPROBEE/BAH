@@ -16,6 +16,7 @@ import {
   readConfigBoolean,
   readConfigEnum,
   readConfigPositiveInteger,
+  reasonOf,
   rejectUnknownConfigKeys,
 } from '@bah/util'
 
@@ -468,7 +469,7 @@ function readExtraRules(record: Readonly<Record<string, unknown>>): readonly Ext
     } catch (error) {
       throw sentryConfigError(
         'sentry-invalid-rule',
-        `safety:sentry.rules.extra[${index}].pattern 不是合法正则：${messageOf(error)}`,
+        `safety:sentry.rules.extra[${index}].pattern 不是合法正则：${reasonOf(error)}`,
         { index, id, pattern },
       )
     }
@@ -518,7 +519,3 @@ function describe(value: unknown): string {
   return String(value)
 }
 
-/** 任意抛出物 → 可读理由。 */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}

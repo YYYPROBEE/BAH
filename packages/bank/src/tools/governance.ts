@@ -12,7 +12,7 @@
  * 本包只负责**五绑定组装与核销边界**，不持有跨 turn 的待审批状态（R90）。
  */
 
-import { BahError } from '@bah/util'
+import { BahError, assertNever, errorCodeOf, reasonOf } from '@bah/util'
 
 import type { Context, SessionId, TicketDraft, TicketId, ToolTierLevel } from '@bah/core'
 
@@ -379,6 +379,8 @@ async function evaluateCall(
         reason: 'declared',
         code: decision.code,
       }
+    default:
+      return assertNever(decision, 'governance-decision')
   }
 }
 
@@ -399,13 +401,13 @@ async function transferPreview(
     input = parseTransferInput(call.args)
     assertExecutableNow(input.when, now())
   } catch (error) {
-    return { deny: { kind: 'deny', code: errorCodeOf(error), reason: reasonOf(error) } }
+    return { deny: { kind: 'deny', code: errorCodeOf(error, 'tool-failed'), reason: reasonOf(error) } }
   }
   let account
   try {
     account = await requireAccount(deps, userId)
   } catch (error) {
-    return { deny: { kind: 'deny', code: errorCodeOf(error), reason: reasonOf(error) } }
+    return { deny: { kind: 'deny', code: errorCodeOf(error, 'tool-failed'), reason: reasonOf(error) } }
   }
   try {
     const preview = await deps.core.previewTransfer({
@@ -420,7 +422,7 @@ async function transferPreview(
     }
     return { preview }
   } catch (error) {
-    return { deny: { kind: 'deny', code: errorCodeOf(error), reason: reasonOf(error) } }
+    return { deny: { kind: 'deny', code: errorCodeOf(error, 'tool-failed'), reason: reasonOf(error) } }
   }
 }
 
@@ -463,16 +465,6 @@ function ticketIdOf(callId: string): TicketId {
   return `ticket:${callId}` as TicketId
 }
 
-/** `BahError` 的 code；其他错误统一 `tool-failed`。 */
-function errorCodeOf(error: unknown): string {
-  return error instanceof BahError ? error.code : 'tool-failed'
-}
-
-/** 可读理由。 */
-function reasonOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 /**
  * 票据记账的安全边界：账本异常绝不冒泡到业务路径（资金已动时尤其致命）。
  *
@@ -504,7 +496,7 @@ function reportLedgerFailure(
     deps.audit.append('ticket/ledger-failed', {
       ticketId,
       op,
-      code: errorCodeOf(error),
+      code: errorCodeOf(error, 'tool-failed'),
       reason: reasonOf(error),
       at,
     })

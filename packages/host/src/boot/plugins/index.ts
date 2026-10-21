@@ -24,6 +24,7 @@ import { sandboxPlugin } from './sandbox.ts'
 import { sentryPlugin } from './sentry.ts'
 import { sessionPlugin } from './session.ts'
 import { toolsPlugin } from './tools.ts'
+import { webPlugin } from './web.ts'
 
 /** base bundle 的插件集（施工单 06 §3：内核 + 主循环 + 模型层 + 工具管线 + 持久化）。 */
 export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
@@ -42,6 +43,8 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   sagaStorePlugin,
   sagaPlugin,
   sagaAuditPlugin,
+  // 渠道（施工单 13）：前端作为插件模块接入；不写进 base bundle，由 web profile 的 patch 加行
+  webPlugin,
 ].map(toAnyHostPlugin)
 
 export {
@@ -60,6 +63,7 @@ export {
   sentryPlugin,
   sessionPlugin,
   toolsPlugin,
+  webPlugin,
 }
 
 /**

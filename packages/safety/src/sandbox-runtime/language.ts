@@ -35,6 +35,17 @@ export class ProgramError extends Error {
   }
 }
 
+/**
+ * 封闭联合的收尾断言（**本文件为什么自带一份**：见上方第 1 条硬约束"零依赖"）。
+ *
+ * `@bah/util` 的同名函数语义一致，但 worker 加载链上的文件不能走包名导入——
+ * 这里抛 `ProgramError`，让未识别的 AST 节点变成可上报的 `program-invalid`，
+ * 而不是静默算出一个 NaN 让业务层去猜。
+ */
+function assertNever(value: never, context: string): never {
+  throw new ProgramError('program-invalid', `${context}：未识别的取值 ${String(value)}`)
+}
+
 /** 一次程序执行的输入（worker 协议载荷，必须可结构化克隆）。 */
 export interface ProgramRequest {
   readonly code: string
@@ -366,6 +377,8 @@ class Evaluator {
         }
         return fn(node.args.map((arg) => this.evaluate(arg)))
       }
+      default:
+        return assertNever(node, 'sandbox-lang-node')
     }
   }
 
