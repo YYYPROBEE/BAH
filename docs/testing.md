@@ -5,12 +5,12 @@
 
 ## 1. 四个测试面（一个都不能省）
 
-| 面 | 命令 | 配置 | 装什么 | 现状 |
+| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-22 实测） |
 |---|---|---|---|---|
-| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 83 用例（core 56 + test-support 22 + cli 冒烟 1 + …） |
-| e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 DeepSeek API**（`*.e2e.test.ts`） | 0 用例（**设计如此**，见 §7） |
-| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 6 用例（通道冒烟 2 + headless 录制/回放/确定性/负控 4） |
-| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 2 用例（入口挂载冒烟） |
+| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 149 文件 / 1335 用例 |
+| e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 DeepSeek API**（`*.e2e.test.ts`） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
+| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 4 文件 / 14 用例 |
+| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 5 文件 / 46 用例 |
 
 一条命令跑全链（本地等价 CI，fail-fast）：
 
@@ -19,9 +19,24 @@ cd D:\项目集\微众杯银行ai智能体\BAH\MonoRepo
 pnpm check
 ```
 
-`pnpm check` = typecheck → test → test:coverage → gate → e2e → snapshot → web，任一步红即停并给出耗时汇总。
+`pnpm check` 共 **10 步**，任一步红即停并给出耗时汇总：
+
+```
+typecheck → lint → build → test → test:coverage → gate → e2e → snapshot → web → rag:check
+```
+
+两种模式，**红绿口径不同，不可混用**：
+
+| 命令 | 未执行面（如无 key 的 e2e） | 用途 |
+|---|---|---|
+| `pnpm check` | 记为 SKIP，**退出码 0** | 本地开发 |
+| `pnpm check:ci` | **退出码 1**（严格模式不接受 SKIP） | CI 必需检查 |
 
 > 为什么不叫 `pnpm ci`：`ci` 是 pnpm 内建命令（`ERR_PNPM_CI_NOT_IMPLEMENTED`），脚本名会被它占掉。
+>
+> 为什么严格模式用 `--ci` 而不是 `CI=true` 环境变量：`CI=true` 还会强制要求显式 `BAH_SNAPSHOT_BASE`
+> （见 `resolveSnapshotBase`），本地没有该变量时会一步都跑不到、直接退出，
+> 于是"无 key 即红"这条语义根本得不到验证。两者职责不同。
 
 ## 2. 用例命名纪律（硬性）
 
