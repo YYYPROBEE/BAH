@@ -82,6 +82,25 @@ const gate: Gate = {
       return { ok: true, findings: [], notes }
     }
 
+    // 纯形态改动豁免：去掉纯注释行后代码序列完全一致，说明没有行为变化。
+    //
+    // 为什么必须有这一条：快照是确定性录制的（scenario.json 固定 clock.start 与 randomSeed），
+    // 改动若只涉及注释，重录会产出逐字节相同的内容、git 里没有 diff，
+    // 于是下面「快照是否出现在改动集」的判定永远不成立 —— 门禁变成只会红、不会绿的死锁。
+    const behavioral: string[] = []
+    const formattingOnly: string[] = []
+    for (const file of sensitive) {
+      if (isCommentOnlyChange(root, baseline.base, file)) formattingOnly.push(file)
+      else behavioral.push(file)
+    }
+    if (formattingOnly.length > 0) {
+      notes.push(`纯注释改动（不要求重录）：${formattingOnly.join(', ')}`)
+    }
+    if (behavioral.length === 0) {
+      notes.push('改动不含行为变化，无需快照')
+      return { ok: true, findings: [], notes }
+    }
+
     if (allowSkip) {
       if (isCi) {
         return {
@@ -100,7 +119,7 @@ const gate: Gate = {
     const findings: string[] = []
     const usedCases = new Set<string>()
 
-    for (const file of sensitive) {
+    for (const file of behavioral) {
       const covering = cases.cases.filter((entry) =>
         entry.coveredSources.some((scope) => covers(scope, file)),
       )
@@ -134,6 +153,67 @@ const gate: Gate = {
 
     return { ok: true, findings: [], notes }
   },
+}
+
+/**
+ * 去掉「纯注释行」后的代码序列。
+ *
+ * 只按行首标记判断：`//`、`/*`、`*`（块注释续行）与空行。
+ * 取向保守——宁可漏判（继续要求重录），不可错判（放行真实改动）。
+ * 统一 `trim()` 同时消掉 CRLF 与缩进差异（TS 里缩进不构成行为差异）。
+ */
+function codeLinesOf(source: string): string[] {
+  const result: string[] = []
+  for (const line of source.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed === '') continue
+    if (trimmed.startsWith('//')) continue
+    if (trimmed.startsWith('/*')) continue
+    if (trimmed.startsWith('*')) continue
+    result.push(trimmed)
+  }
+  return result
+}
+
+/**
+ * 该文件相对基线是否只改了注释（去掉注释行后代码序列逐行相同）。
+ *
+ * 基线版本取不到（新增文件、git 失败）时一律返回 false：
+ * 无法证明等价，就按有行为变化处理。
+ */
+function isCommentOnlyChange(root: string, base: string, file: string): boolean {
+  const before = gitShow(root, base, file)
+  if (before === undefined) return false
+  const after = readText(join(root, file))
+  if (after === undefined) return false
+
+  const a = codeLinesOf(before)
+  const b = codeLinesOf(after)
+  if (a.length !== b.length) return false
+  return a.every((line, index) => line === b[index])
+}
+
+/** 取基线版本的文件内容；不存在或失败返回 undefined。 */
+function gitShow(root: string, base: string, file: string): string | undefined {
+  try {
+    return execFileSync('git', ['show', `${base}:${file}`], {
+      cwd: root,
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+  } catch {
+    return undefined
+  }
+}
+
+/** 读文件文本；失败返回 undefined。 */
+function readText(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return undefined
+  }
 }
 
 /** CI 环境判定：GitHub Actions / 通用 CI 变量。 */
