@@ -5,9 +5,13 @@
  * 保证「行覆盖 100%」不是靠空转断言凑出来的。
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+import { BahError } from '@bah/util'
 
 import { createContext, defineService } from './index.ts'
+
+import type { BahEventMap } from './index.ts'
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => {
@@ -242,5 +246,193 @@ describe('服务与作用域', () => {
     await expect(app.events.bail('approval/request', {})).resolves.toBe('allow')
 
     expect(order).toEqual(['serial', 'waterfall'])
+  })
+})
+
+/**
+ * C9：回滚期的失败隔离。
+ *
+ * 纪律：这些用例在修复前**全部是红的**（`dispose()` 会抛、后面的 disposer 不跑）。
+ * 红的形态本身就是证据——不是"断言写错了"，是"清理被中断了"。
+ *
+ * 装配约定：观察者插件**先注册**、炸掉的插件**后注册**。回滚顺序是「插件逆序」，
+ * 所以炸的时候观察者的监听器还活着——否则事件根本没人接，测出来的是假绿。
+ */
+describe('C9 回滚失败隔离', () => {
+  /** 注册一个把清理过程记成序列的坏插件（第二个 effect 会炸）。 */
+  async function withFailingDisposer(
+    app: ReturnType<typeof createContext>,
+    calls: string[],
+    code = 'audit-sink-down',
+  ): Promise<void> {
+    await app.use({
+      name: 'bank:audit',
+      apply: (ctx) => {
+        ctx.effect(() => {
+          calls.push('first')
+        })
+        ctx.effect(() => {
+          calls.push('boom')
+          throw new BahError(code, '审计汇不可写')
+        })
+        ctx.effect(() => {
+          calls.push('last')
+        })
+      },
+    })
+  }
+
+  it('T-CORE-021 一个 disposer 抛错不阻断后续清理，dispose 不抛', async () => {
+    const app = createContext()
+    const calls: string[] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      await withFailingDisposer(app, calls)
+      await app.start()
+
+      await expect(app.dispose('test')).resolves.toBeUndefined()
+      // 逆序：last → boom（炸）→ first（必须仍然执行）
+      expect(calls).toEqual(['last', 'boom', 'first'])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('T-CORE-022 失败以 context/rollback-failed 事件可见（bucket / effect / code）', async () => {
+    const app = createContext()
+    const calls: string[] = []
+    const seen: BahEventMap['context/rollback-failed'][] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      await app.use({
+        name: 'bank:observer',
+        apply: (ctx) => {
+          ctx.events.on('context/rollback-failed', (failure) => {
+            seen.push(failure)
+          })
+        },
+      })
+      await withFailingDisposer(app, calls)
+      await app.start()
+      await app.dispose('test')
+
+      expect(seen).toHaveLength(1)
+      expect(seen[0]?.bucket).toBe('bank:audit')
+      // 身份是「桶名#序号」，序号由 Context 单调计数生成（不是数组下标，下标会因重排漂移）
+      expect(seen[0]?.effect).toMatch(/^bank:audit#\d+$/)
+      expect(seen[0]?.code).toBe('audit-sink-down')
+      expect(seen[0]?.message).toContain('审计汇不可写')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('T-CORE-023 上报器自身失败也不中断回滚：其余 disposer 照跑、scope 已清空', async () => {
+    const app = createContext()
+    const calls: string[] = []
+    const logs: string[] = []
+    const sessionKey = defineService<string>('bank:session')
+    app.scope.set(sessionKey, 's-1')
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map((item) => String(item)).join(' '))
+    })
+    try {
+      await app.use({
+        name: 'bank:observer',
+        apply: (ctx) => {
+          // 声明 serial 而实际按 emit 派发：`select()` 会在派发前抛 event-mode-mismatch。
+          // 这是"上报器自己炸"的唯一真实路径——监听器抛错本来就被 emitIsolated 隔离。
+          ctx.events.on('context/rollback-failed', () => undefined, 'serial')
+        },
+      })
+      await withFailingDisposer(app, calls)
+      await app.start()
+
+      await expect(app.dispose('test')).resolves.toBeUndefined()
+      // 上报器炸了也挡不住同桶后续清理（逆序：last → boom → first）
+      expect(calls).toEqual(['last', 'boom', 'first'])
+      expect(app.scope.get(sessionKey)).toBeUndefined()
+      // 上报失败必须留痕，不能静默
+      expect(logs.join('\n')).toContain('rollback-report-failed')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('T-CORE-024 一个监听器抛错不饿死其它监听器：坏监听器不阻断回滚、也不吞事件', async () => {
+    const app = createContext()
+    const calls: string[] = []
+    const seen: string[] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      // 两个观察者：第一个抛错，第二个必须**仍然收到**事件。
+      // 单监听器场景区分不出 emitIsolated 与 emit（外层的兜底 catch 会掩盖差异），
+      // 真正的隔离语义是"一个坏监听器不饿死其它观察者"。
+      await app.use({
+        name: 'bank:observer-bad',
+        apply: (ctx) => {
+          ctx.events.on('context/rollback-failed', () => {
+            throw new Error('listener-down')
+          })
+        },
+      })
+      await app.use({
+        name: 'bank:observer-good',
+        apply: (ctx) => {
+          ctx.events.on('context/rollback-failed', (failure) => {
+            seen.push(failure.code)
+          })
+        },
+      })
+      await withFailingDisposer(app, calls)
+      await app.start()
+
+      await expect(app.dispose('test')).resolves.toBeUndefined()
+      expect(calls).toEqual(['last', 'boom', 'first'])
+      expect(seen).toEqual(['audit-sink-down'])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('T-CORE-025 dispose 之后 effect 抛 effect-after-dispose，且不登记任何条目', async () => {
+    const app = createContext()
+    let calls = 0
+    await app.start()
+    await app.dispose()
+
+    let code: string | undefined
+    try {
+      app.effect(() => {
+        calls += 1
+      })
+    } catch (error) {
+      code = (error as { code?: string }).code
+    }
+    await app.dispose()
+
+    expect(code).toBe('effect-after-dispose')
+    expect(calls).toBe(0)
+  })
+
+  it('T-CORE-026 apply 失败且其 disposer 也炸：start 抛的仍是原始 apply 错误', async () => {
+    const app = createContext()
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      await app.use({
+        name: 'bank:broken',
+        apply: (ctx) => {
+          ctx.effect(() => {
+            throw new BahError('audit-sink-down', '审计汇不可写')
+          })
+          throw new BahError('bad-settings', '坏配置')
+        },
+      })
+
+      // 修复前：dispose('start-failed') 内部二次抛错，把 bad-settings 顶掉
+      await expect(app.start()).rejects.toMatchObject({ code: 'bad-settings' })
+    } finally {
+      spy.mockRestore()
+    }
   })
 })
