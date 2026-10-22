@@ -2,7 +2,7 @@
 #
 # 语义仍是**整块替换**（施工单 06 §0 第 3 条）：每行 config 一出现就完全取代 base 的值。
 #
-# 演示脚本（与 headless 幕 3 一致）：给王建国转 800 元 → 黄级 → Web 弹窗审批 → 核销 → 文本收尾。
+# 演示主路径：真实模型（DeepSeek V4.1 Flash，走 DashScope 兼容端点）→ 黄级 → Web 弹窗审批 → 核销 → 文本收尾。
 # 前端连上后应看到：对话流两段气泡、工具卡三态（待执行→完成）、审批弹窗六要素、DAG、审计时间线。
 
 - id: core:model
@@ -11,13 +11,13 @@
     # `baseUrl` 指到哪个兼容端点都行（这里用 DashScope 兼容模式）。
     # 密钥只从环境变量读（`.env.local` 由 `pnpm demo:web` 注入，不进版本库）。
     provider: deepseek
-    model: qwen-plus
+    model: deepseek-v4.1-flash-1017
     baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
     apiKeyEnv: BAH_MODEL_KEY
     # 内置模型表只有 DeepSeek 官方两个模型，换端点必须显式声明能力位
     # （不猜：猜错会连带裁错提示词段）
     modelSpec:
-      displayName: 千问 Plus（DashScope 兼容端点）
+      displayName: DeepSeek V4.1 Flash（DashScope 兼容端点）
       contextWindow: 131072
       toolCall: true
       reasoning: false
@@ -62,7 +62,7 @@
     # 唯一与 headless 不同的核心配置：渠道语气
     channel: web
     loop:
-      model: deepseek:qwen-plus
+      model: deepseek:deepseek-v4.1-flash-1017
       maxSteps: 8
       # 与 headless 同阈值：压缩只在长会话（> 8 turn）才触发，
       # 演示那两幕不会触发，所以不会污染"对话流可回放"的验收。
