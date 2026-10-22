@@ -1,0 +1,43 @@
+# headless · 上下文压缩 overlay（层 4，`--patch` 叠层）
+#
+# 为什么需要这个 overlay：profile 里的阈值是 `maxTurns: 8`，而演示脚本只有两幕，
+# 永远触发不了压缩——"配了等于没配"和"没配"在验收时无法区分。这里把阈值压到
+# 2 个 turn，用"同一个 session 连跑三次"把它逼出来。
+#
+# 前置：无。压缩是纯内核行为（turn 边界判定），不需要任何 sidecar。
+#
+# 怎么触发：**不能在 CLI 里连跑三次**——jsonl 后端对已存在的会话拒绝覆写
+# （`persistence/src/jsonl/backend.ts:109`），多轮必须落在一个进程里。
+# 用证据脚本（它本身就是验收件）：
+#
+#   npx tsx scripts/demo-compaction.ts
+#
+# 脚本内连发三轮。为什么三轮够：压缩**只折叠已完整结束的 turn**，当前这轮永不折叠
+# （否则会拆散 `tool/call ↔ tool/result` 配对）。所以第 3 轮请求装配前，完整 turn = 2，
+# 越过 `maxTurns: 1` 即触发。若写 `maxTurns: 2` 则需要四轮才够——这是最容易配错的一处。
+# 验收：脚本直接打印 `compaction/summary` 事件条数与摘要正文，期望 ≥ 1。
+
+- id: core:model
+  config:
+    provider: mock
+    model: mock-chat
+    chunkSize: 4
+    # 三轮纯文本：压缩演示不需要工具调用（否则每轮都重复执行转账）。
+    # 脚本按 LLM 调用逐条消耗，所以条数必须 ≥ 轮数。
+    script:
+      - text: 第一轮已按演示数据回答（压缩演示不触发任何写操作）。
+      - text: 第二轮已按演示数据回答（压缩演示不触发任何写操作）。
+      - text: 第三轮已按演示数据回答（压缩演示不触发任何写操作）。
+
+- id: core:agent
+  config:
+    channel: headless
+    loop:
+      model: mock:mock-chat
+      maxSteps: 4
+      # 超过 1 个**已完整结束**的 turn 就折叠更早的历史，保留最近 1 个 turn 原文。
+      compaction: { maxTurns: 1, keepRecentTurns: 1 }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }
+      notes:
+        - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。

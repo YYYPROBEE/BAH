@@ -36,5 +36,18 @@ export const bundle: Bundle = {
     { id: 'bank:saga-store', config: { dbPath: 'sessions/saga.sqlite' } },
     { id: 'bank:saga' },
     { id: 'bank:saga-audit' },
+    // 接线层（施工单 SA-07 的缺口补丁）：把"写工具"接进协调器。
+    // - `maxAttempts: 1` 是安全约束，不是保守：幂等键没传给银行核心，重试 = 真的多扣一次钱
+    // - `tickIntervalMs: 60000` 给收敛 job 一个发射点（无发射者时三个 job 永不执行）
+    // - 关掉只需把 `enabled` 改 false
+    {
+      id: 'bank:saga-bridge',
+      config: {
+        enabled: true,
+        eligible: ['transfer_create'],
+        tickIntervalMs: 60_000,
+        saga: { maxAttempts: 1 },
+      },
+    },
   ],
 }

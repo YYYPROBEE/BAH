@@ -19,6 +19,7 @@ import { persistencePlugin } from './persistence.ts'
 import { promptPlugin } from './prompt.ts'
 import { sagaPlugin } from './saga.ts'
 import { sagaAuditPlugin } from './saga-audit.ts'
+import { sagaBridgePlugin } from './saga-bridge.ts'
 import { sagaStorePlugin } from './saga-store.ts'
 import { sandboxPlugin } from './sandbox.ts'
 import { sentryPlugin } from './sentry.ts'
@@ -43,6 +44,8 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   sagaStorePlugin,
   sagaPlugin,
   sagaAuditPlugin,
+  // 接线层：必须排在 saga 三行之后（要 saga 的服务键就绪才可能真正跑起来）
+  sagaBridgePlugin,
   // 渠道（施工单 13）：前端作为插件模块接入；不写进 base bundle，由 web profile 的 patch 加行
   webPlugin,
 ].map(toAnyHostPlugin)
@@ -58,6 +61,7 @@ export {
   promptPlugin,
   sagaPlugin,
   sagaAuditPlugin,
+  sagaBridgePlugin,
   sagaStorePlugin,
   sandboxPlugin,
   sentryPlugin,
