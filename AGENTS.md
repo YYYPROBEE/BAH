@@ -16,4 +16,23 @@
 6. 判别标签 switch：封闭联合以 assertNever 收尾。
 
 ## 门禁
-pnpm gate 在 CI 与提交前运行；任何 verify-* 失败即阻断合并。
+
+三处拦截，力度递减，按实物如实记录：
+
+| 时机 | 机制 | 跑什么 | 失败后果 |
+|---|---|---|---|
+| 提交前 | `.githooks/pre-commit` | `pnpm gate`（25 项） | 拒绝提交 |
+| 推送前 | `.githooks/pre-push` | `pnpm check`（10 步） | 拒绝推送 |
+| 推送后 | `.github/workflows/ci.yml` | `pnpm check:ci`（严格模式） | 记录为红色 run |
+
+钩子通过 `core.hooksPath` 生效（`pnpm install` 时的 `prepare` 会自动设置，也可手动
+`git config core.hooksPath .githooks`）。
+
+**这不叫「阻断合并」。** 本仓库为私有仓，GitHub Free 不支持分支保护，因此没有必需状态检查、
+也没有 PR 合并闸门——远端 CI 是**事后复核**：push 之后必跑，红了要靠人看见。将来转为公开仓
+（或升级 Pro）后补上分支保护，本节才改为「失败即阻断合并」。
+
+已知敞开两处，写在此处而非藏在自评里：
+
+1. `git commit --no-verify` / `git push --no-verify` 可绕过钩子——钩子挡疏忽，不挡恶意；
+2. 无分支保护，直接 push 到 `main` 不会被拒绝。
