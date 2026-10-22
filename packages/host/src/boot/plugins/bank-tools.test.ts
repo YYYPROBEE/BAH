@@ -80,6 +80,12 @@ describe('bank:tools 配置（fail-loud）', () => {
     expect(settings.demoUserId).toBeUndefined()
   })
 
+  it('日限额默认值是赛题口径 1000 元（黄色 ≤1000、红色 >1000）', () => {
+    const settings = bankToolsPlugin.validate({})
+    // 写成断言而不是注释：这个数同时决定判决与预览展示，被误改会让两处一起漂
+    expect(settings.dailyTransferLimit).toBe(1_000)
+  })
+
   it('显式 demoUserId 与嵌套 verify 覆盖', () => {
     const settings = bankToolsPlugin.validate({
       demoUserId: ' u-1 ',

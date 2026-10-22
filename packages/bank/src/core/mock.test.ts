@@ -125,6 +125,16 @@ describe('T-BANK-007 日累计权威口径', () => {
     expect(preview.verdict).toBe('warn')
     expect(preview.risks.map((risk) => risk.code)).toContain('duplicate-transfer')
   })
+
+  it('卡片限额与全局阈值取更紧者：配置降到 1000 元 → 预览剩余额度同源下降', async () => {
+    // demo 的卡限额是 5000 元（500_000 分），全局阈值压到 1000 元。
+    // 若只取卡片值，判决层按 1000 升红、预览层却显示"还可转 5000"——口径分裂。
+    const core = setup({}, { ...DEFAULT_LIMITS, dailyTransferLimitCents: 100_000 })
+    const preview = await core.previewTransfer(transfer({ amountCents: 80_000 }))
+
+    expect(preview.dailyLimitCents).toBe(100_000)
+    expect(preview.remainingCents).toBe(100_000)
+  })
 })
 
 describe('T-BANK-008 换会话不重置', () => {
