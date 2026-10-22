@@ -77,6 +77,28 @@ export class BahEvents implements Events {
   }
 
   /**
+   * 单向通知（失败隔离）。
+   *
+   * 每个监听器独立 `try/catch`：前一个监听器抛错，后面的仍然执行；异常通过 `onError`
+   * 交给调用方落审计。`select` 的 mode 不一致仍会在产生任何监听器副作用前抛出。
+   *
+   * @mode emit —— 记账类广播（`tools/result` / `session/event`）
+   */
+  emitIsolated<K extends EventName>(
+    name: K,
+    payload: BahEventMap[K],
+    onError?: (error: unknown, event: K) => void,
+  ): void {
+    for (const entry of this.select(name, 'emit')) {
+      try {
+        entry.listener(payload, PASSTHROUGH_NEXT)
+      } catch (error) {
+        onError?.(error, name)
+      }
+    }
+  }
+
+  /**
    * 顺序 await 每个监听器，顺序与注册一致。
    *
    * @mode serial —— 有顺序依赖的处理（`agent/turn-stopping`）

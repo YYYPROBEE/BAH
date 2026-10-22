@@ -105,7 +105,7 @@ function payloads<T extends AnySessionEvent['type']>(
 }
 
 describe('依赖清单（HOST_PLUGINS）', () => {
-  it('清单 id 与插件名逐一对应（base 的七个插件行）', () => {
+  it('清单 id 与插件名逐一对应（base 的全部插件行）', () => {
     const catalog = createCatalog()
     expect(Object.keys(catalog)).toEqual([
       'core:session',
@@ -115,6 +115,18 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       'core:agent',
       'core:persistence',
       'demo:echo',
+      'bank:tools',
+      'bank:knowledge',
+      'interaction:approval',
+      'safety:sentry',
+      'safety:sandbox',
+      'bank:saga-store',
+      'bank:saga',
+      'bank:saga-audit',
+      // 接线层：把写工具接进协调器（缺了它 `runSaga` 生产零调用）
+      'bank:saga-bridge',
+      // 渠道（施工单 13）：不在 base bundle 里，由 profiles/web 的 patch 加行
+      'channel:web',
     ])
     for (const plugin of HOST_PLUGINS) {
       expect(catalog[plugin.id]?.plugin.name).toBe(plugin.id)
@@ -212,7 +224,7 @@ describe('base 插件集 · 进程内跑通 turn（底座出口的进程内版�
     )
     try {
       expect(app.rows().find((row) => row.id === 'core:agent')?.settings).toEqual({
-        loop: { model: 'deepseek:deepseek-chat', maxSteps: 32 },
+        loop: { model: 'deepseek:deepseek-chat', maxSteps: 32, parallelReadTools: true },
       })
     } finally {
       await app.dispose('test')

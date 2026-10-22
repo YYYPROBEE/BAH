@@ -24,8 +24,19 @@ snapshots/
 │  ├─ scenario.json      场景输入：prompts / 会话 ID / 时钟 / 种子 / 生效行 / 模型规格
 │  ├─ scenario.ts        场景本体（录制与回放共用：怎么装应用、送哪几句话）
 │  └─ snapshot.test.ts   T-AUD-005（record→replay 全等）+ T-AUD-006（两次回放全等）
+├─ web-channel/
+│  ├─ session.jsonl / llm.jsonl / scenario.json
+│  ├─ overlay.yml        层 4：真起 Web 渠道（端口 0）
+│  └─ scenario.ts / snapshot.test.ts
+├─ sandbox-compute/
+│  ├─ session.jsonl / llm.jsonl / scenario.json
+│  ├─ overlay.yml        层 4：三面 mock 脚本 + stress 档
+│  └─ scenario.ts / snapshot.test.ts
 └─ fixtures.test.ts      快照通道冒烟（命名解析 + 代次选择）
 ```
+
+> `sandbox-compute` 背书此前无场景声明的 `packages/safety/src/sandbox-runtime/`、`packages/bank/src/forge/`、`packages/bank/src/verify/`。
+> 它用独立的 `RunContext.sandboxNow` 计数钟，`sandbox/done.elapsedMs` 恒为 5；会话事件 `at` 仍来自 `fixedClock`。
 
 ## 两条命令
 
@@ -67,6 +78,8 @@ pnpm snapshot:record
 ## 加一个新快照用例
 
 1. 复制 `snapshots/headless-basic/` 成 `snapshots/<case>/`（改 `CASE.name` 与 prompts）；
+   要换 mock 脚本（`core:model.script`）时**不要改** `profiles/headless/patch.yml`——照
+   `web-channel` / `sandbox-compute` 在本目录加 `overlay.yml`，录制时作为层 4 传入；
 2. `scenario.ts` 里换成你要的 profile / 输入（装配仍走 `@bah/host` 的 `boot`，不要绕过它）；
 3. `pnpm snapshot:record` 录制；
 4. `pnpm test:snapshot` 跑一遍只读回放，确认绿。

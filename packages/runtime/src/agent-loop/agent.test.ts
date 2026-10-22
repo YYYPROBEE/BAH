@@ -22,7 +22,7 @@ import {
   withTestContext,
   type TestContext,
 } from '@bah/test-support'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { SessionEvent, SessionEventMap, ToolDefinition } from '@bah/core'
 import { LlmAdapterRegistry } from '@bah/llm'
@@ -39,6 +39,7 @@ import { MockLlmAdapter, textStep, toolCallStep, type MockStep } from '@bah/llm/
 import { JsonlPersistence } from '@bah/persistence'
 
 import { AGENTS_SERVICE, provideAgents } from '../agent/index.ts'
+import { currentSessionBuffer } from '../session/buffer.ts'
 import { deriveMessages } from '../session/derive.ts'
 import { SESSION_SERVICE, provideSession, type SessionApi } from '../session/service.ts'
 import type { AppendOptions, AnySessionEvent, SessionEventType } from '../session/types.ts'
@@ -91,6 +92,8 @@ interface HarnessOptions {
   readonly seed?: (session: SessionApi) => void
   /** 装配完成后、跑用例前挂监听器。 */
   readonly prepare?: (harness: Harness) => void
+  /** 包一层会话（B3 并行 flush 失败隔离用）。 */
+  readonly wrapSession?: (session: SessionApi) => SessionApi
 }
 
 async function withHarness(
@@ -111,7 +114,8 @@ async function withHarness(
     const registry = new LlmAdapterRegistry()
     registry.register(options.wrapAdapter === undefined ? mock : options.wrapAdapter(mock))
 
-    const session = test.ctx.get(SESSION_SERVICE)
+    const rawSession = test.ctx.get(SESSION_SERVICE)
+    const session = options.wrapSession?.(rawSession) ?? rawSession
     options.seed?.(session)
     const loop = new AgentLoop({
       ctx: test.ctx,
@@ -342,6 +346,61 @@ describe('T-LOOP-004 steer', () => {
 })
 
 describe('T-LOOP-005 interrupt', () => {
+  it('同批工具执行中中断：剩余调用补记 tool-interrupted，且不再执行', async () => {
+    let lateExecuted = 0
+    await withHarness(
+      {
+        steps: [
+          {
+            content: [
+              { kind: 'tool-call', id: 'call-stop', name: 'stop_tool', args: {} },
+              { kind: 'tool-call', id: 'call-late', name: 'late_tool', args: {} },
+            ],
+            finishReason: 'tool-calls',
+          },
+        ],
+        prepare: (harness) => {
+          harness.tools.register({
+            name: 'stop_tool',
+            description: '执行中触发中断',
+            schema: { type: 'object' },
+            tier: { level: 'green' },
+            execute: async () => {
+              harness.loop.interrupt('用户按下停止')
+              return 'stopped'
+            },
+          })
+          harness.tools.register({
+            name: 'late_tool',
+            description: '本批剩余调用',
+            schema: { type: 'object' },
+            tier: { level: 'green' },
+            execute: async () => {
+              lateExecuted += 1
+              return 'late'
+            },
+          })
+        },
+        // 本用例钉串行取消语义：并行只读批次会让两个调用同时启动，
+        // "剩余调用不执行"不再成立（并行语义见新增用例）。
+        config: { model: 'mock:mock-chat', parallelReadTools: false },
+      },
+      async (harness) => {
+        harness.loop.send('跑两个工具')
+        await harness.loop.run()
+
+        expect(lateExecuted).toBe(0)
+        expect(
+          payloads(harness.events(), 'tool/result').map((result) => [result.callId, result.code]),
+        ).toEqual([
+          ['call-stop', undefined],
+          ['call-late', 'tool-interrupted'],
+        ])
+        expect(harness.types()).toContain('turn/end')
+      },
+    )
+  })
+
   it('T-LOOP-005 turn/end.reason=aborted，AbortSignal 传播到 llm.stream（新 turn 换新 controller）', async () => {
     let captured: AbortSignal | undefined
     let streams = 0
@@ -420,9 +479,12 @@ describe('T-LOOP-006 失败 step 补记', () => {
           ['call-ok', false, undefined],
           ['call-boom', true, 'tool-interrupted'],
         ])
-        // step 收尾了，turn 没有闭合（伪代码：补记后原样抛出）
+        // step 收尾了，turn 也必须闭合：异常逃逸不能留下未闭合 turn（否则回退边界丢失）
         expect(harness.types()).toContain('step/end')
-        expect(harness.types()).not.toContain('turn/end')
+        expect(harness.types()).toContain('turn/end')
+        expect(payloads(harness.events(), 'turn/end').at(-1)).toMatchObject({
+          reason: { kind: 'failed' },
+        })
 
         // 失败路径也必须落承载消息：tool/result 在 assistant/message 之前（施单 04 §7 顺序）
         expect(
@@ -681,7 +743,9 @@ describe('T-LOOP-013 JSONL 落盘', () => {
       test.ctx.get(TOOLS_SERVICE).register(OK_TOOL)
 
       const dir = mkdtempSync(join(tmpdir(), 'bah-loop-'))
-      const backend = new JsonlPersistence({ fsync: false, warn: () => {} })
+      // 本用例验证 seq 与投影的落盘一致性；PII 掩码会改写字符串（默认开启），
+      // 这里关掉掩码；掩码本身由 persistence 的专项用例覆盖。
+      const backend = new JsonlPersistence({ fsync: false, warn: () => {}, redact: false })
       try {
         const handle = backend.create(dir, sessionId, { now: 1_000 })
         // 落账面：会话服务 + JSONL 句柄（阶段 6 的 profile 会把两者装配成一条链）
@@ -770,6 +834,9 @@ describe('主循环 · 补充用例（无编号）', () => {
     expect(
       captureThrown(() => resolveAgentLoopConfig({ model: 'm', compaction: {} })).code,
     ).toBe('compaction-invalid-config')
+    expect(
+      captureThrown(() => resolveAgentLoopConfig({ model: 'm', parallelReadTools: 'yes' })).code,
+    ).toBe('agent-invalid-config')
   })
 
   it('配置校验通过后的形状（默认 maxSteps / 参数解析 / 压缩配置透传）', () => {
@@ -1137,3 +1204,190 @@ class PrepareFailingAdapter implements LlmAdapter {
     return this.inner.stream(call, signal)
   }
 }
+
+describe('T-LOOP-014 收尾段异常', () => {
+  it('usage/summary 落账失败：turn/end 仍落账，异常随后抛出', async () => {
+    await withTestContext(async (test) => {
+      const clock = fixedClock({ start: 1_000 })
+      provideSession(test.ctx, { sessionId: asSessionId('s-close-error'), now: clock.now })
+      provideTools(test.ctx)
+      provideSystemPrompt(test.ctx)
+      provideAgents(test.ctx)
+      const base = test.ctx.get(SESSION_SERVICE)
+      test.ctx.get(TOOLS_SERVICE).register(OK_TOOL)
+
+      const session: SessionApi = {
+        ...base,
+        append<S extends SessionEventType>(
+          type: S,
+          data: SessionEventMap[S],
+          options?: AppendOptions,
+        ): SessionEvent<S> {
+          if (type === 'usage/summary') throw new Error('summary sink down')
+          return base.append(type, data, options)
+        },
+      }
+      const registry = new LlmAdapterRegistry()
+      registry.register(new MockLlmAdapter({ script: { steps: [textStep('好的')] } }))
+      const loop = new AgentLoop({
+        ctx: test.ctx,
+        session,
+        registry,
+        config: { model: 'mock:mock-chat' },
+        now: clock.now,
+      })
+      loop.send('你好')
+      await expect(loop.run()).rejects.toThrow(/summary sink down/)
+      expect(session.events().some((event) => event.type === 'turn/end')).toBe(true)
+    })
+  })
+})
+
+describe('T-LOOP-015 只读工具并行（P-P4）', () => {
+  it('两个 green 调用并发执行；事件仍按调用顺序 flush', async () => {
+    let active = 0
+    let maxActive = 0
+    await withHarness(
+      {
+        steps: [
+          {
+            content: [
+              { kind: 'tool-call', id: 'call-slow', name: 'slow_tool', args: {} },
+              { kind: 'tool-call', id: 'call-fast', name: 'fast_tool', args: {} },
+            ],
+            finishReason: 'tool-calls',
+          },
+        ],
+        prepare: (harness) => {
+          harness.tools.register({
+            name: 'slow_tool',
+            description: '慢只读工具',
+            schema: { type: 'object' },
+            tier: { level: 'green' },
+            sideEffect: 'read',
+            execute: async () => {
+              harness.session.appendDomain('read/slow', {}, { ignorable: true })
+              active += 1
+              maxActive = Math.max(maxActive, active)
+              await new Promise((resolve) => setTimeout(resolve, 20))
+              active -= 1
+              return 'slow'
+            },
+          })
+          harness.tools.register({
+            name: 'fast_tool',
+            description: '快只读工具',
+            schema: { type: 'object' },
+            tier: { level: 'green' },
+            sideEffect: 'read',
+            execute: async () => {
+              harness.session.appendDomain('read/fast', {}, { ignorable: true })
+              active += 1
+              maxActive = Math.max(maxActive, active)
+              active -= 1
+              return 'fast'
+            },
+          })
+        },
+      },
+      async (harness) => {
+        harness.loop.send('并行查两个')
+        await harness.loop.run()
+
+        expect(maxActive).toBe(2)
+        // 事件顺序仍是模型给出的调用顺序（slow → fast），不是完成顺序
+        expect(payloads(harness.events(), 'tool/call').map((call) => call.name)).toEqual([
+          'slow_tool',
+          'fast_tool',
+        ])
+        expect(payloads(harness.events(), 'tool/result').map((result) => result.callId)).toEqual([
+          'call-slow',
+          'call-fast',
+        ])
+        // 领域审计也走同一缓冲：按调用顺序，而不是完成顺序
+        expect(
+          harness.events().filter((event) => event.type.startsWith('read/')).map((event) => event.type),
+        ).toEqual(['read/slow', 'read/fast'])
+      },
+    )
+  })
+
+  it('并行批次 flush 失败隔离：后续缓冲继续 flush，结果广播失败落审计，最终聚合报错', async () => {
+    let active = 0
+    let maxActive = 0
+    let auditAttempts = 0
+    const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await withHarness(
+      {
+        steps: [
+          {
+            content: [
+              { kind: 'tool-call', id: 'call-slow', name: 'slow_tool', args: {} },
+              { kind: 'tool-call', id: 'call-fast', name: 'fast_tool', args: {} },
+            ],
+            finishReason: 'tool-calls',
+          },
+        ],
+        wrapSession: (session): SessionApi => ({
+          ...session,
+          append: ((type: string, data: unknown, options?: AppendOptions) => {
+            if (type === 'tool/callback-failed' && currentSessionBuffer() === undefined) {
+              auditAttempts += 1
+              // 第一条审计成功落账，第二条让审计通道也失败（覆盖 console.error 兜底）。
+              if (auditAttempts >= 2) throw new Error('audit down')
+            }
+            return session.append(type as never, data as never, options)
+          }) as SessionApi['append'],
+          // 执行期（有 buffer）正常记录；flush 期（无 buffer）让领域事件写失败。
+          appendDomain: (type, data, options) => {
+            if (currentSessionBuffer() === undefined && type.startsWith('read/')) {
+              throw new Error(`flush boom: ${type}`)
+            }
+            return session.appendDomain(type, data, options)
+          },
+        }),
+        prepare: (harness) => {
+          harness.test.ctx.events.on('tools/result', () => {
+            throw new Error('broadcast boom')
+          })
+          const register = (name: string, ms: number): void => {
+            harness.tools.register({
+              name,
+              description: `${name} 只读工具`,
+              schema: { type: 'object' },
+              tier: { level: 'green' },
+              sideEffect: 'read',
+              execute: async () => {
+                active += 1
+                maxActive = Math.max(maxActive, active)
+                await delay(ms)
+                active -= 1
+                harness.session.appendDomain(`read/${name}`, {}, { ignorable: true })
+                return name
+              },
+            })
+          }
+          register('slow_tool', 20)
+          register('fast_tool', 1)
+        },
+      },
+      async (harness) => {
+        harness.loop.send('并行查两个')
+        await expect(harness.loop.run()).rejects.toThrow(/并行批次失败/)
+        expect(maxActive).toBe(2)
+        const callbackFailures = harness
+          .events()
+          .filter(
+            (event) =>
+              event.type === 'tool/callback-failed' && event.data.stage === 'emit-result',
+          )
+        expect(callbackFailures.length).toBeGreaterThan(0)
+        expect(auditAttempts).toBeGreaterThanOrEqual(2)
+        expect(spy).toHaveBeenCalled()
+        spy.mockRestore()
+      },
+    )
+  })
+})

@@ -1,0 +1,24 @@
+#!/bin/sh
+# 提交前门禁（约 3 秒）：任一 verify-* 失败即拒绝提交。
+#
+# 残余风险：`git commit --no-verify` 可绕过本钩子。这条已记入安全自评（R-11），
+# 不假装钩子不可绕过——钩子挡的是疏忽，不是恶意。
+#
+# 找不到 pnpm 时回退到仓库本地的 tsx，避免 Windows 下 PATH 差异导致钩子静默失效。
+
+set -e
+
+if command -v pnpm >/dev/null 2>&1; then
+  exec pnpm -s gate
+fi
+
+if [ -x ./node_modules/.bin/tsx ]; then
+  exec ./node_modules/.bin/tsx scripts/run-gates.ts
+fi
+
+if [ -x ./node_modules/.bin/tsx.cmd ]; then
+  exec ./node_modules/.bin/tsx.cmd scripts/run-gates.ts
+fi
+
+echo "pre-commit: 找不到 pnpm 与 tsx，跳过门禁（请在仓库根执行 pnpm install）" >&2
+exit 0

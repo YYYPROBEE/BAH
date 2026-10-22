@@ -3,8 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>BAH · 银行智能体运行时</title>
-    <link rel="stylesheet" href="./styles/main.css" />
+    <meta name="color-scheme" content="light" />
+    <title>BAH · 银行智能体</title>
+    <!--
+      设计令牌与组件（BAH DS 自研设计系统，Light-only）。
+      这两份文件是 design/bah-ds/ 的逐字节分发副本，由 `verify-web` 门禁校验哈希；
+      改样式请改 app.css，不要改这里（改了也会被门禁打回）。
+    -->
+    <link rel="stylesheet" href="./styles/ds/colors_and_type.css" />
+    <link rel="stylesheet" href="./styles/ds/components.css" />
+    <link rel="stylesheet" href="./styles/app.css" />
   </head>
   <body>
     <main id="app" class="app"></main>

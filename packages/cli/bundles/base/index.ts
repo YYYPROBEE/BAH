@@ -21,5 +21,33 @@ export const bundle: Bundle = {
     { id: 'core:model', config: { provider: 'deepseek', model: 'deepseek-chat' } },
     { id: 'core:agent', config: { loop: { model: 'deepseek:deepseek-chat' } } },
     { id: 'core:persistence', config: { root: 'sessions' } },
+    // 银行工具族（施工单 08）：默认不带身份（会话绑定由 profile 显式写 demoUserId）；
+    // headless / 演示 profile 用 patch 显式引导
+    { id: 'bank:tools' },
+    // 审批服务（施工单 09）：必须排在 bank:tools 之后——bank 的桥接先签五绑定票据，
+    // 再把「找谁应答」交给本行的仲裁器（waterfall 的注册顺序 = 外层顺序）
+    { id: 'interaction:approval' },
+    // 安全防护层（施工单 10）：也在 bank:tools 之后（要 bank:ticket-guard 做熔断吊销）；
+    // 只做四接缝接线 + 幻觉防护，判决阈值全部走 safety:sentry 配置
+    { id: 'safety:sentry' },
+    // 沙箱执行（施工单 11）：给 analysis_calc 提供 `bank:compute` seam（worker + 硬杀）
+    { id: 'safety:sandbox' },
+    // Saga 补偿与审计层（SA-07）：存储底座 → 协调器（提供时钟）→ 审计链（等时钟就绪）
+    { id: 'bank:saga-store', config: { dbPath: 'sessions/saga.sqlite' } },
+    { id: 'bank:saga' },
+    { id: 'bank:saga-audit' },
+    // 接线层（施工单 SA-07 的缺口补丁）：把"写工具"接进协调器。
+    // - `maxAttempts: 1` 是安全约束，不是保守：幂等键没传给银行核心，重试 = 真的多扣一次钱
+    // - `tickIntervalMs: 60000` 给收敛 job 一个发射点（无发射者时三个 job 永不执行）
+    // - 关掉只需把 `enabled` 改 false
+    {
+      id: 'bank:saga-bridge',
+      config: {
+        enabled: true,
+        eligible: ['transfer_create'],
+        tickIntervalMs: 60_000,
+        saga: { maxAttempts: 1 },
+      },
+    },
   ],
 }

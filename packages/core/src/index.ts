@@ -10,9 +10,9 @@
  */
 export * from './api.ts'
 
-export { BahContext, createContext, type ContextPhase } from './context.ts'
+export { BahContext, createContext, type ContextPhase, type RollbackFailure } from './context.ts'
 export { CORE_PREFIX, coreError, describeThrown } from './errors.ts'
 export { BahEvents, MAX_WATERFALL_DEPTH } from './events.ts'
-export { describeUnresolved, findInjectCycle, findUnknownKeys, resolveConfig } from './plugin.ts'
+export { describeUnresolved, erasePlugin, findInjectCycle, findUnknownKeys, resolveConfig } from './plugin.ts'
 export { BahScope, createIsolate } from './scope.ts'
 export { defineService, ServiceRegistry } from './service.ts'

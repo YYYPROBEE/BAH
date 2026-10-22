@@ -26,6 +26,21 @@ function recordingFetch(respond: () => Response): { fetch: FetchLike; calls: { u
   return { fetch: fetchImpl, calls }
 }
 
+/** 永不返回分片的响应：abort 时让流报错，用于超时/取消路径。 */
+function hangingFetch(): FetchLike {
+  return (_url, init) =>
+    Promise.resolve(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            init?.signal?.addEventListener('abort', () => controller.error(new Error('aborted')))
+          },
+        }),
+        { status: 200 },
+      ),
+    )
+}
+
 /** 一条完整的成功流（文本 + 工具调用 + 结束原因 + usage）。 */
 const HAPPY_PARTS = [
   'data: {"choices":[{"delta":{"content":"好的"}}]}\n\n',
@@ -78,14 +93,19 @@ describe('DeepSeekAdapter（施工单 05 §2.1，注入假 fetch）', () => {
     expect(chunks).toEqual([{ kind: 'text-delta', index: 0, text: '尾巴' }])
   })
 
-  it('非 2xx 抛 llm-http-error 并带状态码与响应片段', async () => {
+  it('非 2xx 抛 llm-http-error：message 只带状态码，响应片段进 detail', async () => {
     const { fetch } = recordingFetch(() => new Response('invalid api key', { status: 401 }))
     const adapter = new DeepSeekAdapter({ apiKey: 'sk-bad', fetch })
     const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
 
-    await expect(collect(adapter.stream(prepared, new AbortController().signal))).rejects.toThrow(
-      /HTTP 401：invalid api key/,
+    const error = await collect(adapter.stream(prepared, new AbortController().signal)).catch(
+      (thrown: unknown) => thrown,
     )
+    expect(error).toMatchObject({
+      code: 'llm-http-error',
+      message: expect.stringMatching(/HTTP 401$/),
+      detail: { status: 401, body: 'invalid api key' },
+    })
   })
 
   it('响应没有 body → 明确报错（该端点不支持流式）', async () => {
@@ -121,6 +141,50 @@ describe('DeepSeekAdapter（施工单 05 §2.1，注入假 fetch）', () => {
       /调用已取消（未发出请求）/,
     )
     expect(calls).toHaveLength(0)
+  })
+
+  it('整次请求超时 → llm-timeout（phase=request），不无限等待上游', async () => {
+    const adapter = new DeepSeekAdapter({
+      apiKey: 'sk-test',
+      fetch: hangingFetch(),
+      requestTimeoutMs: 10,
+      idleTimeoutMs: 1_000,
+    })
+    const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+    const error = await collect(adapter.stream(prepared, new AbortController().signal)).catch(
+      (thrown: unknown) => thrown,
+    )
+    expect(error).toMatchObject({ code: 'llm-timeout', detail: { phase: 'request' } })
+  })
+
+  it('分片间静默超时 → llm-timeout（phase=idle）', async () => {
+    const adapter = new DeepSeekAdapter({
+      apiKey: 'sk-test',
+      fetch: hangingFetch(),
+      requestTimeoutMs: 1_000,
+      idleTimeoutMs: 10,
+    })
+    const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+    const error = await collect(adapter.stream(prepared, new AbortController().signal)).catch(
+      (thrown: unknown) => thrown,
+    )
+    expect(error).toMatchObject({ code: 'llm-timeout', detail: { phase: 'idle' } })
+  })
+
+  it('用户取消传播到读流 → llm-aborted（不是超时）', async () => {
+    const adapter = new DeepSeekAdapter({
+      apiKey: 'sk-test',
+      fetch: hangingFetch(),
+      requestTimeoutMs: 1_000,
+      idleTimeoutMs: 1_000,
+    })
+    const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(), 5)
+    const error = await collect(adapter.stream(prepared, controller.signal)).catch(
+      (thrown: unknown) => thrown,
+    )
+    expect(error).toMatchObject({ code: 'llm-aborted' })
   })
 
   it('缺密钥：adapter 可构造，但 prepareCall 必须 fail-loud（不静默降级成 mock）', async () => {
@@ -178,5 +242,35 @@ describe('DeepSeekAdapter（施工单 05 §2.1，注入假 fetch）', () => {
       displayName: 'DeepSeek（OpenAI 兼容）',
       capabilities: { toolCall: true, image: false, reasoning: true },
     })
+  })
+})
+
+describe('DeepSeekAdapter · 未注入 fetch 时的默认出口', () => {
+  // 生产装配（`createDeepSeekAdapter(process.env)`）不传 fetch，走的是
+  // `options.fetch ?? ((input, init) => fetch(input, init))` 这一支。
+  // 单测此前一律注入假 fetch，导致这条**唯一在线上生效**的分支从未被执行。
+  // 这里把 globalThis.fetch 换成假实现来驱动它，不产生真实网络请求。
+  it('省略 fetch 选项时委托给全局 fetch', async () => {
+    const original = globalThis.fetch
+    const seen: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      seen.push(String(input))
+      return new Response(sseBody(HAPPY_PARTS), { status: 200 })
+    }) as typeof globalThis.fetch
+
+    try {
+      const adapter = new DeepSeekAdapter({ apiKey: 'sk-default-fetch' })
+      const prepared = await adapter.prepareCall({
+        modelId: 'deepseek-chat',
+        messages: [{ role: 'user', content: [{ kind: 'text', text: '转账 100' }] }],
+      })
+      const assembled = await assembleStream(adapter.stream(prepared, new AbortController().signal))
+
+      expect(assembled.content[0]).toEqual({ kind: 'text', text: '好的' })
+      expect(seen).toHaveLength(1)
+      expect(seen[0]).toBe('https://api.deepseek.com/chat/completions')
+    } finally {
+      globalThis.fetch = original
+    }
   })
 })

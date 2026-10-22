@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import { describeThrown } from '@bah/core'
 import { bootError, createCatalog, boot, SESSION_FILES, startConfigHmr } from '@bah/host'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
-import { BahError, assertNever } from '@bah/util'
+import { BahError, assertNever, assertSafePathSegment } from '@bah/util'
 
 import type { ConfigHmr } from '@bah/host'
 import type { Agent, AgentRegistry, AnySessionEvent, TurnEndReason } from '@bah/runtime'
@@ -25,6 +25,8 @@ import type { Context, SessionId } from '@bah/core'
 import { loadBundles } from '../bundles.ts'
 import { renderDumpConfig } from '../dump-config.ts'
 import { readDefaultProfile, readLayers, readProfile, type LayerOptions } from '../profile.ts'
+import { runAudit } from './audit.ts'
+import { parseCommand } from './command.ts'
 
 /** 输出出口（测试注入收集器；生产是 console）。 */
 export interface CliIo {
@@ -40,6 +42,19 @@ export interface CliOptions {
   readonly now?: () => number
   /** 环境变量（读 `BAH_HOME`；缺省 `process.env`）。 */
   readonly env?: Readonly<Record<string, string | undefined>>
+  /**
+   * 信号源（缺省 `process`）：`--serve` 的唯一退出路径靠它。
+   *
+   * 测试注入可控 emitter，不必真的给测试进程发 SIGINT——给测试进程发信号是
+   * 全局副作用，会连带打中别的监听器。
+   */
+  readonly signals?: SignalSource
+}
+
+/** 信号源的最小面（`process` 天然满足）。 */
+export interface SignalSource {
+  on(event: 'SIGINT' | 'SIGTERM', listener: () => void): unknown
+  off(event: 'SIGINT' | 'SIGTERM', listener: () => void): unknown
 }
 
 /** 一行用法（错误时附在提示后）。 */
@@ -55,6 +70,7 @@ export const HELP = [
   '  --profile <name>   要启动的 profile（缺省取 bah.yml 的 profile.default）',
   '  --dump-config      打印生效的插件树（含每行来源层）后退出',
   '  --prompt <text>    跑一个 turn（headless 验收用）',
+  '  --serve            启动 profile 后常驻（渠道插件自己开端口；Ctrl+C 退出）',
   '  --patch <file>     叠加一层 patch（可重复；层序最外）',
   '  --home <dir>       home patch 目录（缺省 $BAH_HOME 或 ~/.bah）',
   '  --jsonl <dir>      会话目录（覆盖 core:persistence.root）',
@@ -64,6 +80,8 @@ export const HELP = [
 
 /** 解析后的命令行。 */
 interface Args {
+  /** 常驻（渠道类 profile：web / desktop / im）。渠道无关语义，不做 profile 名分支。 */
+  readonly serve: boolean
   readonly profile?: string
   readonly dumpConfig: boolean
   readonly prompt?: string
@@ -89,6 +107,16 @@ export async function runCli(
   io: CliIo,
   options: CliOptions = {},
 ): Promise<number> {
+  const command = parseCommand(argv)
+  switch (command.kind) {
+    case 'audit':
+      return runAudit(argv.slice(1), io, options)
+    case 'run':
+      break
+    default:
+      return assertNever(command, 'command')
+  }
+
   const parsed = parseArgs(argv)
   if (!parsed.ok) {
     io.err(`bah: ${parsed.error}`)
@@ -106,20 +134,21 @@ export async function runCli(
   const env = options.env ?? process.env
 
   try {
-    return await runProfile(parsed.args, io, root, now, env)
+    return await runProfile(parsed.args, io, root, now, env, options.signals ?? process)
   } catch (error) {
     io.err(`bah: ${describeThrown(error)}`)
     return 1
   }
 }
 
-/** 启动 profile（`--dump-config` 或跑一个 turn）。 */
+/** 启动 profile（`--dump-config` / `--serve` 或跑一个 turn）。 */
 async function runProfile(
   args: Args,
   io: CliIo,
   root: string,
   now: () => number,
   env: Readonly<Record<string, string | undefined>>,
+  signals: SignalSource,
 ): Promise<number> {
   const name = args.profile ?? readDefaultProfile(root)
   if (name === undefined) {
@@ -133,7 +162,10 @@ async function runProfile(
     overlays: args.patch,
   }
   const { layers, files } = readLayers(root, profile, layerOptions)
-  const sessionId = (args.session ?? `s-${now().toString(36)}`) as SessionId
+  // 会话 ID 会拼进落盘路径：先过白名单，绝不允许 `--session ../../etc/...`
+  const rawSessionId = args.session ?? `s-${now().toString(36)}`
+  assertSafePathSegment(rawSessionId, '--session')
+  const sessionId = rawSessionId as SessionId
 
   const app = await boot({
     profile,
@@ -161,8 +193,18 @@ async function runProfile(
       io.out(`bah: config HMR 开，监听 ${hmr.files.length} 个 patch 文件（插件行增删需重启）`)
     }
 
+    if (args.serve) {
+      // 常驻模式：渠道插件（channel:web 等）自己监听端口；这里只等信号并把退出码交回壳
+      io.out(`bah: profile ${profile.name} · 会话 ${String(sessionId)} · 常驻中（Ctrl+C 退出）`)
+      await waitForSignal(signals)
+      return 0
+    }
+
     if (args.prompt === undefined) {
-      throw bootError('prompt-missing', '需要 --prompt <text> 才能跑 turn（或加 --dump-config 只看配置）')
+      throw bootError(
+        'prompt-missing',
+        '需要 --prompt <text> 才能跑 turn（或加 --dump-config 只看配置、--serve 常驻）',
+      )
     }
 
     const agent = onlyAgent(app.ctx)
@@ -173,6 +215,7 @@ async function runProfile(
     const session = app.ctx.get(SESSION_SERVICE)
     const events = session.events()
     io.out(`bah: 回复 ${lastAssistantText(events)}`)
+    printKnowledgeCard(events, io)
     io.out(`bah: 已落盘 ${app.ctx.get(SESSION_FILES).fileOf(sessionId)}（${session.lastSeq()} 条事件）`)
 
     const end = lastTurnEnd(events)
@@ -195,6 +238,7 @@ async function runProfile(
 export function parseArgs(argv: readonly string[]): ParseResult {
   let profile: string | undefined
   let dumpConfig = false
+  let serve = false
   let prompt: string | undefined
   let home: string | undefined
   let jsonl: string | undefined
@@ -257,6 +301,10 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         if (inline !== undefined) return failure(`${flag} 不接受值（写成 ${flag}）`)
         dumpConfig = true
         break
+      case '--serve':
+        if (inline !== undefined) return failure(`${flag} 不接受值（写成 ${flag}）`)
+        serve = true
+        break
       case '-h':
       case '--help':
         if (inline !== undefined) return failure(`${flag} 不接受值（写成 ${flag}）`)
@@ -271,6 +319,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
     ok: true,
     args: {
       dumpConfig,
+      serve,
       help,
       patch,
       ...(profile === undefined ? {} : { profile }),
@@ -280,6 +329,24 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       ...(session === undefined ? {} : { session }),
     },
   }
+}
+
+/**
+ * 等 SIGINT / SIGTERM（`--serve` 的唯一退出路径）。
+ *
+ * 两个信号都要接：容器里停进程发的是 SIGTERM，终端里按的是 SIGINT。
+ * 收到任一即摘掉两个监听并返回——摘干净才不会在多次 run 时叠监听。
+ */
+async function waitForSignal(signals: SignalSource): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const stop = (): void => {
+      signals.off('SIGINT', stop)
+      signals.off('SIGTERM', stop)
+      resolve()
+    }
+    signals.on('SIGINT', stop)
+    signals.on('SIGTERM', stop)
+  })
 }
 
 /** 造一个用法失败结果。 */
@@ -331,6 +398,33 @@ export function lastAssistantText(events: readonly AnySessionEvent[]): string {
     if (joined.length > 0) text = joined
   }
   return text.length > 0 ? text : '（本轮没有文本回复）'
+}
+
+/**
+ * 最后一张知识卡（`knowledge_answer` 的工具结果投影）。
+ *
+ * 只读 `tool/result`：那是已校验答案的唯一权威落点；assistant 正文只是引导语。
+ * 缺省返回 `undefined`——没有知识工具调用时 CLI 不额外打印任何东西。
+ */
+export function lastKnowledgeAnswer(events: readonly AnySessionEvent[]): string | undefined {
+  let text: string | undefined
+  for (const event of events) {
+    if (event.type !== 'tool/result') continue
+    const data = event.data
+    if (data.name !== 'knowledge_answer' || data.isError) continue
+    const joined = data.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+    if (joined.length > 0) text = joined
+  }
+  return text
+}
+
+/** 有知识卡就打印；没有则静默（普通 turn 不额外输出）。 */
+export function printKnowledgeCard(events: readonly AnySessionEvent[], io: CliIo): void {
+  const knowledge = lastKnowledgeAnswer(events)
+  if (knowledge !== undefined) io.out(`bah: 知识卡\n${knowledge}`)
 }
 
 /** 最后一次 turn 的结束原因。 */

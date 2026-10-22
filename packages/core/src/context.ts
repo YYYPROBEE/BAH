@@ -20,6 +20,7 @@ import type {
   Context,
   Disposer,
   EffectDisposer,
+  ErasedPlugin,
   EventMode,
   EventName,
   Events,
@@ -29,7 +30,7 @@ import type {
 } from './api.ts'
 import { coreError, describeThrown } from './errors.ts'
 import { BahEvents } from './events.ts'
-import { describeUnresolved, findInjectCycle, resolveConfig } from './plugin.ts'
+import { describeUnresolved, erasePlugin, findInjectCycle, resolveConfig } from './plugin.ts'
 import { BahScope, createIsolate } from './scope.ts'
 import { ServiceRegistry } from './service.ts'
 import {
@@ -65,6 +66,14 @@ class OwnedEvents implements Events {
     this.source.emit(name, payload)
   }
 
+  emitIsolated<K extends EventName>(
+    name: K,
+    payload: BahEventMap[K],
+    onError?: (error: unknown, event: K) => void,
+  ): void {
+    this.source.emitIsolated(name, payload, onError)
+  }
+
   serial<K extends EventName>(name: K, payload: BahEventMap[K]): Promise<void> {
     return this.source.serial(name, payload)
   }
@@ -81,6 +90,22 @@ class OwnedEvents implements Events {
   bail<K extends EventName>(name: K, value: BahEventMap[K]): Promise<BahEventMap[K] | undefined> {
     return this.source.bail(name, value)
   }
+}
+
+/**
+ * 回滚失败的上报载荷（`context/rollback-failed` 事件载荷，**稳定契约，只增不改**）。
+ *
+ * 只放标量：监听器若在回滚中途再登记 effect，等于把「往已回滚的桶里塞清理」引回来。
+ */
+export interface RollbackFailure {
+  /** 贡献桶名（插件名或 `core:kernel`）。 */
+  readonly bucket: string
+  /** 条目身份，形如 `bank:saga#7`。 */
+  readonly effect: string
+  /** 理由码：`BahError` 原样透传，非结构化抛出统一为 `disposer-failed`。 */
+  readonly code: string
+  /** 可读理由（禁止静默吞错）。 */
+  readonly message: string
 }
 
 /**
@@ -113,6 +138,9 @@ export class BahContext implements Context {
 
   private currentPhase: ContextPhase = 'idle'
 
+  /** effect 身份序号（只增不减）：回滚失败上报的身份必须稳定且可区分。 */
+  private effectSeq = 0
+
   constructor() {
     this.events = new OwnedEvents(this, this.source)
     this.scope = this.scopeRegistry
@@ -133,6 +161,13 @@ export class BahContext implements Context {
    * 而配置错误的抛出**仍是同步的**——「载入即抛」不能让调用方漏掉。
    */
   use<P>(plugin: PluginV2<P>, config?: P): Promise<this> {
+    return this.useErased(erasePlugin(plugin), config)
+  }
+
+  /**
+   * 注册一个已擦除配置类型的插件（内部装配面使用；调用方需先完成配置校验）。
+   */
+  useErased(plugin: ErasedPlugin, config?: unknown): Promise<this> {
     if (this.currentPhase === 'disposed' || this.currentPhase === 'installing') {
       throw coreError(
         'plugin-late-registration',
@@ -144,7 +179,7 @@ export class BahContext implements Context {
     const existing = this.plugins.findIndex((record) => record.name === plugin.name)
     if (existing >= 0) {
       const [replaced] = this.plugins.splice(existing, 1)
-      rollback(replaced!, 'plugin-replaced')
+      rollback(replaced!, 'plugin-replaced', this.reportRollbackFailure)
     }
     const record: PluginRecord = {
       name: plugin.name,
@@ -182,23 +217,50 @@ export class BahContext implements Context {
     this.currentPhase = 'ready'
   }
 
-  /** 逆序回滚全部贡献；`reason` 透传给每个 disposer（施工单 02 T-CORE-019）。 */
+  /**
+   * 逆序回滚全部贡献；`reason` 透传给每个 disposer（施工单 02 T-CORE-019）。
+   *
+   * 回滚**不因单个 disposer 抛错而中断**（C9）：失败逐个上报后继续，最后保证作用域表已清空。
+   * 否则一个坏插件能拖住全应用（含其它插件的清理与 `scope` 的释放）。
+   */
   async dispose(reason?: string): Promise<void> {
     if (this.currentPhase === 'disposed') return
     this.currentPhase = 'disposed'
-    for (const record of [...this.plugins].reverse()) rollback(record, reason)
-    rollback(this.kernel, reason)
-    this.scopeRegistry.clear()
+    try {
+      for (const record of [...this.plugins].reverse()) {
+        rollback(record, reason, this.reportRollbackFailure)
+      }
+      rollback(this.kernel, reason, this.reportRollbackFailure)
+    } finally {
+      // 第二道保险，不是唯一保险：上报器自己已经兜住了异常，所以当前路径下 rollback
+      // 不会抛（去掉本行实测用例仍全绿）。留着是因为将来若有人在 rollback 里加出新的
+      // 抛出点，泄漏 `scope` 的代价比多一层 try 大得多。
+      this.scopeRegistry.clear()
+    }
   }
 
   /**
    * 登记一次可逆贡献：挂到**当前归属者**名下，dispose 时逆序执行并收到原因。
    *
    * 返回的 disposer 用于提前撤销；撤销后不会在 dispose 阶段重复执行（幂等）。
+   *
+   * `disposed` 之后一律拒绝：允许登记等于允许把清理登记到一个**已经回滚过**的桶，
+   * 那个 disposer 永远不会执行——比抛错更糟，它静默泄漏（C9）。
    */
   effect(disposer: EffectDisposer): Disposer {
+    if (this.currentPhase === 'disposed') {
+      throw coreError(
+        'effect-after-dispose',
+        '应用已 dispose，不能再登记 effect（该清理永远不会被执行）',
+        { bucket: this.owner.name },
+      )
+    }
     const bucket = this.owner
-    const entry: EffectEntry = { disposer, done: false }
+    const entry: EffectEntry = {
+      id: `${bucket.name}#${++this.effectSeq}`,
+      disposer,
+      done: false,
+    }
     bucket.effects.push(entry)
     return once(() => {
       if (entry.done) return
@@ -237,6 +299,24 @@ export class BahContext implements Context {
       `有监听器未完成：install 阶段（插件 ${this.owner.name} 的 apply 内）不允许 parallel 广播「${name}」，请在 start 完成后再派发`,
       { plugin: this.owner.name, event: name },
     )
+  }
+
+  /**
+   * 回滚失败的上报器：把一次 disposer 失败交给 `context/rollback-failed` 的观察者。
+   *
+   * 用 `emitIsolated` 而不是 `emit`：回滚期间一个坏监听器抛错，会重新把「回滚中断」
+   * 引回来——那正是本卡的靶子。上报器自己也可能失败（监听器声明了与派发不一致的
+   * mode 时 `select()` 会在派发前抛），所以整段再套一层 `try/catch`：只留痕，不再抛。
+   * 抛出去等于让「上报失败」升级成「清理中断」，比不报更糟。
+   */
+  private readonly reportRollbackFailure = (failure: RollbackFailure): void => {
+    try {
+      this.source.emitIsolated('context/rollback-failed', failure, (error) => {
+        console.error(`bah-core: rollback-listener-failed: ${describeThrown(error)}`)
+      })
+    } catch (error) {
+      console.error(`bah-core: rollback-report-failed: ${describeThrown(error)}`)
+    }
   }
 
   /** 逐轮安装：一轮里可推进的插件全部装上，一轮毫无进展即判定死锁。 */
@@ -293,7 +373,7 @@ export class BahContext implements Context {
     } catch (error) {
       const index = this.plugins.indexOf(record)
       if (index >= 0) this.plugins.splice(index, 1)
-      rollback(record, 'install-failed')
+      rollback(record, 'install-failed', this.reportRollbackFailure)
       throw error
     }
     return this
@@ -315,12 +395,28 @@ export class BahContext implements Context {
  *
  * `reason` 原样透传给每个 disposer（施工单 02 T-CORE-019）；
  * 已提前撤销（`done`）的条目跳过，保证「撤销后不重复执行」。
+ *
+ * **单个 disposer 抛错不中断本桶**（C9）：失败交给 `onFailure` 逐个上报后继续。
+ * 中断会让「一个坏插件」拖住全应用——其它插件与服务注册都还挂在后面的条目上。
  */
-function rollback(bucket: ContributionBucket, reason?: string): void {
+function rollback(
+  bucket: ContributionBucket,
+  reason?: string,
+  onFailure?: (failure: RollbackFailure) => void,
+): void {
   for (const entry of [...bucket.effects].reverse()) {
     if (entry.done) continue
     entry.done = true
-    entry.disposer(reason)
+    try {
+      entry.disposer(reason)
+    } catch (error) {
+      onFailure?.({
+        bucket: bucket.name,
+        effect: entry.id,
+        code: error instanceof BahError ? error.code : 'disposer-failed',
+        message: describeThrown(error),
+      })
+    }
   }
 }
 

@@ -31,8 +31,20 @@ import type {
   SummaryTextInput,
 } from './types.ts'
 
-/** 估算用的字符/token 比（中英文混排的保守值；只用于阈值判定，不参与计费）。 */
+/** 估算用的字符/token 比（ASCII 混排的保守值；只用于阈值判定，不参与计费）。 */
 const CHARS_PER_TOKEN = 4
+
+/** CJK 字符按 1 token/字估算（中文 provider 的实际 tokenizer 接近 0.6–1）。 */
+function isCjk(codePoint: number): boolean {
+  return (
+    (codePoint >= 0x3400 && codePoint <= 0x4dbf) ||
+    (codePoint >= 0x4e00 && codePoint <= 0x9fff) ||
+    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+    (codePoint >= 0x3040 && codePoint <= 0x30ff) ||
+    (codePoint >= 0xac00 && codePoint <= 0xd7af) ||
+    (codePoint >= 0x20000 && codePoint <= 0x2fa1f)
+  )
+}
 
 /** 允许的配置键（未知键 fail-loud，施工单 00 §9「misconfiguration 必须 fail-loud」）。 */
 const CONFIG_KEYS = new Set(['maxTokens', 'maxTurns', 'keepRecentTurns'])
@@ -99,10 +111,32 @@ function optionalPositiveInteger(value: unknown, name: string): number | undefin
  * 2. 度量与触发判定
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 文本 → token 估算（向上取整）。 */
+/** 文本 → token 估算（向上取整；CJK 按 1 token/字，ASCII 按 4 字符/token）。 */
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / CHARS_PER_TOKEN)
+  let cjk = 0
+  let other = 0
+  for (const char of text) {
+    if (isCjk(char.codePointAt(0) ?? 0)) cjk += 1
+    else other += 1
+  }
+  return Math.ceil(cjk + other / CHARS_PER_TOKEN)
 }
+
+/** 非模型可见的平台事件：参与压缩水位时不贡献 token（显式列出，新增类型必须表态）。 */
+const NON_MESSAGE_EVENTS: ReadonlySet<string> = new Set([
+  'turn/start',
+  'turn/end',
+  'step/start',
+  'step/end',
+  'request/header',
+  'request/context',
+  'assistant/attempt',
+  'tool/call',
+  'approval/asked',
+  'approval/decided',
+  'usage/summary',
+  'compaction/summary',
+])
 
 /** 单条事件的 token 估算（只有模型可见的消息类事件算，审计事件不算）。 */
 export function estimateEventTokens(event: AnySessionEvent): number {
@@ -114,13 +148,66 @@ export function estimateEventTokens(event: AnySessionEvent): number {
     case 'tool/result':
       return estimateTokens(textOfBlocks(event.data.content))
     default:
-      return 0
+      // 领域事件（`ignorable`）不参与模型历史；平台事件表新增类型时必须显式归类，
+      // 否则压缩水位会被静默低估（报告 Q-M3）。
+      if (event.ignorable === true || NON_MESSAGE_EVENTS.has(event.type)) return 0
+      throw new BahError(
+        'compaction-unestimated-event',
+        `compaction: 未知事件 ${event.type} 没有 token 估算口径（压缩水位会失真）`,
+        { type: event.type, seq: event.seq },
+      )
   }
 }
 
 /** 完整 turn 的数量（有 `turn/end` 才算完整：未闭合的 turn 不折叠）。 */
 export function countCompleteTurns(events: readonly AnySessionEvent[]): number {
   return completeTurns(events).length
+}
+
+/**
+ * 一次遍历得到的压缩度量（报告 P-P7）：完整 turn、token 水位、seq→turn 归属。
+ *
+ * 三者在原实现里各走一遍全量事件；这里合并为单遍，`planCompaction` 与
+ * `shouldCompact` 共用同一份结果（旧函数仍保留为测试 oracle）。
+ */
+export interface SessionMetrics {
+  readonly turns: readonly number[]
+  readonly tokens: number
+  readonly owner: ReadonlyMap<number, number>
+}
+
+export function analyzeSession(events: readonly AnySessionEvent[]): SessionMetrics {
+  const turnSet = new Set<number>()
+  const owner = new Map<number, number>()
+  let current: number | undefined
+  let tokens = 0
+
+  for (const event of events) {
+    tokens += estimateEventTokens(event)
+    if (event.type === 'turn/start') {
+      current = event.data.turn
+      owner.set(event.seq, current)
+      continue
+    }
+    if (event.type === 'turn/end') {
+      turnSet.add(event.data.turn)
+      owner.set(event.seq, event.data.turn)
+      current = undefined
+      continue
+    }
+    if (current !== undefined) owner.set(event.seq, current)
+  }
+
+  return { turns: [...turnSet].sort((left, right) => left - right), tokens, owner }
+}
+
+function shouldCompactMetrics(
+  metrics: SessionMetrics,
+  thresholds: CompactionThresholds,
+): boolean {
+  if (metrics.turns.length <= thresholds.keepRecentTurns) return false
+  if (thresholds.maxTokens !== undefined && metrics.tokens >= thresholds.maxTokens) return true
+  return thresholds.maxTurns !== undefined && metrics.turns.length > thresholds.maxTurns
 }
 
 /**
@@ -134,15 +221,7 @@ export function shouldCompact(
   events: readonly AnySessionEvent[],
   thresholds: CompactionThresholds,
 ): boolean {
-  const turns = countCompleteTurns(events)
-  if (turns <= thresholds.keepRecentTurns) return false
-
-  if (thresholds.maxTokens !== undefined) {
-    const tokens = events.reduce((sum, event) => sum + estimateEventTokens(event), 0)
-    if (tokens >= thresholds.maxTokens) return true
-  }
-
-  return thresholds.maxTurns !== undefined && turns > thresholds.maxTurns
+  return shouldCompactMetrics(analyzeSession(events), thresholds)
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -194,16 +273,17 @@ export function collapseEvents(events: readonly AnySessionEvent[]): CollapsedEve
  */
 export function planCompaction(input: PlanCompactionInput): CompactionPlan {
   const collapsed = collapseEvents(input.events)
-  const turns = completeTurns(collapsed.kept)
+  const metrics = analyzeSession(collapsed.kept)
 
-  if (!shouldCompact(collapsed.kept, input.thresholds)) {
+  if (!shouldCompactMetrics(metrics, input.thresholds)) {
     return { needed: false, droppedSeqs: [], collapsedTurns: [] }
   }
 
+  const turns = metrics.turns
   const collapseCount = turns.length - input.thresholds.keepRecentTurns
   const targets = turns.slice(0, collapseCount)
   const targetSet = new Set(targets)
-  const owner = turnOwnership(collapsed.kept)
+  const owner = metrics.owner
 
   const droppedSeqs: number[] = []
   const collapsedEvents: AnySessionEvent[] = []

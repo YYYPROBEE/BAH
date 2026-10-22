@@ -9,6 +9,18 @@
   "references": [
     {
       "path": "../core"
+    },
+    {
+      "path": "../safety"
+    },
+    {
+      "path": "../util"
+    },
+    {
+      "path": "../runtime"
+    },
+    {
+      "path": "../test-support"
     }
   ]
 }

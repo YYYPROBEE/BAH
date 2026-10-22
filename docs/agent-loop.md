@@ -128,6 +128,9 @@ interrupt() ──► 当前 turn 的 AbortController 取消
 
 取消都落 `assistant/attempt{status:'cancelled'}`，`turn/end.reason.kind='aborted'`。
 
+工具批次中途取消：正在执行的调用不打断（写操作保原子性），同批**尚未开始**的调用
+逐条补 `tool/result{isError:true, code:'tool-interrupted'}`，不留 `tool/call` 空洞。
+
 ## 6. 失败补记（`tool/call` 不许留空洞）
 
 ```text
@@ -136,7 +139,7 @@ step 中途抛错
   ├─ catch：逐条 append tool/result{isError:true, code:'tool-interrupted'}
   ├─ finally：append assistant/message（承载 toolCalls；否则 tool/result 无主）
   ├─ finally：append step/end
-  └─ 原样抛出（turn 不闭合；turn 级失败由调用方决定怎么处理）
+  └─ 原样抛出（收尾段兜底先落 turn/end{failed}，再把异常抛给调用方）
 ```
 
 `deriveMessages()` 把"有 `tool/call` 没 `tool/result`"当错误（`session-log-hole`），
@@ -166,7 +169,7 @@ step 中途抛错
 | 在 `agent/pre-step` 里 `await next(...)` 但不 `return` | 返回值丢失 → 判决被吞 | `return next(...)` |
 | 在 `agent/request` 里 `Object.assign(input.request, ...)` | 改到冻结对象（严格模式抛错）/ 改到共享请求 | 返回 `{...input, request: {...}}` |
 | 在 `llm/stream` 里 `for await` 消费了流却不 yield | 主循环收不到分片 | 包裹后 `yield` 出去 |
-| 在 `agent/turn-stopping` 里 `throw` | turn 收尾中断，`turn/end` 不落账 | 用 `stop(reason)` 表达判停 |
+| 在 `agent/turn-stopping` 里 `throw` | 本 turn 以 `failed` 收尾并向上抛（`turn/end` 已由兜底收尾落账） | 用 `stop(reason)` 表达判停 |
 | 自己拼 `messages` 调 adapter | 影子历史漂移（回放对不上） | 只走 `AgentLoop`（历史由 `buildModelHistory` 派生） |
 | 直接改 `session.append` 的入参对象 | 日志被后续改动污染 | 落账前 `Object.freeze` / 传新对象 |
 

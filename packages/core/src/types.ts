@@ -8,9 +8,9 @@
 import type {
   Disposer,
   EffectDisposer,
+  ErasedPlugin,
   EventMode,
   PluginName,
-  PluginV2,
   WaterfallNext,
 } from './api.ts'
 
@@ -30,6 +30,13 @@ export interface ListenerEntry {
 
 /** 一次 `effect()` 的登记条目。 */
 export interface EffectEntry {
+  /**
+   * 稳定身份：`<桶名>#<序号>`，序号来自 Context 的单调计数器。
+   *
+   * 回滚失败时要能指认「是谁的清理炸了」；不用数组下标——`effects` 会因提前撤销
+   * 与重排变化，下标不稳定，上报出去的身份必须稳定。
+   */
+  readonly id: string
   readonly disposer: EffectDisposer
   /** 是否已执行：disposer 必须幂等（施工单 00 §9 第 1 条「注册即可逆」）。 */
   done: boolean
@@ -48,7 +55,7 @@ export interface ContributionBucket {
 /** 插件记录：注册时校验配置，install 阶段执行 `apply`（施工单 02 §2 三段生命周期）。 */
 export interface PluginRecord extends ContributionBucket {
   /** 插件本体；配置类型在注册时已擦除，`resolveConfig` 是唯一校验入口。 */
-  readonly plugin: PluginV2<any>
+  readonly plugin: ErasedPlugin
   /** 已按 schema 校验并补默认值的配置。 */
   readonly config: unknown
   /** 依赖的服务名（`ServiceKey.id`），install 前逐一等待就绪。 */

@@ -22,6 +22,7 @@ import { ToolRegistry } from '../tools/registry.ts'
 
 import {
   ToolCallDispatcher,
+  interruptedResult,
   invalidArgumentsResult,
   observeToolCalls,
   toolCallInputOf,
@@ -250,3 +251,20 @@ function pipelineOf(ctx: Context, registry: ToolRegistry, session: SessionApi): 
     now: () => 1,
   })
 }
+
+describe('tool-calls · 取消', () => {
+  it('interruptedResult：结构化理由码 + 自定义原因，供未执行调用补记', () => {
+    expect(
+      interruptedResult(
+        { callId: 'call-late', name: 'transfer_create', argsText: '{}', args: {} },
+        '批次已取消',
+      ),
+    ).toMatchObject({
+      callId: 'call-late',
+      name: 'transfer_create',
+      isError: true,
+      code: 'tool-interrupted',
+      reason: '批次已取消',
+    })
+  })
+})

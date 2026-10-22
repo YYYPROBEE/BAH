@@ -17,10 +17,22 @@
       "path": "../interaction"
     },
     {
+      "path": "../safety"
+    },
+    {
       "path": "../bank"
     },
     {
+      "path": "../knowledge"
+    },
+    {
       "path": "../persistence"
+    },
+    {
+      "path": "../saga"
+    },
+    {
+      "path": "../channels"
     }
   ]
 }

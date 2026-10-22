@@ -10,6 +10,7 @@ import { defineService } from '@bah/core'
 import type { Context, Disposer, ServiceKey, SessionEvent, SessionEventMap, SessionId } from '@bah/core'
 
 import { deriveMessages } from './derive.ts'
+import { currentSessionBuffer } from './buffer.ts'
 import { SessionStore, type SessionClock } from './store.ts'
 import type {
   AnySessionEvent,
@@ -19,13 +20,20 @@ import type {
   SessionEventType,
 } from './types.ts'
 
-/** 落账面：七段管线只需要 `append`。 */
+/** 落账面：七段管线只需要 `append` / `appendDomain`。 */
 export interface SessionSink {
   append<S extends SessionEventType>(
     type: S,
     data: SessionEventMap[S],
     options?: AppendOptions,
   ): SessionEvent<S>
+  /**
+   * 领域事件通道（`ticket/*`、`sentry/*`、`identity/bound` 等）。
+   *
+   * 平台事件表之外的事件族走这里：`data` 不受编译期形状校验，但落账统一补
+   * `ignorable: true`，旧 reader 跳过而不是把领域事件当成日志空洞。
+   */
+  appendDomain(type: string, data: unknown, options?: { readonly ignorable?: true }): AnySessionEvent
 }
 
 /** 会话服务（`runtime:session`）。 */
@@ -36,6 +44,8 @@ export interface SessionApi extends SessionSink {
   readonly formatVersion: number
   /** 全量只读事件视图。 */
   events(): readonly AnySessionEvent[]
+  /** 全量只读视图（内部热路径，不拷贝；调用方必须只读）。 */
+  eventsView(): readonly AnySessionEvent[]
   /** 最后一条事件的 `seq`。 */
   lastSeq(): number
   /** 从日志派生模型历史（施工单 03 §1.4）。 */
@@ -71,16 +81,52 @@ export function provideSession(ctx: Context, options: ProvideSessionOptions): Di
     sessionId: options.sessionId,
     formatVersion: store.formatVersion,
 
-    append(type, data, appendOptions) {
+    append<S extends SessionEventType>(
+      type: S,
+      data: SessionEventMap[S],
+      appendOptions?: AppendOptions,
+    ): SessionEvent<S> {
+      const buffer = currentSessionBuffer()
+      if (buffer !== undefined) {
+        buffer.record((sink) => sink.append(type, data, appendOptions))
+        // 缓冲期不分配真实 seq；调用方不依赖返回值（flush 时由真实 sink 分配）
+        return {
+          seq: 0,
+          at: 0,
+          formatVersion: store.formatVersion,
+          type,
+          data,
+          ...(appendOptions?.ignorable === undefined ? {} : { ignorable: appendOptions.ignorable }),
+        } as SessionEvent<S>
+      }
       const event = store.append(type, data, appendOptions)
       // 存储层按键取类型，广播面统一成判别联合（`AnySessionEvent`）
       ctx.events.emit('session/event', { session: options.sessionId, event: event as AnySessionEvent })
       return event
     },
 
+    appendDomain(type, data, appendOptions) {
+      const buffer = currentSessionBuffer()
+      if (buffer !== undefined) {
+        buffer.record((sink) => sink.appendDomain(type, data, appendOptions))
+        return {
+          seq: 0,
+          at: 0,
+          formatVersion: store.formatVersion,
+          type,
+          data,
+          ignorable: appendOptions?.ignorable ?? true,
+        } as AnySessionEvent
+      }
+      const event = store.appendDomain(type, data, appendOptions)
+      ctx.events.emit('session/event', { session: options.sessionId, event })
+      return event
+    },
+
     events: () => store.events(),
+    eventsView: () => store.eventsView(),
     lastSeq: () => store.lastSeq(),
-    deriveMessages: (deriveOptions) => deriveMessages(store.events(), deriveOptions),
+    deriveMessages: (deriveOptions) => deriveMessages(store.eventsView(), deriveOptions),
   }
 
   return ctx.provide(SESSION_SERVICE, api)

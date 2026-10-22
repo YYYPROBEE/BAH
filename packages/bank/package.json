@@ -12,6 +12,12 @@
     "build:bundle": "tsdown src/index.ts --dts"
   },
   "dependencies": {
-    "@bah/core": "workspace:*"
+    "@bah/core": "workspace:*",
+    "@bah/safety": "workspace:*",
+    "@bah/util": "workspace:*"
+  },
+  "devDependencies": {
+    "@bah/runtime": "workspace:*",
+    "@bah/test-support": "workspace:*"
   }
 }

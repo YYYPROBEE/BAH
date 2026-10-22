@@ -33,7 +33,7 @@ import type {
 
 import type { DerivedMessage } from '../session/types.ts'
 import type { SessionApi, SessionSink } from '../session/service.ts'
-import { buildModelHistory } from '../system-prompt/reconcile.ts'
+import { modelHistoryOf } from '../system-prompt/history-cache.ts'
 import type { RuntimeContextQueue } from '../system-prompt/reconcile.ts'
 import type { PromptRegistry } from '../system-prompt/registry.ts'
 import type { ChannelKind, ComposedPrompt, RuntimeContextView, ToolDescriptor } from '../system-prompt/types.ts'
@@ -212,7 +212,7 @@ export function assembleRequest(input: AssembleRequestInput): RequestAssembly {
   if (composed.header.length > 0) {
     messages.push({ role: 'system', content: [{ kind: 'text', text: composed.header }] })
   }
-  messages.push(...toLlmMessages(buildModelHistory(input.session.events())))
+  messages.push(...toLlmMessages(modelHistoryOf(input.session)))
   if (contextTexts.length > 0) {
     messages.push({ role: 'user', content: [{ kind: 'text', text: contextTexts.join('\n\n') }] })
   }

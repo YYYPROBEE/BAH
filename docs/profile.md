@@ -73,7 +73,7 @@ interface PluginRow {
 }
 ```
 
-### 本仓的 base bundle（七行）
+### 本仓的 base bundle（十一行）
 
 | 行 id | 插件实现 | 提供 | inject |
 |---|---|---|---|
@@ -83,6 +83,10 @@ interface PluginRow {
 | `core:model` | mock / deepseek 适配器 | `llm:adapters` | — |
 | `core:agent` | `AgentLoop` + 注册表 | `runtime:agents` | `bah:run`、`runtime:session`、`llm:adapters` |
 | `core:persistence` | `JsonlPersistence` | `bah:session-files` | `bah:run` |
+| `bank:tools` | 14 个银行工具 + 治理平面 | （注册工具；默认未绑定身份） | `bah:run`、`runtime:session`、`runtime:tools` |
+| `bank:saga-store` | Saga 存储 | `bah:saga-store` | — |
+| `bank:saga` | Saga 协调器 | `bah:saga-clock` 等 | `bah:saga-store`、`bah:saga-audit` |
+| `bank:saga-audit` | 审计链 | `bah:saga-audit` | `bah:saga-clock` |
 | `demo:echo` | 示例工具 | （注册 `echo` 工具） | `runtime:tools` |
 
 `bah:run` 是**boot injection**（不是可 patch 的行）：`{ sessionId, jsonlDir?, now }` 是"这次进程启动的输入"，
@@ -100,9 +104,28 @@ interface PluginRow {
     provider: mock
     model: mock-chat
     chunkSize: 4
+    # 幕 3：给王建国转 800 元（demo 白名单，走黄级审批）
     script:
-      - tool: { id: call-1, name: echo, args: { text: 你好，我是 headless 验收用的回显工具 } }
-      - text: 已为你在模拟环境完成查询。
+      - tool:
+          id: call-1
+          name: transfer_create
+          args:
+            amount: 800
+            payee: { name: 王建国, phone: '13900002222' }
+            remark: 房租
+      - text: 已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。
+
+- id: bank:tools
+  config:
+    demoUserId: u-1       # 显式演示身份；不写 = 未绑定
+    seed: 7
+    datasetTier: demo
+
+- id: interaction:approval
+  config:
+    responder: headless   # 默认 none = 拒绝；headless 显式开启自动应答者
+    autoDecision: allow
+    autoVerify: true
 
 - id: core:agent
   config:
@@ -116,32 +139,47 @@ interface PluginRow {
   config: { prefix: '[headless] ' }
 ```
 
-`pnpm bah --profile headless --dump-config`（列宽按内容自适应，下面是结构示例）：
+`pnpm bah --profile headless --dump-config`（列宽按内容自适应，下面是结构示例；长配置省略）：
 
 ```text
 bah: profile headless（bundles: base；config HMR: 关）
 bah: 层序 bundle → profile patch → home patch → overlay（整块替换，不深合并；未写字段走插件默认值）
 
-id                来源层                                        配置
-----------------  ------------------------------------------  ----------------------------------
-core:session      bundle:base                                 {}
-core:tools        bundle:base                                 {}
-core:prompt       bundle:base                                 {}
-core:model        profile-patch:profiles/headless/patch.yml   {"provider":"mock","model":"mock-chat", …}
-core:agent        profile-patch:profiles/headless/patch.yml   {"loop":{…},"channel":"headless", …}
-core:persistence  bundle:base                                 {"root":"sessions","fsync":true}
-demo:echo         profile-patch:profiles/headless/patch.yml   {"prefix":"[headless] "}
+id                   来源层                                        配置
+-------------------  ------------------------------------------  ----------------------------------
+core:session         bundle:base                                 {}
+core:tools           bundle:base                                 {}
+core:prompt          bundle:base                                 {}
+core:model           profile-patch:profiles/headless/patch.yml   {"provider":"mock","model":"mock-chat", …}
+core:agent           profile-patch:profiles/headless/patch.yml   {"loop":{…},"channel":"headless", …}
+core:persistence     bundle:base                                 {"root":"sessions","fsync":true}
+bank:tools           profile-patch:profiles/headless/patch.yml   {"demoUserId":"u-1","seed":7, …}
+interaction:approval profile-patch:profiles/headless/patch.yml   {"responder":"headless", …}
+bank:saga-store      bundle:base                                 {"dbPath":"sessions/saga.sqlite"}
+bank:saga            bundle:base                                 {"maxParallelBranches":4, …}
+bank:saga-audit      bundle:base                                 {"signingKeyPath":"keys/saga-ed25519.pem", …}
+demo:echo            profile-patch:profiles/headless/patch.yml   {"prefix":"[headless] "}
 
-bah: 共 7 行
+bah: 共 12 行
 ```
 
-跑一个 turn：
+跑一个 turn（幕 3 排练）：
 
 ```bash
-pnpm bah --profile headless --prompt 你好 --session s-demo
-# bah: profile headless · 会话 s-demo
-# bah: 回复 已为你在模拟环境完成查询。
-# bah: 已落盘 sessions/s-demo/session.jsonl（20 条事件）
+pnpm bah --profile headless --prompt "给王建国转800元" --session s-tier09 --jsonl .tmp-tier09
+# bah: profile headless · 会话 s-tier09
+# bah: 回复 已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。
+# 29 条事件：identity/bound → tier/decided → approval/asked → ticket/issued → ticket/approved
+#   → approval/decided → transfer/created → ticket/redeemed → ticket/consumed → tool/result
+```
+
+想看 08 的绿级余额链路，用同目录的 `patch-balance.yml` 做层 4 overlay（整块替换 mock 脚本，
+不改变默认幕 3）：
+
+```bash
+pnpm bah --profile headless --patch profiles/headless/patch-balance.yml \
+  --prompt "查一下我的余额" --session s-balance --jsonl .tmp-balance
+# 23 条事件：… → tool/call → tier/decided(green/allow) → read/balance → tool/result → …
 ```
 
 ---

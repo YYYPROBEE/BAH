@@ -12,6 +12,7 @@ import { join } from 'node:path'
 
 import { defineService } from '@bah/core'
 import { JsonlPersistence } from '@bah/persistence'
+import { assertSafePathSegment } from '@bah/util'
 
 import type { SessionEvent, SessionId } from '@bah/core'
 import type { SessionHandle, JsonlOptions } from '@bah/persistence'
@@ -22,6 +23,8 @@ import { readBoolean, readString, rejectUnknownKeys } from '../config.ts'
 
 /** 会话文件定位服务（宿主打印"落盘在哪"用，避免宿主自己拼路径）。 */
 export interface SessionFiles {
+  /** 会话根目录（`root` / `--jsonl` 生效值；saga 审计链跟它同根）。 */
+  readonly root: string
   /** 某会话的 JSONL 文件路径（会话尚未创建时返回**将要**写入的路径）。 */
   fileOf(sessionId: SessionId): string
 }
@@ -55,10 +58,24 @@ export const persistencePlugin: HostPlugin<PersistenceSettings> = {
         warn: (message) => console.warn(message),
       } satisfies JsonlOptions)
 
-      const dirOf = (sessionId: SessionId): string => join(root, String(sessionId))
+      const dirOf = (sessionId: SessionId): string => {
+        // 最后一道防线：会话 ID 来自 CLI / 恢复流程，拼路径前必须过白名单
+        const id = String(sessionId)
+        assertSafePathSegment(id, 'sessionId')
+        return join(root, id)
+      }
       const handles = new Map<string, SessionHandle>()
 
-      ctx.provide<SessionFiles>(SESSION_FILES, { fileOf: (sessionId) => join(dirOf(sessionId), 'session.jsonl') })
+      // 会话关闭 / 插件 dispose 时释放常驻 fd 与内存索引
+      ctx.effect(() => {
+        for (const handle of handles.values()) handle.close?.()
+        handles.clear()
+      })
+
+      ctx.provide<SessionFiles>(SESSION_FILES, {
+        root,
+        fileOf: (sessionId) => join(dirOf(sessionId), 'session.jsonl'),
+      })
 
       ctx.events.on('session/event', (envelope) => {
         const key = String(envelope.session)

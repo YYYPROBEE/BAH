@@ -1,0 +1,22 @@
+{
+  "name": "@bah/memory-store",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist-types/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build:bundle": "tsdown src/index.ts --dts",
+    "test": "vitest run --root ../.. packages/memory-store/src"
+  },
+  "dependencies": {
+    "@bah/persistence": "workspace:*",
+    "@bah/util": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^3"
+  }
+}

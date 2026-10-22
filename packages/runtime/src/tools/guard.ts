@@ -8,6 +8,8 @@
  * 插件既拿不到也改不了它的状态；每 turn 由主循环新建/重置（施工单 04 §2）。
  */
 
+import { parameterFingerprint } from '@bah/util'
+
 import type { PreExecuteVerdict } from './types.ts'
 import type { ToolCallInput } from './types.ts'
 
@@ -40,28 +42,12 @@ export class ToolGuard {
 }
 
 /**
- * 参数指纹：`工具名 + 稳定序列化后的参数`。
+ * 参数指纹：`工具名 + SHA-256(canonicalJson(args)) 前 16 字节`。
  *
  * 用途有三处，必须是同一个函数：票据五绑定、单调 guard 的键、`tool/call` 落账字段。
- * 「稳定」= 对象键递归排序，保证同一份参数（键序不同）得到同一指纹。
+ * 实现收口在 `@bah/util`：银行包与运行时包各自复制一份，迟早会在字段顺序 /
+ * 非有限数处理上分叉。
  */
 export function fingerprintOf(call: ToolCallInput): string {
-  return `${call.name}:${stableStringify(call.args)}`
-}
-
-/** 键序无关的 JSON 序列化（只处理 JSON 可表达的形态）。 */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value) ?? 'null'
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableStringify(item)).join(',')}]`
-  }
-  const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
-    left < right ? -1 : left > right ? 1 : 0,
-  )
-  const body = entries
-    .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
-    .join(',')
-  return `{${body}}`
+  return parameterFingerprint(call.name, call.args)
 }

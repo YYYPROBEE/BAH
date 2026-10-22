@@ -1,7 +1,13 @@
 /**
- * @bah/bank 包入口（M0 骨架，阶段 1）。
+ * @bah/bank 包入口（插件线 07–08）。
  *
- * 逻辑模块子目录（施工单 00 §6）：src/core/、src/forge/、src/tools/、src/verify/
- * 实装见施工单 07、08、09；各模块的公开导出在其落地时从本入口补齐。
+ * 逻辑模块子目录（施工单 00 §6）：
+ * - `core/`：九实体、Provider seam、票据状态机、mock 核心；
+ * - `forge/`：seeded 造数（demo / stress / adversarial）与风控预检；
+ * - `tools/`：银行工具族（施工单 08：14 个 P0 工具 / presenter / 治理平面）；
+ * - `verify/`：强验证渠道（挑战 / 锁定 / 可替换 Provider；施工单 09 §6）。
  */
-export {}
+export * from './core/index.ts'
+export * from './forge/index.ts'
+export * from './tools/index.ts'
+export * from './verify/index.ts'

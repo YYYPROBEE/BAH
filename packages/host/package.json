@@ -16,9 +16,13 @@
     "@bah/runtime": "workspace:*",
     "@bah/llm": "workspace:*",
     "@bah/interaction": "workspace:*",
+    "@bah/safety": "workspace:*",
     "@bah/bank": "workspace:*",
+    "@bah/knowledge": "workspace:*",
     "@bah/persistence": "workspace:*",
-    "@bah/util": "workspace:*"
+    "@bah/saga": "workspace:*",
+    "@bah/util": "workspace:*",
+    "@bah/channels": "workspace:*"
   },
   "devDependencies": {
     "@bah/test-support": "workspace:*"

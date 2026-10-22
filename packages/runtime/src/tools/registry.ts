@@ -11,7 +11,7 @@ import type { Disposer, ToolDefinition } from '@bah/core'
 
 export class ToolRegistry {
   /** 工具名 → 定义（插入顺序 = 注册顺序，`list()` 按此返回）。 */
-  private readonly definitions = new Map<string, ToolDefinition<any, any>>()
+  private readonly definitions = new Map<string, ToolDefinition<unknown, unknown>>()
 
   /**
    * 注册一个工具。
@@ -28,7 +28,7 @@ export class ToolRegistry {
     if (this.definitions.has(name)) {
       throw new BahError('tool-duplicate', `tools: 工具重名 ${name}（全局唯一、模型可见）`, { tool: name })
     }
-    this.definitions.set(name, definition as ToolDefinition<any, any>)
+    this.definitions.set(name, definition as ToolDefinition<unknown, unknown>)
 
     let disposed = false
     return () => {
@@ -43,7 +43,7 @@ export class ToolRegistry {
    *
    * @throws `BahError('tool-missing')` 未注册（fail-loud，不返回 `undefined`）
    */
-  get(name: string): ToolDefinition<any, any> {
+  get(name: string): ToolDefinition<unknown, unknown> {
     const definition = this.definitions.get(name)
     if (!definition) {
       throw new BahError('tool-missing', `tools: 工具 ${name} 未注册`, { tool: name })
@@ -57,7 +57,7 @@ export class ToolRegistry {
   }
 
   /** 全部已注册定义（顺序 = 注册顺序；模型侧 schema 装配按此顺序）。 */
-  list(): readonly ToolDefinition<any, any>[] {
+  list(): readonly ToolDefinition<unknown, unknown>[] {
     return [...this.definitions.values()]
   }
 

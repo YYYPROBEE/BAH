@@ -1,0 +1,15 @@
+{
+  // 评测包自带一份 tsconfig：本批次（M0）走 `tsc --noEmit` 自检，
+  // 尚未接入根 tsconfig.host.json 的 project references（属白名单外改动，
+  // 留到 M2 的 CI 集成一起做，见汇报偏差列表）。
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false
+  },
+  "include": ["src", "tests"]
+}

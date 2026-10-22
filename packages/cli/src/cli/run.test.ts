@@ -7,6 +7,7 @@
  */
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { EventEmitter } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -24,9 +25,11 @@ import {
   USAGE,
   describeReason,
   lastAssistantText,
+  lastKnowledgeAnswer,
   lastTurnEnd,
   onlyAgent,
   parseArgs,
+  printKnowledgeCard,
   runCli,
   type CliIo,
 } from './run.ts'
@@ -364,6 +367,67 @@ describe('参数解析（补充用例）', () => {
     if (parsed.ok) return
     expect(parsed.error).toContain('需要一个值')
   })
+
+  it('--serve 是布尔开关：单独出现即为 true，带值属用法错误', () => {
+    const on = parseArgs(['--profile', 'web', '--serve'])
+    expect(on.ok).toBe(true)
+    if (!on.ok) return
+    expect(on.args.serve).toBe(true)
+
+    const withValue = parseArgs(['--serve=1'])
+    expect(withValue.ok).toBe(false)
+    if (withValue.ok) return
+    expect(withValue.error).toContain('不接受值')
+  })
+})
+
+describe('常驻模式（--serve）', () => {
+  /**
+   * `--serve` 的退出路径只有信号一条。这里不真的给测试进程发 SIGINT（那是全局副作用，
+   * 会连带打中 vitest 自己的监听器），而是注入一个可控信号源：
+   * 等到"常驻中"打印出来（说明 boot 完成、监听已挂）再 emit，时序由输出驱动而非 sleep。
+   */
+  it('boot 后进入常驻，收到 SIGTERM 即退出 0，并把两个信号监听摘干净', async () => {
+    const root = makeRepo()
+    const { io, out, err } = capture()
+    const signals = new EventEmitter()
+    let servePrinted: () => void = () => undefined
+    const serving = new Promise<void>((resolve) => {
+      servePrinted = resolve
+    })
+    const watched: string[] = []
+    const ioWithProbe: CliIo = {
+      out: (line) => {
+        out.push(line)
+        if (line.includes('常驻中')) servePrinted()
+      },
+      err: (line) => err.push(line),
+    }
+    const onSpy = signals.on.bind(signals)
+    signals.on = ((event: string, listener: () => void) => {
+      watched.push(event)
+      return onSpy(event, listener)
+    }) as typeof signals.on
+
+    try {
+      const pending = runCli(['--profile', 'plain', '--serve', '--session', 's-serve'], ioWithProbe, {
+        root,
+        now: () => 1_000,
+        signals,
+      })
+      await serving
+      // 两个信号都接：容器停进程发 SIGTERM，终端按 Ctrl+C 发 SIGINT
+      expect(watched).toEqual(['SIGINT', 'SIGTERM'])
+      signals.emit('SIGTERM')
+
+      expect(await pending).toBe(0)
+      expect(signals.listenerCount('SIGINT')).toBe(0)
+      expect(signals.listenerCount('SIGTERM')).toBe(0)
+      expect(err).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('事件流辅助函数（补充用例）', () => {  it('lastAssistantText：没有文本回复时给占位文案，多段文本按序拼接', () => {
@@ -392,8 +456,77 @@ describe('事件流辅助函数（补充用例）', () => {  it('lastAssistantTe
     expect(lastAssistantText(events)).toBe('后半！')
   })
 
-  it('lastTurnEnd：没有 turn/end 时为 undefined', () => {
-    expect(lastTurnEnd([])).toBeUndefined()
+  it('lastKnowledgeAnswer：只读 knowledge_answer 的成功结果，取最后一条', () => {
+    expect(lastKnowledgeAnswer([])).toBeUndefined()
+    const events: AnySessionEvent[] = [
+      {
+        seq: 1,
+        at: 0,
+        formatVersion: 1,
+        type: 'tool/result',
+        data: {
+          callId: 'c-1',
+          name: 'account_balance',
+          isError: false,
+          content: [{ type: 'text', text: '余额 100 元' }],
+        },
+      },
+      {
+        seq: 2,
+        at: 0,
+        formatVersion: 1,
+        type: 'tool/result',
+        data: {
+          callId: 'c-2',
+          name: 'knowledge_answer',
+          isError: true,
+          content: [{ type: 'text', text: '不可用' }],
+        },
+      },
+      {
+        seq: 3,
+        at: 0,
+        formatVersion: 1,
+        type: 'tool/result',
+        data: {
+          callId: 'c-3',
+          name: 'knowledge_answer',
+          isError: false,
+          content: [
+            { type: 'text', text: '赎回费率为1.50%[K1]。' },
+            { type: 'text', text: '引用：[K1] 费率表' },
+          ],
+        },
+      },
+    ]
+    expect(lastKnowledgeAnswer(events)).toBe('赎回费率为1.50%[K1]。\n引用：[K1] 费率表')
+  })
+
+  it('printKnowledgeCard：有卡打印，无卡静默', () => {
+    const out: string[] = []
+    const io: CliIo = { out: (line) => out.push(line), err: () => undefined }
+    printKnowledgeCard([], io)
+    expect(out).toEqual([])
+
+    const events: AnySessionEvent[] = [
+      {
+        seq: 1,
+        at: 0,
+        formatVersion: 1,
+        type: 'tool/result',
+        data: {
+          callId: 'c-1',
+          name: 'knowledge_answer',
+          isError: false,
+          content: [{ type: 'text', text: '赎回费率为1.50%[K1]。' }],
+        },
+      },
+    ]
+    printKnowledgeCard(events, io)
+    expect(out[0]).toContain('bah: 知识卡')
+  })
+
+  it('lastTurnEnd：没有 turn/end 时为 undefined', () => {    expect(lastTurnEnd([])).toBeUndefined()
     const events: AnySessionEvent[] = [
       { seq: 1, at: 0, formatVersion: 1, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
     ]

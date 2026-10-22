@@ -9,17 +9,61 @@
     provider: mock
     model: mock-chat
     chunkSize: 4
-    # 脚本化对话：一次工具调用 + 一次文本收尾（证明七段管线在 headless 里也跑通）
+    # 脚本化对话：幕 3「给王建国转 800 元」——黄级审批 → 批准 → 核销 → 文本收尾。
+    # demo 档的王建国是白名单收款人、首笔早于演示，所以 800 元走黄级（不升红）。
     script:
-      - tool: { id: call-1, name: echo, args: { text: 你好，我是 headless 验收用的回显工具 } }
-      - text: 已为你在模拟环境完成查询。
+      - tool:
+          id: call-1
+          name: transfer_create
+          args:
+            amount: 800
+            payee:
+              name: 王建国
+              phone: '13900002222'
+            remark: 房租
+      # 收尾文案由本 turn 的 tool/result 结局决定（与 web 同一口径）：审批被拒 / 工具失败时
+      # 出"未执行：<原因>"，不写死"已完成"。
+      - outcome:
+          tool: transfer_create
+          ok: 已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。
+          failed: 未执行：{reason}
+
+- id: bank:tools
+  config:
+    # headless 显式绑定 demo 用户（王建国）；不写则所有业务工具 deny no-identity
+    demoUserId: u-1
+    seed: 7
+    datasetTier: demo
+
+- id: interaction:approval
+  config:
+    # headless 没有 Web 弹窗：显式开启自动应答者（默认 none = 拒绝，绝不默认放行）
+    responder: headless
+    autoDecision: allow
+    autoVerify: true
+
+- id: safety:sentry
+  config:
+    # XSC-001/002 默认关（生产先用真实语料统计误报）；演示/压测 profile 显式打开
+    rules:
+      crossScenario: true
 
 - id: core:agent
   config:
     channel: headless
-    loop: { model: mock:mock-chat, maxSteps: 8 }
+    loop:
+      model: mock:mock-chat
+      maxSteps: 8
+      # 上下文压缩（施工单 05 §5）：超过 8 个完整 turn 折叠更早的历史，保留最近 3 个原文。
+      # 缺省（不写 compaction）= 本 agent 永不压缩（`config.ts` 里 `compaction?:` 可缺省），
+      # 所以这一行是"压缩是否通电"的唯一开关；演示效果用 patch-compaction.yml 把阈值压到 2。
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
     runtimeContext:
       user: { name: 张三, level: 金卡 }
+      # 补充说明段（`runtimeContextSection` 消费）：这是环境声明，不是业务数据。
+      # 不写这一行该段永不装配——全仓 `notes` 没有其它写入方。
+      notes:
+        - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。
 
 # 插入新行：id 不在任何 bundle 里出现，所以必须写 use 指向依赖清单里的插件
 - id: demo:echo

@@ -1,0 +1,23 @@
+{
+  "name": "@bah/saga",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist-types/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build:bundle": "tsdown src/index.ts --dts"
+  },
+  "dependencies": {
+    "@bah/core": "workspace:*",
+    "@bah/util": "workspace:*"
+  },
+  "devDependencies": {
+    "@bah/persistence": "workspace:*",
+    "@bah/runtime": "workspace:*",
+    "@bah/test-support": "workspace:*"
+  }
+}

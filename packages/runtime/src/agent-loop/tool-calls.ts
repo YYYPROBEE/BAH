@@ -48,6 +48,27 @@ export function toolCallInputOf(call: AssembledToolCall): ToolCallInput {
   return { callId: call.callId, name: call.name, args: call.args ?? {} }
 }
 
+/**
+ * 取消后**未执行**的调用 → 冻结的失败结果。
+ *
+ * 必须为每个已声明的 toolCall 落一条 `tool/result`：否则 `deriveMessages` 会判定
+ * `tool/call ↔ tool/result` 出现空洞。写操作在入口处挡下（不打断执行中的原子写）。
+ */
+export function interruptedResult(
+  call: AssembledToolCall,
+  reason = '用户中断：工具调用未执行',
+): ToolResultData {
+  return {
+    callId: call.callId,
+    name: call.name,
+    isError: true,
+    content: [{ type: 'text', text: reason }],
+    code: 'tool-interrupted',
+    reason,
+    durationMs: 0,
+  }
+}
+
 /** 调度依赖（管线按 turn 构造：它持有本 turn 的取消信号）。 */
 export interface ToolCallDispatcherOptions {
   readonly pipeline: ToolPipeline
@@ -76,6 +97,18 @@ export class ToolCallDispatcher {
       return { result, additionalContexts: [] }
     }
     return this.pipeline.execute(toolCallInputOf(call))
+  }
+
+  /**
+   * 并行批次准入：参数可解析、绿级只读/无副作用、且本 turn 没有被判 deny。
+   *
+   * 绿级工具按治理矩阵不会触发 ask，因此“待审批”不会出现在并行批次里；
+   * 一旦同指纹已被 deny，必须回到串行路径复用原判决（不能借并发绕开 guard）。
+   */
+  canRunConcurrently(call: AssembledToolCall): boolean {
+    if (call.parseError !== undefined || call.args === undefined) return false
+    const input = toolCallInputOf(call)
+    return this.pipeline.isReadOnly(call.name) && !this.pipeline.isDenied(input)
   }
 
   /** 按模型给出的顺序串行执行（工具之间可能有依赖，并发属插件线的显式选择）。 */

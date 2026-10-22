@@ -271,7 +271,11 @@ describe('插件管理器（补充用例）', () => {
     expect(manager.ids()).toEqual(['fx:alpha', 'fx:beta'])
     expect(manager.has('fx:alpha')).toBe(true)
     expect(manager.has('fx:nope')).toBe(false)
-    expect(manager.get('fx:beta')).toBe(betaPlugin)
+    // 清单存擦除形态：name/validate 保持不变，配置类型由 validate 负责
+    const found = manager.get('fx:beta')
+    expect(found.id).toBe('fx:beta')
+    expect(found.plugin.name).toBe('fx:beta')
+    expect(found.validate).toBe(betaPlugin.validate)
   })
 
   it('createCatalog：清单内 id 重复即抛', () => {

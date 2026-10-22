@@ -1,7 +1,22 @@
 /**
- * @bah/bank · 逻辑模块 tools（M0 占位）。
+ * @bah/bank · tools（施工单 08：银行工具族）。
  *
- * 本文件只声明模块位置，不实现任何运行逻辑；
- * 实装见施工单 07、08、09。
+ * 导出面按用途收口：
+ * - `specs.ts` / `render.ts`：目录与文档生成（门禁读这一层，不装配 Provider）；
+ * - `catalog.ts`：`createBankTools(deps)`；
+ * - `governance.ts`：pre-execute 判决 + 审批票据桥接；
+ * - `dto.ts` / `presenters.ts`：渠道卡片契约；
+ * - `events.ts`：领域 durable 事件。
  */
-export {}
+
+export * from './catalog.ts'
+export * from './compute.ts'
+export * from './dto.ts'
+export * from './events.ts'
+export * from './governance.ts'
+export * from './identity.ts'
+export * from './presenters.ts'
+export * from './render.ts'
+export * from './specs.ts'
+export * from './tier.ts'
+export * from './types.ts'

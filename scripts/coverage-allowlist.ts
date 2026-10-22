@@ -60,6 +60,11 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
     why: 'JSONL append-only 后端：分代命名与排他发布、尾截断容忍、版本拒绝（施工单 03 §1.5）',
   },
   {
+    package: 'persistence',
+    scope: 'chain/audit-report.ts',
+    why: '审计只读面：链连续性、签名覆盖与签名四态（施工单 16 §10）',
+  },
+  {
     package: 'host',
     scope: 'boot/',
     why: '组合系统：四层层序与整块替换、fail-loud 校验、boot 装配与回滚、config-only HMR（施工单 06）',
@@ -95,13 +100,63 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
     why: '判决 / 归一化 / 规则 / 票据 / 断路器（施工单 10）',
   },
   {
+    package: 'safety',
+    scope: 'sandbox-policy/',
+    why: '沙箱档位解析：三层覆盖序 / 模型代码禁入 none / override 只收紧（施工单 11 §2）',
+  },
+  {
     package: 'bank',
     scope: 'tools/tier.ts',
     why: '三级权限判定矩阵（施工单 09）',
   },
   {
     package: 'bank',
-    scope: 'core/ticket.ts',
-    why: '票据状态机——核销唯一属主（施工单 07 §3）',
+    scope: 'tools/governance.ts',
+    why: '治理平面：pre-execute 判决落账 / 五绑定票据桥接 / 结果记账（施工单 09 §1–§3）',
+  },
+  {
+    package: 'interaction',
+    scope: 'approval/',
+    why: '审批服务（应答者 / 超时 / 双渠道竞答 / 挑战链）与票据生命周期账本（施工单 09 §2–§3）',
+  },
+  {
+    package: 'bank',
+    scope: 'core/',
+    why: '仿真银行核心：九实体 / 票据状态机与原子核销 / 日累计权威口径 / mock 账本（施工单 07）',
+  },
+  {
+    package: 'bank',
+    scope: 'forge/',
+    why: '造数确定性（seeded 三档）与风控预检规则（施工单 07 §4）',
+  },
+  {
+    package: 'saga',
+    scope: 'state-machine/',
+    why: 'saga 状态机：唯一转移函数 / 非法出边 / 未知事件 fail-loud（资金补偿状态不可静默失真）',
+  },
+  {
+    package: 'saga',
+    scope: 'coordinator/commit.ts',
+    why: '单提交段：sqlite 业务写 + 审计 fsync + COMMIT 的顺序不变量（SA-08）',
+  },
+  {
+    package: 'saga',
+    scope: 'alert/sink.ts',
+    why: '告警出口扇出：单 sink 失败不得阻断后续（观测链路）',
+  },
+  {
+    package: 'saga',
+    scope: 'probe/classify.ts',
+    why: '补偿探诊分类：未知/成功/失败三态分类错误会导致重复补偿或漏补偿',
+  },
+  {
+    package: 'saga',
+    scope: 'view/causality.ts',
+    why: '因果视图：审计链回放的顺序判定（错序会让补偿方向反转）',
+  },
+  {
+    package: 'knowledge',
+    scope: '',
+    why: '知识平面适配层：principal 组装 / 契约守卫 / 超时降级 / 工具与卡片（防 ACL 越权与静默放行）',
   },
 ]

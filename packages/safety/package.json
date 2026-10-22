@@ -9,9 +9,10 @@
     }
   },
   "scripts": {
-    "build:bundle": "tsdown src/index.ts --dts"
+    "build:bundle": "tsdown src/index.ts src/sandbox-runtime/worker.ts src/sandbox-runtime/handlers/compute.ts --dts"
   },
   "dependencies": {
-    "@bah/core": "workspace:*"
+    "@bah/core": "workspace:*",
+    "@bah/util": "workspace:*"
   }
 }

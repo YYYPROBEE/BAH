@@ -97,8 +97,25 @@ export type EventMode = 'emit' | 'serial' | 'parallel' | 'waterfall' | 'bail'
  * M0 只冻结「表存在、事件名是字符串」这一事实；具体事件键与其 `@mode`
  * 在施工单 04 §6 冻结为接缝总表（`docs/` 里的七段管线挂点表同源）。
  * 届时本接口由空索引签名收窄为逐键声明，属**扩展**而非破坏性变更。
+ *
+ * 逐键声明（`context/*`）已经落地：内核自己的事件在这里显式声明，
+ * 其它包按 `declare module '@bah/core'` 的模块增强补键（见 `@bah/saga` 的 `seams.ts`）。
  */
 export interface BahEventMap {
+  /**
+   * 回滚期间某个 disposer 抛错（`disposer-failed` 或该 disposer 自己的理由码）。
+   *
+   * 载荷只放标量：监听器若在回滚中途再登记 effect，等于把"往已回滚的桶里塞清理"引回来。
+   * **稳定契约，只增不改**（已有下游订阅后字段即冻结）。
+   *
+   * @mode emit
+   */
+  'context/rollback-failed': {
+    bucket: string
+    effect: string
+    code: string
+    message: string
+  }
   readonly [event: string]: unknown
 }
 
@@ -146,6 +163,20 @@ export interface Events {
    * @mode emit —— 记账类（`session/event`、`tools/result`）
    */
   emit<K extends EventName>(name: K, payload: BahEventMap[K]): void
+
+  /**
+   * 单向通知（失败隔离）：逐个监听器 `try/catch`，一个抛错不阻断后续监听器。
+   *
+   * 只用于“记账广播”（`tools/result`、`session/event`）：权威结果已经落账，
+   * 广播失败不能让调用方回滚或丢失后续观察者。
+   *
+   * @param onError 每个被捕获的异常都会回调（调用方负责落审计）
+   */
+  emitIsolated<K extends EventName>(
+    name: K,
+    payload: BahEventMap[K],
+    onError?: (error: unknown, event: K) => void,
+  ): void
 
   /**
    * 顺序 await 每个监听器，顺序与注册一致。
@@ -279,6 +310,26 @@ export interface PluginV2<Config = unknown> {
   apply(ctx: Context, config: Config): void | Promise<void>
 }
 
+/**
+ * 擦除配置类型后的插件视图（存在类型的落点）。
+ *
+ * TypeScript 无法表达 `PluginV2<exists C>`；`ConfigSchema` 的逆变又让
+ * `PluginV2<Specific>` 不能赋给 `PluginV2<unknown>`。内核只存这个擦除形态，
+ * 具体类型在 `erasePlugin()` 的 `apply` 包裹里还原一次。
+ */
+export interface ErasedPluginConfigSchema {
+  readonly dict?: Readonly<Record<string, unknown>>
+  /** 已擦除类型的校验器（调用方保证传入配置形状）。 */
+  readonly validate: (input: unknown) => unknown
+}
+
+export interface ErasedPlugin {
+  readonly name: string
+  readonly inject?: readonly string[]
+  readonly config?: ErasedPluginConfigSchema
+  apply(ctx: Context, config: unknown): void | Promise<void>
+}
+
 /* ────────────────────────────────────────────────────────────────────────────
  * SessionEvent envelope（施工单 03 §1.1）
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -402,6 +453,13 @@ export interface ToolDefinition<A = unknown, R = unknown> {
   schema: ToolSchema
   /** 权限级别（定义处声明，治理平面解释）。 */
   tier: ToolTier
+  /**
+   * 副作用声明（并行批次准入依据）。
+   *
+   * `none` = 纯计算；`read` = 只读外部状态；`write` = 可能改动资金/票据/账户。
+   * 缺省视为**不可并发**（保守）：只有 `none` / `read` 且 tier=green 才进入并行批次。
+   */
+  sideEffect?: 'none' | 'read' | 'write'
   /** 工具体。抛错由管线归一化为 `isError` 结果，不冒泡到主循环（T-TOOL-007）。 */
   execute(args: A, ctx: ToolExecContext): Promise<R>
   /** 执行预置内容（文本 / 图片）。 */

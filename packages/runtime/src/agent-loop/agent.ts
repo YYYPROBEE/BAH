@@ -27,7 +27,7 @@
  *    `assistant/message`（工具调用的承载消息），最后把错抛出去。
  */
 
-import { BahError, assertNever } from '@bah/util'
+import { BahError, assertNever, reasonOf } from '@bah/util'
 import { UsageLedger, assembleStream } from '@bah/llm'
 
 import type { Context, SessionId } from '@bah/core'
@@ -37,17 +37,15 @@ import type {
   FinishReason,
   LlmAdapter,
   LlmAdapterRegistry,
-  LlmParams,
   LlmRequest,
   ModelSpec,
   PreparedCall,
 } from '@bah/llm'
 
 import { runCompaction } from '../compaction/apply.ts'
-import { resolveCompactionConfig } from '../compaction/summarize.ts'
-import type { CompactionThresholds } from '../compaction/types.ts'
 import type { SessionApi } from '../session/service.ts'
-import type { AnySessionEvent, ToolCallRecord, TurnEndReason } from '../session/types.ts'
+import { SessionEventBuffer, withSessionBuffer } from '../session/buffer.ts'
+import type { AnySessionEvent, ToolCallRecord, ToolResultData, TurnEndReason } from '../session/types.ts'
 import { SYSTEM_PROMPT_SERVICE } from '../system-prompt/index.ts'
 import { RuntimeContextQueue } from '../system-prompt/reconcile.ts'
 import type { PromptRegistry } from '../system-prompt/registry.ts'
@@ -80,153 +78,15 @@ import {
   toSessionBlocks,
 } from './request.ts'
 import { forkSession, type ForkInfo, type ForkRequest } from './rollback.ts'
-import { ToolCallDispatcher, observeToolCalls } from './tool-calls.ts'
+import { ToolCallDispatcher, interruptedResult, observeToolCalls, toolCallInputOf } from './tool-calls.ts'
+import { resolveAgentLoopConfig, type AgentLoopConfig } from './config.ts'
 
-/** 单 turn 的 step 数上限（防"模型无限要工具"；可调项一律走配置，施工单 00 §9 第 4 条）。 */
-export const DEFAULT_MAX_STEPS = 32
-
-/** 允许的配置键（未知键 fail-loud）。 */
-const CONFIG_KEYS = new Set(['model', 'params', 'compaction', 'maxSteps'])
-
-/** 允许的采样参数键（其余一律拒绝：静默忽略会让"调了没生效"成为隐藏行为）。 */
-const PARAM_KEYS = new Set(['temperature', 'topP', 'maxTokens', 'stop'])
-
-/* ────────────────────────────────────────────────────────────────────────────
- * 1. 配置（阈值 / 路由 / 参数全部配置化且校验）
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/** 校验后的主循环配置。 */
-export interface AgentLoopConfig {
-  /** 首选模型路由（`provider:model` 或裸模型名；`agent/request` 可再改写）。 */
-  readonly model: string
-  readonly params?: LlmParams
-  /** 上下文压缩阈值（缺省 = 本 agent 不做压缩；主循环在 turn 边界判定）。 */
-  readonly compaction?: CompactionThresholds
-  /** 单 turn step 上限（缺省 `DEFAULT_MAX_STEPS`）。 */
-  readonly maxSteps: number
-}
-
-/**
- * 校验主循环配置。
- *
- * @throws `BahError('agent-invalid-config')` 非对象 / 未知键 / `model` 为空 /
- *   参数非数 / 越界 / `maxSteps` 非正整数 / 压缩配置非法
- */
-export function resolveAgentLoopConfig(input: unknown): AgentLoopConfig {
-  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
-    throw new BahError('agent-invalid-config', 'agent: 配置必须是对象')
-  }
-  const record = input as Readonly<Record<string, unknown>>
-  for (const key of Object.keys(record)) {
-    if (!CONFIG_KEYS.has(key)) {
-      throw new BahError(
-        'agent-invalid-config',
-        `agent: 未知配置键 ${key}（可调项只有 model / params / compaction / maxSteps）`,
-        { key },
-      )
-    }
-  }
-
-  const model = record['model']
-  if (typeof model !== 'string' || model.trim().length === 0) {
-    throw new BahError(
-      'agent-invalid-config',
-      'agent: 必须配置 model（`provider:model` 或裸模型名）；主循环不猜默认模型',
-    )
-  }
-
-  const params = record['params'] === undefined ? undefined : resolveParams(record['params'])
-  const maxSteps =
-    record['maxSteps'] === undefined
-      ? DEFAULT_MAX_STEPS
-      : positiveInteger(record['maxSteps'], 'maxSteps')
-  const compaction =
-    record['compaction'] === undefined
-      ? undefined
-      : resolveCompactionConfig(record['compaction'])
-
-  return {
-    model: model.trim(),
-    maxSteps,
-    ...(params === undefined ? {} : { params }),
-    ...(compaction === undefined ? {} : { compaction }),
-  }
-}
-
-/** 校验采样参数。 */
-export function resolveParams(input: unknown): LlmParams {
-  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
-    throw new BahError('agent-invalid-config', 'agent: params 必须是对象')
-  }
-  const record = input as Readonly<Record<string, unknown>>
-  for (const key of Object.keys(record)) {
-    if (!PARAM_KEYS.has(key)) {
-      throw new BahError(
-        'agent-invalid-config',
-        `agent: 未知采样参数 ${key}（可调项只有 temperature / topP / maxTokens / stop）`,
-        { key },
-      )
-    }
-  }
-
-  const params: {
-    temperature?: number
-    topP?: number
-    maxTokens?: number
-    stop?: readonly string[]
-  } = {}
-
-  if (record['temperature'] !== undefined) {
-    params.temperature = inRange(record['temperature'], 'temperature', 0, 2)
-  }
-  if (record['topP'] !== undefined) {
-    params.topP = inRange(record['topP'], 'topP', 0, 1)
-  }
-  if (record['maxTokens'] !== undefined) {
-    params.maxTokens = positiveInteger(record['maxTokens'], 'maxTokens')
-  }
-  if (record['stop'] !== undefined) {
-    params.stop = stringArray(record['stop'], 'stop')
-  }
-
-  return params
-}
-
-/** 闭区间数值校验。 */
-function inRange(value: unknown, name: string, min: number, max: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) {
-    throw new BahError(
-      'agent-invalid-config',
-      `agent: ${name} 必须是 ${min}–${max} 之间的数（收到 ${String(value)}）`,
-      { name, value },
-    )
-  }
-  return value
-}
-
-/** 正整数校验。 */
-function positiveInteger(value: unknown, name: string): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
-    throw new BahError(
-      'agent-invalid-config',
-      `agent: ${name} 必须是正整数（收到 ${String(value)}）`,
-      { name, value },
-    )
-  }
-  return value
-}
-
-/** 非空字符串数组校验（`stop` 序列）。 */
-function stringArray(value: unknown, name: string): readonly string[] {
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.length === 0)) {
-    throw new BahError(
-      'agent-invalid-config',
-      `agent: ${name} 必须是非空字符串数组（收到 ${String(value)}）`,
-      { name, value },
-    )
-  }
-  return [...(value as string[])]
-}
+export {
+  DEFAULT_MAX_STEPS,
+  resolveAgentLoopConfig,
+  resolveParams,
+  type AgentLoopConfig,
+} from './config.ts'
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 2. 构造选项
@@ -441,6 +301,7 @@ export class AgentLoop implements Agent {
     this.guard.reset()
     this.session.append('turn/start', { turn })
 
+    let failure: { readonly error: unknown } | undefined
     try {
       while (true) {
         if (steps >= this.config.maxSteps) {
@@ -490,18 +351,32 @@ export class AgentLoop implements Agent {
           if (this.inbox.nextStep.length === 0) break
         }
       }
+    } catch (error) {
+      // 兜底：任何逃出 step 的异常（工具未注册、事件监听器抛错、落账失败）都不能让
+      // turn 停留在“未闭合”状态。先记失败原因，收尾段统一落 `turn/end`，最后再抛。
+      failure = { error }
+      turnEnds = { kind: 'failed', reason: `turn 异常终止：${reasonOf(error)}` }
     } finally {
       this.abort.end()
     }
 
     const reason: TurnEndReason = turnEnds ?? { kind: 'completed' }
 
-    // turn 边界：压缩判定（只折叠已完整结束的 turn）→ 成本汇总 → 关闭 turn
-    if (this.config.compaction !== undefined) runCompaction(this.session, this.config.compaction)
-    const usage = this.ledger.finishTurn(turn)
-    if (usage !== undefined && usage.calls > 0) this.session.append('usage/summary', usage)
-    this.session.append('turn/end', { turn, reason })
+    // turn 边界：压缩判定（只折叠已完整结束的 turn）→ 成本汇总 → 关闭 turn。
+    // 收尾段自身失败也不能吞掉 `turn/end`——否则日志出现未闭合 turn，回退边界丢失。
+    let closingError: unknown
+    try {
+      if (this.config.compaction !== undefined) runCompaction(this.session, this.config.compaction)
+      const usage = this.ledger.finishTurn(turn)
+      if (usage !== undefined && usage.calls > 0) this.session.append('usage/summary', usage)
+    } catch (error) {
+      closingError = error
+    } finally {
+      this.session.append('turn/end', { turn, reason })
+    }
 
+    if (failure !== undefined) throw failure.error
+    if (closingError !== undefined) throw closingError
     return reason
   }
 
@@ -670,7 +545,36 @@ export class AgentLoop implements Agent {
         pipeline: this.pipeline(signal),
         session: this.session,
       })
-      for (const call of calls) await dispatcher.execute(call)
+      let index = 0
+      while (index < calls.length) {
+        // 取消边界：中断后同批剩余的调用（可能含写操作）一律不执行，只补结构化的
+        // `tool-interrupted` 结果；正在执行的调用不打断（写操作要保原子性）。
+        if (signal.aborted) {
+          for (const remaining of calls.slice(index)) {
+            this.session.append('tool/result', interruptedResult(remaining))
+          }
+          return
+        }
+        const call = calls[index]
+        if (call === undefined) break
+        if (this.config.parallelReadTools && dispatcher.canRunConcurrently(call)) {
+          const batch: AssembledToolCall[] = []
+          while (index < calls.length) {
+            const next = calls[index]
+            if (next === undefined || !dispatcher.canRunConcurrently(next)) break
+            batch.push(next)
+            index += 1
+          }
+          if (batch.length > 1) await this.runParallelBatch(batch, signal)
+          else {
+            const only = batch[0]
+            if (only !== undefined) await dispatcher.execute(only)
+          }
+          continue
+        }
+        index += 1
+        await dispatcher.execute(call)
+      }
     } catch (error) {
       for (const recovered of recovery.results()) {
         this.session.append('tool/result', recovered.data)
@@ -679,6 +583,65 @@ export class AgentLoop implements Agent {
     } finally {
       stopObserving()
     }
+  }
+
+  /**
+   * 并行执行一批 green 只读调用，并按调用顺序 flush 事件。
+   *
+   * 执行阶段彼此重叠；持久化事件、领域审计与 `tools/result` 广播全部进入 per-call
+   * 缓冲，批次结束按模型给出的调用顺序回放——对模型/审计而言与串行完全同序。
+   */
+  private async runParallelBatch(
+    calls: readonly AssembledToolCall[],
+    signal: AbortSignal,
+  ): Promise<void> {
+    const buffers = calls.map(() => new SessionEventBuffer())
+    const outcomes = await Promise.allSettled(
+      calls.map((call, index) => {
+        const buffer = buffers[index]
+        if (buffer === undefined) throw new Error('agent: 并行缓冲区缺失')
+        return withSessionBuffer(buffer, () =>
+          this.pipeline(signal, (result) => buffer.emitResult(result)).execute(
+            toolCallInputOf(call),
+          ),
+        )
+      }),
+    )
+    const flushErrors: unknown[] = []
+    for (const buffer of buffers) {
+      try {
+        buffer.flush(this.session, (result) => this.emitToolsResultIsolated(result))
+      } catch (error) {
+        // 一个缓冲写失败不能阻止后续缓冲 flush（失败内容已由 buffer 聚合）。
+        flushErrors.push(error)
+      }
+    }
+    const rejected = outcomes
+      .filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
+      .map((outcome) => outcome.reason)
+    if (flushErrors.length > 0 || rejected.length > 0) {
+      throw new AggregateError(
+        [...flushErrors, ...rejected],
+        `agent: 并行批次失败（flush ${flushErrors.length} / 执行 ${rejected.length}）`,
+      )
+    }
+  }
+
+  /** 并行批次 flush 时的 `tools/result` 广播：逐个 listener 隔离，失败落审计。 */
+  private emitToolsResultIsolated(result: ToolResultData): void {
+    this.ctx.events.emitIsolated('tools/result', result, (error) => {
+      try {
+        this.session.append('tool/callback-failed', {
+          stage: 'emit-result',
+          callId: result.callId,
+          code: error instanceof BahError ? error.code : 'tool-failed',
+          reason: reasonOf(error),
+          at: this.now(),
+        })
+      } catch (auditError) {
+        console.error('bah-agent: tools/result 广播失败且审计落账失败', auditError)
+      }
+    })
   }
 
   /** 解析并冻结调用（成功 = 请求已发出；失败统一转成 `assistant/attempt`）。 */
@@ -699,7 +662,10 @@ export class AgentLoop implements Agent {
   }
 
   /** 本 turn 的工具管线（持有本 turn 的取消信号；guard 与主循环共享）。 */
-  private pipeline(signal: AbortSignal): ToolPipeline {
+  private pipeline(
+    signal: AbortSignal,
+    emitResult?: (result: ToolResultData) => void,
+  ): ToolPipeline {
     return new ToolPipeline({
       ctx: this.ctx,
       registry: this.tools,
@@ -708,6 +674,7 @@ export class AgentLoop implements Agent {
       sessionId: this.session.sessionId,
       now: this.now,
       signal,
+      ...(emitResult === undefined ? {} : { emitResult }),
     })
   }
 
@@ -729,7 +696,7 @@ export class AgentLoop implements Agent {
     signal: AbortSignal,
     phase: string,
   ): TurnEndReason {
-    const reason = `${phase}：${messageOf(error)}`
+    const reason = `${phase}：${reasonOf(error)}`
     return isAbortedError(error) || signal.aborted ? this.cancelled(turn, reason) : this.fail(turn, reason)
   }
 
@@ -818,7 +785,3 @@ function isAbortedError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
 }
 
-/** 任意抛出物 → 可读理由（非 Error 也留文本，禁止静默吞错）。 */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}

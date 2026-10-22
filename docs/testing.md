@@ -5,12 +5,12 @@
 
 ## 1. 四个测试面（一个都不能省）
 
-| 面 | 命令 | 配置 | 装什么 | 现状 |
+| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-22 实测） |
 |---|---|---|---|---|
-| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 83 用例（core 56 + test-support 22 + cli 冒烟 1 + …） |
-| e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 DeepSeek API**（`*.e2e.test.ts`） | 0 用例（**设计如此**，见 §7） |
-| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 6 用例（通道冒烟 2 + headless 录制/回放/确定性/负控 4） |
-| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 2 用例（入口挂载冒烟） |
+| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 149 文件 / 1335 用例 |
+| e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
+| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 4 文件 / 14 用例 |
+| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 5 文件 / 46 用例 |
 
 一条命令跑全链（本地等价 CI，fail-fast）：
 
@@ -19,9 +19,24 @@ cd D:\项目集\微众杯银行ai智能体\BAH\MonoRepo
 pnpm check
 ```
 
-`pnpm check` = typecheck → test → test:coverage → gate → e2e → snapshot → web，任一步红即停并给出耗时汇总。
+`pnpm check` 共 **10 步**，任一步红即停并给出耗时汇总：
+
+```
+typecheck → lint → build → test → test:coverage → gate → e2e → snapshot → web → rag:check
+```
+
+两种模式，**红绿口径不同，不可混用**：
+
+| 命令 | 未执行面（如无 key 的 e2e） | 用途 |
+|---|---|---|
+| `pnpm check` | 记为 SKIP，**退出码 0** | 本地开发 |
+| `pnpm check:ci` | **退出码 1**（严格模式不接受 SKIP） | CI 必需检查 |
 
 > 为什么不叫 `pnpm ci`：`ci` 是 pnpm 内建命令（`ERR_PNPM_CI_NOT_IMPLEMENTED`），脚本名会被它占掉。
+>
+> 为什么严格模式用 `--ci` 而不是 `CI=true` 环境变量：`CI=true` 还会强制要求显式 `BAH_SNAPSHOT_BASE`
+> （见 `resolveSnapshotBase`），本地没有该变量时会一步都跑不到、直接退出，
+> 于是"无 key 即红"这条语义根本得不到验证。两者职责不同。
 
 ## 2. 用例命名纪律（硬性）
 
@@ -100,14 +115,35 @@ it('示例：dispose 回滚', async () => {
 | `createRecordingAdapter(inner, sink)` | 录制 provider 调用（分片原样透传，不改行为） |
 | `ReplayAdapter({ exchanges, spec })` | 回放 provider：无网络、无密钥；`remaining()` / `consumed()` 可观察 |
 
-## 7. e2e 面为什么是零用例
+## 7. e2e 面为什么在无密钥时零用例
 
-`vitest.e2e.config.ts` 的语义是「**真实 DeepSeek API**」：没有 `DEEPSEEK_API_KEY` 时不收集任何用例
-（整面 skip，`passWithNoTests`），避免缺密钥把 CI 跑红。第一个真实用例要等阶段 4（模型层）+ 阶段 5（主循环）。
+`vitest.e2e.config.ts` 的语义是「**真实 LLM API**」：没有 `DEEPSEEK_API_KEY` 时不收集任何用例
+（整面 skip，`passWithNoTests`），避免缺密钥把 CI 跑红。
 
 **不要**把不需要密钥的用例塞进 e2e 面——那会让「e2e 全绿」在无密钥机器上变成假绿。
 不需要密钥的进程级冒烟放 unit 面：`packages/cli/src/main.smoke.test.ts`（真起子进程，验 tsx 运行 +
 workspace 解析 + exit code 三条通道）。
+
+### 7.1 端点与模型不锁死厂商
+
+现有用例（`packages/llm/src/deepseek/adapter.e2e.test.ts`）不写死端点与模型，由三个环境变量决定：
+
+| 环境变量 | 缺省 | 说明 |
+|---|---|---|
+| `DEEPSEEK_API_KEY` | 无 | 缺失即整面 skip；存在才收集用例 |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | 任何 OpenAI 兼容网关 |
+| `DEEPSEEK_MODEL` | `deepseek-chat` | 网关上的模型标识 |
+
+例：改打千问平台的兼容端点
+
+```bash
+DEEPSEEK_API_KEY=<key> \
+DEEPSEEK_BASE_URL=https://maas.qianwenaiapi.com/compatible-mode/v1 \
+DEEPSEEK_MODEL=deepseek-v4.1-flash-1017 \
+pnpm test:e2e
+```
+
+> 密钥只走环境变量 / CI secret，**永不入库**。`--offline` 演示与快照回放都不需要它。
 
 ## 8. 确定性纪律（上快照回放的前提）
 

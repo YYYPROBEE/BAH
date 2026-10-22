@@ -9,9 +9,36 @@
 
 import type { BahError } from '@bah/util'
 
-import type { ConfigSchema, PluginV2 } from './api.ts'
+import type { ConfigSchema, ErasedPlugin, ErasedPluginConfigSchema, PluginV2 } from './api.ts'
 import { coreError, describeThrown } from './errors.ts'
 import type { PluginRecord } from './types.ts'
+
+/**
+ * 擦除插件配置类型（存在类型的唯一转换点）。
+ *
+ * 这里是全仓唯一允许把 `unknown` 还原成具体 `Config` 的地方：调用方已经在
+ * `ctx.use(plugin, config)` 上保证了类型，擦除只发生在"异构插件集合"的存储层。
+ */
+export function erasePlugin<Config>(plugin: PluginV2<Config>): ErasedPlugin {
+  const schema =
+    plugin.config === undefined
+      ? undefined
+      : eraseConfigSchema(plugin.config)
+  return {
+    name: plugin.name,
+    ...(plugin.inject === undefined ? {} : { inject: plugin.inject }),
+    ...(schema === undefined ? {} : { config: schema }),
+    apply: (ctx, config) => plugin.apply(ctx, config as Config),
+  }
+}
+
+function eraseConfigSchema<Config>(schema: ConfigSchema<Config>): ErasedPlugin['config'] {
+  const validate = schema as unknown as (input: unknown) => unknown
+  return {
+    ...(schema.dict === undefined ? {} : { dict: schema.dict }),
+    validate,
+  }
+}
 
 /**
  * 校验并补默认值。
@@ -25,19 +52,28 @@ import type { PluginRecord } from './types.ts'
  * @returns 校验通过、默认值已补齐的配置
  * @throws `bah-core: invalid config for <name>: ...`
  */
-export function resolveConfig(plugin: PluginV2<any>, config: unknown): unknown {
-  const schema = plugin.config
+export function resolveConfig(
+  plugin: PluginV2<unknown> | ErasedPlugin,
+  config: unknown,
+): unknown {
+  const erased = isErasedPlugin(plugin) ? plugin : erasePlugin(plugin)
+  const schema = erased.config
   if (!schema) return config ?? {}
   const input = config ?? {}
   const unknownKeys = findUnknownKeys(schema, input)
   if (unknownKeys.length > 0) {
-    throw invalidConfig(plugin.name, `未知配置键：${unknownKeys.join(', ')}`, { keys: unknownKeys })
+    throw invalidConfig(erased.name, `未知配置键：${unknownKeys.join(', ')}`, { keys: unknownKeys })
   }
   try {
-    return schema(input)
+    return schema.validate(input)
   } catch (error) {
-    throw invalidConfig(plugin.name, describeThrown(error), { cause: error })
+    throw invalidConfig(erased.name, describeThrown(error), { cause: error })
   }
+}
+
+function isErasedPlugin(plugin: PluginV2<unknown> | ErasedPlugin): plugin is ErasedPlugin {
+  const schema = plugin.config as { validate?: unknown } | undefined
+  return typeof schema?.validate === 'function'
 }
 
 /**
@@ -47,8 +83,11 @@ export function resolveConfig(plugin: PluginV2<any>, config: unknown): unknown {
  * 这里用 schema 自带的 `dict`（对象类 schema 的公开字段）做顶层键比对，补上这一层严格性。
  * 非对象类 schema（`union` / `transform` / 标量）没有 `dict`，交给 schema 自己判定。
  */
-export function findUnknownKeys(schema: ConfigSchema<any>, input: unknown): string[] {
-  const dict = schema.dict
+export function findUnknownKeys(
+  schema: Pick<ErasedPluginConfigSchema, 'dict'> | undefined,
+  input: unknown,
+): string[] {
+  const dict = schema?.dict
   if (!dict) return []
   if (typeof input !== 'object' || input === null) return []
   return Object.keys(input).filter((key) => !(key in dict))

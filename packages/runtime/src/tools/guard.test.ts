@@ -12,7 +12,9 @@ describe('fingerprintOf', () => {
     const right = fingerprintOf({ callId: 'c9', name: 'bank:transfer', args: { b: 2, a: 1 } })
 
     expect(left).toBe(right)
-    expect(left).toBe('bank:transfer:{"a":1,"b":2}')
+    // 定长 + 不可逆（16 字节 hex），不再是明文参数串
+    expect(left).toMatch(/^bank:transfer:[0-9a-f]{32}$/)
+    expect(left).not.toContain('"a"')
   })
 
   it('参数变化即指纹变化（票据绑定与 guard 都靠它）', () => {
@@ -23,9 +25,10 @@ describe('fingerprintOf', () => {
   })
 
   it('覆盖数组 / null / 嵌套对象', () => {
-    expect(fingerprintOf({ callId: 'c', name: 't', args: { list: [1, { b: 2, a: null }] } })).toBe(
-      't:{"list":[1,{"a":null,"b":2}]}',
-    )
+    const nested = fingerprintOf({ callId: 'c', name: 't', args: { list: [1, { b: 2, a: null }] } })
+    const reordered = fingerprintOf({ callId: 'c', name: 't', args: { list: [1, { a: null, b: 2 }] } })
+    expect(nested).toBe(reordered)
+    expect(nested).toMatch(/^t:[0-9a-f]{32}$/)
   })
 })
 

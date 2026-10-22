@@ -10,6 +10,12 @@
   "references": [
     {
       "path": "../host"
+    },
+    {
+      "path": "../persistence"
+    },
+    {
+      "path": "../saga"
     }
   ]
 }

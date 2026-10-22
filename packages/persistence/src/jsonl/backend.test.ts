@@ -93,6 +93,59 @@ describe('create / append / open', () => {
     expect(captureThrown(() => readonly.append(event(1))).code).toBe('session-readonly')
   })
 
+  it('落盘前掩码 PII：结构化姓名/手机/自由文本都不可逆', () => {
+    const api = persistence()
+    const dir = join(root, 's-redact')
+    const handle = api.create(dir, asSessionId('s-redact'), {
+      meta: { userName: '王建国', phone: '13900002222' },
+    })
+    const raw: SessionEvent = {
+      seq: 1,
+      at: 1,
+      formatVersion: JSONL_FORMAT_VERSION,
+      type: 'tool/call',
+      data: {
+        callId: 'c1',
+        name: 'transfer_create',
+        args: {
+          payee: { name: '王建国', phone: '13900002222' },
+          remark: '联系 13812345678',
+        },
+        at: 1,
+      },
+    }
+    handle.append(raw)
+
+    const reopened = api.open(dir)
+    expect(reopened.header.meta).toMatchObject({ userName: '王**', phone: '139****2222' })
+    expect(reopened.events()[0]?.data).toMatchObject({
+      name: 'transfer_create',
+      args: {
+        payee: { name: '王**', phone: '139****2222' },
+        remark: '联系 138****5678',
+      },
+    })
+    // 落盘文件里没有原文
+    expect(readFileSync(join(dir, 'session.jsonl'), 'utf8')).not.toContain('王建国')
+  })
+
+  it('header 超过 4KB 仍可打开（按行读到换行）', () => {
+    const api = new JsonlPersistence({ fsync: false, warn: () => {}, redact: false })
+    const dir = join(root, 's-long-header')
+    const note = 'x'.repeat(5_000)
+    api.create(dir, asSessionId('s-long-header'), { meta: { note } })
+
+    expect(api.open(dir).header.meta?.['note']).toBe(note)
+  })
+
+  it('header 超过 1MB → session-header-invalid（不把损坏文件读进内存）', () => {
+    const api = new JsonlPersistence({ fsync: false, warn: () => {}, redact: false })
+    const dir = join(root, 's-huge-header')
+    api.create(dir, asSessionId('s-huge-header'), { meta: { note: 'x'.repeat(1024 * 1024 + 1) } })
+
+    expect(captureThrown(() => api.open(dir)).code).toBe('session-header-invalid')
+  })
+
   it('目录里没有规范分代文件 → session-missing', () => {
     mkdirSync(join(root, 'empty'), { recursive: true })
     expect(captureThrown(() => persistence().open(join(root, 'empty'))).code).toBe('session-missing')

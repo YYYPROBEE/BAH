@@ -56,16 +56,8 @@ export function fixedClock(options: { start?: number; step?: number } = {}): Clo
 /**
  * seeded PRNG（mulberry32）：同种子逐位一致，跨平台稳定。
  *
- * @param seed 32 位种子（可用会话号、场景号等固定值）
- * @returns 返回 `[0, 1)` 的生成器
+ * 实现在 `@bah/util`：仿真银行造数（施工单 07 §4.1）与快照夹具必须共用同一个随机源，
+ * 否则 `scenario.json` 的 `randomSeed` 无法重放出 bank-forge 的同一套数据。
+ * 这里保留同名导出，历史用例与文档的 import 路径不变。
  */
-export function seededRandom(seed: number): () => number {
-  let state = seed >>> 0
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0
-    let value = state
-    value = Math.imul(value ^ (value >>> 15), value | 1)
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61)
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296
-  }
-}
+export { seededRandom } from '@bah/util'
