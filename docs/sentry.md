@@ -117,6 +117,25 @@ d. 熔断/降级    锁存冻结、只绿模式、同 turn 工具数超限（三
 **为什么不自动解冻**：自动解冻会把"连续可疑"变成"等一会就好"，攻击者只需要等窗口；
 锁存语义与 runtime 的单调 guard 同源。
 
+### 5.1 人工解冻只有一个入口，且不是每个 profile 都有
+
+断路器是**进程内状态**（`SentryBreaker` 持有内核 `Breaker`）。所以"解冻"必须是
+**对运行中那个进程**发命令，不能新起一个 CLI 进程自己解自己——那只解了新进程里的空断路器。
+
+```text
+Web（有 HTTP 服务）
+  浏览器/CLI ──POST /api/admin/sentry/unfreeze──▶ 运行中的 web 宿主 ──▶ SENTRY_SERVICE.unfreeze
+
+headless（无 HTTP 服务）
+  ✘ 没有远程解冻入口。唯一路径是重启进程。
+```
+
+`bah sentry unfreeze` 只是上图的 HTTP 客户端：它不 boot app、不伪造解冻。
+管理路由三条约束（默认关闭 / 只绑回环 / token 只从环境变量读）见
+`docs/web-frontend.md` §7.1。
+
+**答辩口径**：不要讲"CLI 可以解冻 headless"——那是假的。headless 只能重启。
+
 ## 6. Config（`safety:sentry`，fail-loud）
 
 ```yaml
