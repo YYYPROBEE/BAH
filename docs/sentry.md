@@ -21,7 +21,8 @@ agent/pre-step      ingress.ts    归一化 6 步 + 9 签名检测 + 审计 + �
 tools/pre-execute   control.ts    危险规则 / scanToolArgs / 预算 / 断路器 / 降级 → deny | ask | allow
 tools/result        ticketing.ts  读 bank-core 票据状态 → consumed / blocked 记账（不核销）
 session/event       audit.ts      turn 边界 / 审批 / 判决 / 拒绝 / 票据全量落 TraceLog
-tools/post-execute  honesty.ts    数值对账 → block + 纠正文本（追加进 additionalContexts）
+tools/post-execute  honesty.ts    数值对账 → block + 纠正文本（追加进 additionalContexts；
+                                  自身抛错 → fail-closed 转 block，见 §2.2）
 agent/turn-stopping honesty.ts    无工具结果不陈述 / 全 turn 数值复核 / 工具数判停
 ```
 
@@ -39,6 +40,28 @@ d. 熔断/降级    锁存冻结、只绿模式、同 turn 工具数超限（三
 ```
 
 绿级只读工具**永不**因熔断被误伤（冻结期内仍可查余额、流水）。
+
+### 2.2 判决件自身异常 = 不可信（fail-closed）
+
+七段管线对 `tools/post-execute` 的默认容错是"监听器坏了就按 accept 继续"——
+这条对观察者成立，对**带阻断权的判决件**是反模式：核验组件失效的那一次，
+恰好就是最该拦截的那一次。sentry 因此给自身上了一层包装：
+
+```text
+监听器正常      → 原样返回（判决完全由 honesty.ts 决定）
+监听器抛错      → block + code=verifier-unavailable + 固定话术
+                  + 落 sentry/verifier-failed（含 200 字内的错误消息）
+```
+
+三条约束：
+
+1. **不向上抛**：抛出去会落到 runtime 的通用 catch，而那正是"按 accept 继续"的路径；
+2. **错误详情不进模型**：`reason` 是固定话术，真实异常只进审计与 TraceLog，
+   且不拼接工具参数 / 结果 / 用户原话；
+3. **`next` 最多一次**：避免同一结果被下游判决两次（记账、吊销票据都不是幂等的）。
+
+实现见 `packages/safety/src/sentry/pipeline/fail-closed.ts`。
+
 
 ## 3. 注入防御矩阵（五攻击面）
 

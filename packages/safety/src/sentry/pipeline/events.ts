@@ -65,6 +65,20 @@ export interface SentrySessionEventMap {
     readonly at: number
   }
   /**
+   * 判决件自身异常 → 已按 fail-closed 阻断（施工单 HP-0 §3.1）。
+   *
+   * 为什么必须单独落一条：`block` 只是"结果没进模型"，运维还需要知道
+   * **是核验坏了还是真的查出错**。两者的处置完全不同（前者修组件，后者查数据）。
+   *
+   * `message` 只留错误类型与 200 字内的消息，**不拼接工具参数 / 结果 / 用户原话**。
+   */
+  'sentry/verifier-failed': {
+    readonly listener: 'tools/post-execute'
+    readonly code: 'verifier-unavailable'
+    readonly message: string
+    readonly at: number
+  }
+  /**
    * 审计轨迹的 durable 副本（`trace.sink=session` 时逐条落账）。
    *
    * 载荷就是 TraceLog 的原始记录（`ts` / `seq` / `kind` 等），供施工单 12 的三链导出
@@ -101,6 +115,7 @@ export const SENTRY_SESSION_EVENT_TYPES = [
   'sentry/breaker-frozen',
   'sentry/unfrozen',
   'sentry/honesty-corrected',
+  'sentry/verifier-failed',
   'sentry/trace',
   'policy/downgraded',
   'guard/repeat-tool',

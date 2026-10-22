@@ -6,7 +6,8 @@
  * tools/pre-execute   control.ts   规则 / 预算 / 断路器 / 降级 → deny（唯一阻断点）
  * tools/result        ticketing.ts 按 bank-core 票据状态记账 consumed / blocked（不核销）
  * session/event       audit.ts     turn 边界 / 审批 / 判决 / 拒绝全量落 TraceLog
- * tools/post-execute  honesty.ts   数值对账 → block + 纠正文本
+ * tools/post-execute  honesty.ts   数值对账 → block + 纠正文本（经 fail-closed.ts 包一层：
+ *                                 判决件自身抛错 → block + `sentry/verifier-failed`）
  * agent/turn-stopping honesty.ts   无工具结果不陈述 / 全 turn 数值复核 / 工具数判停
  * ```
  *
@@ -26,7 +27,8 @@ import { SentryBreaker } from './breaker.ts'
 import type { SentrySettings } from './config.ts'
 import type { SentrySessionEventType } from './events.ts'
 import { createControlListener, type ToolTierLookup } from './control.ts'
-import { createNumericListener, createTurnStoppingListener } from './honesty.ts'
+import { createSentryPostExecuteListener } from './fail-closed.ts'
+import { createTurnStoppingListener } from './honesty.ts'
 import { createIngressListener } from './ingress.ts'
 import { SentryState } from './state.ts'
 import { createTicketingListener } from './ticketing.ts'
@@ -36,6 +38,7 @@ export * from './breaker.ts'
 export * from './config.ts'
 export * from './control.ts'
 export * from './events.ts'
+export * from './fail-closed.ts'
 export * from './honesty.ts'
 export * from './im.ts'
 export * from './ingress.ts'
@@ -148,7 +151,14 @@ export function provideSentry(
     ),
   )
   ctx.effect(ctx.events.on('session/event', createAuditListener({ ...shared, breaker })))
-  ctx.effect(ctx.events.on('tools/post-execute', createNumericListener({ ...shared, nudge: ports.nudge })))
+  // fail-closed：判决件自己抛错时降级为 block，而不是让 runtime 的通用 catch
+  // 把**未经核验**的结果按 accept 交给模型（HP-0 §0.1）
+  ctx.effect(
+    ctx.events.on(
+      'tools/post-execute',
+      createSentryPostExecuteListener({ ...shared, nudge: ports.nudge }),
+    ),
+  )
   ctx.effect(
     ctx.events.on('agent/turn-stopping', createTurnStoppingListener({ ...shared, nudge: ports.nudge })),
   )
