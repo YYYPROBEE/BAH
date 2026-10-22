@@ -24,6 +24,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { isMainModule, runStandalone, type Gate } from './gate-lib.ts'
+import { covers, digestOfScopes } from './snapshot-digest.ts'
 
 /** 治理平面：改动这些文件等于改动模型/资金可见行为。 */
 const SENSITIVE = [
@@ -133,7 +134,11 @@ const gate: Gate = {
         changed.files.some(
           (path) =>
             path === `snapshots/${entry.name}/session.jsonl` ||
-            path === `snapshots/${entry.name}/llm.jsonl`,
+            path === `snapshots/${entry.name}/llm.jsonl` ||
+            // 等价改动的出海通道：核验记录在改动集里，且摘要与当前源码一致。
+            // 摘要一变就失配，因此这条不等于"放行一切"。
+            (path === `snapshots/${entry.name}/reverified.json` &&
+              reverifyMatches(root, entry.name, entry.coveredSources)),
         ),
       )
       if (fresh.length === 0) {
@@ -361,11 +366,22 @@ function loadCases(
   return findings.length === 0 ? { ok: true, cases } : { ok: false, findings }
 }
 
-/** 目录前缀或单文件精确匹配。 */
-function covers(scope: string, file: string): boolean {
-  const normalized = scope.replace(/\\/g, '/')
-  if (normalized.endsWith('/')) return file.startsWith(normalized)
-  return file === normalized || file.startsWith(`${normalized}/`)
+/**
+ * 该场景的 `reverified.json` 是否与当前源码一致。
+ *
+ * 文件缺失、内容损坏、摘要失配——一律视为未核验：宁可要求重录，不可放过漂移。
+ * 摘要算法与 `snapshot:reverify` 共用 `snapshot-digest.ts`，两边不会算出两个值。
+ */
+function reverifyMatches(root: string, name: string, scopes: readonly string[]): boolean {
+  const path = join(root, 'snapshots', name, 'reverified.json')
+  if (!existsSync(path)) return false
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as { sourceDigest?: unknown }
+    if (typeof parsed.sourceDigest !== 'string') return false
+    return parsed.sourceDigest === digestOfScopes(root, scopes)
+  } catch {
+    return false
+  }
 }
 
 function gitLines(
