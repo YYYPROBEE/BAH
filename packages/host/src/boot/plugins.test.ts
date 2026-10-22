@@ -255,7 +255,7 @@ describe('逐行配置校验（fail-loud）', () => {
     const cases: readonly (readonly [string, unknown, string])[] = [
       ['mock 缺脚本', { provider: 'mock' }, 'mock-script-missing'],
       ['deepseek 带脚本', { provider: 'deepseek', script: [{ text: 'x' }] }, 'mock-only-script'],
-      ['deepseek 带 chunkSize', { provider: 'deepseek', chunkSize: 4 }, 'mock-only-config'],
+      ['deepseek 带 chunkSize', { provider: 'deepseek', chunkSize: 4 }, 'local-only-config'],
       ['脚本空数组', { provider: 'mock', script: [] }, 'invalid-config'],
       ['脚本步两个键', { provider: 'mock', script: [{ text: 'x', tool: { id: 'a', name: 'b' } }] }, 'invalid-config'],
       ['脚本步都不写', { provider: 'mock', script: [{}] }, 'invalid-config'],
