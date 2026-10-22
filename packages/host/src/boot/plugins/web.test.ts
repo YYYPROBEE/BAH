@@ -725,13 +725,25 @@ describe('channel:web 管理路由（HP-0）', () => {
     }
   })
 
-  it('非 POST → 405，且不读 token（顺序在鉴权之前）', async () => {
-    const harness = await boot({}, { sentry: 'frozen' })
+  it('非 POST → 405（token 已配置时）；token 未配置时一律 404（连方法都不告诉）', async () => {
+    const configured = await boot({}, { sentry: 'frozen' })
+    setToken('correct-token-value')
     try {
-      const response = await fetch(`${harness.url}api/admin/sentry/unfreeze`)
+      const response = await fetch(`${configured.url}api/admin/sentry/unfreeze`)
       expect(response.status).toBe(405)
     } finally {
-      await shutdown(harness)
+      await shutdown(configured)
+    }
+
+    // 同一路径、同一方法，但宿主没配 token：必须仍是 404——
+    // 否则扫描器一个 GET 就能确认"管理口存在，只是方法不对"
+    setToken(undefined)
+    const unconfigured = await boot({}, { sentry: 'frozen' })
+    try {
+      const response = await fetch(`${unconfigured.url}api/admin/sentry/unfreeze`)
+      expect(response.status).toBe(404)
+    } finally {
+      await shutdown(unconfigured)
     }
   })
 })

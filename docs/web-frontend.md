@@ -270,12 +270,15 @@ confirmed(amount, callId) =
 
 | 顺序 | 条件 | 状态 | code |
 |---|---|---|---|
-| 1 | 方法不是 `POST` | 405 | `web-method-not-allowed` |
-| 2 | 未设 `BAH_ADMIN_TOKEN` | **404** | `web-not-found` |
-| 3 | 来源不是本机回环 | 403 | `web-admin-forbidden` |
+| 1 | 未设 `BAH_ADMIN_TOKEN`（**任何方法**） | **404** | `web-not-found` |
+| 2 | 来源不是本机回环 | 403 | `web-admin-forbidden` |
+| 3 | 方法不是 `POST` | 405 | `web-method-not-allowed` |
 | 4 | 缺 / 错 `Authorization: Bearer` | 401 | `web-admin-unauthorized` |
 | 5 | body 非对象 / 缺 by / 未知键 / 超长 / 坏 JSON | 400 | `web-admin-invalid-body` |
 | 6 | profile 没有 `safety:sentry` | 503 | `sentry-absent` |
+
+**404 必须排在 405 前面**：没配 token 时如果 `GET` 返回 405，等于告诉扫描器
+"这里有个管理口，只是方法不对"——那就不叫"不暴露存在性"了。
 
 三条硬约束：
 
