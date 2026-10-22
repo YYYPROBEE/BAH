@@ -138,7 +138,7 @@ describe('buildChainAudit', () => {
     expect(result.brokenAt).toBe(2)
   })
 
-  it('没有应签行时缺密钥不影响结论：verified', () => {
+  it('没有应签行 → unsigned（不是 verified）', () => {
     const dir = goldenDir()
     const real = readerOf(dir)
     const result = buildChainAudit(
@@ -152,7 +152,8 @@ describe('buildChainAudit', () => {
       'golden',
       { skipSignature: false },
     )
-    expect(result.signatureState).toBe('verified')
+    // 零应签行时"验过"是假话：只能报没签过
+    expect(result.signatureState).toBe('unsigned')
     expect(result.signatureError).toBeNull()
   })
 

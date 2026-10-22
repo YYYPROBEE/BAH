@@ -29,6 +29,8 @@ import {
 import { defineService, describeThrown } from '@bah/core'
 import { APPROVAL_SERVICE } from '@bah/interaction'
 import type { ApprovalResponder } from '@bah/interaction'
+import { SENTRY_SERVICE } from '@bah/safety'
+import type { SentryHandle } from '@bah/safety'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
 import { BahError } from '@bah/util'
 
@@ -38,6 +40,12 @@ import type { Agent, AnySessionEvent } from '@bah/runtime'
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
 import { readPositiveInteger, readString, rejectUnknownKeys } from '../config.ts'
+import {
+  isLoopbackAddress,
+  parseUnfreezeBody,
+  readAdminToken,
+  tokenMatches,
+} from './web-admin.ts'
 
 /** `channel:web` 的配置（全部随部署变化 → 全部可校验）。 */
 export interface WebSettings {
@@ -58,6 +66,9 @@ export const DEFAULT_WEB: WebSettings = {
   staticRoot: 'apps/web',
   heartbeatMs: 15_000,
 }
+
+/** 人工解冻的唯一入口路径（HP-0 §3.2）。 */
+const ADMIN_UNFREEZE_PATH = '/api/admin/sentry/unfreeze'
 
 /** 绑定后的服务信息（测试 / 桌面壳内嵌 / CLI 打印用）。 */
 export interface WebServerInfo {
@@ -287,6 +298,75 @@ export const webPlugin: HostPlugin<WebSettings> = {
         }
       }
 
+      /**
+       * 惰性取 sentry 服务。
+       *
+       * **不能**把 `SENTRY_SERVICE.id` 写进 `webPlugin.plugin.inject`：那样没有 sentry 的
+       * profile 会直接起不来。web 是渠道，不是风控的一部分——它只提供入口。
+       */
+      const trySentry = (): SentryHandle | undefined => {
+        try {
+          return ctx.get(SENTRY_SERVICE)
+        } catch {
+          return undefined
+        }
+      }
+
+      /**
+       * 人工解冻（HP-0 §3.2）。
+       *
+       * 状态码顺序即安全顺序：**先判"路由是否存在"再判"你是谁"**——
+       * 没配 token 时一律 404，连"这里有个管理口"都不告诉外网。
+       */
+      const handleUnfreeze = async (
+        req: IncomingMessage,
+        res: ServerResponse,
+        method: string,
+      ): Promise<void> => {
+        if (method !== 'POST') {
+          sendError(res, 405, 'web-method-not-allowed', `${method} ${ADMIN_UNFREEZE_PATH} 不被支持`)
+          return
+        }
+
+        const token = readAdminToken(process.env)
+        if (token === undefined) {
+          sendError(res, 404, 'web-not-found', '没有这个资源')
+          return
+        }
+        if (!isLoopbackAddress(req.socket.remoteAddress)) {
+          sendError(res, 403, 'web-admin-forbidden', '管理路由只接受本机回环请求')
+          return
+        }
+        if (!tokenMatches(token, req.headers.authorization)) {
+          sendError(res, 401, 'web-admin-unauthorized', '缺少或错误的 admin token')
+          return
+        }
+
+        let body: unknown
+        try {
+          body = await readJson(req)
+        } catch (error) {
+          // 体过大 / 坏 JSON 都是**客户端**的问题，不许报成 500
+          sendError(res, 400, 'web-admin-invalid-body', describeThrown(error))
+          return
+        }
+        const parsed = parseUnfreezeBody(body)
+        if (!parsed.ok) {
+          sendError(res, 400, parsed.code, parsed.detail)
+          return
+        }
+
+        const sentry = trySentry()
+        if (sentry === undefined) {
+          sendError(res, 503, 'sentry-absent', '当前 profile 没有 safety:sentry，无法解冻')
+          return
+        }
+
+        // 幂等：本来没冻结就返回 unfrozen:false，不是错误
+        const unfrozen = sentry.unfreeze(parsed.by, parsed.reason)
+        sendJson(res, 200, { ok: true, unfrozen })
+      }
+
       /** 路由。 */
       const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
         const method = req.method ?? 'GET'
@@ -386,6 +466,12 @@ export const webPlugin: HostPlugin<WebSettings> = {
           }
           const status = result.code === 'unknown-ticket' ? 404 : 400
           sendError(res, status, result.code, result.reason)
+          return
+        }
+
+        // 人工解冻：唯一入口（HP-0 §3.2）。默认关闭、只绑回环、token 只从环境变量读。
+        if (path === ADMIN_UNFREEZE_PATH) {
+          await handleUnfreeze(req, res, method)
           return
         }
 

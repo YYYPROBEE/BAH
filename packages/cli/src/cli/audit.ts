@@ -334,7 +334,15 @@ function exitCodeOf(
   ) {
     return 1
   }
-  if (chains.some((chain) => chain.signatureState === 'skipped-no-key')) return 2
+  // `unsigned`（零应签行）与 `skipped-no-key` 同级：什么都没验过，不能说"通过"。
+  // 退出码 2 = 审计未完成，比假绿安全。
+  if (
+    chains.some(
+      (chain) => chain.signatureState === 'skipped-no-key' || chain.signatureState === 'unsigned',
+    )
+  ) {
+    return 2
+  }
   if (projection.dbState === 'invalid') return 2
   return 0
 }

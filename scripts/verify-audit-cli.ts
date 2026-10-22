@@ -73,8 +73,15 @@ const gate: Gate = {
 
     const commandSource = sourceOf(root, 'packages/cli/src/cli/command.ts')
     const kinds = commandKinds(commandSource)
-    if (kinds.join(',') !== 'audit,run') {
-      findings.push(`Command 联合成员应为 audit/run，实测：${kinds.join(',') || '<空>'}`)
+    // 契约会扩：HP-0 加了 `sentry` 子命令（人工解冻）。这里维护的是**允许集合**，
+    // 新增子命令必须同步改这一行——门禁不是"记住最早那两个"，是"别悄悄多出来一个"。
+    const EXPECTED_KINDS = ['audit', 'run', 'sentry'] as const
+    const missing = EXPECTED_KINDS.filter((kind) => !kinds.includes(kind))
+    const extra = kinds.filter((kind) => !EXPECTED_KINDS.includes(kind as (typeof EXPECTED_KINDS)[number]))
+    if (missing.length > 0 || extra.length > 0) {
+      findings.push(
+        `Command 联合应为 {${EXPECTED_KINDS.join(',')}}，实测：{${kinds.join(',') || '<空>'}}`,
+      )
     }
     const runSource = sourceOf(root, 'packages/cli/src/cli/run.ts')
     const switchInfo = commandSwitch(runSource)
