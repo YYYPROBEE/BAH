@@ -152,23 +152,23 @@ textarea {
   font-size: var(--body-sm-font-size);
 }
 
+/* 底色 = 连接中（琥珀）；online/offline 由状态类覆盖。
+   状态色一律挂在 .app-header__status 的状态类上，不要再补第二条 `.app-header__dot { background }`——
+   同特异度的后写规则会吃掉前一条，那正是「已连接却显示红点」的来路。 */
 .app-header__dot {
   width: 8px;
   height: 8px;
   border-radius: var(--radius-full);
+  background: var(--status-warning-default);
+}
+
+.app-header__status.is-online .app-header__dot {
   background: var(--status-success-default);
 }
 
-.app-header__status.is-connecting .app-header__status-text {
-  font-size: var(--body-sm-font-size);
+.app-header__status.is-offline .app-header__dot {
+  background: var(--status-error-default);
 }
-
-.app-header__dot { background: var(--status-warning-default); }
-.app-header__status.is-offline .app-header__status-text {
-  font-size: var(--body-sm-font-size);
-}
-
-.app-header__dot { background: var(--status-error-default); }
 
 .app-banner {
   padding: var(--spacer-12) var(--spacer-24) 0;
@@ -334,12 +334,9 @@ textarea {
   border: 1px solid var(--border-neutral-l1);
   display: flex;
   flex-direction: column;
-  border-left-width: 3px;
 }
 
-.tool-card--pending { border-left-color: var(--status-warning-default); }
-.tool-card--done { border-left-color: var(--status-success-default); }
-.tool-card--denied { border-left-color: var(--status-error-default); }
+/* 三态只靠图标着色 + `.ds-tag` 文案表达。禁止再用左侧色条标状态（BAH DS 硬规则）。 */
 
 .tool-card__head {
   display: flex;
