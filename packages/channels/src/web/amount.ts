@@ -2,8 +2,12 @@
  * 金额与合规文本的**渠道侧判定**（施工单 13 §2.2）。
  *
  * 两条铁律：
- * 1. **不发明金额**：金额只从事件里取（`approval/asked.amount` 是分；工具参数里的
- *    `amount` 是元——这是施工单 08 的口径），渠道不做换算猜测以外的任何加工；
+ * 1. **不发明金额**：金额只从事件里取。单位必须分清——
+ *    `approval/asked.amount` 是**元**（`ApprovalTicketView.amount` 的口径，
+ *    bank governance 用 `amountCents / 100` 填票据）；工具参数里的 `amount` 也是**元**，
+ *    而 `amountCents` / `minAmountCents` 已经是**分**。
+ *    这条注释曾经写反（说 `approval/asked.amount` 是分），审计时间线照着写，
+ *    把 800 元显示成 ¥8.00；
  * 2. **没结果就不算确认**：只有本 turn 内该 `callId` 的 `tool/result` 成功返回，
  *    金额才算被证实；否则 UI 必须标灰 + "待确认"（幻觉防护的 UI 侧）。
  */
