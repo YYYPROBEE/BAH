@@ -25,6 +25,10 @@ jobs:
     env:
       CI: "true"
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      # 端点与模型属于非敏感配置，直接写在此处；换回官方端点时删掉这两行即可
+      # （readDeepSeekEnv 对空字符串回退 https://api.deepseek.com + deepseek-chat）。
+      DEEPSEEK_BASE_URL: https://maas.qianwenaiapi.com/compatible-mode/v1
+      DEEPSEEK_MODEL: deepseek-v4.1-flash-1017
 
     steps:
       - name: Checkout（完整历史，用于快照基线）
@@ -65,4 +69,6 @@ jobs:
           echo "BAH_SNAPSHOT_BASE=$BASE" >> "$GITHUB_ENV"
 
       - name: Run full check
-        run: pnpm check
+        # 严格模式：未执行面（如无密钥的 e2e）不得算绿。用 `pnpm check` 会 SKIP 后退出 0，
+        # Actions 显示通过而 e2e 实际没跑——这正是本仓库要避免的"假绿"。
+        run: pnpm check:ci
