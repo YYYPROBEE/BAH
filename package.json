@@ -15,6 +15,7 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:snapshot": "vitest run --config vitest.snapshot.config.ts",
     "snapshot:record": "node scripts/record-snapshot.mjs",
+    "snapshot:reverify": "tsx scripts/snapshot-reverify.ts",
     "test:web": "vitest run --config vitest.web.config.ts",
     "check": "tsx scripts/ci.ts",
     "check:ci": "tsx scripts/ci.ts --ci",
