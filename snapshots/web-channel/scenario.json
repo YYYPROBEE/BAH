@@ -49,7 +49,11 @@
             }
           },
           {
-            "text": "已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。"
+            "outcome": {
+              "tool": "transfer_create",
+              "ok": "已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。",
+              "failed": "未执行：{reason}"
+            }
           }
         ]
       }
@@ -126,6 +130,20 @@
       "id": "bank:saga-audit",
       "use": "bank:saga-audit",
       "config": {}
+    },
+    {
+      "id": "bank:saga-bridge",
+      "use": "bank:saga-bridge",
+      "config": {
+        "enabled": true,
+        "eligible": [
+          "transfer_create"
+        ],
+        "tickIntervalMs": 60000,
+        "saga": {
+          "maxAttempts": 1
+        }
+      }
     },
     {
       "id": "demo:echo",

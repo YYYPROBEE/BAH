@@ -49,7 +49,11 @@
             }
           },
           {
-            "text": "已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。"
+            "outcome": {
+              "tool": "transfer_create",
+              "ok": "已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。",
+              "failed": "未执行：{reason}"
+            }
           }
         ]
       }
@@ -61,13 +65,20 @@
         "channel": "headless",
         "loop": {
           "model": "mock:mock-chat",
-          "maxSteps": 8
+          "maxSteps": 8,
+          "compaction": {
+            "maxTurns": 8,
+            "keepRecentTurns": 3
+          }
         },
         "runtimeContext": {
           "user": {
             "name": "张三",
             "level": "金卡"
-          }
+          },
+          "notes": [
+            "本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。"
+          ]
         }
       }
     },
@@ -126,6 +137,20 @@
       "id": "bank:saga-audit",
       "use": "bank:saga-audit",
       "config": {}
+    },
+    {
+      "id": "bank:saga-bridge",
+      "use": "bank:saga-bridge",
+      "config": {
+        "enabled": true,
+        "eligible": [
+          "transfer_create"
+        ],
+        "tickIntervalMs": 60000,
+        "saga": {
+          "maxAttempts": 1
+        }
+      }
     },
     {
       "id": "demo:echo",
