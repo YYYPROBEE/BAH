@@ -468,10 +468,20 @@ export class MockBankCore implements BankCoreProvider {
     )
   }
 
-  /** 账户的日限额：第一张正常卡片的日限额，否则用全局兜底阈值。 */
+  /**
+   * 账户的日限额：取**卡片限额与全局阈值中更紧的那个**。
+   *
+   * 为什么不是"有卡就用卡的"：卡限额是产品维度（这张卡能转多少），
+   * 全局阈值是风控维度（这家机构今天允许转多少）。两个都成立时，有效限额是交集。
+   *
+   * 曾经只取卡片值，导致一个真实的口径分裂：运营把 `bank:tools.dailyTransferLimit`
+   * 从 5000 降到 1000 之后，判决层按 1000 升红，而预览层仍显示"今日还可转 5000"——
+   * 客户看到的是 5000，转 1200 就被要求强验证。展示口径必须与判决口径同源。
+   */
   private dailyLimitOf(accountId: AccountId): number {
     const card = this.cards.find((item) => item.accountId === accountId && item.status === 'normal')
-    return card?.dailyLimitCents ?? this.limitsConfig.dailyTransferLimitCents
+    const configured = this.limitsConfig.dailyTransferLimitCents
+    return card === undefined ? configured : Math.min(card.dailyLimitCents, configured)
   }
 
   private requireAccount(accountId: AccountId): Account {

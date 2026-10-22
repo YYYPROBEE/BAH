@@ -85,7 +85,13 @@ export const DEFAULT_BANK_TOOLS: Omit<BankToolsSettings, 'demoUserId'> = {
   ticketTtlSeconds: 120,
   computeTimeoutMs: 5_000,
   redChallenge: 'sms',
-  dailyTransferLimit: 5_000,
+  /**
+   * 日累计转账限额（元）。赛题分级线：黄色 ≤ 1000 元，红色 > 1000 元。
+   *
+   * 这个数同时决定**判决**（`tier.ts` 的 `min(预览卡限额, 本值)`）与**展示**
+   * （`core/mock.ts` 的 `dailyLimitOf` 也取 min）——改一处，两处一起变。
+   */
+  dailyTransferLimit: 1_000,
   riskyOps: ['transfer_create', 'wealth_purchase'],
   riskyCallThreshold: 3,
   verify: { successAfter: 1, maxAttempts: 3, lockMinutes: 30 },
