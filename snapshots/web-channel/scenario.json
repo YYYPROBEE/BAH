@@ -30,32 +30,9 @@
       "id": "core:model",
       "use": "core:model",
       "config": {
-        "provider": "mock",
-        "model": "mock-chat",
-        "chunkSize": 4,
-        "script": [
-          {
-            "tool": {
-              "id": "call-1",
-              "name": "transfer_create",
-              "args": {
-                "amount": 800,
-                "payee": {
-                  "name": "王建国",
-                  "phone": "13900002222"
-                },
-                "remark": "房租"
-              }
-            }
-          },
-          {
-            "outcome": {
-              "tool": "transfer_create",
-              "ok": "已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。",
-              "failed": "未执行：{reason}"
-            }
-          }
-        ]
+        "provider": "router",
+        "model": "router-chat",
+        "chunkSize": 4
       }
     },
     {
@@ -64,7 +41,7 @@
       "config": {
         "channel": "web",
         "loop": {
-          "model": "mock:mock-chat",
+          "model": "router:router-chat",
           "maxSteps": 8
         },
         "runtimeContext": {
@@ -164,11 +141,11 @@
     }
   ],
   "model": {
-    "provider": "mock",
+    "provider": "router",
     "spec": {
-      "id": "mock-chat",
-      "providerId": "mock",
-      "displayName": "Mock Chat（确定性脚本）",
+      "id": "router-chat",
+      "providerId": "router",
+      "displayName": "Demo Router（离线意图路由，非磁带）",
       "capabilities": {
         "toolCall": true,
         "image": false,
@@ -185,6 +162,7 @@
     "packages/runtime/src/seams.ts",
     "packages/llm/src/llm/",
     "packages/llm/src/mock/",
+    "packages/llm/src/demo/",
     "packages/bank/src/core/",
     "packages/bank/src/tools/",
     "packages/host/src/boot/",

@@ -33,3 +33,12 @@
     demoUserId: u-1
     seed: 7
     datasetTier: stress
+
+# 本场景显式用 mock（三面脚本），loop.model 必须跟着指向 mock，
+# 否则会去解析 profile 里的 router:router-chat，而本场景只注册了 mock
+- id: core:agent
+  config:
+    channel: headless
+    loop: { model: mock:mock-chat, maxSteps: 12 }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }

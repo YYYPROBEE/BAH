@@ -59,6 +59,8 @@ export const CASE = {
     'packages/runtime/src/seams.ts',
     'packages/llm/src/llm/',
     'packages/llm/src/mock/',
+    // 离线路由（默认 provider）：`router` 读消息现规划，本场景真的走了它
+    'packages/llm/src/demo/',
     'packages/bank/src/core/',
     'packages/bank/src/tools/',
     'packages/host/src/boot/',

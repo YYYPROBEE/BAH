@@ -39,7 +39,7 @@ describe('真实日志投影（snapshots/web-channel）', () => {
     const { frames } = projectSession(loadEvents(), 's-snapshot-web-channel')
     const approval = frames.find((frame) => frame.kind === 'approval') as ApprovalFrame
 
-    expect(approval.ticketId).toBe('ticket:call-1')
+    expect(approval.ticketId).toBe('ticket:call-create')
     expect(approval.operation).toBe('转账')
     // 800 元（不是 8 元）：日志里 amount=800，渠道必须按元解释
     expect(approval.amountText).toBe('¥800.00')
@@ -51,13 +51,17 @@ describe('真实日志投影（snapshots/web-channel）', () => {
 
   it('工具卡拿到真结果：三态收口 + 金额已确认 + 正文可追票据', () => {
     const { frames } = projectSession(loadEvents())
-    const tool = frames.find((frame) => frame.kind === 'tool') as ToolFrame
+    // 演示改为"预览 → 执行"两步后，第一个工具帧是只读预览（绿级）；
+    // 要断言的是真正扣款的那张卡，所以按 name 取而不是取第一个
+    const tool = frames.find(
+      (frame) => frame.kind === 'tool' && (frame as ToolFrame).name === 'transfer_create',
+    ) as ToolFrame
 
     expect(tool.state).toBe('done')
     expect(tool.amountConfirmed).toBe(true)
     expect(tool.tier).toBe('yellow')
     expect(tool.card?.fields.find((field) => field.amount)?.value).toBe('¥800.00')
-    expect(tool.card?.body ?? '').toContain('ticket:call-1')
+    expect(tool.card?.body ?? '').toContain('ticket:call-create')
     expect(tool.card?.body ?? '').toContain('转账成功')
   })
 
@@ -72,10 +76,11 @@ describe('真实日志投影（snapshots/web-channel）', () => {
     )
   })
 
-  it('DAG 用真 tier 与真结果：一个黄级调用、状态 ok', () => {
+  it('DAG 用真 tier 与真结果：黄级的执行调用、状态 ok', () => {
     const { frames } = projectSession(loadEvents())
     const dag = frames.filter((frame) => frame.kind === 'dag').pop() as DagFrame
-    const call = dag.nodes.find((node) => node.kind === 'call')
+    // 预览是绿级、执行是黄级：按标签取"执行"那一节点（演示两步后不再只有一个 call）
+    const call = dag.nodes.find((node) => node.kind === 'call' && node.label.includes('transfer_create'))
 
     expect(call?.tier).toBe('yellow')
     expect(call?.state).toBe('ok')
