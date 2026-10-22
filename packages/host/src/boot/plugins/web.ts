@@ -315,19 +315,15 @@ export const webPlugin: HostPlugin<WebSettings> = {
       /**
        * 人工解冻（HP-0 §3.2）。
        *
-       * 状态码顺序即安全顺序：**先判"路由是否存在"再判"你是谁"**——
-       * 没配 token 时一律 404，连"这里有个管理口"都不告诉外网。
+       * 状态码顺序即安全顺序，且**"路由是否存在"必须排在最前**：
+       * 没配 token 时无论用什么方法打过来都返回 404——否则一个 `GET` 拿到 405
+       * 就等于告诉扫描器"这里有个管理口，只是方法不对"。
        */
       const handleUnfreeze = async (
         req: IncomingMessage,
         res: ServerResponse,
         method: string,
       ): Promise<void> => {
-        if (method !== 'POST') {
-          sendError(res, 405, 'web-method-not-allowed', `${method} ${ADMIN_UNFREEZE_PATH} 不被支持`)
-          return
-        }
-
         const token = readAdminToken(process.env)
         if (token === undefined) {
           sendError(res, 404, 'web-not-found', '没有这个资源')
@@ -335,6 +331,10 @@ export const webPlugin: HostPlugin<WebSettings> = {
         }
         if (!isLoopbackAddress(req.socket.remoteAddress)) {
           sendError(res, 403, 'web-admin-forbidden', '管理路由只接受本机回环请求')
+          return
+        }
+        if (method !== 'POST') {
+          sendError(res, 405, 'web-method-not-allowed', `${method} ${ADMIN_UNFREEZE_PATH} 不被支持`)
           return
         }
         if (!tokenMatches(token, req.headers.authorization)) {
