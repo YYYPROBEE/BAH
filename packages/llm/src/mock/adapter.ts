@@ -23,7 +23,14 @@ import type {
   ProviderInfo,
   StreamChunk,
 } from '../llm/types.ts'
-import { resolveStep, resolveStepContent, type MockScript } from './script.ts'
+import {
+  resolveOutcome,
+  resolveStep,
+  resolveStepContent,
+  type MockScript,
+  type MockStep,
+  type MockToolOutcome,
+} from './script.ts'
 
 /** mock 的默认模型（能力位齐全，除图片）。 */
 export const MOCK_MODEL: ModelSpec = {
@@ -51,6 +58,13 @@ export interface MockAdapterOptions {
   readonly usage?: CallUsage
   /** 文本/参数 JSON 的切片大小（默认 8 字符；调大即验证"单块"路径）。 */
   readonly chunkSize?: number
+  /**
+   * 本会话见过的工具结局（条件收尾步的唯一依据）。
+   *
+   * 由宿主注入（`core:model` 订阅 `session/event` 的 `tool/result`）；缺省为空——
+   * 没有读口时脚本可以照跑固定步，但写 `outcome` 步会因 `mock-outcome-absent` 立刻暴露。
+   */
+  readonly toolOutcomes?: () => readonly MockToolOutcome[]
 }
 
 export class MockLlmAdapter implements LlmAdapter {
@@ -59,6 +73,7 @@ export class MockLlmAdapter implements LlmAdapter {
   private readonly models: readonly ModelSpec[]
   private readonly usage: CallUsage
   private readonly chunkSize: number
+  private readonly toolOutcomes: () => readonly MockToolOutcome[]
 
   /** 脚本游标：每次 `stream` 消费一步。 */
   private cursor = 0
@@ -72,6 +87,7 @@ export class MockLlmAdapter implements LlmAdapter {
     this.models = options.models ?? [MOCK_MODEL]
     this.usage = options.usage ?? MOCK_USAGE
     this.chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE
+    this.toolOutcomes = options.toolOutcomes ?? (() => [])
   }
 
   providerInfo(): ProviderInfo {
@@ -128,11 +144,16 @@ export class MockLlmAdapter implements LlmAdapter {
       throw new BahError('llm-aborted', 'mock: 调用已取消（未开始流式）', { model: call.model.id })
     }
 
-    const step = resolveStepContent(resolveStep(this.script, this.cursor))
+    const step: MockStep = resolveStep(this.script, this.cursor)
     this.cursor += 1
+    const resolved = resolveStepContent(step)
+    const content =
+      step.outcome === undefined
+        ? resolved.content
+        : resolveOutcome(step.outcome, this.toolOutcomes())
 
     let toolIndex = 0
-    for (const block of step.content) {
+    for (const block of content) {
       if (signal.aborted) {
         yield { kind: 'finish', reason: 'aborted' }
         return
@@ -144,8 +165,8 @@ export class MockLlmAdapter implements LlmAdapter {
       yield { kind: 'block-end', index }
     }
 
-    yield { kind: 'usage', ...(step.usage ?? this.usage) }
-    yield { kind: 'finish', reason: step.finishReason }
+    yield { kind: 'usage', ...(resolved.usage ?? this.usage) }
+    yield { kind: 'finish', reason: resolved.finishReason }
   }
 
   /** 块索引：文本 0、推理 1、工具调用 2 起（与 `types.ts` 的约定一致）。 */

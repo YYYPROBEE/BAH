@@ -11,8 +11,16 @@
 import { describeThrown } from '@bah/core'
 import { LlmAdapterRegistry, provideLlm } from '@bah/llm'
 import { DeepSeekAdapter } from '@bah/llm/deepseek'
-import { MockLlmAdapter, textStep, toolCallStep, type MockStep } from '@bah/llm/mock'
+import {
+  MockLlmAdapter,
+  outcomeStep,
+  textStep,
+  toolCallStep,
+  type MockStep,
+  type MockToolOutcome,
+} from '@bah/llm/mock'
 
+import type { Context } from '@bah/core'
 import type { LlmAdapter } from '@bah/llm'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
@@ -27,7 +35,7 @@ import {
   rejectUnknownKeys,
 } from '../config.ts'
 
-/** 脚本里的一步：纯文本回复，或一次工具调用。 */
+/** 脚本里的一步：纯文本回复、一次工具调用，或按工具结局二选一的收尾。 */
 export type MockStepSettings =
   | {
       readonly text: string
@@ -39,6 +47,15 @@ export type MockStepSettings =
         readonly id: string
         readonly name: string
         readonly args: Readonly<Record<string, unknown>>
+      }
+    }
+  | {
+      /** 条件收尾：成功出 `ok`，工具失败/被拒出 `failed`（`{reason}` 换成工具给的理由）。 */
+      readonly outcome: {
+        /** 绑定工具名（缺省 = 本 turn 最后一条工具结局）。 */
+        readonly tool?: string
+        readonly ok: string
+        readonly failed: string
       }
     }
 
@@ -72,7 +89,7 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
     apply(ctx, config) {
       const registry = new LlmAdapterRegistry()
       provideLlm(ctx, registry)
-      ctx.effect(registry.register(createAdapter(config)))
+      ctx.effect(registry.register(createAdapter(config, observeToolOutcomes(ctx, config))))
 
       // 载入即验：注册的模型必须真实存在（不让"模型名写错"拖到第一次请求才炸）
       const qualified = `${config.provider}:${config.model}`
@@ -144,11 +161,15 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
 }
 
 /** 按配置造适配器（mock / deepseek 二选一）。 */
-function createAdapter(config: ModelSettings): LlmAdapter {
+function createAdapter(
+  config: ModelSettings,
+  toolOutcomes: () => readonly MockToolOutcome[],
+): LlmAdapter {
   if (config.provider === 'mock') {
     return new MockLlmAdapter({
       script: { steps: (config.script ?? []).map(toMockStep) },
       ...(config.chunkSize === undefined ? {} : { chunkSize: config.chunkSize }),
+      toolOutcomes,
     })
   }
   // 密钥来源名是配置项：换 vault / 网关注入时不需要改代码
@@ -162,10 +183,44 @@ function createAdapter(config: ModelSettings): LlmAdapter {
   })
 }
 
+/**
+ * 给 mock 的条件收尾步供一个"本会话见过的工具结局"读口。
+ *
+ * 只订阅不改写（`session/event` 是 emit 语义，落账方是 session service），注册即可逆。
+ * 非 mock provider 不订阅：真实模型的收尾文案由模型自己看着工具结果写，不该由脚本代劳。
+ */
+function observeToolOutcomes(
+  ctx: Context,
+  config: ModelSettings,
+): () => readonly MockToolOutcome[] {
+  if (config.provider !== 'mock') return () => []
+
+  const outcomes: MockToolOutcome[] = []
+  ctx.effect(
+    ctx.events.on('session/event', (envelope) => {
+      const event = envelope.event
+      if (event.type !== 'tool/result') return
+      const { name, isError, code, reason } = event.data
+      outcomes.push({
+        name,
+        isError,
+        ...(code === undefined ? {} : { code }),
+        ...(reason === undefined ? {} : { reason }),
+      })
+    }),
+  )
+  return () => outcomes
+}
+
 /** 脚本项 → mock 的一步（`tool` 步骤缺省结束原因为 `tool-calls`）。 */
 function toMockStep(step: MockStepSettings): MockStep {
   if ('text' in step) return textStep(step.text, step.finish ?? 'stop')
-  return toolCallStep(step.tool.id, step.tool.name, step.tool.args)
+  if ('tool' in step) return toolCallStep(step.tool.id, step.tool.name, step.tool.args)
+  return outcomeStep({
+    ok: step.outcome.ok,
+    failed: step.outcome.failed,
+    ...(step.outcome.tool === undefined ? {} : { tool: step.outcome.tool }),
+  })
 }
 
 /**
@@ -192,16 +247,22 @@ function readScript(
   return value.map((item, index) => readStep(item, `core:model.script[${index}]`))
 }
 
-/** 读脚本的一步（`text` / `tool` 二选一）。 */
+/** 读脚本的一步（`text` / `tool` / `outcome` 三选一）。 */
 function readStep(value: unknown, where: string): MockStepSettings {
   const record = asRecord(value, where)
-  rejectUnknownKeys(record, ['text', 'tool', 'finish'], where)
-  const hasText = record['text'] !== undefined
-  const hasTool = record['tool'] !== undefined
-  if (hasText === hasTool) {
-    throw bootError('invalid-config', `${where} 必须且只能写 text 或 tool 之一`, { where })
+  rejectUnknownKeys(record, ['text', 'tool', 'outcome', 'finish'], where)
+  const chosen = ['text', 'tool', 'outcome'].filter((key) => record[key] !== undefined)
+  if (chosen.length !== 1) {
+    throw bootError(
+      'invalid-config',
+      `${where} 必须且只能写 text / tool / outcome 之一（收到 ${chosen.length === 0 ? '都没有' : chosen.join(' + ')}）`,
+      { where },
+    )
   }
-  if (hasText) {
+  if (chosen[0] !== 'text' && record['finish'] !== undefined) {
+    throw bootError('invalid-config', `${where}.finish 只对 text 步有意义（当前是 ${chosen[0]} 步）`, { where })
+  }
+  if (chosen[0] === 'text') {
     const finish = readEnum(record, 'finish', where, ['stop', 'length', 'tool-calls'] as const)
     return {
       text: readRequiredString(record, 'text', where),
@@ -209,13 +270,27 @@ function readStep(value: unknown, where: string): MockStepSettings {
     }
   }
 
-  const tool = asRecord(record['tool'], `${where}.tool`)
-  rejectUnknownKeys(tool, ['id', 'name', 'args'], `${where}.tool`)
+  if (chosen[0] === 'tool') {
+    const tool = asRecord(record['tool'], `${where}.tool`)
+    rejectUnknownKeys(tool, ['id', 'name', 'args'], `${where}.tool`)
+    return {
+      tool: {
+        id: readRequiredString(tool, 'id', `${where}.tool`),
+        name: readRequiredString(tool, 'name', `${where}.tool`),
+        args: tool['args'] === undefined ? {} : asRecord(tool['args'], `${where}.tool.args`),
+      },
+    }
+  }
+
+  const outcome = asRecord(record['outcome'], `${where}.outcome`)
+  rejectUnknownKeys(outcome, ['tool', 'ok', 'failed'], `${where}.outcome`)
   return {
-    tool: {
-      id: readRequiredString(tool, 'id', `${where}.tool`),
-      name: readRequiredString(tool, 'name', `${where}.tool`),
-      args: tool['args'] === undefined ? {} : asRecord(tool['args'], `${where}.tool.args`),
+    outcome: {
+      ok: readRequiredString(outcome, 'ok', `${where}.outcome`),
+      failed: readRequiredString(outcome, 'failed', `${where}.outcome`),
+      ...(outcome['tool'] === undefined
+        ? {}
+        : { tool: readRequiredString(outcome, 'tool', `${where}.outcome`) }),
     },
   }
 }

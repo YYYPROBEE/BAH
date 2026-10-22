@@ -3,14 +3,44 @@
  *
  * 脚本是**确定性**的：按调用次序出队，每步给一段完整的 assistant 回复（内容块 + 结束原因 + 用量）。
  * 出队完毕即抛错——脚本用完了还来要，说明用例写错了，静默返回空回复会让断言变成假绿。
+ *
+ * 步有两种出话方式：`content`（固定文本）与 `outcome`（按本 turn 的 `tool/result` 二选一）。
+ * 后者存在的唯一理由：演示的收尾文案不许承诺一个它没看见的结论。
  */
 
 import { BahError } from '@bah/util'
 
 import type { AssistantMessage, ContentBlock, FinishReason } from '../llm/types.ts'
 
-/** 一步脚本 = 一次完整 assistant 回复的部分字段（未给字段取缺省）。 */
-export type MockStep = Partial<AssistantMessage>
+/** 条件收尾读的一条工具结局（由宿主从会话 `tool/result` 投影而来）。 */
+export interface MockToolOutcome {
+  readonly name: string
+  readonly isError: boolean
+  /** 结构化理由码（`tool/result.code`）。 */
+  readonly code?: string
+  /** 面向模型的理由文本（`tool/result.reason`）。 */
+  readonly reason?: string
+}
+
+/**
+ * 条件收尾：文案由本 turn 的工具结局决定。
+ *
+ * 为什么要有它：写死的成功文案在人点了"拒绝"之后会与工具卡当面矛盾
+ * ——卡片显示"已拦截"，助手却说"已核销"（演示真实性底线）。
+ */
+export interface MockOutcome {
+  /** 绑定哪个工具（缺省 = 取本 turn 最后一条工具结局）。 */
+  readonly tool?: string
+  /** 成功文案。 */
+  readonly ok: string
+  /** 失败文案；`{reason}` 占位符替换成工具给的理由（无理由则退到理由码）。 */
+  readonly failed: string
+}
+
+/** 一步脚本 = 一次完整 assistant 回复的部分字段（未给字段取缺省），可带条件收尾。 */
+export interface MockStep extends Partial<AssistantMessage> {
+  readonly outcome?: MockOutcome
+}
 
 /** 脚本：按调用次序出队的步骤序列。 */
 export interface MockScript {
@@ -39,6 +69,11 @@ export function toolCallStep(
     content: [{ kind: 'tool-call', id: callId, name, args }],
     finishReason,
   }
+}
+
+/** 一步脚本构造器：按本 turn 的工具结局二选一收尾（成功 / 未执行）。 */
+export function outcomeStep(outcome: MockOutcome): MockStep {
+  return { outcome }
 }
 
 /**
@@ -72,4 +107,29 @@ export function resolveStepContent(step: MockStep): ResolvedStep {
     finishReason: step.finishReason ?? 'stop',
     ...(step.usage === undefined ? {} : { usage: step.usage }),
   }
+}
+
+/**
+ * 解析条件收尾步的正文：成功出 `ok`，否则出 `failed`（`{reason}` 换成工具给的理由）。
+ *
+ * @throws `BahError('mock-outcome-absent')` 脚本要按结局出话，但会话里还没有对应的工具结果——
+ *   这是脚本与演示路径写岔了，静默编一句"已完成"正是本步要消灭的那种假话
+ */
+export function resolveOutcome(
+  outcome: MockOutcome,
+  results: readonly MockToolOutcome[],
+): ContentBlock[] {
+  const matched =
+    outcome.tool === undefined ? results : results.filter((item) => item.name === outcome.tool)
+  const last = matched[matched.length - 1]
+  if (last === undefined) {
+    throw new BahError(
+      'mock-outcome-absent',
+      `mock: 条件收尾步没有可依据的工具结局${outcome.tool === undefined ? '' : `（工具 ${outcome.tool} 未执行过）`}`,
+      { tool: outcome.tool ?? null, results: results.length },
+    )
+  }
+  if (!last.isError) return [{ kind: 'text', text: outcome.ok }]
+  const reason = last.reason ?? last.code ?? '工具未执行'
+  return [{ kind: 'text', text: outcome.failed.replace(/\{reason\}/g, () => reason) }]
 }

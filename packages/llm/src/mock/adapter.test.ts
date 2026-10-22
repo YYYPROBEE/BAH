@@ -4,7 +4,15 @@ import { describe, expect, it } from 'vitest'
 import { assembleStream } from '../llm/assemble.ts'
 import type { StreamChunk } from '../llm/types.ts'
 import { MOCK_MODEL, MOCK_USAGE, MockLlmAdapter } from './adapter.ts'
-import { resolveStep, resolveStepContent, textStep, toolCallStep } from './script.ts'
+import {
+  outcomeStep,
+  resolveOutcome,
+  resolveStep,
+  resolveStepContent,
+  textStep,
+  toolCallStep,
+  type MockToolOutcome,
+} from './script.ts'
 
 /** 把一条流收集成数组（断言"吐了什么、顺序如何"用）。 */
 async function collect(chunks: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
@@ -175,5 +183,83 @@ describe('MockScript 脚本原语', () => {
 
   it('游标越界即抛（脚本长度写进理由，便于定位用例）', () => {
     expect(() => resolveStep({ steps: [textStep('a')] }, 1)).toThrowError(/脚本共 1 步/)
+  })
+})
+
+describe('条件收尾步（文案由本 turn 的工具结局决定）', () => {
+  const closing = { ok: '已完成', failed: '未执行：{reason}' }
+
+  it('成功出 ok；失败出 failed 并把 {reason} 换成工具给的理由', () => {
+    expect(resolveOutcome(closing, [{ name: 'transfer_create', isError: false }])).toEqual([
+      { kind: 'text', text: '已完成' },
+    ])
+    expect(
+      resolveOutcome(closing, [
+        { name: 'transfer_create', isError: true, reason: '审批未通过（cancelled）', code: 'approval-cancelled' },
+      ]),
+    ).toEqual([{ kind: 'text', text: '未执行：审批未通过（cancelled）' }])
+  })
+
+  it('无理由文本退到理由码，两者皆缺退到固定兜底（不许留空占位符）', () => {
+    expect(resolveOutcome(closing, [{ name: 't', isError: true, code: 'tool-timeout' }])).toEqual([
+      { kind: 'text', text: '未执行：tool-timeout' },
+    ])
+    expect(resolveOutcome(closing, [{ name: 't', isError: true }])).toEqual([
+      { kind: 'text', text: '未执行：工具未执行' },
+    ])
+  })
+
+  it('理由里的 `$` 不被 replace 的特殊序列吃掉', () => {
+    expect(resolveOutcome(closing, [{ name: 't', isError: true, reason: '超出日限额 $1000' }])).toEqual([
+      { kind: 'text', text: '未执行：超出日限额 $1000' },
+    ])
+  })
+
+  it('未绑定 tool 取最后一条结局；绑定后只看该工具（别的工具失败不牵连）', () => {
+    const results: MockToolOutcome[] = [
+      { name: 'transfer_create', isError: false },
+      { name: 'sms_send', isError: true, reason: '渠道不可用' },
+    ]
+    expect(resolveOutcome(closing, results)).toEqual([{ kind: 'text', text: '未执行：渠道不可用' }])
+    expect(resolveOutcome({ ...closing, tool: 'transfer_create' }, results)).toEqual([
+      { kind: 'text', text: '已完成' },
+    ])
+  })
+
+  it('没有可依据的结局即抛——宁可起不来，也不编一句「已完成」', () => {
+    expect(() => resolveOutcome(closing, [])).toThrowError(/没有可依据的工具结局/)
+    expect(() =>
+      resolveOutcome({ ...closing, tool: 'transfer_create' }, [{ name: 'balance_query', isError: false }]),
+    ).toThrowError(/工具 transfer_create 未执行过/)
+  })
+
+  it('adapter 走 outcome 步：注入的结局决定收尾文本，形状与固定步一致', async () => {
+    const results: MockToolOutcome[] = [
+      { name: 'transfer_create', isError: true, reason: '审批未通过（cancelled）', code: 'approval-cancelled' },
+    ]
+    const adapter = new MockLlmAdapter({
+      script: {
+        steps: [toolCallStep('call-1', 'transfer_create', { amount: 800 }), outcomeStep(closing)],
+      },
+      toolOutcomes: () => results,
+      chunkSize: 100,
+    })
+    const signal = new AbortController().signal
+    const request = { modelId: 'mock-chat', messages: [] }
+
+    await collect(adapter.stream(await adapter.prepareCall(request), signal))
+    const closingMessage = await assembleStream(
+      adapter.stream(await adapter.prepareCall(request), signal),
+    )
+    expect(closingMessage.content).toEqual([{ kind: 'text', text: '未执行：审批未通过（cancelled）' }])
+    expect(closingMessage.finishReason).toBe('stop')
+  })
+
+  it('没有注入读口时 outcome 步同样即抛（缺读口不等于缺结局可以糊过去）', async () => {
+    const adapter = new MockLlmAdapter({ script: { steps: [outcomeStep(closing)] } })
+    const prepared = await adapter.prepareCall({ modelId: 'mock-chat', messages: [] })
+    await expect(
+      collect(adapter.stream(prepared, new AbortController().signal)),
+    ).rejects.toThrowError(BahError)
   })
 })
