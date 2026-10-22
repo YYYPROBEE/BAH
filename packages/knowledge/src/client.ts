@@ -54,6 +54,46 @@ function mapStatus(status: number, body: unknown): BahError {
   return new BahError('knowledge-internal', '知识服务内部错误', { status, code })
 }
 
+/**
+ * 端口请求 → **线上请求**（`services/rag/contract/knowledge.v1.json`）。
+ *
+ * 为什么必须显式映射而不能 `JSON.stringify(requestBody)`：服务端的 `ApiModel`
+ * 是 `extra="forbid"`（`services/rag/src/banking_rag/contract.py:19-26`），而端口的
+ * 请求体带着 `sessionId` / `principal` / `traceId` 三个**服务端不接受**的字段——
+ * 那边已把身份改成"认证上下文派生，请求体里没有可自证字段"。
+ * 原样透传的结果是永远 422（实测），而不是任何可读的业务错误。
+ *
+ * 副作用要说清：http 模式下 role/audience/region **取自 Bearer token 的 claims**，
+ * 端口里的 `principal` 不再随请求传递。fixture 模式仍然用 `principal`（它不经过网络）。
+ */
+function answerWire(requestBody: KnowledgeAnswerRequest): Readonly<Record<string, unknown>> {
+  const options = requestBody.answerOptions
+  return {
+    schemaVersion: requestBody.schemaVersion,
+    query: requestBody.query,
+    ...(options === undefined
+      ? {}
+      : {
+          answerOptions: {
+            ...(options.style === undefined ? {} : { style: options.style }),
+            ...(options.maxChars === undefined ? {} : { maxChars: options.maxChars }),
+            ...(options.requireCitations === undefined
+              ? {}
+              : { requireCitations: options.requireCitations }),
+          },
+        }),
+  }
+}
+
+/** 同上，`/v1/query` 的线上形状（只有 `limits` 一项可选）。 */
+function queryWire(requestBody: KnowledgeQueryRequest): Readonly<Record<string, unknown>> {
+  return {
+    schemaVersion: requestBody.schemaVersion,
+    query: requestBody.query,
+    ...(requestBody.limits === undefined ? {} : { limits: requestBody.limits }),
+  }
+}
+
 export function createHttpKnowledgePort(options: HttpKnowledgePortOptions): KnowledgePort {
   const baseUrl = options.baseUrl.replace(/\/+$/, '')
   const timeouts: KnowledgeTimeouts = { ...DEFAULT_TIMEOUTS, ...options.timeoutMs }
@@ -113,7 +153,7 @@ export function createHttpKnowledgePort(options: HttpKnowledgePortOptions): Know
     ): Promise<KnowledgeAnswerResponse> {
       const raw = await request(
         '/v1/answer',
-        { method: 'POST', body: JSON.stringify(requestBody) },
+        { method: 'POST', body: JSON.stringify(answerWire(requestBody)) },
         timeouts.answer,
         signal,
       )
@@ -126,7 +166,7 @@ export function createHttpKnowledgePort(options: HttpKnowledgePortOptions): Know
     ): Promise<KnowledgeQueryResponse> {
       const raw = await request(
         '/v1/query',
-        { method: 'POST', body: JSON.stringify(requestBody) },
+        { method: 'POST', body: JSON.stringify(queryWire(requestBody)) },
         timeouts.query,
         signal,
       )

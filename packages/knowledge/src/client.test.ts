@@ -65,6 +65,37 @@ describe('http knowledge port', () => {
     })
   })
 
+  /**
+   * 回归守卫：线上请求体**不得**带 `principal` / `sessionId` / `traceId`。
+   *
+   * 服务端 `ApiModel` 是 `extra="forbid"`（`services/rag/src/banking_rag/contract.py:19-26`），
+   * 多带一个字段就是 422。这条曾经悄悄坏了整条检索链：403/422 被映射成
+   * `knowledge-internal`，看上去像"服务内部错误"，而不是"我们在请求体里自证身份"。
+   */
+  it('strips self-asserted identity from the wire body', async () => {
+    const fetchMock = vi.fn(async (url: string, _init: RequestInit) =>
+      url.endsWith('/v1/answer') ? jsonResponse(answerResponse()) : jsonResponse(queryResponse()),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const port = createHttpKnowledgePort({ baseUrl: 'http://127.0.0.1:7801' })
+
+    await port.answer({
+      ...ANSWER_REQUEST,
+      traceId: 't-1',
+      answerOptions: { style: 'detailed', maxChars: 800, requireCitations: false },
+    })
+    await port.query(QUERY_REQUEST)
+
+    const answerBody = JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))
+    expect(answerBody).toEqual({
+      schemaVersion: 'knowledge.v1',
+      query: '稳盈90天赎回费率',
+      answerOptions: { style: 'detailed', maxChars: 800, requireCitations: false },
+    })
+    const queryBody = JSON.parse(String((fetchMock.mock.calls[1]![1] as RequestInit).body))
+    expect(queryBody).toEqual({ schemaVersion: 'knowledge.v1', query: '稳盈90天赎回费率' })
+  })
+
   it.each([
     [401, 'knowledge-denied'],
     [400, 'knowledge-bad-request'],
