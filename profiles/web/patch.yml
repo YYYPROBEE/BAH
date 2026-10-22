@@ -7,25 +7,25 @@
 
 - id: core:model
   config:
-    provider: mock
-    model: mock-chat
-    chunkSize: 4
-    script:
-      - tool:
-          id: call-1
-          name: transfer_create
-          args:
-            amount: 800
-            payee:
-              name: 王建国
-              phone: '13900002222'
-            remark: 房租
-      # 收尾文案由本 turn 的 tool/result 结局决定：审批被拒 / 工具失败时出"未执行：<原因>"，
-      # 绝不在卡片显示"已拦截"的同时说"已核销"（docs/next-actions-2026-10-23.md D3#3）。
-      - outcome:
-          tool: transfer_create
-          ok: 已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。风险与票据可在右侧审计面板复核。
-          failed: 未执行：{reason}
+    # 演示主路径走**真实模型**：deepseek 适配器实现的是 OpenAI 兼容协议，
+    # `baseUrl` 指到哪个兼容端点都行（这里用 DashScope 兼容模式）。
+    # 密钥只从环境变量读（`.env.local` 由 `pnpm demo:web` 注入，不进版本库）。
+    provider: deepseek
+    model: qwen-plus
+    baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
+    apiKeyEnv: BAH_MODEL_KEY
+    # 内置模型表只有 DeepSeek 官方两个模型，换端点必须显式声明能力位
+    # （不猜：猜错会连带裁错提示词段）
+    modelSpec:
+      displayName: 千问 Plus（DashScope 兼容端点）
+      contextWindow: 131072
+      toolCall: true
+      reasoning: false
+    # 收紧到 30s：演示现场上游挂起时不能无限等，宁可报错换兜底
+    requestTimeoutMs: 30000
+    # 断网 / 无密钥时的兜底：把上面 4 行换成下面 2 行（意图路由，非磁带）
+    # provider: router
+    # model: router-chat
 
 - id: bank:tools
   config:
@@ -62,7 +62,7 @@
     # 唯一与 headless 不同的核心配置：渠道语气
     channel: web
     loop:
-      model: mock:mock-chat
+      model: deepseek:qwen-plus
       maxSteps: 8
       # 与 headless 同阈值：压缩只在长会话（> 8 turn）才触发，
       # 演示那两幕不会触发，所以不会污染"对话流可回放"的验收。
