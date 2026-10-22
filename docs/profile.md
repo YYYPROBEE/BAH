@@ -80,7 +80,7 @@ interface PluginRow {
 | `core:session` | `provideSession` | `runtime:session` | `bah:run` |
 | `core:tools` | `provideTools` | `runtime:tools` | — |
 | `core:prompt` | `provideSystemPrompt` | `runtime:system-prompt` | — |
-| `core:model` | mock / deepseek 适配器 | `llm:adapters` | — |
+| `core:model` | mock / router / deepseek 适配器 | `llm:adapters` | — |
 | `core:agent` | `AgentLoop` + 注册表 | `runtime:agents` | `bah:run`、`runtime:session`、`llm:adapters` |
 | `core:persistence` | `JsonlPersistence` | `bah:session-files` | `bah:run` |
 | `bank:tools` | 14 个银行工具 + 治理平面 | （注册工具；默认未绑定身份） | `bah:run`、`runtime:session`、`runtime:tools` |

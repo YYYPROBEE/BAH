@@ -422,3 +422,59 @@ effectiveTier:    yellow → yellow   （不变，800 ≤ 1000）
 - **`verifier-unavailable` 没有端到端演示路径**：fail-closed 只有单测与集成用例，
   没有一条"故意让判决件崩掉"的演示脚本。答辩若被追问"怎么证明它真的会拦"，
   现在的答案是"跑那条单测"，不是"点一下给你看"。D9 的最小评测可以补一条。
+
+---
+
+## 12. D3 执行记录（2026-10-23 02:00）
+
+### 12.1 D-1「固定磁带」已修，两条路都实测过
+
+| 路径 | 配置 | 实测 |
+|---|---|---|
+| **真实模型**（主路径） | `provider: deepseek` + `baseUrl` → DashScope 兼容端点 + `qwen-plus` | 两轮真跑：①"帮我查下余额" → 模型自选 `account_list` → 答"3 个账户，可用合计 ¥13,234.55"；②"这个月我花在餐饮上多少钱？顺便说说该注意什么" → 模型自选 `bill_analyze` → 答"餐饮 ¥524.00，占 38.7%…建议关注消费结构" |
+| **离线路由**（兜底） | `provider: router` | 快照/门禁全绿：查余额走 `account_balance` + 复述工具结果；转账走 preview→create；认不出的问题追问 |
+
+第②条是决定性的：**那句话不在任何脚本里**，模型自己选了工具、读了结果、给了建议。
+D-1 的证据（"评委问剧本外的问题，回答都是同一段话"）到此失效。
+
+### 12.2 一个关键取舍（与计划不同）
+
+计划写的是"真实模型为主 + 断网降 mock"。实测后改成 **"真实模型为主 + 断网降 router"**：
+
+- `mock` 的固定脚本正是 D-1 的病灶，把它当兜底等于"网络一断就退回假象"；
+- `router` 是同一份 `MockLlmAdapter` 加一个读消息的 `plan`，确定性、无网络，
+  但不会答非所问——兜底不该比主路径更会撒谎。
+
+另：这台机器上**没有 DeepSeek 官方密钥**，只有 DashScope（千问）的。
+`deepseek` 适配器本就是 OpenAI 兼容协议，指 `baseUrl` 过去即可，
+并用新增的 `modelSpec` 显式声明能力位（内置表只有 DeepSeek 两个 id，不猜）。
+
+### 12.3 新增的三样东西
+
+1. **`packages/llm/src/demo/`**：意图识别 + 步骤规划（14 条用例）。明确不猜意图：
+   抽不出金额/收款人就追问，不给默认值——转错人是真钱。
+2. **`reflect` 步**：把工具结果正文原样作为回复。查余额唯一诚实的答案是工具那串数字，
+   让 mock 自己编一句"您的余额是…"等于把幻觉写进脚本。
+3. **`packages/llm/src/llm/turns.ts`**：区分"平台注入的 runtimeContext"与"用户真的说了话"。
+   这是本轮唯一一个**第一次跑就踩到**的坑：按"最后一条 user"分段，每个 step 都清零，
+   模型永远停在第 1 步。
+
+### 12.4 快照重录 diff（要点）
+
+```text
+headless-basic：转账 1 笔        → 查余额（read/balance + reflect）
+web-channel   ：transfer_create  → transfer_preview（绿）→ transfer_create（黄，进审批）→ 收尾
+usage/summary ：calls 2          → calls 3
+```
+
+`approval/asked.amount` 仍是 800（元），审计时间线的 ¥800.00 断言继续有效。
+
+### 12.5 仍未做
+
+- **D-3 第 5 项（剧本补 `transfer_preview`）**：profile 已不再有剧本，
+  预览由模型或路由自己决定。web 真实模型是否会稳定走 preview→create，**没有回归保护**——
+  只在离线 router 路径上有确定性。
+- **拒绝分支的快照背书**：仍然只有单测。D10 拍视频前必须补一条 web 拒绝场景。
+- **密钥不进仓库**：`.env.local` 被 `.gitignore` 挡住（实测 `git check-ignore` 命中第 5 行）。
+  但 `BAH_MODEL_KEY` 的值在 `D:/项目集/github/github.md` 里是明文，与仓库无关；
+  提交物里不出现。
