@@ -251,6 +251,40 @@ confirmed(amount, callId) =
 | `POST` | `/api/approval/:ticketId` | `{ decision, reason? }` → 仲裁器 | 404 无此票据 / 409 已决 / 400 缺拒绝理由 |
 | `POST` | `/api/verify/:ticketId` | 红级挑战验证（模拟） | 404 / 409 |
 | `GET` | `/api/health` | `{ ok, profile, sessionId, lastSeq }` | — |
+| `POST` | `/api/admin/sentry/unfreeze` | 人工解冻断路器（**默认关闭**，见 §7.1） | 404 / 403 / 401 / 400 / 503 / 405 |
+
+### 7.1 管理路由（`POST /api/admin/sentry/unfreeze`）
+
+只有一条，且**默认不存在**：没设 `BAH_ADMIN_TOKEN` 时返回 404（不暴露存在性）。
+
+```json
+// 请求
+{ "by": "ops-7", "reason": "客服复核：误报" }   // by 必填 ≤64；reason ≤200，缺省 operator-unfreeze
+
+// 响应
+{ "ok": true, "unfrozen": true }    // 真解除了
+{ "ok": true, "unfrozen": false }   // 本来没冻结（幂等 no-op，不是错误）
+```
+
+状态码顺序即安全顺序（**先问"路由存不存在"，再问"你是谁"，最后问"你要干什么"**）：
+
+| 顺序 | 条件 | 状态 | code |
+|---|---|---|---|
+| 1 | 方法不是 `POST` | 405 | `web-method-not-allowed` |
+| 2 | 未设 `BAH_ADMIN_TOKEN` | **404** | `web-not-found` |
+| 3 | 来源不是本机回环 | 403 | `web-admin-forbidden` |
+| 4 | 缺 / 错 `Authorization: Bearer` | 401 | `web-admin-unauthorized` |
+| 5 | body 非对象 / 缺 by / 未知键 / 超长 / 坏 JSON | 400 | `web-admin-invalid-body` |
+| 6 | profile 没有 `safety:sentry` | 503 | `sentry-absent` |
+
+三条硬约束：
+
+- **只绑回环**：`127.0.0.0/8`、`::1`、`::ffff:127.0.0.1`；`0.0.0.0` / `::` 不算；不加 CORS；
+- **token 只从环境变量读**：不进 URL、不进 argv、不进日志、不进审计；
+- **不加进 `webPlugin.plugin.inject`**：web 是渠道不是风控，没有 sentry 的 profile 也必须能起（此时路由 503）。
+
+CLI 侧对应命令是 `bah sentry unfreeze --by <operator>`（headless 无此入口，只能重启进程，
+见 `docs/sentry.md` §5.1）。
 
 约定：
 
