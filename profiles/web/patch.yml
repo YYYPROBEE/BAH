@@ -20,13 +20,32 @@
               name: 王建国
               phone: '13900002222'
             remark: 房租
-      - text: 已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。风险与票据可在右侧审计面板复核。
+      # 收尾文案由本 turn 的 tool/result 结局决定：审批被拒 / 工具失败时出"未执行：<原因>"，
+      # 绝不在卡片显示"已拦截"的同时说"已核销"（docs/next-actions-2026-10-23.md D3#3）。
+      - outcome:
+          tool: transfer_create
+          ok: 已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。风险与票据可在右侧审计面板复核。
+          failed: 未执行：{reason}
 
 - id: bank:tools
   config:
     demoUserId: u-1
     seed: 7
     datasetTier: demo
+
+# 知识平面（施工单 12）：base bundle **不含**此行，web 必须显式开。
+# 不开就没检索：`knowledge_answer` / `knowledge_query` 两个工具根本不存在于注册表，
+# 模型也看不到（工具 schema 按注册表装配）。
+- id: bank:knowledge
+  use: bank:knowledge
+  config:
+    mode: http
+    baseUrl: http://127.0.0.1:7801
+    channel: web
+    # 演示要求 RAG sidecar 先起（scripts/demo-web.sh 会先探活）；
+    # required=false 让 sidecar 缺席时降级为 knowledge-unavailable（fail-closed），
+    # 而不是把整个站点顶掉——但那样"检索增强"就只剩壳，演示前必须确认探活通过。
+    required: false
 
 - id: interaction:approval
   config:
@@ -42,9 +61,16 @@
   config:
     # 唯一与 headless 不同的核心配置：渠道语气
     channel: web
-    loop: { model: mock:mock-chat, maxSteps: 8 }
+    loop:
+      model: mock:mock-chat
+      maxSteps: 8
+      # 与 headless 同阈值：压缩只在长会话（> 8 turn）才触发，
+      # 演示那两幕不会触发，所以不会污染"对话流可回放"的验收。
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
     runtimeContext:
       user: { name: 张三, level: 金卡 }
+      notes:
+        - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。
 
 - id: demo:echo
   use: demo:echo
