@@ -123,6 +123,8 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       'bank:saga-store',
       'bank:saga',
       'bank:saga-audit',
+      // 接线层：把写工具接进协调器（缺了它 `runSaga` 生产零调用）
+      'bank:saga-bridge',
       // 渠道（施工单 13）：不在 base bundle 里，由 profiles/web 的 patch 加行
       'channel:web',
     ])

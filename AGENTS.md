@@ -21,7 +21,7 @@
 
 | 时机 | 机制 | 跑什么 | 失败后果 |
 |---|---|---|---|
-| 提交前 | `.githooks/pre-commit` | `pnpm gate`（25 项） | 拒绝提交 |
+| 提交前 | `.githooks/pre-commit` | `pnpm gate`（27 项） | 拒绝提交 |
 | 推送前 | `.githooks/pre-push` | `pnpm check`（10 步） | 拒绝推送 |
 | 推送后 | `.github/workflows/ci.yml` | `pnpm check:ci`（严格模式） | 记录为红色 run |
 

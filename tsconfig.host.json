@@ -10,6 +10,7 @@
     { "path": "packages/bank" },
     { "path": "packages/knowledge" },
     { "path": "packages/persistence" },
+    { "path": "packages/memory-store" },
     { "path": "packages/saga" },
     { "path": "packages/host" },
     { "path": "packages/channels" },

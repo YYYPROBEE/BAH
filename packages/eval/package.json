@@ -1,0 +1,13 @@
+{
+  "name": "@bah/eval",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage"
+  },
+  "devDependencies": {
+    "vitest": "^3"
+  }
+}
