@@ -23,7 +23,7 @@ HP-3、HP-4 砍；**HP-2 也砍**（理由见 §3 第 9 条）；HP-1 以 S-1 �
 | 项 | 实测 | 影响 |
 |---|---|---|
 | `git status` | **13 项未提交**，含 `packages/eval/`、`packages/memory-store/`、`saga-bridge.ts` | `git ls-files` 计数 **0**，实物只在本地 |
-| `pnpm gate` | 26 项，**3 红**：`verify-saga-wiring`（缺 `export { gate }`）、`snapshot-fresh`、`tracked-sources` | `tracked-sources` 入库自愈；`snapshot-fresh` 要重录场景 |
+| `pnpm gate` | 27 项，**3 红**：`verify-saga-wiring`（缺 `export { gate }`）、`snapshot-fresh`、`tracked-sources` | `tracked-sources` 入库自愈；`snapshot-fresh` 要重录场景 |
 | `git remote` | `origin` 已有，仓库**私有** | 私有仓地址评委打不开；D10 做公开预检保出口 |
 | 交付物 | 无 README；`deploy.md` / `security-self-assessment.md` / `facts.md` / 三件套 全缺 | 致命 |
 | HP 施工单 | 只有 hp-0；HP-1/2/3/4 未写 | 只需为 HP-0、S-1 各写精简版 |
@@ -106,7 +106,7 @@ HP-3（HALT 解除）和 HP-4（输出契约）是"答辩时讲的设计"，D-1/
 | 1 | 3 个提交入库：eval / memory-store / saga-bridge（含 patch 与 lockfile） | `git ls-files packages/eval` 非 0；`tracked-sources` 自绿 |
 | 2 | `verify-saga-wiring.ts` 补 `export { gate }`，顶层副作用收进 `run()` | 该项绿，`import` 不触发转账 |
 | 3 | `bank:saga-bridge` 纳入对应场景 `coveredSources`，重录 + 复核 diff | `snapshot-fresh` 绿 |
-| 4 | `pnpm gate` 全量 | **26/26**（保持 26 项，不采用改名方案，见 §5.2） |
+| 4 | `pnpm gate` 全量 | **27/27**（保持 27 项，不采用改名方案，见 §5.2） |
 
 ### D2 · 10-24｜HP-0 上半 + 阈值（1.5d）
 
@@ -132,7 +132,7 @@ HP-3（HALT 解除）和 HP-4（输出契约）是"答辩时讲的设计"，D-1/
 | 1 | `web-admin.ts` + `web.ts` 挂 `POST /api/admin/sentry/unfreeze` | HP0-05…11 |
 | 2 | `cli/sentry.ts` + 命令路由 + HELP | HP0-12…15 |
 | 3 | `docs/sentry.md`（异常=不可信；**headless 无远程解冻**）+ `docs/web-frontend.md` | 两处落地 |
-| 4 | 一次合并重录 + `pnpm test:web` | gate 26/26 |
+| 4 | 一次合并重录 + `pnpm test:web` | gate 27/27 |
 | 5 | `audit-report.ts:100` 零签名 → `unsigned` + 测试 + `docs/audit.md` | 不再假 verified |
 
 ### D5 · 10-27｜鉴权 + S-1（1.0d）
@@ -150,7 +150,7 @@ HP-3（HALT 解除）和 HP-4（输出契约）是"答辩时讲的设计"，D-1/
 | 1 | `ApprovalFrame` 补 `payeePhone`（脱敏）+ `fee`（来自 preview） | 弹窗显示姓名+脱敏手机+费用 |
 | 2 | `web.ts:305-309` health 只返回票据**数量**，不返回 ID 列表 | 探针拿不到票据 |
 | 3 | `session/event` 改 `emitIsolated` | 一个记账监听器抛错不阻断后续观察者 |
-| 4 | 新建 `facts.md`：三行口径 + 26 门禁 + 14 工具 + 端口 | 后续材料只取这一份 |
+| 4 | 新建 `facts.md`：三行口径 + 27 门禁 + 14 工具 + 端口 | 后续材料只取这一份 |
 
 ### D7 · 10-29｜README + 简介（0.9d）
 
@@ -204,13 +204,13 @@ HP-3（HALT 解除）和 HP-4（输出契约）是"答辩时讲的设计"，D-1/
 
 ### 5.2 不采（2 条，附理由）
 
-**不采 1：`verify-saga-wiring.ts` 改名 `probe-*`（门禁 26 → 25）**
+**不采 1：`verify-saga-wiring.ts` 改名 `probe-*`（门禁 27 → 26）**
 
 总案的理由是"它会 boot 整个应用并真跑一笔转账，不适合作为自动门禁"。
-问题不在"它是门禁"，在**顶层副作用**。项目里 26 个 gate 全部是
+问题不在"它是门禁"，在**顶层副作用**。项目里 27 个 gate 全部是
 `export { gate }` + `if (isMainModule(...)) runStandalone(gate)` 的模式，加这个不是特例。
 改名会让"Saga 通电"从门禁里消失，以后没人跑——那正是它当前唯一的价值。
-**改法**：补 `export { gate }`，把 `boot()` / `agent.send()` / `agent.run()` 全收进 `run()`，门禁数保持 26。
+**改法**：补 `export { gate }`，把 `boot()` / `agent.send()` / `agent.run()` 全收进 `run()`，门禁数保持 27。
 
 **不采 2：HP-0 默认不做**
 
@@ -220,7 +220,7 @@ HP-3（HALT 解除）和 HP-4（输出契约）是"答辩时讲的设计"，D-1/
 
 ### 5.3 改（1 条）
 
-**`facts.md` 的门禁数写 26，不是 25**（因为不采纳改名方案）。
+**`facts.md` 的门禁数写 27，不是 26**（因为不采纳改名方案；第 27 支是 `verify-no-left-accent`）。
 另外 facts.md 必须分三行口径：`pnpm test`（主仓）/ `pnpm -F @bah/eval test`（评测包）/
 `pnpm test:web`（前端）——eval 的 133 用例不在根 vitest include 内，写成一个总数会被问穿。
 
@@ -313,3 +313,51 @@ grep -n "cursor\|resolveStep" packages/llm/src/mock/adapter.ts
 | `docs/hp-0-fail-closed.md` | **原样执行**，不改规格；排进 D2 / D4 |
 | `docs/review-next-actions-2026-10-23.md` | 我的双角度复审：3 处契约违约、4 处工程误判 |
 | `文档归档/BAH下一步施工总案-2026-10-23.md` | **吸收了 6 条**（演示真实性 ×2、金额单位、零签名、turn-stopping fail-closed、headless autoDecision）；**不采 2 条**（改名、HP-0 不做） |
+
+---
+
+## 10. D1 执行记录（2026-10-23 01:12 收尾）
+
+### 10.1 实测数字
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 门禁 | `pnpm gate` | **27/27** |
+| 主仓测试 | `pnpm test` | 155 文件 / **1394 用例**全通过 |
+| 类型 | `pnpm typecheck` | 通过（修掉 `model.test.ts:80` 一处 TS2322） |
+| 快照 | `pnpm snapshot:record` | 14 用例全通过（3 场景重录 + 回放全等） |
+| 未跟踪源码 | `git ls-files --others` | **0** |
+
+### 10.2 八个提交
+
+```text
+4d0046b test(host): 补条件收尾的订阅接线用例，修 SessionId 品牌类型
+a39c5b4 docs: 施工总案、双角度复审与 HP-0 施工单入库
+d376ee8 style(web): 工具卡三态由左侧色带改为整圈描边
+ecc0f5c test(snapshot): 三个场景按当前装配重录，补上 Saga 预检与条件收尾
+3b1d8bc fix(knowledge): http 端口按线上契约裁剪请求体，不再原样透传
+671daba chore(profiles): 条件收尾脚本 + 压缩阈值 + 环境声明 + web 知识行
+fa4b366 feat(llm): mock 脚本支持按本 turn 的 tool/result 结局条件收尾
+6510c82 chore(repo): 把盘上未入库的三个模块与三支脚本入库
+```
+
+### 10.3 与计划的四处偏差（都要按新事实读后续文档）
+
+| # | 计划说法 | 实际 | 原因 |
+|---|---|---|---|
+| 1 | 门禁 26 项 | **27 项** | `verify-no-left-accent` 是第 27 支；`AGENTS.md` 早已写 27 |
+| 2 | 入库拆 3 个提交 | **1 个提交** | `pre-commit` 跑 gate，`tracked-sources` 用 `git ls-files --others`；部分提交走临时索引，其余新源码被重新判成"未跟踪"，前两笔必红 |
+| 3 | D-2 条件收尾排 D3 | **代码已在 D1 入库** | 盘上已有 `outcome` 全套（`script.ts` / `adapter.ts` / `model.ts` / 两份 profile），只缺类型用例 |
+| 4 | 修 `verify-saga-wiring` 只是"补 `export { gate }`" | 真问题是**顶层真转账** | `run-gates` 先 `import` 再读 `{ gate }`，导入即执行；现已收进 `run(root)`，实测导入后 `sessions/saga.sqlite` 大小与 mtime 不变 |
+
+### 10.4 本批新增的已知风险（进安全自评）
+
+- **门禁会写库**：`verify-saga-wiring` 每跑一次真的转一笔 800 元，写进跨运行持久的
+  `sessions/saga.sqlite`（现已累积 40+ 笔）。门禁本身是绿的，但 D10 终检前必须清库，
+  否则演示日志里会有一堆来历不明的事务。
+- **门禁抖动一次**：8 次提交里 `saga-wiring` 红过 1 次，单独重跑即绿，未定位根因。
+  若后续复现，优先查 `sessions/saga.sqlite` 的并发锁与 `.tmp-saga-wiring` 的清理时序。
+- **D-2 只修了一半**：收尾文案已按结局分支，但演示主路径仍是 `provider: mock`。
+  D3 的"真实模型 + router 兜底"一项未动。
+- 快照的 `outcome` 只覆盖**成功分支**；"拒绝 → 未执行"这条分支至今没有快照背书，
+  靠 `model.test.ts` 的单测兜着。D3 必须补 web 拒绝场景。
