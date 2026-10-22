@@ -129,6 +129,7 @@ Icon dimensions refer to rendered width and height, regardless of the SVG `viewB
 - Selected rows, menu items, tabs, and pagination states use neutral overlays. Do not use brand fill for generic selection.
 - Notifications and alerts keep body text neutral; status is conveyed through the icon and status surface/border tokens.
 - Tables should use row dividers and inline status tags. Do not tint whole rows for status.
+- Never mark status or hierarchy with a colored bar on the left edge of a surface. Forbidden: thick `border-left` / `border-inline-start`, a left border painted with `--status-*` or `--bg-brand`, a `::before` / `::after` stripe pinned to the left edge, and an inset left `box-shadow`. Use `.ds-tag`, icon color, and — when a container really needs it — a full-perimeter `border-color` plus status surface token, exactly like `.ds-notif--*`.
 
 ## Visual Composition
 

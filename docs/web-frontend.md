@@ -67,6 +67,10 @@ apps/web · 纯原生 DOM 渲染（只吃帧，不推导业务）
 8. **图标**：只用本地 SVG，默认 16×16，密集控件 14×14，大图标 24×24；功能性图标带 `aria-hidden="true"`，纯图标按钮必须有 `aria-label`。
 9. **动效**：hover 120ms / 状态切换 200ms / 布局揭示 ≤300ms，位移 ≤4px，不用 `scale>1.05`；`prefers-reduced-motion` 全部降级为无动画。
 10. **可访问性**：正文对比度 ≥4.5:1，焦点环不可移除，键盘可达。
+11. **禁止左侧竖色条**：卡片、面板、行、气泡**不得**靠"最左边一条竖色带"表达状态或层级。四种写法一律禁止并被门禁 `no-left-accent` 拦截：
+    `border-left-width` ≥3px、`border-left` / `border-inline-start` 取 `--status-*` 或 `--bg-brand`、`::before`/`::after` 贴左边缘画色条、`box-shadow: inset 3px 0 0 …`。
+    状态一律用 `.ds-tag` 文案 + 图标着色表达；确实需要容器级状态时，用**整圈** `border-color` + status surface 底色（`.ds-notif--*` 的做法）。
+    1px 中性分隔线（`--border-neutral-*`）不算色条，允许。
 
 ### 2.3 与施工单 13 §2 "Apple 设计语言"的调和
 
@@ -174,10 +178,12 @@ tool/result.code/isError ──▶ 理由码与三态
 
 | 状态 | 来源 | 视觉 |
 |---|---|---|
-| `pending` | `tool/call` 到达、无 `tool/result` | 左侧 `--status-warning-default` 竖线 + "待执行" `.ds-tag--warning` |
-| `done` | `tool/result.isError === false` | 成功 `.ds-tag--success`；卡片模板渲染结果 |
-| `denied` | `tool/result.isError === true` 且带 `code` | 错误色竖线 + 理由码 + 原因；`analysis` 可折叠 |
+| `pending` | `tool/call` 到达、无 `tool/result` | "待执行" `.ds-tag--warning` + 时钟图标着色 `--status-warning-default` |
+| `done` | `tool/result.isError === false` | "已完成" `.ds-tag--success` + 对勾图标着色；卡片模板渲染结果 |
+| `denied` | `tool/result.isError === true` 且带 `code` | "已拦截" `.ds-tag--danger` + 错误图标着色 + 理由码 + 原因；`analysis` 可折叠 |
 
+- 三态靠**图标着色 + 状态标签**表达，卡片边框恒为 1px `--border-neutral-l1`。
+  曾用左侧 3px 状态色竖条（`border-left-width` + `border-left-color`），2026-10-23 按视觉口径否决，见 §2.2 第 11 条与门禁 `no-left-accent`。
 - 三态互斥且不可回退（事件顺序保证），重复帧只更新不追加（按 `callId` 复用节点）。
 - 金额字段统一走 §6 的降级判定。
 
