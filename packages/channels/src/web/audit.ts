@@ -70,11 +70,17 @@ export function auditOf(event: LooseEvent): AuditFrame | undefined {
     case 'approval/asked': {
       const amount = num(data, 'amount')
       const name = str(data, 'name') ?? '未知操作'
+      // 金额口径：`approval/asked.amount` 是**元**（`ApprovalTicketView.amount` 的注释写明，
+      // bank governance 用 `amountCents / 100` 填票据）。`formatCents` 吃分，所以先 ×100。
+      // 这里曾经直接 `formatCents(amount)`，把 800 元显示成 ¥8.00——审批弹窗里差 100 倍。
       return {
         ...base,
         category: 'approval',
         label: '审批请求',
-        summary: amount === undefined ? `请求执行 ${name}` : `请求执行 ${name} · ${formatCents(amount)}`,
+        summary:
+          amount === undefined
+            ? `请求执行 ${name}`
+            : `请求执行 ${name} · ${formatCents(Math.round(amount * 100))}`,
         ticketId: str(data, 'ticketId'),
         toolName: name,
       }
