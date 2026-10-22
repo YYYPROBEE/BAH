@@ -36,6 +36,9 @@ export {
   toolsPlugin,
 } from './plugins/index.ts'
 export { SESSION_FILES, type SessionFiles } from './plugins/persistence.ts'
+// 管理面的两个常量给 `bah sentry unfreeze` 用：环境变量名与缺省理由只能有一份，
+// 各写一份迟早会漂（改了 host 忘了 cli，命令就静默读错变量）
+export { ADMIN_TOKEN_ENV, DEFAULT_UNFREEZE_REASON } from './plugins/web-admin.ts'
 export {
   diffRows,
   mergeLayers,

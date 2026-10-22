@@ -8,13 +8,16 @@
 import { createContext } from '@bah/core'
 import { APPROVAL_SERVICE, ApprovalService } from '@bah/interaction'
 import { AgentRegistry, provideAgents, provideSession, SESSION_SERVICE } from '@bah/runtime'
+import { SENTRY_SERVICE } from '@bah/safety'
 import { asSessionId } from '@bah/test-support'
 import type { Agent, AnySessionEvent, LlmStreamer } from '@bah/runtime'
 import type { ApprovalInputLike, ChallengePort } from '@bah/interaction'
+import type { SentryHandle } from '@bah/safety'
 import type { Context } from '@bah/core'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { RUN_SERVICE } from '../boot.ts'
+import { ADMIN_TOKEN_ENV } from './web-admin.ts'
 import { DEFAULT_WEB, WEB_SERVER, webPlugin, type WebSettings } from './web.ts'
 
 /** 测试装置。 */
@@ -23,6 +26,8 @@ interface Harness {
   readonly url: string
   readonly sent: string[]
   readonly interrupts: string[]
+  /** 假 sentry 收到的解冻调用（HP0-08 用）。 */
+  readonly unfreezeCalls: { by: string; reason: string }[]
 }
 
 /** 装配变体：默认全绿（有 agent、驱动常驻不返回、票据无强验证）。 */
@@ -35,6 +40,12 @@ interface BootExtras {
   readonly agent?: 'ok' | 'absent' | 'drive-fails' | 'send-fails'
   /** 强验证端口（红级票据）；缺省不注入 → 票据没有 challenge。 */
   readonly challenges?: ChallengePort
+  /**
+   * 假 sentry 服务。
+   * `frozen` = 初始处于冻结态（解冻应返回 true）；`idle` = 未冻结（返回 false）；
+   * 缺省 = 不注册（覆盖 503「profile 没有 sentry」）。
+   */
+  readonly sentry?: 'frozen' | 'idle'
 }
 
 /** 起一个只装了必要服务的 ctx + 真实 HTTP 端口（`port: 0` 由内核分配）。 */
@@ -92,10 +103,35 @@ async function boot(
     staticRoot: 'apps/web',
     ...overrides,
   })
+
+  // 假 sentry：只在被要求时注册（缺省覆盖 503 分支）
+  const unfreezeCalls: { by: string; reason: string }[] = []
+  let frozen = extras.sentry === 'frozen'
+  if (extras.sentry !== undefined) {
+    ctx.provide(SENTRY_SERVICE, {
+      unfreeze: (by: string, reason?: string) => {
+        unfreezeCalls.push({ by, reason: reason ?? '' })
+        const was = frozen
+        frozen = false
+        return was
+      },
+      restore: () => false,
+      view: () => ({
+        sessionId: 's-web-test',
+        turn: 0,
+        toolsInTurn: 0,
+        riskScore: 0,
+        riskLevel: 'low',
+        degraded: false,
+        frozen,
+      }),
+    } as unknown as SentryHandle)
+  }
+
   await ctx.use(webPlugin.plugin, settings)
   await ctx.start()
 
-  return { ctx, url: ctx.get(WEB_SERVER).url, sent, interrupts }
+  return { ctx, url: ctx.get(WEB_SERVER).url, sent, interrupts, unfreezeCalls }
 }
 
 /** 关掉装置（端口必须释放，否则下一个用例会撞端口）。 */
@@ -536,6 +572,164 @@ describe('channel:web 实时链路', () => {
       expect(decide.status).toBe(200)
 
       expect((await settled).decision.decision).toBe('allowed-once')
+    } finally {
+      await shutdown(harness)
+    }
+  })
+})
+
+/**
+ * 管理路由（施工单 HP-0 §3.2 的 HP0-05…11）。
+ *
+ * 这一组的顺序感很重要：**先"路由存不存在"，再"你是谁"，最后"你要干什么"**。
+ * 把 404 放在 401 前面不是洁癖——没配 token 时连"这里有个管理口"都不该被探到。
+ */
+describe('channel:web 管理路由（HP-0）', () => {
+  const saved = process.env[ADMIN_TOKEN_ENV]
+
+  /** 设置/清除管理 token（用例之间必须还原，否则会串味）。 */
+  const setToken = (value: string | undefined): void => {
+    if (value === undefined) delete process.env[ADMIN_TOKEN_ENV]
+    else process.env[ADMIN_TOKEN_ENV] = value
+  }
+
+  const post = (
+    url: string,
+    body: unknown,
+    headers: Record<string, string> = {},
+  ): Promise<Response> =>
+    fetch(`${url}api/admin/sentry/unfreeze`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    })
+
+  afterEach(() => {
+    setToken(saved)
+  })
+
+  it('HP0-05 未设 token → 404（不暴露存在性）', async () => {
+    setToken(undefined)
+    const harness = await boot({}, { sentry: 'frozen' })
+    try {
+      const response = await post(harness.url, { by: 'ops-7' })
+      expect(response.status).toBe(404)
+      expect(harness.unfreezeCalls).toEqual([])
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('HP0-06 缺 token / 错 token → 401，且都不触发解冻', async () => {
+    setToken('correct-token-value')
+    const harness = await boot({}, { sentry: 'frozen' })
+    try {
+      const missing = await post(harness.url, { by: 'ops-7' })
+      expect(missing.status).toBe(401)
+
+      const wrong = await post(harness.url, { by: 'ops-7' }, { authorization: 'Bearer wrong' })
+      expect(wrong.status).toBe(401)
+
+      // 同长度但不同内容：不能因为长度相等就走通
+      const sameLength = await post(harness.url, { by: 'ops-7' }, {
+        authorization: `Bearer ${'x'.repeat('correct-token-value'.length)}`,
+      })
+      expect(sameLength.status).toBe(401)
+
+      expect(((await wrong.json()) as { error: { code: string } }).error.code).toBe(
+        'web-admin-unauthorized',
+      )
+      expect(harness.unfreezeCalls).toEqual([])
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('HP0-08 正确 token + 已冻结 → 200 unfrozen:true，by/reason 透传到服务', async () => {
+    setToken('correct-token-value')
+    const harness = await boot({}, { sentry: 'frozen' })
+    try {
+      const response = await post(
+        harness.url,
+        { by: 'ops-7', reason: '客服复核：误报' },
+        { authorization: 'Bearer correct-token-value' },
+      )
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ ok: true, unfrozen: true })
+      expect(harness.unfreezeCalls).toEqual([{ by: 'ops-7', reason: '客服复核：误报' }])
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('HP0-09 正确 token + 未冻结 → 200 unfrozen:false（幂等 no-op）', async () => {
+    setToken('correct-token-value')
+    const harness = await boot({}, { sentry: 'idle' })
+    try {
+      const response = await post(
+        harness.url,
+        { by: 'ops-7' },
+        { authorization: 'Bearer correct-token-value' },
+      )
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ ok: true, unfrozen: false })
+      // 未写 reason 时用缺省值，而不是空串
+      expect(harness.unfreezeCalls[0]?.reason).toBe('operator-unfreeze')
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('HP0-10 缺 by / 未知键 / 坏 JSON → 400（都不是 500）', async () => {
+    setToken('correct-token-value')
+    const harness = await boot({}, { sentry: 'frozen' })
+    const auth = { authorization: 'Bearer correct-token-value' }
+    try {
+      const noBy = await post(harness.url, { reason: 'x' }, auth)
+      expect(noBy.status).toBe(400)
+      expect(((await noBy.json()) as { error: { code: string } }).error.code).toBe(
+        'web-admin-invalid-body',
+      )
+
+      const unknown = await post(harness.url, { by: 'ops-7', nope: 1 }, auth)
+      expect(unknown.status).toBe(400)
+
+      const broken = await fetch(`${harness.url}api/admin/sentry/unfreeze`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...auth },
+        body: '{not json',
+      })
+      expect(broken.status).toBe(400)
+
+      expect(harness.unfreezeCalls).toEqual([])
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('HP0-11 没有 sentry 服务 → 503 sentry-absent（web 仍能起）', async () => {
+    setToken('correct-token-value')
+    const harness = await boot({}, { agent: 'absent' })
+    try {
+      const response = await post(
+        harness.url,
+        { by: 'ops-7' },
+        { authorization: 'Bearer correct-token-value' },
+      )
+      expect(response.status).toBe(503)
+      expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+        'sentry-absent',
+      )
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('非 POST → 405，且不读 token（顺序在鉴权之前）', async () => {
+    const harness = await boot({}, { sentry: 'frozen' })
+    try {
+      const response = await fetch(`${harness.url}api/admin/sentry/unfreeze`)
+      expect(response.status).toBe(405)
     } finally {
       await shutdown(harness)
     }

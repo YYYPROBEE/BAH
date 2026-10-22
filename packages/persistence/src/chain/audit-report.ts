@@ -12,8 +12,18 @@ import { SIGNED_TYPES } from './index.ts'
 import type { ChainFile } from './chain-file.ts'
 import type { ChainRecord, SagaAuditHandle } from './index.ts'
 
-/** 签名结论。`skipped-no-key` 与 `skipped-disabled` 必须分开（R160）。 */
-export type SignatureState = 'verified' | 'invalid' | 'skipped-no-key' | 'skipped-disabled'
+/**
+ * 签名结论。
+ *
+ * `skipped-no-key` 与 `skipped-disabled` 必须分开（R160）；
+ * `unsigned` 是第四种：**没有应签行**——此时"验过"是假话，只能是"没签过"。
+ */
+export type SignatureState =
+  | 'verified'
+  | 'invalid'
+  | 'skipped-no-key'
+  | 'skipped-disabled'
+  | 'unsigned'
 
 /** 一条链的审计结论。 */
 export interface ChainAudit {
@@ -96,9 +106,11 @@ export function buildChainAudit(
     return { ...base, signatureState: 'skipped-disabled', signatureError: null }
   }
 
-  // 没有“类型内应签”的行时，缺密钥不影响结论：确实没有签名可验。
+  // 没有"类型内应签"的行：**什么都没签**，不能说"验过"。
+  // 以前这里返回 `verified`，于是空链/纯工具事件的链在报告里显示"签名通过"——
+  // 一个恰好没有签名可验的链，被读成了"签名验证成功"。
   if (coverage.signedExpected === 0) {
-    return { ...base, signatureState: 'verified', signatureError: null }
+    return { ...base, signatureState: 'unsigned', signatureError: null }
   }
 
   try {

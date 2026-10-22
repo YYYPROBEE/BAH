@@ -27,6 +27,7 @@ import { renderDumpConfig } from '../dump-config.ts'
 import { readDefaultProfile, readLayers, readProfile, type LayerOptions } from '../profile.ts'
 import { runAudit } from './audit.ts'
 import { parseCommand } from './command.ts'
+import { runSentryUnfreeze } from './sentry.ts'
 
 /** 输出出口（测试注入收集器；生产是 console）。 */
 export interface CliIo {
@@ -76,6 +77,10 @@ export const HELP = [
   '  --jsonl <dir>      会话目录（覆盖 core:persistence.root）',
   '  --session <id>     会话 ID（缺省按时钟生成）',
   '  -h, --help         显示本帮助',
+  '',
+  '子命令：',
+  '  bah audit [dir]            审计链校验与投影对账',
+  '  bah sentry unfreeze       人工解冻断路器（需运行中的 web 宿主 + BAH_ADMIN_TOKEN）',
 ].join('\n')
 
 /** 解析后的命令行。 */
@@ -111,6 +116,11 @@ export async function runCli(
   switch (command.kind) {
     case 'audit':
       return runAudit(argv.slice(1), io, options)
+    case 'sentry':
+      // 只是 HTTP 客户端：不 boot app（解不了别的进程里的断路器）
+      return runSentryUnfreeze(argv.slice(1), io, {
+        ...(options.env === undefined ? {} : { env: options.env }),
+      })
     case 'run':
       break
     default:

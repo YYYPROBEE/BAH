@@ -6,6 +6,13 @@
 export { AUDIT_HELP, AUDIT_USAGE, runAudit } from './audit.ts'
 export { parseCommand, type Command } from './command.ts'
 export {
+  SENTRY_HELP,
+  SENTRY_USAGE,
+  runSentryUnfreeze,
+  type SentryIo,
+  type SentryRunOptions,
+} from './sentry.ts'
+export {
   HELP,
   USAGE,
   describeReason,

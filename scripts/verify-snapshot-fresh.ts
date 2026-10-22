@@ -40,6 +40,18 @@ const SENSITIVE = [
 /** 测试文件不算“行为改动”。 */
 const TEST_FILE = /\.test\.ts$/
 
+/**
+ * 在治理平面里、但**不进主循环**的离线读取器。
+ *
+ * `chain/audit-report.ts` 只被 `bah audit` 和它的用例调用：它读已落盘的链做只读审计，
+ * 不参与模型可见内容、不影响资金动作，快照场景根本录不到它。
+ * 把它留在 SENSITIVE 里，每次改审计报告都要重录一个与它无关的场景——那是假仪式。
+ *
+ * 名单必须一条一条写清理由，不按目录通配：`persistence/src/chain/` 里还有**写链**的代码，
+ * 那是真行为面。
+ */
+const NON_RUNTIME = [/^packages\/persistence\/src\/chain\/audit-report\.ts$/] as const
+
 interface SnapshotCase {
   readonly name: string
   readonly coveredSources: readonly string[]
@@ -76,7 +88,10 @@ const gate: Gate = {
     }
 
     const sensitive = changed.files.filter(
-      (file) => !TEST_FILE.test(file) && SENSITIVE.some((pattern) => pattern.test(file)),
+      (file) =>
+        !TEST_FILE.test(file) &&
+        SENSITIVE.some((pattern) => pattern.test(file)) &&
+        !NON_RUNTIME.some((pattern) => pattern.test(file)),
     )
     if (sensitive.length === 0) {
       notes.push('未触及治理平面，无需快照')
