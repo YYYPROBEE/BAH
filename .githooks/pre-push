@@ -1,0 +1,25 @@
+#!/bin/sh
+# 推送前完整检查（约 60–80 秒）：十步链路任一红即拒绝推送。
+#
+# 这**不是**「阻断合并」：本仓库为私有仓，GitHub Free 不支持分支保护，
+# 因此没有必需状态检查、也没有 PR 合并闸门。本钩子是本地唯一的前置拦截点，
+# 远端 CI 的作用是事后复核（push 后必跑，红了你才知道）。
+#
+# 残余风险：`git push --no-verify` 可绕过本钩子。
+
+set -e
+
+if command -v pnpm >/dev/null 2>&1; then
+  exec pnpm -s check
+fi
+
+if [ -x ./node_modules/.bin/tsx ]; then
+  exec ./node_modules/.bin/tsx scripts/ci.ts
+fi
+
+if [ -x ./node_modules/.bin/tsx.cmd ]; then
+  exec ./node_modules/.bin/tsx.cmd scripts/ci.ts
+fi
+
+echo "pre-push: 找不到 pnpm 与 tsx，跳过检查（请在仓库根执行 pnpm install）" >&2
+exit 0
