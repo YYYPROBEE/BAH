@@ -20,6 +20,8 @@ export interface MockToolOutcome {
   readonly code?: string
   /** 面向模型的理由文本（`tool/result.reason`）。 */
   readonly reason?: string
+  /** 工具结果的正文（首个 text 块的原文；只读工具靠它把权威数字说回给人）。 */
+  readonly text?: string
 }
 
 /**
@@ -40,6 +42,21 @@ export interface MockOutcome {
 /** 一步脚本 = 一次完整 assistant 回复的部分字段（未给字段取缺省），可带条件收尾。 */
 export interface MockStep extends Partial<AssistantMessage> {
   readonly outcome?: MockOutcome
+  readonly reflect?: MockReflect
+}
+
+/**
+ * 复述：把工具结果的正文原样作为回复。
+ *
+ * 与 `outcome` 的分工：`outcome` 是"按成功/失败二选一的话术"，`reflect` 是
+ * **直接引用权威结果**——查余额这类问题，助手唯一诚实的回答就是工具给出的那串数字。
+ * 让 mock 自己编一句"您的余额是 …"等于把幻觉写进演示脚本。
+ */
+export interface MockReflect {
+  /** 绑定哪个工具（缺省 = 取本 turn 最后一条工具结局）。 */
+  readonly tool?: string
+  /** 工具结果里没有正文时的兜底话术。 */
+  readonly fallback: string
 }
 
 /** 脚本：按调用次序出队的步骤序列。 */
@@ -74,6 +91,11 @@ export function toolCallStep(
 /** 一步脚本构造器：按本 turn 的工具结局二选一收尾（成功 / 未执行）。 */
 export function outcomeStep(outcome: MockOutcome): MockStep {
   return { outcome }
+}
+
+/** 一步脚本构造器：把工具结果的正文原样复述（查余额这类"权威数字在结果里"的场景）。 */
+export function reflectStep(reflect: MockReflect): MockStep {
+  return { reflect }
 }
 
 /**
@@ -132,4 +154,32 @@ export function resolveOutcome(
   if (!last.isError) return [{ kind: 'text', text: outcome.ok }]
   const reason = last.reason ?? last.code ?? '工具未执行'
   return [{ kind: 'text', text: outcome.failed.replace(/\{reason\}/g, () => reason) }]
+}
+
+/**
+ * 解析复述步的正文：原样引用工具结果的第一个 text 块。
+ *
+ * 工具失败时**不复述**错误正文（那是给运维看的），改用兜底话术——助手不该把
+ * "工具抛了个 NullPointer" 念给客户听。
+ *
+ * @throws `BahError('mock-reflect-absent')` 该工具本 turn 没执行过：脚本与路径写岔了
+ */
+export function resolveReflect(
+  reflect: MockReflect,
+  results: readonly MockToolOutcome[],
+): ContentBlock[] {
+  const matched =
+    reflect.tool === undefined ? results : results.filter((item) => item.name === reflect.tool)
+  const last = matched[matched.length - 1]
+  if (last === undefined) {
+    throw new BahError(
+      'mock-reflect-absent',
+      `mock: 复述步没有可依据的工具结果${reflect.tool === undefined ? '' : `（工具 ${reflect.tool} 未执行过）`}`,
+      { tool: reflect.tool ?? null, results: results.length },
+    )
+  }
+  if (last.isError || last.text === undefined || last.text.trim() === '') {
+    return [{ kind: 'text', text: reflect.fallback }]
+  }
+  return [{ kind: 'text', text: last.text }]
 }

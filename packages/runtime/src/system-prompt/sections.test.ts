@@ -131,8 +131,7 @@ describe('renderRuntimeContext（施工单 05 §4.1 的渲染面）', () => {
 
   it('只给部分字段时只渲染对应块', () => {
     expect(renderRuntimeContext({ user: { name: '李四' } })).toBe('【当前用户】姓名：李四')
-    expect(formatMoney(-12.5)).toBe('¥-12.50')
-  })
+    expect(formatMoney(-12.5)).toBe('¥-12.50')  })
 })
 
 describe('style：渠道适配', () => {
@@ -182,3 +181,19 @@ function channelHint(channel: ChannelKind): string {
       return 'SDK：'
   }
 }
+
+/**
+ * 与 `@bah/llm` 的判定常量对齐（`llm/src/llm/turns.ts` 的 `PLATFORM_CONTEXT_PREFIX`）。
+ *
+ * 为什么要跨包钉一条：模型适配器要跳过"平台注入的环境段"才能读到用户原话，
+ * 而它不能 import runtime（依赖方向是 runtime → llm）。常量只能各写一份，
+ * 于是用这条用例把两份钉在一起——改了前缀却漏改另一边，这里立刻红。
+ */
+describe('环境段前缀与 llm 的判定常量一致', () => {
+  it('renderRuntimeContext 的产出以 PLATFORM_CONTEXT_PREFIX 开头', async () => {
+    const { PLATFORM_CONTEXT_PREFIX } = await import('@bah/llm')
+    expect(renderRuntimeContext({ user: { name: '张三', level: '金卡' } })).toMatch(
+      new RegExp(`^${PLATFORM_CONTEXT_PREFIX}`),
+    )
+  })
+})

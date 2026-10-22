@@ -12,6 +12,8 @@
 
 import { BahError } from '@bah/util'
 
+import { assistantTurnsSinceUser } from '../llm/turns.ts'
+
 import type {
   CallUsage,
   ContentBlock,
@@ -25,6 +27,7 @@ import type {
 } from '../llm/types.ts'
 import {
   resolveOutcome,
+  resolveReflect,
   resolveStep,
   resolveStepContent,
   type MockScript,
@@ -49,7 +52,15 @@ const DEFAULT_CHUNK_SIZE = 8
 
 /** 构造选项。 */
 export interface MockAdapterOptions {
-  readonly script: MockScript
+  /** 固定脚本（按调用次序出队）。与 `plan` 二选一。 */
+  readonly script?: MockScript
+  /**
+   * 按请求现算脚本（**读 `request.messages`**，不看游标）。
+   *
+   * 这是"离线但不当磁带"的那条路：同一份适配器，用户问什么就规划什么，
+   * 而不是不管问什么都吐同一段。演示兜底用它（见 `@bah/llm/demo`）。
+   */
+  readonly plan?: (request: LlmRequest) => readonly MockStep[]
   /** provider id（默认 `mock`；同进程要装多个 mock 时区分用）。 */
   readonly providerId?: string
   /** 可用模型（默认 `MOCK_MODEL`）。 */
@@ -68,21 +79,30 @@ export interface MockAdapterOptions {
 }
 
 export class MockLlmAdapter implements LlmAdapter {
-  private readonly script: MockScript
+  private readonly script: MockScript | undefined
+  private readonly plan: ((request: LlmRequest) => readonly MockStep[]) | undefined
   private readonly providerId: string
   private readonly models: readonly ModelSpec[]
   private readonly usage: CallUsage
   private readonly chunkSize: number
   private readonly toolOutcomes: () => readonly MockToolOutcome[]
 
-  /** 脚本游标：每次 `stream` 消费一步。 */
+  /** 脚本游标：每次 `stream` 消费一步（`plan` 模式不用它）。 */
   private cursor = 0
 
   /** 调用序号（`prepareCall` 的 id 用）。 */
   private calls = 0
 
   constructor(options: MockAdapterOptions) {
+    if (options.script === undefined && options.plan === undefined) {
+      throw new BahError(
+        'mock-source-missing',
+        'mock: 必须给 script（固定脚本）或 plan（按请求现算）之一',
+        {},
+      )
+    }
     this.script = options.script
+    this.plan = options.plan
     this.providerId = options.providerId ?? 'mock'
     this.models = options.models ?? [MOCK_MODEL]
     this.usage = options.usage ?? MOCK_USAGE
@@ -144,13 +164,15 @@ export class MockLlmAdapter implements LlmAdapter {
       throw new BahError('llm-aborted', 'mock: 调用已取消（未开始流式）', { model: call.model.id })
     }
 
-    const step: MockStep = resolveStep(this.script, this.cursor)
-    this.cursor += 1
+    const step = this.stepFor(call.request)
     const resolved = resolveStepContent(step)
+    const results = this.toolOutcomes()
     const content =
-      step.outcome === undefined
-        ? resolved.content
-        : resolveOutcome(step.outcome, this.toolOutcomes())
+      step.outcome !== undefined
+        ? resolveOutcome(step.outcome, results)
+        : step.reflect !== undefined
+          ? resolveReflect(step.reflect, results)
+          : resolved.content
 
     let toolIndex = 0
     for (const block of content) {
@@ -167,6 +189,32 @@ export class MockLlmAdapter implements LlmAdapter {
 
     yield { kind: 'usage', ...(resolved.usage ?? this.usage) }
     yield { kind: 'finish', reason: resolved.finishReason }
+  }
+
+  /**
+   * 取本次调用该出的那一步。
+   *
+   * 两条路：
+   * - 固定脚本：按游标出队（回放与用例靠它保证逐字节确定性）；
+   * - `plan`：**读 `request.messages`**，按"本轮已经产生了几条 assistant 消息"定位步骤。
+   *   这是"不当磁带"的关键——出什么话由消息决定，而不是由第几次调用决定。
+   *
+   * `plan` 模式下越界取最后一**步**而不是抛错：一次 turn 里模型多被叫一次
+   * （比如工具结果触发了额外推理）不该让演示崩掉；固定脚本仍然严格抛错，
+   * 因为那里越界就说明用例写错了。
+   */
+  private stepFor(request: LlmRequest): MockStep {
+    if (this.plan !== undefined) {
+      const steps = this.plan(request)
+      if (steps.length === 0) {
+        throw new BahError('mock-plan-empty', 'mock: plan 没有规划出任何步骤', {})
+      }
+      const index = Math.min(assistantTurnsSinceUser(request.messages), steps.length - 1)
+      return steps[index]!
+    }
+    const step = resolveStep(this.script!, this.cursor)
+    this.cursor += 1
+    return step
   }
 
   /** 块索引：文本 0、推理 1、工具调用 2 起（与 `types.ts` 的约定一致）。 */
@@ -229,3 +277,11 @@ function slice(text: string, size: number): string[] {
   }
   return pieces
 }
+
+/**
+ * 本轮已经产生了几条 assistant 消息（从最后一条**真实用户消息**往后数）。
+ *
+ * 实现在 `../llm/turns.ts`：它要跳过平台注入的 `runtimeContext`（那条也是 user），
+ * 否则每个 step 都会把计数清零，模型永远停在第 1 步。
+ */
+

@@ -32,7 +32,8 @@
     "rag:contract": "node scripts/rag.mjs contract",
     "demo:rag": "node scripts/demo-rag.mjs",
     "lint": "eslint \"packages/*/src/**/*.ts\"",
-    "web": "tsx packages/cli/src/main.ts --profile web --serve"
+    "web": "tsx packages/cli/src/main.ts --profile web --serve",
+    "demo:web": "node scripts/demo-web.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

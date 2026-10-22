@@ -11,6 +11,7 @@
       "@bah/runtime": ["packages/runtime/src/index.ts"],
       "@bah/llm": ["packages/llm/src/index.ts"],
       "@bah/llm/mock": ["packages/llm/src/mock/index.ts"],
+      "@bah/llm/demo": ["packages/llm/src/demo/index.ts"],
       "@bah/llm/deepseek": ["packages/llm/src/deepseek/index.ts"],
       "@bah/interaction": ["packages/interaction/src/index.ts"],
       "@bah/safety": ["packages/safety/src/index.ts"],
