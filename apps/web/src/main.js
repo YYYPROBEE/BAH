@@ -290,7 +290,13 @@ export function mountApp(options) {
 
   stopButton.addEventListener('click', async () => {
     const result = await api.interrupt('用户点击"算了"')
-    if (!result.ok) notify(result.reason, 'danger')
+    if (!result.ok) {
+      notify(result.reason, 'danger')
+      return
+    }
+    // 服务端 `POST /api/interrupt` 一律回 `{ok:true}`（空闲时是幂等空操作），
+    // 所以这里只说"已提交"，不假装"打断了一轮"——按钮点下去什么都不发生是最坏的一种"看起来能用"。
+    notify('中断请求已提交', 'info')
   })
 
   // 标签页
