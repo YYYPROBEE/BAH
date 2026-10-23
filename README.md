@@ -22,7 +22,7 @@ pnpm install
 | 目的 | 命令 | 说明 |
 |---|---|---|
 | **起演示** | `pnpm demo:web` | 读 `.env.local` 的 `BAH_MODEL_KEY`，打开 `http://127.0.0.1:7331` |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 161 文件 / 1476 用例 |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 164 文件 / 1561 用例 |
 | **门禁** | `pnpm gate` | 27 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
@@ -194,9 +194,9 @@ facts.md             演示材料唯一数字来源
 
 | 命令 | 范围 | 实测（2026-10-23） |
 |---|---|---|
-| `pnpm test` | 主仓 | 161 文件 / 1476 用例 |
+| `pnpm test` | 主仓 | 164 文件 / 1561 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 14 文件 / 133 用例 |
-| `pnpm test:web` | 前端 | 5 文件 / 47 用例 |
+| `pnpm test:web` | 前端 | 6 文件 / 52 用例 |
 | `pnpm gate` | 门禁 | 27/27 |
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
