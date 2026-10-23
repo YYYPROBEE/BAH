@@ -634,7 +634,19 @@ textarea {
   pointer-events: none;
 }
 
+/*
+ * 遮罩必须是**视口尺寸**，不是内容尺寸。
+ *
+ * DS 基线里的 `.ds-backdrop` 是 `position: relative`（预览页要把它当一块展示面板嵌进文档流），
+ * 于是这里只写 flex 居中时，遮罩高度等于弹窗高度：实测 1440×900 视口只盖住上面 488px，
+ * 弹窗贴顶不居中，更糟的是 `.overlay-root` 是 `pointer-events: none` 而遮罩只有 488px，
+ * 审批挂起时下方输入框照样能点——"必须先应答"这条叙事当场破功。
+ * 所以显式铺满：`position: absolute` + `inset: 0`（相对 `.overlay-root` 这个 fixed 容器）。
+ * 不改 `styles/ds/components.css`：那是 DS 分发副本，动它会撞哈希门禁。
+ */
 .approval-backdrop {
+  position: absolute;
+  inset: 0;
   pointer-events: auto;
   display: flex;
   align-items: center;

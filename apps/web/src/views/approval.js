@@ -254,6 +254,10 @@ export function createApprovalController(root, handlers) {
   function close(frame) {
     if (current === null || current.ticketId !== frame.ticketId) return
     clearInterval(current.timer)
+    // 提示位（`role="status"`）不能停在"提交中…"：结论帧已经到达，这里不收尾的话，
+    // 同一个弹窗里会同时出现"提交中…"和"已批准（一次性）"两句互相打脸的话。
+    const hint = current.node.querySelector('.approval__hint')
+    if (hint !== null) hint.textContent = '结论已生效'
     const dialog = current.node.querySelector('.approval')
     if (dialog !== null) {
       dialog.dataset.state = frame.decision
