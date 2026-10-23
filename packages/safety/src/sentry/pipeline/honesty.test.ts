@@ -354,6 +354,57 @@ describe('honesty（turn-stopping：无工具结果不陈述）', () => {
     )
   })
 
+  /**
+   * 复审实测（2026-10-23）暴露的漏判，正是**演示主路径上最可能出现的说法**：
+   * 预览成功、创建被拒（用户点了拒绝）之后，模型说"转账已完成"——
+   * 旧规则只把它归到 `complete`，而 `complete` 在"有任一成功工具"时不拦，
+   * 于是这句假话不会被纠正。这条用例钉住"transfer 必须由 transfer_create 背书"。
+   */
+  it('S-1 预览成功但创建被拒 → "转账已完成"必须纠正（complete 不替 transfer 兜底）', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    test.emit('tool/result', {
+      callId: 'c-preview',
+      name: 'transfer_preview',
+      isError: false,
+      content: [{ type: 'text', text: '试算结果：转账 800 元，手续费 ¥0.00' }],
+    })
+    test.emit('tool/result', {
+      callId: 'c-create',
+      name: 'transfer_create',
+      isError: true,
+      code: 'approval-rejected',
+      content: [{ type: 'text', text: '未执行：审批被拒绝' }],
+    })
+    say(test, '审批被拒绝，但转账已完成。')
+
+    await test.turnStopping(1)
+
+    expect(test.nudges).toHaveLength(1)
+    expect(test.nudges[0]?.text).toContain('没有成功的转账结果')
+    expect(test.stopped).toEqual([])
+  })
+
+  /**
+   * 分句判定与否定词的边界。
+   *
+   * 三条都是"整句判定会判错"的样本，改动 `CLAUSE_SEP` / `NON_SUCCESS` 前先看这里。
+   */
+  it('S-1 断言识别：转折句 / "待确认" / 办事动词各自按分句判定', () => {
+    // 转折连词处切断：前半句的"拒绝"不能把后半句的真假一起放掉
+    expect(detectActionClaims(['审批被拒绝，但转账已完成。'])).toEqual(['transfer'])
+    expect(detectActionClaims(['转账已完成，请注意查收。'])).toEqual(['transfer'])
+    // `待` 不是否定词：钱已经动了，"待确认收款"说的是后续动作
+    expect(detectActionClaims(['已完成转账，待您确认收款。'])).toEqual(['transfer'])
+    expect(detectActionClaims(['已为您办理成功，无需再次确认。'])).toEqual(['complete'])
+    // 未执行 / 查询类完成，都不是行动断言
+    expect(detectActionClaims(['本次转账未执行：审批被拒绝。'])).toEqual([])
+    expect(detectActionClaims(['我已完成查询，您的余额为 1,234.56 元。'])).toEqual([])
+    expect(detectActionClaims(['查询操作成功，余额 ¥1.00。'])).toEqual([])
+    // "已提交"不是"已完成"：提交只进了审批队列
+    expect(detectActionClaims(['已提交转账申请，请等待审批。'])).toEqual([])
+  })
+
   it('S-1 断言识别：否定 / 将来语境不算断言', () => {
     expect(detectActionClaims(['预计 2 小时内到账，请耐心等待。'])).toEqual([])
     expect(detectActionClaims(['转账未成功，已拒绝。'])).toEqual([])

@@ -67,21 +67,56 @@ const ACCOUNT_FACT =
 /** 成功行动断言的类别（S-1 只认这几类"办成了"的说法，不猜意图）。 */
 export type ActionClaim = 'transfer' | 'redeem' | 'complete'
 
-/** 行动断言的特征（按分句匹配；否定语境在 `NON_SUCCESS` 里排除）。 */
-const ACTION_CLAIM_RULES: readonly { readonly kind: ActionClaim; readonly pattern: RegExp }[] = [
-  // "到账"单独出现不算：\"预计 2 小时内到账\"是承诺，不是既成事实
-  { kind: 'transfer', pattern: /(?:已|已经)(?:转账|转出|支付|汇款|到账)|(?:转账|转出|支付|汇款)成功/ },
-  { kind: 'redeem', pattern: /(?:已|已经)?核销|核销成功/ },
-  { kind: 'complete', pattern: /(?:已|已经)(?:完成|办妥|处理|受理)|(?:办理|操作|交易)成功/ },
+/**
+ * 行动断言的特征（按分句匹配；否定语境在 `NON_SUCCESS` 里排除）。
+ *
+ * 三类都用**动作名词 + 完成词**的必要组合判定，而不是只匹配"已完成"：
+ * - `我已完成查询` 是**查询**完成，不是办理完成；把它当断言会让守卫整天纠正正确回答，
+ *   所以 `complete` 带 `skip`，查询类动词一律不算；
+ * - `转账已完成` 是最自然的转账成功说法，早期规则只认"已转账 / 转账成功"，
+ *   结果这句最可能出现在演示里的话反而不被识别（复审实测：返回 `['complete']`，
+ *   而 `complete` 在"有任一成功工具"时不拦，等于放过）。
+ */
+const ACTION_CLAIM_RULES: readonly {
+  readonly kind: ActionClaim
+  readonly pattern: RegExp
+  /** 命中后仍要跳过的语境（如"查询操作成功"不是办事成功）。 */
+  readonly skip?: RegExp
+}[] = [
+  {
+    kind: 'transfer',
+    // ①「已转账 / 已为您转账」②「转账已完成 / 转账成功」③「完成 800 元转账」④「已到账」
+    pattern:
+      /已(?:经)?(?:为[您你])?(?:转账|转出|汇款|支付)|(?:转账|转出|汇款|支付)(?:已|已经)?(?:完成|成功|办妥)|(?:完成|成功|办妥)(?:了)?[^，。；\n]{0,10}(?:转账|汇款|支付|转出)|已(?:经)?到账/,
+  },
+  {
+    kind: 'redeem',
+    pattern: /(?:已|已经)?核销|核销(?:已|已经)?(?:完成|成功)/,
+  },
+  {
+    kind: 'complete',
+    // 只认"办理 / 操作 / 交易 / 申购…"这类**办事**动词
+    pattern:
+      /(?:办理|操作|交易|业务|申请|申购|赎回)[^，。；\n]{0,6}(?:完成|成功|办妥|完毕)|(?:完成|办妥)[^，。；\n]{0,6}(?:办理|申购|赎回)/,
+    skip: /(查询|查看|检索|读取|搜索|咨询)/,
+  },
 ]
 
 /**
- * 否定 / 未完成语境。
+ * 否定 / 未完成语境（**按分句判定**，不跨句）。
  *
- * 同一分句里出现这些词，就不把成功词当断言——"转账未成功"不是"转账成功"。
- * 宁可漏报（少纠正一次）也不误报：误报会让模型把正确回答改错。
+ * 只收真正的否定词：`待` / `需` / `须` 不是否定——「已完成转账，待您确认收款」陈述的是
+ * 既成事实；以前把它们当否定词，等于放过了一句假话（复审实测：返回 `[]`）。
  */
-const NON_SUCCESS = /(未|没有|没|尚未|还没|无法|失败|拒绝|取消|不成功|待|需|须)/
+const NON_SUCCESS = /(未|没有|没|尚未|还没|无法|失败|拒绝|取消|不成功|不能|不可)/
+
+/**
+ * 分句符：句读 + 转折连词。
+ *
+ * 必须在「但 / 不过 / 然而」处切开：「审批被拒绝，但转账已完成」讲的是两件事，
+ * 整句判定会因为前半句的"拒绝"把后半句的真假一起放掉（复审实测：返回 `[]`）。
+ */
+const CLAUSE_SEP = /[。！？!?；;\n，,]|但(?:是)?|不过|然而|可是|却/u
 
 /** 写操作工具（"已核销 / 已办理"必须有它们之一成功过）。 */
 const WRITE_TOOLS = ['transfer_create', 'wealth_purchase'] as const
@@ -95,9 +130,10 @@ const WRITE_TOOLS = ['transfer_create', 'wealth_purchase'] as const
 export function detectActionClaims(texts: readonly string[]): ActionClaim[] {
   const found = new Set<ActionClaim>()
   for (const text of texts) {
-    for (const clause of text.split(/[。！？!?；;\n]/u)) {
+    for (const clause of text.split(CLAUSE_SEP)) {
       if (NON_SUCCESS.test(clause)) continue
       for (const rule of ACTION_CLAIM_RULES) {
+        if (rule.skip?.test(clause) === true) continue
         if (rule.pattern.test(clause)) found.add(rule.kind)
       }
     }
