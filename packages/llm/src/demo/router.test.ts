@@ -7,6 +7,7 @@
  * - 转账必须走预览 → 执行两步，不许一步扣款。
  */
 
+import { BahError } from '@bah/util'
 import { describe, expect, it } from 'vitest'
 
 import type { LlmMessage } from '../llm/types.ts'
@@ -16,6 +17,7 @@ import {
   extractAmount,
   extractPayee,
   lastUserText,
+  parseTransfer,
   planFor,
   planFromRequest,
   type DemoIntent,
@@ -144,5 +146,59 @@ describe('从请求规划：步骤由消息决定，不由调用次数决定', (
     expect(planFromRequest({ modelId: 'router-chat', messages })[0]?.content?.[0]).toMatchObject({
       name: 'transfer_preview',
     })
+  })
+})
+
+describe('转账要素缺失的追问分支（缺一件问一件，两件都缺问整句）', () => {
+  it('既没说收款人也没说金额 → 追问"要转给谁、转多少"（不是分别只问一件）', () => {
+    // "转账" 命中粗筛但抽不出任何要素，走 parseTransfer 的最上游 clarify
+    expect(parseTransfer('我要转账')).toMatchObject({
+      kind: 'clarify',
+      question: expect.stringContaining('要转给谁、转多少'),
+    })
+    expect(classifyIntent('我要转账').kind).toBe('clarify')
+  })
+
+  it('只缺金额 → 追问里点名已识别的收款人（说明路由真的读到了姓名）', () => {
+    expect(parseTransfer('给王建国转账')).toMatchObject({
+      kind: 'clarify',
+      question: expect.stringContaining('王建国'),
+    })
+  })
+
+  it('只缺收款人 → 只问"要转给谁"', () => {
+    expect(parseTransfer('转 800 元')).toMatchObject({
+      kind: 'clarify',
+      question: expect.stringContaining('收款人'),
+    })
+  })
+})
+
+describe('阿拉伯数字金额解析（无单位走 plain 分支；≥7 位当卡号不当金额）', () => {
+  it('无"元/块"后缀的裸数字仍当金额（plain 分支）', () => {
+    expect(extractAmount('转 800')).toBe(800)
+  })
+
+  it('裸数字带千分位逗号也解析正确', () => {
+    expect(extractAmount('转 1,200')).toBe(1200)
+  })
+
+  it('明显的卡号/尾号（≥7 位）不进金额，宁可追问也不误扣真钱', () => {
+    // 1234567 ≥ 1e6 → plain 判定当卡号跳过；无中文数字 → 金额 undefined
+    expect(extractAmount('转 1234567')).toBeUndefined()
+  })
+})
+
+describe('封闭联合兜底：新增意图忘了规划会当场红', () => {
+  it('planFor 收到未知 kind → assertNever 抛 demo-intent（不静默返回空步骤）', () => {
+    const bogus = { kind: 'not-a-real-intent' } as unknown as DemoIntent
+    let caught: unknown
+    try {
+      planFor(bogus)
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(BahError)
+    expect((caught as BahError).message).toContain('demo-intent')
   })
 })

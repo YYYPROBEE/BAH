@@ -94,4 +94,17 @@ describe('HP0-10 解冻体解析', () => {
     expect(parseUnfreezeBody({ by: 'x'.repeat(65) }).ok).toBe(false)
     expect(parseUnfreezeBody({ by: 'ops', reason: 'x'.repeat(201) }).ok).toBe(false)
   })
+
+  it('reason 存在但非字符串 → 类型专属文案（与"超长"是两种错，审计与 CLI 文案都靠 code+detail 区分）', () => {
+    // 为什么要逐形态钉：`reason: null` / 对象 / 数组 / 数字都会被 `!== undefined`
+    // 放行到类型检查这一步；若这里退化成缺省值或超长文案，管理面就把"客户端写错"
+    // 与"内容过长"混成同一条信息，排障时无从判断该改哪边。
+    for (const reason of [42, true, null, {}, ['K1'], () => 'x']) {
+      expect(parseUnfreezeBody({ by: 'ops-7', reason })).toEqual({
+        ok: false,
+        code: 'web-admin-invalid-body',
+        detail: 'reason 必须是字符串',
+      })
+    }
+  })
 })

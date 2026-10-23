@@ -7,11 +7,13 @@
  * 3. 它只是 HTTP 客户端——不发别的请求、不 boot app。
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+import { ADMIN_TOKEN_ENV } from '@bah/host'
 
 import { parseCommand } from './command.ts'
 import { HELP } from './run.ts'
-import { runSentryUnfreeze, SENTRY_HELP, type SentryIo } from './sentry.ts'
+import { runSentryUnfreeze, SENTRY_HELP, type SentryFetch, type SentryIo } from './sentry.ts'
 
 /** 收集输出的假 io。 */
 function io(): SentryIo & { outLines: string[]; errLines: string[] } {
@@ -173,5 +175,180 @@ describe('HP0-15 命令路由与帮助', () => {
   it('`--profile sentry` 不被当成子命令', () => {
     expect(parseCommand(['--profile', 'sentry'])).toEqual({ kind: 'run' })
     expect(parseCommand(['sentry', 'unfreeze'])).toEqual({ kind: 'sentry' })
+  })
+})
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 补：宿主响应超出契约（网关返回 HTML / 2xx 非 JSON 时 CLI 不许抛栈、不许误判）
+ *
+ * 为什么这些用例值钱：退出码是编排器唯一的信号源。"运行中的宿主被网关挡下返回
+ * HTML"与"2xx 但内容不是 JSON"是真实降级形态，必须退化成 `HTTP <status>` 并
+ * 干净地退出 1——而不是异常上抛，更不能被误读成"未冻结"的幂等 no-op 退 0。
+ * 本文件是纯 HTTP 客户端：所有响应形态都走它自带的 `SentryFetch` 注入口，
+ * **不发真实网络**。只有最后一条"未注入 fetchImpl 时落到全局 fetch"的缺省路径
+ * 没有注入口可用，才以 `vi.stubGlobal('fetch', …)` 兜那一条线（用例内已注明）。
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** 假 fetch：固定状态码 + 非 JSON 响应体（网关 HTML / 纯文本）。 */
+function nonJsonFetch(status: number, text = '<html>bad gateway</html>'): SentryFetch {
+  return () =>
+    Promise.resolve(new Response(text, { status, headers: { 'content-type': 'text/html' } }))
+}
+
+describe('HP0-16 宿主响应超出契约：HTTP 兜底码与退出码 1', () => {
+  it('5xx 且响应体非 JSON → 退出 1，stderr 给 "解冻失败（502 HTTP 502)"（httpBodyCode 的 catch 兜底）', async () => {
+    const sink = io()
+    const code = await runSentryUnfreeze(['unfreeze', '--by', 'ops'], sink, {
+      env: ENV,
+      fetchImpl: nonJsonFetch(502),
+    })
+    expect(code).toBe(1)
+    // 注意源串的收尾括号是半角：文案本身就是契约，改它要过 CLI 消费方
+    expect(sink.errLines).toContain('解冻失败（502 HTTP 502)')
+    expect(sink.outLines).toEqual([])
+    expect(sink.errLines.join('\n')).not.toContain(TOKEN)
+  })
+
+  it('5xx 且 JSON 体带 error.code → 直接打印理由码（catch 与 try 成功是两条不同兜底）', async () => {
+    const sink = io()
+    const code = await runSentryUnfreeze(['unfreeze', '--by', 'ops'], sink, {
+      env: ENV,
+      fetchImpl: fakeFetch(503, { error: { code: 'sentry-absent', reason: '没有 sentry' } }),
+    })
+    expect(code).toBe(1)
+    expect(sink.errLines).toContain('解冻失败（503 sentry-absent)')
+  })
+
+  it('5xx 且 JSON 体没有 error.code → try 成功路径同样兜底成 HTTP <status>', async () => {
+    const sink = io()
+    const code = await runSentryUnfreeze(['unfreeze', '--by', 'ops'], sink, {
+      env: ENV,
+      fetchImpl: fakeFetch(500, { note: '没有 error 字段' }),
+    })
+    expect(code).toBe(1)
+    expect(sink.errLines).toContain('解冻失败（500 HTTP 500)')
+  })
+
+  it('403 且响应体非 JSON → "拒绝访问"文案降级成 HTTP 403（401/403 分支不只测 401）', async () => {
+    const sink = io()
+    const code = await runSentryUnfreeze(['unfreeze', '--by', 'ops'], sink, {
+      env: ENV,
+      fetchImpl: nonJsonFetch(403, 'forbidden'),
+    })
+    expect(code).toBe(1)
+    expect(sink.errLines.join('\n')).toContain('拒绝访问（403 HTTP 403）：token 或来源不合法')
+    expect(sink.errLines.join('\n')).not.toContain(TOKEN)
+  })
+
+  it('2xx 但响应体不是 JSON → 退出 1 提示"不是 JSON"，绝不被误读成幂等 no-op 的退出 0', async () => {
+    const sink = io()
+    const code = await runSentryUnfreeze(['unfreeze', '--by', 'ops'], sink, {
+      env: ENV,
+      fetchImpl: nonJsonFetch(200, 'OK'),
+    })
+    expect(code).toBe(1)
+    expect(sink.errLines).toContain('解冻失败：宿主返回的不是 JSON')
+    expect(sink.outLines).toEqual([])
+  })
+})
+
+describe('HP0-17 参数与环境边界（退出码 2 的另一半与缺省注入路径）', () => {
+  it('开关缺值：--url / --by / --reason 各自退 2 且点名开关（用法错误不许滑到运行期）', async () => {
+    const cases: Array<[readonly string[], string]> = [
+      [['unfreeze', '--url'], '--url 需要值'],
+      [['unfreeze', '--by'], '--by 需要值'],
+      [['unfreeze', '--by', 'ops', '--reason'], '--reason 需要值'],
+    ]
+    for (const [argv, needle] of cases) {
+      const sink = io()
+      expect(await runSentryUnfreeze(argv, sink, { env: ENV }), needle).toBe(2)
+      expect(sink.errLines.join('\n')).toContain(needle)
+    }
+  })
+
+  it('空白 --by 等同必填缺失；超长的 --by / --reason 各有各的理由码', async () => {
+    const blank = io()
+    expect(await runSentryUnfreeze(['unfreeze', '--by', '   '], blank, { env: ENV })).toBe(2)
+    expect(blank.errLines.join('\n')).toContain('--by 必填')
+
+    const longBy = io()
+    expect(await runSentryUnfreeze(['unfreeze', '--by', 'x'.repeat(65)], longBy, { env: ENV })).toBe(2)
+    expect(longBy.errLines.join('\n')).toContain('--by 不得超过 64 字符')
+
+    const longReason = io()
+    const code = await runSentryUnfreeze(
+      ['unfreeze', '--by', 'ops', '--reason', 'y'.repeat(201)],
+      longReason,
+      { env: ENV },
+    )
+    expect(code).toBe(2)
+    expect(longReason.errLines.join('\n')).toContain('--reason 不得超过 200 字符')
+  })
+
+  it('空白 --reason 回落缺省理由而不是报错（空串与全空白都算"没写"）', async () => {
+    for (const blankish of ['   ', '']) {
+      const captured: Captured[] = []
+      const code = await runSentryUnfreeze(['unfreeze', '--by', 'ops', '--reason', blankish], io(), {
+        env: ENV,
+        fetchImpl: fakeFetch(200, { ok: true, unfrozen: true }, captured),
+      })
+      expect(code).toBe(0)
+      expect(JSON.parse(String(captured[0]?.init?.body))).toEqual({
+        by: 'ops',
+        reason: 'operator-unfreeze',
+      })
+    }
+  })
+
+  it('fetch 抛出非 Error：文案走 String 转换且绝不泄漏 token（错误对象本体不许进输出）', async () => {
+    const sink = io()
+    const code = await runSentryUnfreeze(['unfreeze', '--by', 'ops'], sink, {
+      env: ENV,
+      fetchImpl: () => Promise.reject('socket hang up'),
+    })
+    expect(code).toBe(1)
+    expect(sink.errLines.join('\n')).toContain('无法连接 web 宿主（http://127.0.0.1:7331）：socket hang up')
+    expect(sink.errLines.join('\n')).not.toContain(TOKEN)
+  })
+
+  it('省略 options.env 时回落 process.env：两侧都没配置 → 退出 2 且不发起请求', async () => {
+    const saved = process.env[ADMIN_TOKEN_ENV]
+    delete process.env[ADMIN_TOKEN_ENV]
+    try {
+      const sink = io()
+      const code = await runSentryUnfreeze(['unfreeze', '--by', 'ops'], sink, {})
+      expect(code).toBe(2)
+      expect(sink.errLines.join('\n')).toContain('缺少环境变量 BAH_ADMIN_TOKEN')
+    } finally {
+      if (saved === undefined) delete process.env[ADMIN_TOKEN_ENV]
+      else process.env[ADMIN_TOKEN_ENV] = saved
+    }
+  })
+
+  it('未注入 fetchImpl → 走全局 fetch（这是唯一没有注入口的缺省路径，只能 vi.stubGlobal 兜住，不发真网络）', async () => {
+    const saved = process.env[ADMIN_TOKEN_ENV]
+    process.env[ADMIN_TOKEN_ENV] = TOKEN
+    const seen: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      (input: string | URL) => {
+        seen.push(String(input))
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, unfrozen: true }), { status: 200 }),
+        )
+      },
+    )
+    try {
+      const sink = io()
+      const code = await runSentryUnfreeze(['unfreeze', '--by', 'ops'], sink, {})
+      expect(code).toBe(0)
+      // 缺省 URL 与生产形态一致：直连本机 7331 的管理路径
+      expect(seen).toEqual(['http://127.0.0.1:7331/api/admin/sentry/unfreeze'])
+      expect(sink.outLines.join('\n')).toContain('已解冻（by=ops）')
+    } finally {
+      vi.unstubAllGlobals()
+      if (saved === undefined) delete process.env[ADMIN_TOKEN_ENV]
+      else process.env[ADMIN_TOKEN_ENV] = saved
+    }
   })
 })

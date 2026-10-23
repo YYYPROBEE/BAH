@@ -9,9 +9,16 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { asSessionId, captureRejection, createTestContext, fixedClock, type TestContext } from '@bah/test-support'
 
-import type { AnySessionEvent } from '../session/types.ts'
-import { SESSION_SERVICE, provideSession, type SessionApi } from '../session/service.ts'
-import { ToolGuard } from './guard.ts'
+import type { SessionEventMap } from '@bah/core'
+
+import type { AppendOptions, AnySessionEvent, SessionEventType } from '../session/types.ts'
+import {
+  SESSION_SERVICE,
+  provideSession,
+  type SessionApi,
+  type SessionSink,
+} from '../session/service.ts'
+import { fingerprintOf, ToolGuard } from './guard.ts'
 import { ToolPipeline } from './pipeline.ts'
 import { ToolRegistry } from './registry.ts'
 import { provideTools } from './index.ts'
@@ -690,7 +697,16 @@ describe('B3 回调边界与结果落账顺序', () => {
     })
   })
 
-  it('审计通道自身失败 → 回调失败仍不反噬主流程（console.error 留痕）', async () => {
+  /**
+   * 监听器抛错会被会话服务的 `emitIsolated` 隔离（落账已成功，审计通道其实是好的），
+   * 只留一条 `bah-runtime:` 运维日志。
+   *
+   * 2026-10-23 修正：这条原本标题写的是"审计通道自身失败"，但让监听器抛错根本走不到
+   * 审计通道坏了那条路，`toHaveBeenCalled()` 断到的其实是隔离日志——一条看着绿、
+   * 实际没守它宣称的不变量的用例。审计通道真坏的场景由下面那条（把 `append` 做成
+   * 同步抛错）覆盖，这里改成如实断言隔离日志的前缀。
+   */
+  it('广播监听器抛错 → 被隔离且只留 bah-runtime 运维日志，不反噬主流程', async () => {
     await withHarness(async (h) => {
       const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
       h.test.ctx.events.on('session/event', ({ event }) => {
@@ -708,7 +724,72 @@ describe('B3 回调边界与结果落账顺序', () => {
       const execution = await h.pipeline.execute(CALL)
 
       expect(execution.result.isError).toBe(false)
-      expect(spy).toHaveBeenCalled()
+      // 断的是"隔离日志"，不是"任意一条 console.error"——否则审计通道真坏时它也会误绿。
+      expect(spy.mock.calls.some(([first]) => String(first).startsWith('bah-runtime:'))).toBe(true)
+      expect(spy.mock.calls.some(([first]) => String(first).includes('tool/callback-failed 审计落账失败'))).toBe(
+        false,
+      )
+      spy.mockRestore()
+    })
+  })
+
+  /**
+   * 回调抛错之后，写 `tool/callback-failed` 审计**又**失败 → 只留运维日志（L144-145）。
+   *
+   * 与上面那条用例的分工要说清：上面那条让 `session/event` 的监听器抛错，走的是会话服务
+   * 的 `emitIsolated`（落账已成功，监听器被隔离），**审计通道其实是好的**；本条把
+   * `append` 本身做成同步抛错，才是"审计通道坏了"这条兜底路径。
+   *
+   * 守的不变量有两条：
+   * 1. 运维日志必须带上 stage 的原始异常（`auditError`），不许静默吞掉"账写不进去"这件事；
+   * 2. 主流程不能被审计通道反噬——工具体已经成功，`projectContent` 抛错仍按回退内容
+   *    收尾成**成功结果**，原始回调错误不因审计失败而变成工具失败。
+   */
+  it('回调抛错 + tool/callback-failed 审计也失败 → console.error 留痕，主流程仍按成功收尾', async () => {
+    await withHarness(async (h) => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const auditError = new Error('audit channel down')
+      /** 只把 `tool/callback-failed` 这一条做成同步抛错，其余落账照旧。 */
+      const sink: SessionSink = {
+        ...h.session,
+        append: <S extends SessionEventType>(
+          type: S,
+          data: SessionEventMap[S],
+          options?: AppendOptions,
+        ) => {
+          if (type === 'tool/callback-failed') throw auditError
+          return h.session.append(type, data, options)
+        },
+      }
+      const pipeline = new ToolPipeline({
+        ctx: h.test.ctx,
+        registry: h.registry,
+        session: sink,
+        guard: h.guard,
+        sessionId: h.session.sessionId,
+        now: () => 1_000,
+      })
+      h.registry.register(
+        tool({
+          name: 'bank:probe',
+          projectContent: () => {
+            throw new Error('project boom')
+          },
+        }),
+      )
+
+      const execution = await pipeline.execute(CALL)
+
+      // ① 运维日志：固定前缀 + 原始审计异常本体（不是一串格式化文本）
+      expect(spy).toHaveBeenCalledTimes(1)
+      expect(spy).toHaveBeenCalledWith('bah-tools: tool/callback-failed 审计落账失败', auditError)
+      // ② 主流程继续：成功结果仍是成功，内容走 fallbackContent 回退
+      expect(execution.result.isError).toBe(false)
+      expect(execution.result.code).toBeUndefined()
+      expect(execution.result.content).toEqual([{ type: 'text', text: 'ok' }])
+      // ③ 审计通道坏了 = 一条 callback-failed 都没落下去；其余落账不受牵连
+      expect(h.log().map((event) => event.type)).toEqual(['tool/call', 'tool/result'])
+      expect(h.log().filter((event) => event.type === 'tool/callback-failed')).toHaveLength(0)
       spy.mockRestore()
     })
   })
@@ -780,6 +861,27 @@ describe('isReadOnly', () => {
       expect(h.pipeline.isReadOnly('bank:probe-read')).toBe(true)
       h.registry.register(tool({ name: 'bank:probe-pure', sideEffect: 'none' }))
       expect(h.pipeline.isReadOnly('bank:probe-pure')).toBe(true)
+    })
+  })
+})
+
+/**
+ * 并行批次准入的第二道闸：`isReadOnly` 只管"能不能并行"，`isDenied` 管"本 turn 已经判过 deny 的
+ * 同名同参调用必须回到串行、复用原判决"。这条一旦放开，模型就能靠"再发一次同样的调用"
+ * 绕开 deny（同指纹 = 同一笔业务），所以把它钉在管线上而不是只靠 agent-loop 侧的间接覆盖。
+ */
+describe('isDenied', () => {
+  it('未判 deny 的调用可进并行批次；同名同参被 deny 过必须回串行', async () => {
+    await withHarness(async (h) => {
+      h.registry.register(tool({ name: 'bank:probe' }))
+      expect(h.pipeline.isDenied(CALL)).toBe(false)
+
+      h.guard.deny(fingerprintOf(CALL), { kind: 'deny', reason: '命中危险规则', code: 'dangerous-op' })
+      expect(h.pipeline.isDenied(CALL)).toBe(true)
+      // 同指纹 = 同一次业务：换个 callId 也一样回串行（指纹只取 name + args）
+      expect(h.pipeline.isDenied({ callId: 'c2', name: 'bank:probe', args: { account: 'a-1' } })).toBe(true)
+      // 参数不同 = 另一笔业务：不受这条 deny 牵连
+      expect(h.pipeline.isDenied({ callId: 'c3', name: 'bank:probe', args: { account: 'a-2' } })).toBe(false)
     })
   })
 })

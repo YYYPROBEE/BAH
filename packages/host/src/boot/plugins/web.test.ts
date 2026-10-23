@@ -10,16 +10,44 @@ import { APPROVAL_SERVICE, ApprovalService } from '@bah/interaction'
 import { AgentRegistry, provideAgents, provideSession, SESSION_SERVICE } from '@bah/runtime'
 import { SENTRY_SERVICE } from '@bah/safety'
 import { asSessionId } from '@bah/test-support'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Agent, AnySessionEvent, LlmStreamer } from '@bah/runtime'
 import type { ApprovalInputLike, ChallengePort } from '@bah/interaction'
 import type { SentryHandle } from '@bah/safety'
 import type { Context } from '@bah/core'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { RUN_SERVICE } from '../boot.ts'
 import { ADMIN_TOKEN_ENV } from './web-admin.ts'
 import { WEB_TOKEN_ENV } from './web-auth.ts'
 import { DEFAULT_WEB, WEB_SERVER, webPlugin, type WebSettings } from './web.ts'
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 测试侧的透明接缝：捕获 channel:web 的请求监听器（供非回环 403 用例注入假 socket）
+ *
+ * 为什么需要它：`handle` 藏在 apply() 的闭包里，生产出口只有 HTTP 端口；而真实
+ * 回环连接的对端 `remoteAddress` 永远是 127.x / ::1，"非回环 → 403" 这道防线用
+ * 正常 fetch 不可达。这里的 vi.mock 只做**透传登记**：把监听器记进 requestListeners，
+ * 之后仍交给真 createServer 建服与监听——既有真实 HTTP / SSE 用例的行为一字不动，
+ * 也不改任何生产代码。
+ * ──────────────────────────────────────────────────────────────────────────── */
+type WebRequestListener = (req: IncomingMessage, res: ServerResponse) => void
+
+const { requestListeners } = vi.hoisted(() => ({
+  requestListeners: [] as WebRequestListener[],
+}))
+
+vi.mock('node:http', async (importActual) => {
+  const actual = await importActual<typeof import('node:http')>()
+  return {
+    ...actual,
+    createServer: (...args: unknown[]) => {
+      const listener = args.find((arg) => typeof arg === 'function')
+      if (listener !== undefined) requestListeners.push(listener as WebRequestListener)
+      return (actual.createServer as (...rest: unknown[]) => unknown)(...args)
+    },
+  }
+})
 
 /** 测试固定的 Web token（生产未配置时是每进程随机生成）。 */
 const WEB_TOKEN = 'web-test-token'
@@ -34,6 +62,8 @@ interface Harness {
   readonly unfreezeCalls: { by: string; reason: string }[]
   /** boot 前的环境值（shutdown 时还原，避免串味）。 */
   readonly previousToken: string | undefined
+  /** 本次 boot 捕获到的请求监听器：唯一能注入假 socket / 假 remoteAddress 的入口。 */
+  readonly requestListener: WebRequestListener
 }
 
 /** 装配变体：默认全绿（有 agent、驱动常驻不返回、票据无强验证）。 */
@@ -136,10 +166,17 @@ async function boot(
     } as unknown as SentryHandle)
   }
 
+  // 本次 boot 的监听器登记位置（boot 抛错就走不到返回，数组只增不错位）
+  const listenerMark = requestListeners.length
   await ctx.use(webPlugin.plugin, settings)
   await ctx.start()
 
-  return { ctx, url: ctx.get(WEB_SERVER).url, sent, interrupts, unfreezeCalls, previousToken }
+  const requestListener = requestListeners[listenerMark]
+  if (requestListener === undefined) {
+    throw new Error('web.test: 未捕获到 channel:web 的请求监听器')
+  }
+
+  return { ctx, url: ctx.get(WEB_SERVER).url, sent, interrupts, unfreezeCalls, previousToken, requestListener }
 }
 
 /** 关掉装置（端口必须释放，否则下一个用例会撞端口）。 */
@@ -828,6 +865,49 @@ describe('channel:web 管理路由（HP-0）', () => {
       expect(response.status).toBe(404)
     } finally {
       await shutdown(unconfigured)
+    }
+  })
+
+  it('HP0-07 非回环来源 → 403 web-admin-forbidden：来源被挡时连 token 都不比，更不解冻', async () => {
+    // 为什么用假 socket 直接驱动 handler，而不是 fetch：真实连接里回环服务器能给到
+    // handler 的 remoteAddress 永远是 127.x / ::1，403 分支无法用正常请求触达——
+    // 但它是"管理口只绑本机"的最后一道防线（token 泄漏也进不来），必须被钉住。
+    setToken('correct-token-value')
+    const harness = await boot({}, { sentry: 'frozen' })
+    try {
+      const written: { status?: number; body?: string } = {}
+      const res = {
+        headersSent: false,
+        writeHead(status: number): void {
+          written.status = status
+        },
+        end(chunk?: unknown): void {
+          written.body = chunk === undefined ? '' : String(chunk)
+        },
+      }
+      const req = {
+        socket: { remoteAddress: '10.0.0.1' },
+        method: 'POST',
+        url: '/api/admin/sentry/unfreeze',
+        // 给足完全正确的 token：来源不对也必须挡（安全顺序：存在性 → 来源 → 方法 → 凭证）
+        headers: { host: '127.0.0.1:7331', authorization: 'Bearer correct-token-value' },
+      }
+
+      harness.requestListener(req as unknown as IncomingMessage, res as unknown as ServerResponse)
+      // 监听器是 fire-and-forget 的 `void handle(...)`：宏任务屏障等头落定
+      // （与审批用例同款做法，不赌微任务顺序）。
+      await new Promise((resolve) => {
+        setImmediate(resolve)
+      })
+
+      expect(written.status).toBe(403)
+      const body = JSON.parse(String(written.body)) as { error: { code: string; reason: string } }
+      expect(body.error.code).toBe('web-admin-forbidden')
+      expect(body.error.reason).toContain('回环')
+      // 挡在"来源"这一步：body 都没读，断路器当然没被碰
+      expect(harness.unfreezeCalls).toEqual([])
+    } finally {
+      await shutdown(harness)
     }
   })
 })
