@@ -234,20 +234,20 @@ function readModelSpec(value: unknown): ModelSettings['modelSpec'] {
 /** 按配置造适配器（mock / router / deepseek 三选一）。 */
 function createAdapter(
   config: ModelSettings,
-  toolOutcomes: () => readonly MockToolOutcome[],
+  toolOutcomes: (() => readonly MockToolOutcome[]) | undefined,
 ): LlmAdapter {
   if (config.provider === 'mock') {
     return new MockLlmAdapter({
       script: { steps: (config.script ?? []).map(toMockStep) },
       ...(config.chunkSize === undefined ? {} : { chunkSize: config.chunkSize }),
-      toolOutcomes,
+      ...(toolOutcomes === undefined ? {} : { toolOutcomes }),
     })
   }
   if (config.provider === 'router') {
     // 与 mock 共用同一个适配器实现，只是步骤由请求现算（读 messages，不看游标）
     return createDemoRouter({
       ...(config.chunkSize === undefined ? {} : { chunkSize: config.chunkSize }),
-      toolOutcomes,
+      ...(toolOutcomes === undefined ? {} : { toolOutcomes }),
     })
   }
   // 密钥来源名是配置项：换 vault / 网关注入时不需要改代码
@@ -288,8 +288,10 @@ function createAdapter(
 function observeToolOutcomes(
   ctx: Context,
   config: ModelSettings,
-): () => readonly MockToolOutcome[] {
-  if (config.provider === 'deepseek') return () => []
+): (() => readonly MockToolOutcome[]) | undefined {
+  // 真实模型不订阅，也不给它造一个"永远读不到东西"的假读口：
+  // 那样既没人调用（白占一个闭包），又会在类型上假装"deepseek 也有工具结局视图"。
+  if (config.provider === 'deepseek') return undefined
 
   const outcomes: MockToolOutcome[] = []
   ctx.effect(

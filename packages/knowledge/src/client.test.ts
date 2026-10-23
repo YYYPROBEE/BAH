@@ -96,6 +96,48 @@ describe('http knowledge port', () => {
     expect(queryBody).toEqual({ schemaVersion: 'knowledge.v1', query: '稳盈90天赎回费率' })
   })
 
+  /**
+   * `requireCitations === undefined` → 线上请求体里**不带这个键**（不是带 `false`）。
+   *
+   * 为什么要断"键集合"而不是断值：引用开关的缺省由服务端决定，端口把"没表达意见"
+   * 序列化成 `false` 等于替服务端做决定——而"不引用"是合规位，绝不能被默认关掉。
+   * 同时必须证明"缺省"与"显式 false"是两回事，否则这条 omission 会退化成一刀切丢字段。
+   */
+  it('requireCitations 未指定时线上请求体不带该键（而非 false）', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => jsonResponse(answerResponse()))
+    vi.stubGlobal('fetch', fetchMock)
+    const port = createHttpKnowledgePort({ baseUrl: 'http://127.0.0.1:7801' })
+
+    const bodyOf = (index: number): Record<string, unknown> =>
+      JSON.parse(String(fetchMock.mock.calls[index]![1].body)) as Record<string, unknown>
+
+    // ① 一个 answerOptions 都没给：线上体只有 schemaVersion + query
+    await port.answer(ANSWER_REQUEST)
+    expect(bodyOf(0)).toEqual({ schemaVersion: 'knowledge.v1', query: '稳盈90天赎回费率' })
+
+    // ② 给了 style / maxChars 但没写 requireCitations：键集合里必须没有它
+    await port.answer({ ...ANSWER_REQUEST, answerOptions: { style: 'concise', maxChars: 400 } })
+    const withOptions = bodyOf(1)
+    expect(Object.keys(withOptions).sort()).toEqual(['answerOptions', 'query', 'schemaVersion'])
+    const answerOptions = withOptions['answerOptions'] as Record<string, unknown>
+    expect('requireCitations' in answerOptions).toBe(false)
+    expect(Object.keys(answerOptions).sort()).toEqual(['maxChars', 'style'])
+
+    // ③ 空对象也要原样带出 `answerOptions: {}`（省略的是键值，不是整个可选项）
+    await port.answer({ ...ANSWER_REQUEST, answerOptions: {} })
+    expect(bodyOf(2)).toEqual({
+      schemaVersion: 'knowledge.v1',
+      query: '稳盈90天赎回费率',
+      answerOptions: {},
+    })
+
+    // ④ 显式写了 false / true：必须出现，证明 ② 走的是"未指定"分支而非"总是丢弃"
+    await port.answer({ ...ANSWER_REQUEST, answerOptions: { requireCitations: false } })
+    expect(bodyOf(3)['answerOptions']).toEqual({ requireCitations: false })
+    await port.answer({ ...ANSWER_REQUEST, answerOptions: { requireCitations: true } })
+    expect(bodyOf(4)['answerOptions']).toEqual({ requireCitations: true })
+  })
+
   it.each([
     [401, 'knowledge-denied'],
     [400, 'knowledge-bad-request'],

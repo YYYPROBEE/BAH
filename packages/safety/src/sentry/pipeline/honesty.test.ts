@@ -305,6 +305,55 @@ describe('honesty（turn-stopping：无工具结果不陈述）', () => {
     expect(test.stopped[0]).toContain('已纠正过一次')
   })
 
+  /**
+   * `complete` 这一类的两句文案是**给用户看的诚实陈述**（「办理完成」/「没有任何成功的工具结果」），
+   * 既有 3 个类别里只有它没被断过。这里断**完整字符串**而不是 `toContain`：
+   * 改一个字就红，防止有人把"没有任何成功的工具结果"润色成"尚未执行"这类失真说法。
+   */
+  it('S-1 没有任何成功工具却称"操作成功" → 纠正文案逐字钉死（办理完成 / 没有任何成功的工具结果）', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    say(test, '您的业务已受理，操作成功。')
+
+    await test.turnStopping(1)
+
+    expect(test.nudges).toHaveLength(1)
+    expect(test.nudges[0]?.agentId).toBe('a-1')
+    expect(test.nudges[0]?.text).toBe(
+      '【行动断言】本 turn 的工具结局不支持你声称的「办理完成」：没有任何成功的工具结果。' +
+        '请据实说明未执行或失败的原因，不得声称已完成。',
+    )
+    const corrected = test.events.filter((event) => event.type === 'sentry/honesty-corrected')
+    expect(corrected).toHaveLength(1)
+    expect(corrected[0]?.data['kind']).toBe('action-claim')
+    expect(test.stopped).toEqual([])
+  })
+
+  /**
+   * "有结果但全失败"与"一个结果都没有"对 `complete` 断言来说是同一个结局：
+   * 核对的是**成功工具数**（`successfulToolCount()`），不是结果条数。
+   */
+  it('S-1 只有失败结果却称"已处理" → 同一句 complete 文案（成功数为 0 即不支持）', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    test.emit('tool/result', {
+      callId: 'c-1',
+      name: 'wealth_purchase',
+      isError: true,
+      code: 'approval-rejected',
+      content: [{ type: 'text', text: '未执行：审批被拒绝' }],
+    })
+    say(test, '您的申购已处理完毕。')
+
+    await test.turnStopping(1)
+
+    expect(test.nudges).toHaveLength(1)
+    expect(test.nudges[0]?.text).toBe(
+      '【行动断言】本 turn 的工具结局不支持你声称的「办理完成」：没有任何成功的工具结果。' +
+        '请据实说明未执行或失败的原因，不得声称已完成。',
+    )
+  })
+
   it('S-1 断言识别：否定 / 将来语境不算断言', () => {
     expect(detectActionClaims(['预计 2 小时内到账，请耐心等待。'])).toEqual([])
     expect(detectActionClaims(['转账未成功，已拒绝。'])).toEqual([])

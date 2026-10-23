@@ -280,6 +280,8 @@ function actionLabel(claim: ActionClaim): string {
     case 'complete':
       return '办理完成'
     default:
+      // 构造不可达：封闭联合已穷尽（纪律 6 要求收尾）
+      /* v8 ignore next */
       return assertNever(claim, 'action-claim')
   }
 }
@@ -294,6 +296,10 @@ function unsupportedReason(claim: ActionClaim): string {
     case 'complete':
       return '没有任何成功的工具结果'
     default:
+      // 构造不可达：封闭联合已穷尽（纪律 6 要求收尾）。
+      // 且 `unsupportedReason` 总在 `actionLabel` 之后对同一数组求值，
+      // 非法标签会先在上面那个 switch 抛掉——这里连注入路径都不是首个抛点。
+      /* v8 ignore next */
       return assertNever(claim, 'action-claim')
   }
 }
