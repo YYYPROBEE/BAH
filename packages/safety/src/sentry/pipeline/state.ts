@@ -25,6 +25,10 @@ export class SentryState {
   readResults = 0
   /** 本 turn 的 assistant 文本（按落账顺序）。 */
   assistantTexts: string[] = []
+  /** 本 turn 成功过的工具名（按名称去重；行动断言守卫用它核对"是否真的办成了"）。 */
+  private readonly succeededTools = new Set<string>()
+  /** 本 turn 失败过的工具名（按名称去重）。 */
+  private readonly failedTools = new Set<string>()
   /** 会话累计风险分（入口检测的分数累加，封顶 1）。 */
   riskScore = 0
   /** 会话最高风险等级。 */
@@ -42,6 +46,8 @@ export class SentryState {
   private readonly guardNotified = new Set<number>()
   /** 已追加过纠正提示的 turn（防止纠正触发的新 step 再次纠正，形成死循环）。 */
   private readonly correctedTurns = new Set<number>()
+  /** 已因"行动断言不符"纠正过的 turn（与数值纠正分开：两类纠正的严重度不同）。 */
+  private readonly actionCorrectedTurns = new Set<number>()
   /** 本 turn 权威数值（分；来自 `tool/result` 的投影内容）。 */
   private readonly turnResultAmounts = new Set<number>()
 
@@ -53,6 +59,8 @@ export class SentryState {
     this.readResults = 0
     this.assistantTexts = []
     this.turnResultAmounts.clear()
+    this.succeededTools.clear()
+    this.failedTools.clear()
   }
 
   /** 一次工具调用（`tool/call` 落账后调用）。 */
@@ -73,6 +81,38 @@ export class SentryState {
   /** 一段 assistant 文本（空串忽略）。 */
   noteAssistant(text: string): void {
     if (text.length > 0) this.assistantTexts.push(text)
+  }
+
+  /** 一次工具结局（成功 / 失败都按工具名记账；失败不覆盖成功）。 */
+  noteToolOutcome(name: string, isError: boolean): void {
+    if (isError) this.failedTools.add(name)
+    else this.succeededTools.add(name)
+  }
+
+  /** 本 turn 是否有某个工具成功过。 */
+  hasSuccessfulTool(name: string): boolean {
+    return this.succeededTools.has(name)
+  }
+
+  /** 本 turn 的成功工具数（按名称去重）。 */
+  successfulToolCount(): number {
+    return this.succeededTools.size
+  }
+
+  /** 本 turn 失败过的工具名（升序副本；只用于审计与纠正文案）。 */
+  failedToolNames(): string[] {
+    return [...this.failedTools].sort()
+  }
+
+  /**
+   * 登记一次"行动断言不符"的纠正；同一 turn 只纠正一次。
+   *
+   * @returns 本次是否为该 turn 的首次纠正（false = 模型已被告知过，仍不改口就该判停）
+   */
+  markActionCorrected(turn: number): boolean {
+    if (this.actionCorrectedTurns.has(turn)) return false
+    this.actionCorrectedTurns.add(turn)
+    return true
   }
 
   /** 本 turn 的一个权威数值（分；去重）。 */

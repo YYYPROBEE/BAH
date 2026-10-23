@@ -81,7 +81,8 @@ describe('T-TOOLS-002 黄级票据', () => {
       expect(asked[0]?.['challenge']).toBeUndefined()
       expect(payloads(h, 'approval/decided')[0]?.decision).toBe('allowed-once')
       expect(h.core.tickets.size).toBe(1)
-      expect(h.core.tickets.status('ticket:c-1' as TicketId)).toBe('redeemed')
+      // 票据 ID 已是随机 UUID：从 approval/asked 里取，不再按 callId 拼
+      expect(h.core.tickets.status(asked[0]?.['ticketId'] as TicketId)).toBe('redeemed')
       expect(auditPayloads(h, 'transfer/created')).toHaveLength(1)
       expect(auditPayloads(h, 'transfer/created')[0]?.result).toMatchObject({ amountCents: 80_000 })
     } finally {
@@ -103,7 +104,7 @@ describe('T-TOOLS-003 日累计升红', () => {
       const asked = payloads(h, 'approval/asked')
       expect(asked).toHaveLength(1)
       expect(asked[0]?.['challenge']).toBe(TEST_CONFIG.redChallenge)
-      expect(h.core.tickets.status('ticket:c-1' as TicketId)).toBe('redeemed')
+      expect(h.core.tickets.status(asked[0]?.['ticketId'] as TicketId)).toBe('redeemed')
     } finally {
       await h.dispose()
     }
@@ -134,7 +135,8 @@ describe('审批失败路径', () => {
 
       expect(execution.result.isError).toBe(true)
       expect(execution.result.code).toBe('approval-unavailable')
-      expect(h.core.tickets.status('ticket:c-1' as TicketId)).toBe('blocked')
+      const asked = payloads(h, 'approval/asked')
+      expect(h.core.tickets.status(asked[0]?.['ticketId'] as TicketId)).toBe('blocked')
       expect(auditPayloads(h, 'transfer/created')).toHaveLength(0)
       expect(h.audits.some((record) => record.type === 'transfer/created')).toBe(false)
     } finally {
@@ -147,7 +149,8 @@ describe('审批失败路径', () => {
     try {
       const execution = await h.run('transfer_create', TRANSFER_800)
       expect(execution.result.code).toBe('approval-rejected')
-      expect(h.core.tickets.status('ticket:c-1' as TicketId)).toBe('blocked')
+      const asked = payloads(h, 'approval/asked')
+      expect(h.core.tickets.status(asked[0]?.['ticketId'] as TicketId)).toBe('blocked')
       expect(payloads(h, 'approval/decided')[0]?.decision).toBe('rejected')
     } finally {
       await h.dispose()

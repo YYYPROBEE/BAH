@@ -265,11 +265,12 @@ describe('票据账本接线', () => {
       ])
       const issued = payloads(app.events, 'ticket/issued')[0]
       expect(issued).toMatchObject({
-        ticketId: 'ticket:call-1',
+        // UUID 票据：只钉 callId 与金额，ID 本身断言形状
         callId: 'call-1',
         name: 'transfer_create',
         amountCents: 80_000,
       })
+      expect(String(issued?.['ticketId'])).toMatch(/^ticket:[0-9a-f-]{36}$/)
       expect(issued?.['expiresAt']).toBe(1_792_000_120_000)
     } finally {
       await app.dispose()

@@ -144,6 +144,10 @@ export interface ApprovalFrame {
   readonly amountText?: string
   readonly amountConfirmed: boolean
   readonly payeeName?: string
+  /** 收款人手机号（**已脱敏**：前 3 后 4；原值不进前端）。 */
+  readonly payeePhone?: string
+  /** 手续费展示文本（来自本 turn 的 `transfer_preview` 结果；没有就不编）。 */
+  readonly feeText?: string
   readonly tier: FrameTier
   /** 票据 TTL 截止时刻（epoch ms）；客户端只做视觉倒计时。 */
   readonly expiresAt?: number

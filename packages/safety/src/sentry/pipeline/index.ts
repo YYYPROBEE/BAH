@@ -8,7 +8,8 @@
  * session/event       audit.ts     turn 边界 / 审批 / 判决 / 拒绝全量落 TraceLog
  * tools/post-execute  honesty.ts   数值对账 → block + 纠正文本（经 fail-closed.ts 包一层：
  *                                 判决件自身抛错 → block + `sentry/verifier-failed`）
- * agent/turn-stopping honesty.ts   无工具结果不陈述 / 全 turn 数值复核 / 工具数判停
+ * agent/turn-stopping honesty.ts   行动断言对账（S-1）/ 无工具结果不陈述 / 全 turn 数值复核 / 工具数判停
+ *                                  （外再包一层 fail-closed：核验崩溃 → 判停，不放行收尾）
  * ```
  *
  * 纪律（施工单 10 硬约束 4）：一切贡献走 `ctx.effect(...)` / `ctx.events.on(...)` 返回 disposer；
@@ -27,7 +28,7 @@ import { SentryBreaker } from './breaker.ts'
 import type { SentrySettings } from './config.ts'
 import type { SentrySessionEventType } from './events.ts'
 import { createControlListener, type ToolTierLookup } from './control.ts'
-import { createSentryPostExecuteListener } from './fail-closed.ts'
+import { createSentryPostExecuteListener, failClosedTurnStopping } from './fail-closed.ts'
 import { createTurnStoppingListener } from './honesty.ts'
 import { createIngressListener } from './ingress.ts'
 import { SentryState } from './state.ts'
@@ -159,8 +160,17 @@ export function provideSentry(
       createSentryPostExecuteListener({ ...shared, nudge: ports.nudge }),
     ),
   )
+  // 收尾钩子也包 fail-closed：行动断言守卫自己崩了，不许把带成功断言的消息放行收尾
   ctx.effect(
-    ctx.events.on('agent/turn-stopping', createTurnStoppingListener({ ...shared, nudge: ports.nudge })),
+    ctx.events.on(
+      'agent/turn-stopping',
+      failClosedTurnStopping(createTurnStoppingListener({ ...shared, nudge: ports.nudge }), {
+        sessionId,
+        trace,
+        record: ports.record,
+        now: ports.now,
+      }),
+    ),
   )
 
   return {

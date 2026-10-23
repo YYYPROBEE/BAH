@@ -129,6 +129,14 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
   /** 组合风险是「同一 turn 内」的口径：turn/start 重置（跨 turn 的日累计由 core 账本负责）。 */
   let riskyCallsInTurn = 0
 
+  /**
+   * `callId → ticketId` 映射。
+   *
+   * 票据 ID 现在是随机 UUID，`tools/result` 只带 `callId`，反推不出票据。
+   * 审批桥接（`approval/request`）手上两样都有，就在那里记一笔。
+   */
+  const ticketOfCall = new Map<string, TicketId>()
+
   ctx.effect(
     ctx.events.on('session/event', (payload) => {
       const envelope = payload as { readonly event?: { readonly type?: unknown } }
@@ -187,6 +195,8 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
 
       const ticketId = input.ticket.ticketId as TicketId
       const issuedAt = now()
+      // 这里是唯一同时见到 callId 与 ticketId 的地方：记下映射，`tools/result` 才找得到票据
+      ticketOfCall.set(input.callId, ticketId)
       const binding = {
         sessionId,
         tool: input.name,
@@ -254,7 +264,8 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
   ctx.effect(
     ctx.events.on('tools/result', (payload) => {
       const result = payload as ToolResultLike
-      const ticketId = ticketIdOf(result.callId)
+      // 票据 ID 是 UUID，只能从审批期记下的映射里取；取不到再退回旧派生（无票据的调用本来就会 return）
+      const ticketId = ticketOfCall.get(result.callId) ?? ticketIdOf(result.callId)
       // emit 是同步派发：本监听器抛错会炸穿管线（资金已动、日志记失败）。
       // 记账只做旁路：任何异常都降级为审计事件，绝不改变 `tool/result` 的权威结论。
       try {

@@ -187,13 +187,15 @@ tool/result.code/isError ──▶ 理由码与三态
 - 三态互斥且不可回退（事件顺序保证），重复帧只更新不追加（按 `callId` 复用节点）。
 - 金额字段统一走 §6 的降级判定。
 
-### 5.3 审批弹窗（六要素）
+### 5.3 审批弹窗（六要素 + 两项可选）
 
 | 字段 | 帧字段 | 来源事件 | 缺失时 |
 |---|---|---|---|
 | 操作类型 | `operation`（工具名 + 中文标题） | `approval/asked.name` + 卡片标题 | 显示工具名 |
 | 金额 | `amountText` / `amountConfirmed` | `approval/asked.amount` | 显示"待确认"并置灰 |
 | 收款人 | `payeeName` | 同 turn 的 `tool/call.args.payee.name` | 显示"—" |
+| 收款手机（可选） | `payeePhone`（**已脱敏**：前 3 后 4） | 同 turn 的 `tool/call.args.payee.phone` | 不显示该行；完整号码不进帧 |
+| 手续费（可选） | `feeText` | 本 turn `transfer_preview` 结果正文（`手续费 ¥…`） | 不显示该行；不从金额/费率反推 |
 | 风险级别 | `tier` | `tool/call.tier.level` + 三级徽标 | 缺省 `unknown`，不猜 |
 | 等待时长 | `waited`（客户端计时，纯视觉） | — | 永远显示"已等待 mm:ss"；**不做倒计时**（见 R-WEB-D8） |
 | 拒绝理由 | 输入框 → `POST /api/approval/:ticketId` | 回传 `approval/decided(rejected)` | 拒绝时必填（前端校验 + 后端再校验） |
@@ -244,13 +246,13 @@ confirmed(amount, callId) =
 | 方法 | 路径 | 语义 | 主要错误 |
 |---|---|---|---|
 | `GET` | `/` `/assets/*` `/styles/*` `/src/*` | 静态资源（默认 `apps/web`，无需构建） | 404 |
-| `GET` | `/api/session` | `{ sessionId, lastSeq, capabilities, profile }` | — |
-| `GET` | `/api/events?since=N` | SSE：`snapshot` → 后续 `frame` / `delta` / `heartbeat` | 400（`since` 非法） |
-| `POST` | `/api/turn` | `{ text }` → 入队并驱动；202 | 400 空文本 / 409 agent 忙 / 503 无 agent |
-| `POST` | `/api/interrupt` | `{ reason? }` → `agent.interrupt` | 409 |
-| `POST` | `/api/approval/:ticketId` | `{ decision, reason? }` → 仲裁器 | 404 无此票据 / 409 已决 / 400 缺拒绝理由 |
-| `POST` | `/api/verify/:ticketId` | 红级挑战验证（模拟） | 404 / 409 |
-| `GET` | `/api/health` | `{ ok, profile, sessionId, lastSeq }` | — |
+| `GET` | `/api/session` | `{ sessionId, lastSeq, capabilities, profile }` | 401 |
+| `GET` | `/api/events?since=N` | SSE：`snapshot` → 后续 `frame` / `delta` / `heartbeat` | 400（`since` 非法）/ 401 |
+| `POST` | `/api/turn` | `{ text }` → 入队并驱动；202 | 400 空文本 / 401 / 409 agent 忙 / 503 无 agent |
+| `POST` | `/api/interrupt` | `{ reason? }` → `agent.interrupt` | 401 / 409 |
+| `POST` | `/api/approval/:ticketId` | `{ decision, reason? }` → 仲裁器 | 401 / 404 无此票据 / 409 已决 / 400 缺拒绝理由 |
+| `POST` | `/api/verify/:ticketId` | 红级挑战验证（模拟） | 401 / 404 / 409 |
+| `GET` | `/api/health` | `{ ok, lastSeq, pendingTicketCount }`（只给数量，不给票据 ID） | — |
 | `POST` | `/api/admin/sentry/unfreeze` | 人工解冻断路器（**默认关闭**，见 §7.1） | 404 / 403 / 401 / 400 / 503 / 405 |
 
 ### 7.1 管理路由（`POST /api/admin/sentry/unfreeze`）
@@ -288,6 +290,19 @@ confirmed(amount, callId) =
 
 CLI 侧对应命令是 `bah sentry unfreeze --by <operator>`（headless 无此入口，只能重启进程，
 见 `docs/sentry.md` §5.1）。
+
+### 7.2 Web 凭证（D5 最小集）
+
+除 `GET /api/health` 与管理路由外，所有 `/api/*` 要求 `Authorization: Bearer <token>`；
+缺 / 错凭证一律 401 `web-unauthorized`，请求不会触达 agent。
+
+- **token 来源**：`BAH_WEB_TOKEN`；未配置时每个进程启动随机生成（`packages/host/src/boot/plugins/web-auth.ts`），
+  不写死、不入库、不进审计。
+- **页面载体**：响应 `index.html` 时注入 `<meta name="bah-web-token">`，同源脚本读取后放进请求头。
+  跨源页面读不到这个响应体（没有 CORS），所以它同时是一条最小 CSRF 边界——**这不是登录**，
+  本机单用户演示仍是唯一场景。
+- **SSE 例外**：`EventSource` 不能设请求头，只有 `GET /api/events` 接受 `?token=`；其余接口不认查询参数。
+- **健康探针公开**：编排器与演示脚本只问"还活着吗"，不拿凭证。
 
 约定：
 

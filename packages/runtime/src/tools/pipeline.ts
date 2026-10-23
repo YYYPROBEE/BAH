@@ -19,6 +19,8 @@
  * - 判决顺序改动 = 破坏性变更（施工单 03 硬约束 3）。
  */
 
+import { randomUUID } from 'node:crypto'
+
 import { BahError, assertNever, errorCodeOf, reasonOf } from '@bah/util'
 
 import type {
@@ -224,7 +226,13 @@ export class ToolPipeline {
     if (guarded === undefined && verdict.kind === 'deny') this.guard.deny(fingerprint, verdict)
 
     // ③e ask：签票据 → 走审批（无人应答 = unavailable = deny）
-    if (verdict.kind === 'ask') verdict = await this.approve(call, verdict, definition)
+    // 票据 ID 是随机 UUID：**必须显式往下传**，否则工具体只能自己"算"一个（算不出来）。
+    let ticketId: TicketId | undefined
+    if (verdict.kind === 'ask') {
+      const approved = await this.approve(call, verdict, definition)
+      verdict = approved.verdict
+      ticketId = approved.ticketId
+    }
 
     if (verdict.kind === 'deny') return this.reject(call, verdict, callCard)
 
@@ -234,7 +242,7 @@ export class ToolPipeline {
     let code: string | undefined
     let reason: string | undefined
     try {
-      payload = await this.invoke(call, definition)
+      payload = await this.invoke(call, definition, ticketId)
     } catch (error) {
       isError = true
       // 保留工具体抛出的结构化理由码：`tool-failed` 会把审计与自愈都变成瞎子
@@ -329,19 +337,27 @@ export class ToolPipeline {
   private async invoke(
     call: ToolCallInput,
     definition: ToolDefinition<unknown, unknown>,
+    ticketId?: TicketId,
   ): Promise<unknown> {
     const innermost: ToolExecutor = async (target) =>
-      definition.execute(target.args, this.execContext(target.callId))
+      definition.execute(target.args, this.execContext(target.callId, ticketId))
     const executor = await this.ctx.events.waterfall('tools/execute', innermost)
-    return executor(call)
+    // 把票据 ID 挂到 call 上再交给包裹层：`tools/execute` 的 listener 只拿得到 call，
+    // 票据是随机 UUID，不给它就等于逼包裹层去猜（saga 桥接正是需要它的那个包裹层）
+    return executor(ticketId === undefined ? call : { ...call, ticketId })
   }
 
-  /** ③e 审批：签票据 → `approval/request` → 结论落账。 */
+  /**
+   * ③e 审批：签票据 → `approval/request` → 结论落账。
+   *
+   * 返回里带上 `ticketId`：票据 ID 是随机 UUID，执行期必须**由管线传下去**，
+   * 工具体才能拿着它去核销（以前靠 `ticket:${callId}` 反推，改 UUID 后就推不出来了）。
+   */
   private async approve(
     call: ToolCallInput,
     ask: AskVerdict,
     definition: ToolDefinition<unknown, unknown>,
-  ): Promise<PreExecuteVerdict> {
+  ): Promise<{ verdict: PreExecuteVerdict; ticketId: TicketId }> {
     const ticket = this.mintTicket(call, ask)
     const challenge: ApprovalChallenge | undefined = ask.challenge
 
@@ -373,11 +389,14 @@ export class ToolPipeline {
       code: decision.decision === 'allowed-once' ? undefined : `approval-${decision.decision}`,
     })
 
-    if (decision.decision === 'allowed-once') return { kind: 'allow' }
+    if (decision.decision === 'allowed-once') return { verdict: { kind: 'allow' }, ticketId: ticket.ticketId }
     return {
-      kind: 'deny',
-      code: `approval-${decision.decision}`,
-      reason: decision.reason ?? `审批未通过（${decision.decision}）`,
+      verdict: {
+        kind: 'deny',
+        code: `approval-${decision.decision}`,
+        reason: decision.reason ?? `审批未通过（${decision.decision}）`,
+      },
+      ticketId: ticket.ticketId,
     }
   }
 
@@ -419,17 +438,29 @@ export class ToolPipeline {
   private mintTicket(call: ToolCallInput, ask: AskVerdict): TicketRef {
     const draft = ask.ticket
     return {
-      // 票据 ID 的唯一铸造点：由调用 ID 派生，保证（会话, 调用）→ 票据一一对应
-      ticketId: `ticket:${call.callId}` as TicketId,
+      /**
+       * 票据 ID 必须**不可预测**。
+       *
+       * 原先由调用 ID 派生（`ticket:${callId}`）：票据 ID 会出现在审批 URL
+       * `/api/approval/:ticketId` 与审计里，能读到上一张票就猜得出下一张。
+       * 「（会话, 调用）→ 票据」的一一对应由仲裁器的账本维护，不靠字符串形状——
+       * 把可预测性当身份，是拿 URL 当权限。
+       */
+      ticketId: `ticket:${randomUUID()}` as TicketId,
       fingerprint: draft.fingerprint,
       amount: draft.amount,
       expiresAt: this.now() + draft.ttlMs,
     }
   }
 
-  /** 工具体可见的执行上下文（最小冻结面：会话 / 调用 ID / 取消信号）。 */
-  private execContext(callId: string): ToolExecContext {
-    return { sessionId: this.sessionId, callId, signal: this.signal }
+  /** 工具体可见的执行上下文（最小冻结面：会话 / 调用 ID / 票据 / 取消信号）。 */
+  private execContext(callId: string, ticketId?: TicketId): ToolExecContext {
+    return {
+      sessionId: this.sessionId,
+      callId,
+      signal: this.signal,
+      ...(ticketId === undefined ? {} : { ticketId }),
+    }
   }
 }
 

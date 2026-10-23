@@ -23,7 +23,8 @@ tools/result        ticketing.ts  读 bank-core 票据状态 → consumed / bloc
 session/event       audit.ts      turn 边界 / 审批 / 判决 / 拒绝 / 票据全量落 TraceLog
 tools/post-execute  honesty.ts    数值对账 → block + 纠正文本（追加进 additionalContexts；
                                   自身抛错 → fail-closed 转 block，见 §2.2）
-agent/turn-stopping honesty.ts    无工具结果不陈述 / 全 turn 数值复核 / 工具数判停
+agent/turn-stopping honesty.ts    行动断言对账（S-1）/ 无工具结果不陈述 / 全 turn 数值复核 / 工具数判停
+                                  （自身抛错 → fail-closed 转 stop，见 §2.2）
 ```
 
 **注册顺序**（base bundle）：`bank:tools` → `interaction:approval` → `safety:sentry`。
@@ -45,20 +46,25 @@ d. 熔断/降级    锁存冻结、只绿模式、同 turn 工具数超限（三
 
 七段管线对 `tools/post-execute` 的默认容错是"监听器坏了就按 accept 继续"——
 这条对观察者成立，对**带阻断权的判决件**是反模式：核验组件失效的那一次，
-恰好就是最该拦截的那一次。sentry 因此给自身上了一层包装：
+恰好就是最该拦截的那一次。`agent/turn-stopping` 同样：它是 serial 钩子且没有返回值，
+异常若被静默跳过，带成功断言的消息就会正常收尾。sentry 因此给两个判决件都包了一层：
 
 ```text
-监听器正常      → 原样返回（判决完全由 honesty.ts 决定）
-监听器抛错      → block + code=verifier-unavailable + 固定话术
+监听器正常      → 原样放行（判决完全由 honesty.ts 决定）
+post-execute 抛错 → block + code=verifier-unavailable + 固定话术
                   + 落 sentry/verifier-failed（含 200 字内的错误消息）
+turn-stopping 抛错 → stop(固定话术)（turn/end.reason.kind = guard-stopped）
+                  + 落 sentry/verifier-failed（listener=agent/turn-stopping）
 ```
 
 三条约束：
 
-1. **不向上抛**：抛出去会落到 runtime 的通用 catch，而那正是"按 accept 继续"的路径；
+1. **不向上抛**：post-execute 抛出去会落到 runtime 的通用 catch，而那正是"按 accept 继续"的路径；
+   turn-stopping 抛出去则让收尾流程异常中断，两者都不能靠"外面会兜住"；
 2. **错误详情不进模型**：`reason` 是固定话术，真实异常只进审计与 TraceLog，
    且不拼接工具参数 / 结果 / 用户原话；
-3. **`next` 最多一次**：避免同一结果被下游判决两次（记账、吊销票据都不是幂等的）。
+3. **`next` 最多一次**：避免同一结果被下游判决两次（记账、吊销票据都不是幂等的）；
+   turn-stopping 没有 `next`，这条不适用。
 
 实现见 `packages/safety/src/sentry/pipeline/fail-closed.ts`。
 
@@ -78,14 +84,23 @@ d. 熔断/降级    锁存冻结、只绿模式、同 turn 工具数超限（三
 > 为什么 `scanToolArgs` 之前要归一化：13 条规则是确定性正则，但 base64/全角载荷会绕过字面匹配。
 > 归一化只解码"无歧义的混淆载体"，不改写语义（内核 `normalize` 的既有策略，未改算法）。
 
-## 4. 幻觉防护（四机制）
+## 4. 幻觉防护（四机制 + S-1 行动断言）
 
 | 机制 | 落点 | 行为 |
 |---|---|---|
 | 数值一致性 | `tools/post-execute` | 声明值 vs 工具结果权威值不一致 → `block` + 纠正文本（管线自动进上下文） |
 | 全 turn 数值复核 | `agent/turn-stopping` | assistant 全 turn 陈述金额 vs 本 turn 权威金额无交集 → 纠正提示进 `next-step` |
 | 无工具结果不陈述 | `agent/turn-stopping` | 本 turn 无任何 `tool/result` 却陈述账户事实 → 纠正 + `sentry/honesty-corrected` |
+| **行动断言对账（S-1）** | `agent/turn-stopping` | "已转账 / 已核销 / 已办理 / 已完成"与本 turn 成功工具逐类核对；不符 → nudge，同 turn 再犯 → 判停 |
 | disclaimer / `txnRef` | 施工单 08（本单只做接线断言） | `wealth.*` 带 `disclaimerId`；`read/balance` 带 `txnRef` |
+
+S-1 的三条口径：
+
+1. **只认办成了的说法**：转账必须有成功的 `transfer_create`；核销必须有成功的写操作；
+   "办理完成"必须至少有一个成功的工具结果；
+2. **否定语境不算断言**："转账未成功 / 已拒绝 / 预计 2 小时内到账"不触发；
+3. **纠正一次后仍不改口就判停**：`nudge` 会让主循环再跑一个 step，第二次仍声称成功则
+   `stop()`（`turn/end.reason.kind = guard-stopped`），不会把同一句假话留在正常收尾里。
 
 **"声明值"的来源（实现口径）**：七段管线的 `assistant/message` 在工具执行**之后**才落账，
 所以同一 step 的 `post-execute` 看不到当步文本。实现取两处：
@@ -171,7 +186,8 @@ safety:sentry:
 | `sentry/tool-denied` | 控制面拒绝 | callId / name / code / reason / stage |
 | `sentry/breaker-frozen` | 窗口拒绝数达阈值 | denies / windowSeconds / ticketsRevoked |
 | `sentry/unfrozen` | 显式人工解冻 | by / reason |
-| `sentry/honesty-corrected` | 幻觉防护追加纠正 | turn / kind（no-result / numeric）/ detail |
+| `sentry/honesty-corrected` | 幻觉防护追加纠正 | turn / kind（no-result / numeric / action-claim）/ detail |
+| `sentry/verifier-failed` | 判决件自身异常，已 fail-closed | listener（post-execute / turn-stopping）/ code / message（≤200 字，不含参数与结果） |
 | `sentry/trace` | `trace.sink=session` | TraceLog 原始记录（ts / seq / kind…） |
 | `policy/downgraded` | 连续非法参数超阈 | invalidArgs / threshold |
 | `guard/repeat-tool` | 同 turn 工具数超限 | turn / tools / limit |

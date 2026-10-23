@@ -14,11 +14,14 @@ import { TraceLog } from '../kernel/index.ts'
 import {
   createSentryPostExecuteListener,
   failClosedPostExecute,
+  failClosedTurnStopping,
   provideSentry,
   resolveSentrySettings,
   SentryState,
+  TURN_STOPPING_BLOCK_REASON,
   VERIFIER_UNAVAILABLE,
   type PostExecuteListener,
+  type TurnStoppingListener,
 } from './index.ts'
 
 /** 一条 post-execute 载荷（形状与七段管线一致）。 */
@@ -183,6 +186,70 @@ describe('fail-closed：落账与去敏（HP0-03）', () => {
 
     expect(result.verdict.kind).toBe('block')
     expect(test.recorded[0]?.data['message']).toBe('plain-string')
+  })
+})
+
+describe('fail-closed：turn-stopping（S-1）', () => {
+  function turnHarness(inner: TurnStoppingListener): {
+    readonly trace: TraceLog
+    readonly recorded: { type: string; data: Record<string, unknown> }[]
+    readonly listener: TurnStoppingListener
+    readonly stopped: string[]
+  } {
+    const trace = new TraceLog({ now: () => 1_000 })
+    const recorded: { type: string; data: Record<string, unknown> }[] = []
+    const stopped: string[] = []
+    let now = 1_000
+    const listener = failClosedTurnStopping(inner, {
+      sessionId: 's-fail-closed',
+      trace,
+      record: (type, data) => recorded.push({ type, data: data as Record<string, unknown> }),
+      now: () => {
+        now += 1
+        return now
+      },
+    })
+    return {
+      trace,
+      recorded,
+      listener: (payload) =>
+        listener({
+          ...(payload as Record<string, unknown>),
+          stop: (reason?: string) => stopped.push(reason ?? 'stopped'),
+        }),
+      stopped,
+    }
+  }
+
+  it('核验监听器抛错 → stop 固定话术 + sentry/verifier-failed，且不向上抛', () => {
+    const test = turnHarness(() => {
+      throw new Error('核验崩了')
+    })
+
+    expect(() => test.listener({ agent: { id: 'a-1' }, turn: 1 })).not.toThrow()
+
+    expect(test.stopped).toEqual([TURN_STOPPING_BLOCK_REASON])
+    expect(test.recorded[0]).toMatchObject({
+      type: 'sentry/verifier-failed',
+      data: {
+        listener: 'agent/turn-stopping',
+        code: VERIFIER_UNAVAILABLE,
+        message: '核验崩了',
+      },
+    })
+    expect(test.trace.recent(10)[0]).toMatchObject({
+      session: 's-fail-closed',
+      kind: 'honesty-verifier-failed',
+    })
+  })
+
+  it('正常路径不判停、不落 verifier-failed', () => {
+    const test = turnHarness(() => undefined)
+
+    test.listener({ agent: { id: 'a-1' }, turn: 1 })
+
+    expect(test.stopped).toEqual([])
+    expect(test.recorded).toEqual([])
   })
 })
 

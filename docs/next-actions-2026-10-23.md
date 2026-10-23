@@ -522,3 +522,98 @@ usage/summary ：calls 2          → calls 3
 
 **演示时要主动讲这一句**：审计链里看不到完整姓名，但业务侧能正确执行——
 否则评委看到 `王**` 会以为流程坏了。
+
+---
+
+## 14. D5 执行记录（2026-10-23 09:46）
+
+### 14.1 完成面
+
+| 计划项 | 实际 | 说明 |
+|---|---|---|
+| Web Bearer token | **已完成** | 除 `/api/health` 与管理路由外，全部 `/api/*` 先验 `Authorization: Bearer`；缺/错 → 401 `web-unauthorized` |
+| 票据 UUID | **已完成**（D5 开始前在盘上） | `ticket:${randomUUID()}`；票据 ID 显式随 `ToolCallContext` / `ToolCallInput` 下传，saga 桥接沿用 |
+| S-1 行动断言守卫 | **已完成** | 已转账 / 已核销 / 已办理 / 已完成 与本 turn 工具结局逐类核对；不符 → nudge；同 turn 再犯 → 判停 |
+| turn-stopping fail-closed | **已完成** | `failClosedTurnStopping`：核验件抛错 → 固定话术 `stop()` + `sentry/verifier-failed` |
+
+实测：`pnpm gate` **27/27**；`pnpm test` **161 文件 / 1471 用例**；`pnpm test:web` 46 用例；`pnpm typecheck` 通过。
+
+### 14.2 三个实现选择
+
+1. **token 默认可用，但不写死**：`BAH_WEB_TOKEN` 未配置时每进程随机生成，
+   服务端在 `index.html` 注入 `<meta name="bah-web-token">`，前端读取后放进请求头。
+   同源页面能读到、跨源页面读不到（无 CORS）——这是最小 CSRF 边界，**不是登录**。
+2. **SSE 只对它自己放宽**：`EventSource` 不能设请求头，因此只有 `GET /api/events` 接受 `?token=`；
+   其余接口不认查询参数。
+3. **S-1 的 "block" 是"卡住正常收尾"**：turn-stopping 没有 block 返回值，所以第一次纠正走
+   `nudge`（主循环在本 turn 内再跑一个 step）；同 turn 已纠正过仍不改口则 `stop()`。
+   两段都有测试：拒绝后称完成 → nudge；重复不改口 → 判停。
+
+### 14.3 复审时改掉的两处
+
+- `assert-never` 门禁发现两个 `switch (claim)` 缺收尾，已改用 `assertNever`。
+- `tracked-sources` 要求新文件先 `git add` 才认，已暂存 `web-auth.ts` 与它的测试（未提交）。
+
+### 14.4 新增风险（进安全自评）
+
+- **token 对同机进程不设防**：任何能 `GET /` 的本地进程都能读到 meta 里的 token；
+  它挡的是跨源网页与"直接打 API"，不是本机恶意进程。
+- **无 Origin / CSP / 安全响应头**（原计划就砍掉）；若页面被 XSS，token 可被读走。
+- **SSE 的 token 在 URL 查询串里**：会出现在本机访问日志/浏览器历史的可能性，当前只绑回环，风险接受。
+
+---
+
+## 15. D6 执行记录（2026-10-23 09:49）
+
+### 15.1 完成面
+
+| 计划项 | 实际 | 出口 |
+|---|---|---|
+| 审批弹窗补手机 + 费用 | **已完成** | `ApprovalFrame.payeePhone`（前 3 后 4）/ `feeText`；弹窗有数据才多两行 |
+| health 去票据 ID | **已完成** | 改为 `pendingTicketCount`；测试断言响应里不含 `ticket:` |
+| `session/event` 改 `emitIsolated` | **已完成** | 一个监听器抛错，落账与后续观察者都不受影响（新增用例） |
+| `facts.md` | **已新建** | 根目录；三行测试口径 + 27 门禁 + 14 工具 + 两端口 |
+
+实测：`pnpm gate` **27/27**；`pnpm test` **161 文件 / 1476 用例**；`pnpm test:web` 47 用例；
+`pnpm -F @bah/eval test` **14 文件 / 133 用例**；`pnpm typecheck` 通过。
+
+### 15.2 三个实现选择
+
+1. **手机号在上游脱敏**：帧里只有 `139****2222`，完整号码仍在工具参数/审计事件里（由 sentry 的 PII 令牌化处理），
+   前端拿不到原值。
+2. **手续费只认预演结果**：从 `transfer_preview` 的结果正文里抽 `手续费 ¥…`，按 `收款人 + 金额（分）` 建索引；
+   同一人试算两笔不同金额不会串。没有预演就**不显示**，不从金额/费率反推。
+3. **health 只给数量**：探针拿到票据 ID 就能绕过页面直接调审批/验证路由，所以只暴露 `pendingTicketCount`。
+
+### 15.3 复审结论
+
+- 门禁 27/27；docs 路径、事件声明、工具目录均未破。
+- `facts.md` 的数字与当日实测一致（主仓 1476 / 评测 133 / 前端 47）。
+- 已知脆弱点：手续费解析依赖 `transfer_preview` 正文的现有格式；格式变了会**少一行**，不会显示错数。
+
+---
+
+## 16. D7 执行记录（2026-10-23 09:52）
+
+### 16.1 完成面
+
+| 计划项 | 实际 | 出口 |
+|---|---|---|
+| 根 README | **已新建** | 定位 / 四命令 / mermaid 架构图 / 14 工具权限表 / 架构·算法·安全三章 / 已知限制 |
+| 200 字简介 | **已新建** `docs/简介-200字.md` | **196 字（含标点）** |
+
+实测：`pnpm gate` **27/27**；`pnpm test` **161 文件 / 1476 用例**；`pnpm test:web` 47 用例。
+
+### 16.2 复审结论
+
+- README 内 8 个相对链接逐一存在，无死链；14 个工具名在 README 与 facts.md 各命中 14/14。
+- 简介按非空白字符计 196，≤200。
+- README 与 facts.md 的口径一致：三项测试分行、不相加；断网兜底明确写"手动改 profile"，不写"自动降级"。
+- 安全章把未施工项（HP-2/3/4、无登录、内存账本、mock 强验证）逐条列出，便于答辩时照实回答。
+
+### 16.3 仍未做（按计划留给 D8–D10）
+
+- `deploy.md`、`security-self-assessment.md`（D8）
+- 最小评测 3 场景、PPT 12 页（D9）
+- 视频（必须拍到真实拒绝画面）、终检、公开预检（D10）
+- 冻结 tag 与报名系统提交（D11）

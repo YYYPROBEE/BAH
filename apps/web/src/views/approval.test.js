@@ -70,6 +70,19 @@ describe('审批弹窗 · 六要素（T-WEB-003）', () => {
     expect(dialog.querySelector('.approval__reason')).not.toBeNull()
   })
 
+  it('有数据时补收款手机（已脱敏）与手续费；没数据不留空行', () => {
+    const withData = setup(approval({ payeePhone: '139****2222', feeText: '¥0.00' }))
+    const dialog = withData.root.querySelector('[role="dialog"]')
+    expect(dialog.textContent).toContain('收款手机')
+    expect(dialog.textContent).toContain('139****2222')
+    expect(dialog.textContent).toContain('手续费')
+    expect(dialog.textContent).toContain('¥0.00')
+
+    const without = setup(approval())
+    expect(without.root.querySelector('[role="dialog"]').textContent).not.toContain('收款手机')
+    expect(without.root.querySelector('[role="dialog"]').textContent).not.toContain('手续费')
+  })
+
   it('金额未确认时标灰 + 待确认', () => {
     const { root } = setup(approval())
     expect(root.querySelector('.field__value--unconfirmed')).not.toBeNull()

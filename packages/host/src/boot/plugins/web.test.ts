@@ -18,7 +18,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { RUN_SERVICE } from '../boot.ts'
 import { ADMIN_TOKEN_ENV } from './web-admin.ts'
+import { WEB_TOKEN_ENV } from './web-auth.ts'
 import { DEFAULT_WEB, WEB_SERVER, webPlugin, type WebSettings } from './web.ts'
+
+/** 测试固定的 Web token（生产未配置时是每进程随机生成）。 */
+const WEB_TOKEN = 'web-test-token'
 
 /** 测试装置。 */
 interface Harness {
@@ -28,6 +32,8 @@ interface Harness {
   readonly interrupts: string[]
   /** 假 sentry 收到的解冻调用（HP0-08 用）。 */
   readonly unfreezeCalls: { by: string; reason: string }[]
+  /** boot 前的环境值（shutdown 时还原，避免串味）。 */
+  readonly previousToken: string | undefined
 }
 
 /** 装配变体：默认全绿（有 agent、驱动常驻不返回、票据无强验证）。 */
@@ -56,6 +62,8 @@ async function boot(
   const ctx = createContext()
   const sessionId = asSessionId('s-web-test')
   const now = (): number => 1_700_000_000_000
+  const previousToken = process.env[WEB_TOKEN_ENV]
+  process.env[WEB_TOKEN_ENV] = WEB_TOKEN
 
   ctx.provide(RUN_SERVICE, { sessionId, now })
   provideSession(ctx, { sessionId, now })
@@ -131,12 +139,28 @@ async function boot(
   await ctx.use(webPlugin.plugin, settings)
   await ctx.start()
 
-  return { ctx, url: ctx.get(WEB_SERVER).url, sent, interrupts, unfreezeCalls }
+  return { ctx, url: ctx.get(WEB_SERVER).url, sent, interrupts, unfreezeCalls, previousToken }
 }
 
 /** 关掉装置（端口必须释放，否则下一个用例会撞端口）。 */
 async function shutdown(harness: Harness): Promise<void> {
   await harness.ctx.dispose('test')
+  if (harness.previousToken === undefined) delete process.env[WEB_TOKEN_ENV]
+  else process.env[WEB_TOKEN_ENV] = harness.previousToken
+}
+
+/**
+ * 带 Web 凭证的 fetch。
+ *
+ * 用例显式给了 `Authorization` 时不覆盖（管理路由用自己的 token）。
+ * 想验证"没凭证"的用例直接用原生 `fetch`。
+ */
+const nativeFetch = globalThis.fetch.bind(globalThis)
+
+function authedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers)
+  if (!headers.has('authorization')) headers.set('authorization', `Bearer ${WEB_TOKEN}`)
+  return nativeFetch(url, { ...init, headers })
 }
 
 describe('channel:web 配置', () => {
@@ -157,7 +181,7 @@ describe('channel:web 协议', () => {
   it('/api/session 返回会话与能力位', async () => {
     const harness = await boot()
     try {
-      const response = await fetch(`${harness.url}api/session`)
+      const response = await authedFetch(`${harness.url}api/session`)
       expect(response.status).toBe(200)
       const body = (await response.json()) as { sessionId: string; capabilities: { richCards: boolean } }
       expect(body.sessionId).toBe('s-web-test')
@@ -167,15 +191,16 @@ describe('channel:web 协议', () => {
     }
   })
 
-  it('/api/health 暴露在途票据', async () => {
+  it('/api/health 只暴露在途票据数量（不暴露 ID）', async () => {
     const harness = await boot()
     try {
-      const body = (await (await fetch(`${harness.url}api/health`)).json()) as {
+      const body = (await (await authedFetch(`${harness.url}api/health`)).json()) as {
         ok: boolean
-        pendingTickets: string[]
+        pendingTicketCount: number
       }
       expect(body.ok).toBe(true)
-      expect(body.pendingTickets).toEqual([])
+      expect(body.pendingTicketCount).toBe(0)
+      expect(JSON.stringify(body)).not.toContain('ticket:')
     } finally {
       await shutdown(harness)
     }
@@ -184,7 +209,7 @@ describe('channel:web 协议', () => {
   it('/api/turn 空文本 → 400 web-empty-message', async () => {
     const harness = await boot()
     try {
-      const response = await fetch(`${harness.url}api/turn`, {
+      const response = await authedFetch(`${harness.url}api/turn`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: '   ' }),
@@ -200,7 +225,7 @@ describe('channel:web 协议', () => {
   it('/api/turn 正常文本入队并启动驱动，返回 202', async () => {
     const harness = await boot()
     try {
-      const response = await fetch(`${harness.url}api/turn`, {
+      const response = await authedFetch(`${harness.url}api/turn`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: '给王建国转 800 元' }),
@@ -215,7 +240,7 @@ describe('channel:web 协议', () => {
   it('/api/interrupt 把理由交给 agent', async () => {
     const harness = await boot()
     try {
-      const response = await fetch(`${harness.url}api/interrupt`, {
+      const response = await authedFetch(`${harness.url}api/interrupt`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ reason: '算了' }),
@@ -230,11 +255,11 @@ describe('channel:web 协议', () => {
   it('/api/events 的 since 非法 → 400；合法 → SSE 首帧是快照', async () => {
     const harness = await boot()
     try {
-      const bad = await fetch(`${harness.url}api/events?since=abc`)
+      const bad = await authedFetch(`${harness.url}api/events?since=abc`)
       expect(bad.status).toBe(400)
 
       const controller = new AbortController()
-      const stream = await fetch(`${harness.url}api/events?since=0`, { signal: controller.signal })
+      const stream = await authedFetch(`${harness.url}api/events?since=0`, { signal: controller.signal })
       expect(stream.headers.get('content-type')).toContain('text/event-stream')
 
       const reader = stream.body?.getReader()
@@ -251,14 +276,14 @@ describe('channel:web 协议', () => {
   it('/api/approval/:id 未知票据 → 404；非法 ID → 400', async () => {
     const harness = await boot()
     try {
-      const missing = await fetch(`${harness.url}api/approval/ticket%3Aghost`, {
+      const missing = await authedFetch(`${harness.url}api/approval/ticket%3Aghost`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ decision: 'allowed-once' }),
       })
       expect(missing.status).toBe(404)
 
-      const invalid = await fetch(`${harness.url}api/approval/${encodeURIComponent('bad id!')}`, {
+      const invalid = await authedFetch(`${harness.url}api/approval/${encodeURIComponent('bad id!')}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ decision: 'allowed-once' }),
@@ -272,11 +297,11 @@ describe('channel:web 协议', () => {
   it('/api/verify/:id 未知票据 → 404；非法 ID → 400', async () => {
     const harness = await boot()
     try {
-      const response = await fetch(`${harness.url}api/verify/ticket%3Aghost`, { method: 'POST' })
+      const response = await authedFetch(`${harness.url}api/verify/ticket%3Aghost`, { method: 'POST' })
       expect(response.status).toBe(404)
 
       // 票据 ID 会进日志与查询键：非法字符必须在触达适配器之前挡掉
-      const invalid = await fetch(
+      const invalid = await authedFetch(
         `${harness.url}api/verify/${encodeURIComponent('bad id!')}`,
         { method: 'POST' },
       )
@@ -290,11 +315,67 @@ describe('channel:web 协议', () => {
   })
 })
 
+describe('channel:web Web 凭证（D5 最小集）', () => {
+  it('无凭证 / 错凭证 → 401，且请求不触达 agent', async () => {
+    const harness = await boot()
+    try {
+      const missing = await nativeFetch(`${harness.url}api/turn`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '给王建国转 800 元' }),
+      })
+      expect(missing.status).toBe(401)
+      expect(((await missing.json()) as { error: { code: string } }).error.code).toBe(
+        'web-unauthorized',
+      )
+      expect(harness.sent).toEqual([])
+
+      const wrong = await nativeFetch(`${harness.url}api/session`, {
+        headers: { authorization: 'Bearer not-the-token' },
+      })
+      expect(wrong.status).toBe(401)
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('GET /api/session 同样要求凭证；健康探针保持公开', async () => {
+    const harness = await boot()
+    try {
+      expect((await nativeFetch(`${harness.url}api/session`)).status).toBe(401)
+      expect((await nativeFetch(`${harness.url}api/health`)).status).toBe(200)
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('SSE 只能用查询参数带凭证：无 token → 401，带 token → 首帧快照', async () => {
+    const harness = await boot()
+    try {
+      expect((await nativeFetch(`${harness.url}api/events?since=0`)).status).toBe(401)
+
+      const controller = new AbortController()
+      const stream = await nativeFetch(
+        `${harness.url}api/events?since=0&token=${encodeURIComponent(WEB_TOKEN)}`,
+        { signal: controller.signal },
+      )
+      expect(stream.status).toBe(200)
+      const reader = stream.body?.getReader()
+      const first = await reader?.read()
+      const text = new TextDecoder().decode(first?.value)
+      expect(text).toContain('"kind":"snapshot"')
+      controller.abort()
+    } finally {
+      await shutdown(harness)
+    }
+  })
+})
+
 describe('channel:web 静态资源安全', () => {
   it('目录穿越返回 404（不返回 403，免得被探测）', async () => {
     const harness = await boot()
     try {
-      const response = await fetch(`${harness.url}..%2f..%2fpackage.json`)
+      const response = await authedFetch(`${harness.url}..%2f..%2fpackage.json`)
       expect(response.status).toBe(404)
     } finally {
       await shutdown(harness)
@@ -304,12 +385,15 @@ describe('channel:web 静态资源安全', () => {
   it('不存在的资源 404，index 存在时返回 html', async () => {
     const harness = await boot()
     try {
-      const missing = await fetch(`${harness.url}nope.html`)
+      const missing = await authedFetch(`${harness.url}nope.html`)
       expect(missing.status).toBe(404)
 
-      const index = await fetch(harness.url)
+      const index = await authedFetch(harness.url)
       expect(index.status).toBe(200)
       expect(index.headers.get('content-type')).toContain('text/html')
+      // 页面是 token 的唯一载体：注入 meta 且不许缓存（重启后 token 会换）
+      expect(await index.text()).toContain(`name="bah-web-token" content="${WEB_TOKEN}"`)
+      expect(index.headers.get('cache-control')).toBe('no-store')
     } finally {
       await shutdown(harness)
     }
@@ -318,7 +402,7 @@ describe('channel:web 静态资源安全', () => {
   it('方法不支持 → 405', async () => {
     const harness = await boot()
     try {
-      const response = await fetch(`${harness.url}api/session`, { method: 'DELETE' })
+      const response = await authedFetch(`${harness.url}api/session`, { method: 'DELETE' })
       expect(response.status).toBe(405)
     } finally {
       await shutdown(harness)
@@ -372,7 +456,7 @@ describe('channel:web 请求边界', () => {
   it('请求体过大 → 413；非对象 / 坏 JSON → 400（都不许报成 500）', async () => {
     const harness = await boot()
     try {
-      const tooLarge = await fetch(`${harness.url}api/turn`, {
+      const tooLarge = await authedFetch(`${harness.url}api/turn`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: 'x'.repeat(66 * 1024) }),
@@ -382,7 +466,7 @@ describe('channel:web 请求边界', () => {
         'web-body-too-large',
       )
 
-      const notObject = await fetch(`${harness.url}api/turn`, {
+      const notObject = await authedFetch(`${harness.url}api/turn`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '[]',
@@ -392,7 +476,7 @@ describe('channel:web 请求边界', () => {
         'web-invalid-body',
       )
 
-      const broken = await fetch(`${harness.url}api/turn`, {
+      const broken = await authedFetch(`${harness.url}api/turn`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{oops',
@@ -403,7 +487,7 @@ describe('channel:web 请求边界', () => {
       )
 
       // 单个坏请求不能拖垮服务
-      expect((await fetch(`${harness.url}api/health`)).status).toBe(200)
+      expect((await authedFetch(`${harness.url}api/health`)).status).toBe(200)
     } finally {
       await shutdown(harness)
     }
@@ -412,7 +496,7 @@ describe('channel:web 请求边界', () => {
   it('没有活体 agent 时 /api/turn 与 /api/interrupt 都是 503', async () => {
     const harness = await boot({}, { agent: 'absent' })
     try {
-      const turn = await fetch(`${harness.url}api/turn`, {
+      const turn = await authedFetch(`${harness.url}api/turn`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: '你好' }),
@@ -420,7 +504,7 @@ describe('channel:web 请求边界', () => {
       expect(turn.status).toBe(503)
       expect(((await turn.json()) as { error: { code: string } }).error.code).toBe('agent-absent')
 
-      const interrupt = await fetch(`${harness.url}api/interrupt`, { method: 'POST' })
+      const interrupt = await authedFetch(`${harness.url}api/interrupt`, { method: 'POST' })
       expect(interrupt.status).toBe(503)
       expect(((await interrupt.json()) as { error: { code: string } }).error.code).toBe(
         'agent-absent',
@@ -444,7 +528,7 @@ describe('channel:web 请求边界', () => {
   it('未归类的内部错误 → 500 web-internal（不许伪造成 4xx 让前端以为是用户的错）', async () => {
     const harness = await boot({}, { agent: 'send-fails' })
     try {
-      const response = await fetch(`${harness.url}api/turn`, {
+      const response = await authedFetch(`${harness.url}api/turn`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: '你好' }),
@@ -464,7 +548,7 @@ describe('channel:web 实时链路', () => {
     const harness = await boot({ heartbeatMs: 1 })
     const controller = new AbortController()
     try {
-      const stream = await fetch(`${harness.url}api/events?since=0`, { signal: controller.signal })
+      const stream = await authedFetch(`${harness.url}api/events?since=0`, { signal: controller.signal })
       const reader = stream.body!.getReader()
       const decoder = new TextDecoder()
       expect(await readUntil(reader, decoder, '"kind":"snapshot"')).toContain('"kind":"snapshot"')
@@ -503,12 +587,12 @@ describe('channel:web 实时链路', () => {
     const harness = await boot({}, { agent: 'drive-fails' })
     const controller = new AbortController()
     try {
-      const stream = await fetch(`${harness.url}api/events?since=0`, { signal: controller.signal })
+      const stream = await authedFetch(`${harness.url}api/events?since=0`, { signal: controller.signal })
       const reader = stream.body!.getReader()
       const decoder = new TextDecoder()
       await readUntil(reader, decoder, '"kind":"snapshot"')
 
-      const response = await fetch(`${harness.url}api/turn`, {
+      const response = await authedFetch(`${harness.url}api/turn`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: '你好' }),
@@ -535,7 +619,7 @@ describe('channel:web 实时链路', () => {
           throw new Error('投影故障')
         },
       })
-      const response = await fetch(`${harness.url}api/events?since=0`)
+      const response = await authedFetch(`${harness.url}api/events?since=0`)
       expect(response.status).toBe(200)
       expect(await response.text()).toContain(': connected')
     } finally {
@@ -554,17 +638,17 @@ describe('channel:web 实时链路', () => {
         setImmediate(resolve)
       })
 
-      const health = (await (await fetch(`${harness.url}api/health`)).json()) as {
-        pendingTickets: string[]
+      const health = (await (await authedFetch(`${harness.url}api/health`)).json()) as {
+        pendingTicketCount: number
       }
-      expect(health.pendingTickets).toEqual([ticketId])
+      expect(health.pendingTicketCount).toBe(1)
 
-      const verify = await fetch(`${harness.url}api/verify/${encodeURIComponent(ticketId)}`, {
+      const verify = await authedFetch(`${harness.url}api/verify/${encodeURIComponent(ticketId)}`, {
         method: 'POST',
       })
       expect(verify.status).toBe(200)
 
-      const decide = await fetch(`${harness.url}api/approval/${encodeURIComponent(ticketId)}`, {
+      const decide = await authedFetch(`${harness.url}api/approval/${encodeURIComponent(ticketId)}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ decision: 'allowed-once' }),
@@ -598,7 +682,7 @@ describe('channel:web 管理路由（HP-0）', () => {
     body: unknown,
     headers: Record<string, string> = {},
   ): Promise<Response> =>
-    fetch(`${url}api/admin/sentry/unfreeze`, {
+    authedFetch(`${url}api/admin/sentry/unfreeze`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...headers },
       body: JSON.stringify(body),
@@ -694,7 +778,7 @@ describe('channel:web 管理路由（HP-0）', () => {
       const unknown = await post(harness.url, { by: 'ops-7', nope: 1 }, auth)
       expect(unknown.status).toBe(400)
 
-      const broken = await fetch(`${harness.url}api/admin/sentry/unfreeze`, {
+      const broken = await authedFetch(`${harness.url}api/admin/sentry/unfreeze`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...auth },
         body: '{not json',
@@ -729,7 +813,7 @@ describe('channel:web 管理路由（HP-0）', () => {
     const configured = await boot({}, { sentry: 'frozen' })
     setToken('correct-token-value')
     try {
-      const response = await fetch(`${configured.url}api/admin/sentry/unfreeze`)
+      const response = await authedFetch(`${configured.url}api/admin/sentry/unfreeze`)
       expect(response.status).toBe(405)
     } finally {
       await shutdown(configured)
@@ -740,7 +824,7 @@ describe('channel:web 管理路由（HP-0）', () => {
     setToken(undefined)
     const unconfigured = await boot({}, { sentry: 'frozen' })
     try {
-      const response = await fetch(`${unconfigured.url}api/admin/sentry/unfreeze`)
+      const response = await authedFetch(`${unconfigured.url}api/admin/sentry/unfreeze`)
       expect(response.status).toBe(404)
     } finally {
       await shutdown(unconfigured)

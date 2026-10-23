@@ -436,6 +436,14 @@ export interface ToolExecContext {
   readonly sessionId: SessionId
   readonly callId: string
   readonly signal: AbortSignal
+  /**
+   * 本次调用对应的票据 ID（**只有走过审批的调用才有**）。
+   *
+   * 为什么必须显式传：票据 ID 现在是随机 UUID（不再由 callId 派生），
+   * 工具体要核销就只能从上下文拿，不能自己"算"一个。
+   * 没有它的时候（绿级只读工具）就是 `undefined`。
+   */
+  readonly ticketId?: TicketId
 }
 
 /**

@@ -6,11 +6,16 @@
  * 1. `tools/post-execute` 数值对账：声明值 vs `tool/result` 权威值，不一致 → `block`，
  *    纠正文本由七段管线自动追加进上下文（`additionalContexts`）；
  * 2. `agent/turn-stopping` 无工具结果不陈述：本 turn 没有任何工具结果却陈述账户事实 → 纠正；
- * 3. `agent/turn-stopping` 全 turn 数值复核：声明金额与权威金额无交集 → 纠正。
+ * 3. `agent/turn-stopping` 全 turn 数值复核：声明金额与权威金额无交集 → 纠正；
+ * 4. `agent/turn-stopping` **行动断言对账（S-1）**：声称"已完成 / 已转账 / 已核销 /
+ *    办理成功 / 已到账"，但本 turn 的工具结局不支持 → 纠正；纠正过一次仍不改口 → 判停。
  *
  * 纠正为什么走 `nudge`（宿主注入）而不是直接 append：turn-stopping 的纠正必须作为
  * **下一条 next-step 用户消息**回到模型，才能真的改变下一次生成（施工单 04 §2.1 的注释）。
+ * `nudge` 会让主循环在本 turn 内再跑一个 step——这就是"block 掉正常收尾"的实现方式。
  */
+
+import { assertNever } from '@bah/util'
 
 import type { TraceLog } from '../kernel/index.ts'
 
@@ -58,6 +63,47 @@ export interface SentryHonestyOptions {
 /** 账户事实类陈述的特征（余额 / 账户 / 交易… + 断言词或数字）。 */
 const ACCOUNT_FACT =
   /(余额|可用余额|账户|尾号|卡号|交易|流水|到账|收益|持仓|额度)[^。！？\n]{0,16}(是|为|有|¥|￥|\d)/
+
+/** 成功行动断言的类别（S-1 只认这几类"办成了"的说法，不猜意图）。 */
+export type ActionClaim = 'transfer' | 'redeem' | 'complete'
+
+/** 行动断言的特征（按分句匹配；否定语境在 `NON_SUCCESS` 里排除）。 */
+const ACTION_CLAIM_RULES: readonly { readonly kind: ActionClaim; readonly pattern: RegExp }[] = [
+  // "到账"单独出现不算：\"预计 2 小时内到账\"是承诺，不是既成事实
+  { kind: 'transfer', pattern: /(?:已|已经)(?:转账|转出|支付|汇款|到账)|(?:转账|转出|支付|汇款)成功/ },
+  { kind: 'redeem', pattern: /(?:已|已经)?核销|核销成功/ },
+  { kind: 'complete', pattern: /(?:已|已经)(?:完成|办妥|处理|受理)|(?:办理|操作|交易)成功/ },
+]
+
+/**
+ * 否定 / 未完成语境。
+ *
+ * 同一分句里出现这些词，就不把成功词当断言——"转账未成功"不是"转账成功"。
+ * 宁可漏报（少纠正一次）也不误报：误报会让模型把正确回答改错。
+ */
+const NON_SUCCESS = /(未|没有|没|尚未|还没|无法|失败|拒绝|取消|不成功|待|需|须)/
+
+/** 写操作工具（"已核销 / 已办理"必须有它们之一成功过）。 */
+const WRITE_TOOLS = ['transfer_create', 'wealth_purchase'] as const
+
+/**
+ * 从 assistant 文本里识别"成功行动断言"。
+ *
+ * @param texts 本 turn 的 assistant 文本（按落账顺序）
+ * @returns 去重后的断言类别（空数组 = 没有断言）
+ */
+export function detectActionClaims(texts: readonly string[]): ActionClaim[] {
+  const found = new Set<ActionClaim>()
+  for (const text of texts) {
+    for (const clause of text.split(/[。！？!?；;\n]/u)) {
+      if (NON_SUCCESS.test(clause)) continue
+      for (const rule of ACTION_CLAIM_RULES) {
+        if (rule.pattern.test(clause)) found.add(rule.kind)
+      }
+    }
+  }
+  return [...found]
+}
 
 /**
  * 造 `tools/post-execute` 监听器（数值对账 → `block` + 纠正文本）。
@@ -144,7 +190,45 @@ export function createTurnStoppingListener(
       return
     }
 
-    // ② 无工具结果却陈述账户事实
+    // ② 行动断言对账（S-1）：只认"办成了"的说法，与工具结局逐类核对
+    const claims = detectActionClaims(state.assistantTexts)
+    if (claims.length > 0) {
+      const unsupported = claims.filter((claim) => {
+        if (claim === 'transfer') return !state.hasSuccessfulTool('transfer_create')
+        if (claim === 'redeem') return !WRITE_TOOLS.some((tool) => state.hasSuccessfulTool(tool))
+        return state.successfulToolCount() === 0
+      })
+      if (unsupported.length > 0) {
+        const labels = unsupported.map(actionLabel)
+        const detail =
+          `【行动断言】本 turn 的工具结局不支持你声称的「${labels.join('、')}」：` +
+          `${unsupported.map(unsupportedReason).join('；')}。` +
+          '请据实说明未执行或失败的原因，不得声称已完成。'
+        trace.append({
+          session: sessionId,
+          kind: 'honesty-action-claim',
+          turn,
+          claims: unsupported,
+          succeeded: state.successfulToolCount(),
+          failed: state.failedToolNames(),
+          at,
+        })
+        // 第一次纠正：nudge 会让主循环再跑一个 step，正常收尾被"卡住"。
+        // 第二次仍不改口：继续 nudge 只会把同一条假话留在日志里，直接判停。
+        if (!state.markActionCorrected(turn)) {
+          trace.append({ session: sessionId, kind: 'turn-stopped', turn, reason: 'action-claim', at })
+          input.stop(
+            `行动断言与工具结局不一致（${labels.join('、')}），已纠正过一次仍不改口，本轮停止。`,
+          )
+          return
+        }
+        record('sentry/honesty-corrected', { turn, kind: 'action-claim', detail, at })
+        nudge(input.agent.id, detail)
+        return
+      }
+    }
+
+    // ③ 无工具结果却陈述账户事实
     if (
       settings.honesty.noResult &&
       state.toolResults === 0 &&
@@ -160,7 +244,7 @@ export function createTurnStoppingListener(
       return
     }
 
-    // ③ 全 turn 数值复核（assistant 文本 vs 本 turn 权威金额）
+    // ④ 全 turn 数值复核（assistant 文本 vs 本 turn 权威金额）
     if (!settings.honesty.numeric) return
     const declared = declaredInTurn(state.assistantTexts, {})
     const authoritative = state.resultAmounts()
@@ -184,6 +268,34 @@ export function createTurnStoppingListener(
  */
 export function detectAccountFacts(texts: readonly string[]): boolean {
   return texts.some((text) => ACCOUNT_FACT.test(text))
+}
+
+/** 断言类别的中文标签（进模型可见的纠正文案）。 */
+function actionLabel(claim: ActionClaim): string {
+  switch (claim) {
+    case 'transfer':
+      return '转账成功'
+    case 'redeem':
+      return '核销完成'
+    case 'complete':
+      return '办理完成'
+    default:
+      return assertNever(claim, 'action-claim')
+  }
+}
+
+/** "为什么这条断言不成立"的短句（只讲工具结局，不讲内部实现）。 */
+function unsupportedReason(claim: ActionClaim): string {
+  switch (claim) {
+    case 'transfer':
+      return '没有成功的转账结果'
+    case 'redeem':
+      return '没有成功的写操作可供核销'
+    case 'complete':
+      return '没有任何成功的工具结果'
+    default:
+      return assertNever(claim, 'action-claim')
+  }
 }
 
 /** 本 turn 的"声明金额"：assistant 已落账文本 + 工具参数字符串里的金额。 */
