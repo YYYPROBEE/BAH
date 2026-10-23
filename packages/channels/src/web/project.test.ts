@@ -145,6 +145,83 @@ describe('WebProjector · 审批六要素', () => {
     expect(approval.amountConfirmed).toBe(false)
   })
 
+  it('手机号脱敏后才进帧；手续费来自本 turn 的预演结果', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('step/start', { turn: 1, step: 1 }))
+    projector.apply(
+      ev('tool/call', {
+        callId: 'call-p',
+        name: 'transfer_preview',
+        args: { amount: 800, payee: { name: '王建国', phone: '13900002222' } },
+        fingerprint: 'fp-p',
+        tier: { level: 'green' },
+        at: 1,
+      }),
+    )
+    projector.apply(
+      ev('tool/result', {
+        callId: 'call-p',
+        name: 'transfer_preview',
+        isError: false,
+        content: [
+          {
+            type: 'text',
+            text: '试算：向 王建国（已绑定）转账 ¥800.00，手续费 ¥0.00。当日已用 ¥0.00，剩余 ¥1,000.00。',
+          },
+        ],
+        durationMs: 1,
+      }),
+    )
+    projector.apply(
+      ev('tool/call', {
+        callId: 'call-1',
+        name: 'transfer_create',
+        args: { amount: 800, payee: { name: '王建国', phone: '13900002222' } },
+        fingerprint: 'fp-1',
+        tier: { level: 'yellow' },
+        at: 2,
+      }),
+    )
+    projector.apply(
+      ev('approval/asked', {
+        ticketId: 'ticket:call-1',
+        callId: 'call-1',
+        name: 'transfer_create',
+        amount: 800,
+      }),
+    )
+
+    const approval = projector.frames().find((frame) => frame.kind === 'approval') as ApprovalFrame
+    expect(approval.payeePhone).toBe('139****2222')
+    expect(approval.feeText).toBe('¥0.00')
+    // 帧里不得出现完整号码（脱敏发生在上游，前端拿不到原值）
+    expect(JSON.stringify(approval)).not.toContain('13900002222')
+  })
+
+  it('没有预演结果时不编手续费（少一行比编一个数安全）', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(
+      ev('tool/call', {
+        callId: 'call-1',
+        name: 'transfer_create',
+        args: { amount: 800, payee: { name: '王建国', phone: '13900002222' } },
+        fingerprint: 'fp-1',
+        tier: { level: 'yellow' },
+        at: 1,
+      }),
+    )
+    projector.apply(
+      ev('approval/asked', { ticketId: 'ticket:call-1', callId: 'call-1', name: 'transfer_create', amount: 800 }),
+    )
+    const approval = projector.frames().find((frame) => frame.kind === 'approval') as ApprovalFrame
+    expect(approval.feeText).toBeUndefined()
+    expect(approval.payeePhone).toBe('139****2222')
+  })
+
   it('参数里没有金额时退回事件值，且仍按"元"格式化（￥8.00 是事故，不是精度）', () => {
     reset()
     const projector = new WebProjector()

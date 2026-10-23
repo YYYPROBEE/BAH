@@ -2,7 +2,7 @@
  * 会话服务单测（施工单 03 §1.3 / §3 第 9 步的会话侧）。
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { asSessionId, fixedClock, withTestContext } from '@bah/test-support'
 
@@ -31,6 +31,33 @@ describe('provideSession', () => {
 
       off()
       expect(() => test.ctx.get(SESSION_SERVICE)).toThrow(/未注册/)
+    })
+  })
+
+  it('一个记账监听器抛错不阻断落账与后续观察者（D6）', async () => {
+    await withTestContext(async (test) => {
+      const sessionId = asSessionId('s-isolated')
+      provideSession(test.ctx, { sessionId })
+      const seen: number[] = []
+      const reported = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      try {
+        test.ctx.events.on('session/event', () => {
+          throw new Error('记账监听器炸了')
+        })
+        test.ctx.events.on('session/event', ({ event }) => {
+          seen.push(event.seq)
+        })
+
+        const session = test.ctx.get(SESSION_SERVICE)
+        expect(() => session.append('user/message', { content: '你好' })).not.toThrow()
+
+        expect(session.lastSeq()).toBe(1)
+        expect(session.events()).toHaveLength(1)
+        expect(seen).toEqual([1])
+        expect(reported).toHaveBeenCalled()
+      } finally {
+        reported.mockRestore()
+      }
     })
   })
 

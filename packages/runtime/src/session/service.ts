@@ -69,13 +69,27 @@ export interface ProvideSessionOptions {
 /**
  * 注册 `runtime:session` 服务。
  *
- * 每次 `append` 都会同步广播 `session/event`（`emit`，不阻塞）——
+ * 每次 `append` 都会同步广播 `session/event`（`emitIsolated`，不阻塞）——
  * 审计、失败补偿（`ToolCallRecovery`）、UI 跟随流都挂在这个口上。
+ *
+ * 为什么是 `emitIsolated` 而不是 `emit`：落账已经成功，一个记账监听器抛错
+ * 不能反过来中断落账、也不能让后面的观察者收不到这条事件。
  */
 export function provideSession(ctx: Context, options: ProvideSessionOptions): Disposer {
   const store =
     options.store ??
     new SessionStore({ now: options.now, formatVersion: options.formatVersion })
+
+  const broadcast = (event: AnySessionEvent): void => {
+    ctx.events.emitIsolated(
+      'session/event',
+      { session: options.sessionId, event },
+      (error, name) => {
+        // 隔离后只留痕：这里再 append 一条审计会递归进同一个广播口
+        console.error(`bah-runtime: ${name} 监听器失败（已隔离，落账不受影响）`, error)
+      },
+    )
+  }
 
   const api: SessionApi = {
     sessionId: options.sessionId,
@@ -101,7 +115,7 @@ export function provideSession(ctx: Context, options: ProvideSessionOptions): Di
       }
       const event = store.append(type, data, appendOptions)
       // 存储层按键取类型，广播面统一成判别联合（`AnySessionEvent`）
-      ctx.events.emit('session/event', { session: options.sessionId, event: event as AnySessionEvent })
+      broadcast(event as AnySessionEvent)
       return event
     },
 
@@ -119,7 +133,7 @@ export function provideSession(ctx: Context, options: ProvideSessionOptions): Di
         } as AnySessionEvent
       }
       const event = store.appendDomain(type, data, appendOptions)
-      ctx.events.emit('session/event', { session: options.sessionId, event })
+      broadcast(event)
       return event
     },
 

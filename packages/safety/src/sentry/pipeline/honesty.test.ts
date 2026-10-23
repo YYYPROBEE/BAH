@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   detectAccountFacts,
+  detectActionClaims,
   provideSentry,
   resolveSentrySettings,
   type SentryHandle,
@@ -224,6 +225,91 @@ describe('honesty（turn-stopping：无工具结果不陈述）', () => {
     })
     await test.turnStopping(1)
     expect(test.nudges).toEqual([])
+  })
+
+  it('S-1 拒绝后仍称完成 → 行动断言纠正（不是数值纠正）', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    test.emit('tool/result', {
+      callId: 'c-1',
+      name: 'transfer_create',
+      isError: true,
+      code: 'approval-rejected',
+      content: [{ type: 'text', text: '未执行：审批被拒绝' }],
+    })
+    say(test, '已为您完成 800 元转账，已审批并核销。')
+
+    await test.turnStopping(1)
+
+    expect(test.nudges).toHaveLength(1)
+    expect(test.nudges[0]?.text).toContain('行动断言')
+    expect(test.nudges[0]?.text).toContain('核销完成')
+    const corrected = test.events.filter((event) => event.type === 'sentry/honesty-corrected')
+    expect(corrected).toHaveLength(1)
+    expect(corrected[0]?.data['kind']).toBe('action-claim')
+    expect(test.stopped).toEqual([])
+  })
+
+  it('S-1 只有读结果却称"已转账" → 纠正（转账必须有 transfer_create 成功）', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    test.emit('tool/result', {
+      callId: 'c-1',
+      name: 'account_balance',
+      isError: false,
+      content: [{ type: 'text', text: '余额 ¥12,345.67' }],
+    })
+    say(test, '已转账成功，800 元已经到账。')
+
+    await test.turnStopping(1)
+
+    expect(test.nudges).toHaveLength(1)
+    expect(test.nudges[0]?.text).toContain('没有成功的转账结果')
+    expect(test.stopped).toEqual([])
+  })
+
+  it('S-1 转账真的成功 → 不纠正', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    test.emit('tool/result', {
+      callId: 'c-1',
+      name: 'transfer_create',
+      isError: false,
+      content: [{ type: 'text', text: '转账成功：¥800.00 → 王建国' }],
+    })
+    say(test, '已转账 800 元。')
+
+    await test.turnStopping(1)
+
+    expect(test.nudges).toEqual([])
+    expect(test.stopped).toEqual([])
+  })
+
+  it('S-1 纠正过一次仍不改口 → 判停（同一 turn 不再重复 nudge）', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    test.emit('tool/result', {
+      callId: 'c-1',
+      name: 'transfer_create',
+      isError: true,
+      code: 'approval-rejected',
+      content: [{ type: 'text', text: '未执行：审批被拒绝' }],
+    })
+    say(test, '已转账成功。')
+
+    await test.turnStopping(1)
+    await test.turnStopping(1)
+
+    expect(test.nudges).toHaveLength(1)
+    expect(test.stopped).toHaveLength(1)
+    expect(test.stopped[0]).toContain('已纠正过一次')
+  })
+
+  it('S-1 断言识别：否定 / 将来语境不算断言', () => {
+    expect(detectActionClaims(['预计 2 小时内到账，请耐心等待。'])).toEqual([])
+    expect(detectActionClaims(['转账未成功，已拒绝。'])).toEqual([])
+    expect(detectActionClaims(['已核销。'])).toEqual(['redeem'])
+    expect(detectActionClaims(['已转账 800 元。'])).toEqual(['transfer'])
   })
 
   it('T-SNT-011 同 turn 工具数超限 → stop + guard/repeat-tool', async () => {

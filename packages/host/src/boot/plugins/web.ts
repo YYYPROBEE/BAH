@@ -46,6 +46,7 @@ import {
   readAdminToken,
   tokenMatches,
 } from './web-admin.ts'
+import { generateWebToken, injectWebToken, presentedWebToken, readWebToken } from './web-auth.ts'
 
 /** `channel:web` 的配置（全部随部署变化 → 全部可校验）。 */
 export interface WebSettings {
@@ -188,6 +189,10 @@ export const webPlugin: HostPlugin<WebSettings> = {
 
       const clients = new Set<SseClient>()
       const staticRoot = resolve(config.staticRoot)
+      const indexPath = join(staticRoot, 'index.html')
+      // 没配环境变量就每次启动生成一个：演示打不开页面比"没鉴权"更糟，
+      // 但 token 也绝不写死——它只存在于本进程与同源页面里。
+      const webToken = readWebToken(process.env) ?? generateWebToken()
 
       /** 推一帧给所有连接。 */
       const publish = (frame: WebFrame): void => {
@@ -286,11 +291,14 @@ export const webPlugin: HostPlugin<WebSettings> = {
           return
         }
         try {
-          const content = await readFile(target)
+          const raw = await readFile(target)
+          // index 是 token 的唯一载体：注入后必须 no-store，避免浏览器缓存旧 token
+          const isIndex = target === indexPath
+          const content = isIndex ? Buffer.from(injectWebToken(raw.toString('utf8'), webToken)) : raw
           res.writeHead(200, {
             'content-type': MIME[extname(target).toLowerCase()] ?? 'application/octet-stream',
             'content-length': content.length,
-            'cache-control': 'no-cache',
+            'cache-control': isIndex ? 'no-store' : 'no-cache',
           })
           res.end(headOnly ? undefined : content)
         } catch {
@@ -373,20 +381,39 @@ export const webPlugin: HostPlugin<WebSettings> = {
         const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`)
         const path = url.pathname
 
+        // 探活是唯一公开的 API：编排器与演示脚本只问"还活着吗"，不拿凭证。
+        if (method === 'GET' && path === '/api/health') {
+          sendJson(res, 200, {
+            ok: true,
+            lastSeq: session.lastSeq(),
+            // 只给数量：探针拿到 ID 就能绕过页面直接调审批/验证路由
+            pendingTicketCount: adapter.pendingTickets().length,
+          })
+          return
+        }
+
+        // 管理路由有自己的 token（默认关闭）；必须排在 Web 凭证检查之前。
+        if (path === ADMIN_UNFREEZE_PATH) {
+          await handleUnfreeze(req, res, method)
+          return
+        }
+
+        // Web 凭证检查（D5 最小集）：所有其余 `/api/*` 一律先验 Bearer。
+        // SSE 例外：`EventSource` 不能设请求头，只能带 `?token=`——只对 GET /api/events 放宽。
+        if (path.startsWith('/api/')) {
+          const queryToken =
+            method === 'GET' && path === '/api/events' ? url.searchParams.get('token') : null
+          if (!tokenMatches(webToken, presentedWebToken(req.headers, queryToken))) {
+            sendError(res, 401, 'web-unauthorized', '缺少或错误的访问凭证')
+            return
+          }
+        }
+
         if (method === 'GET' && path === '/api/session') {
           sendJson(res, 200, {
             sessionId: String(session.sessionId),
             lastSeq: session.lastSeq(),
             capabilities: adapter.capabilities,
-          })
-          return
-        }
-
-        if (method === 'GET' && path === '/api/health') {
-          sendJson(res, 200, {
-            ok: true,
-            lastSeq: session.lastSeq(),
-            pendingTickets: adapter.pendingTickets(),
           })
           return
         }
@@ -466,12 +493,6 @@ export const webPlugin: HostPlugin<WebSettings> = {
           }
           const status = result.code === 'unknown-ticket' ? 404 : 400
           sendError(res, status, result.code, result.reason)
-          return
-        }
-
-        // 人工解冻：唯一入口（HP-0 §3.2）。默认关闭、只绑回环、token 只从环境变量读。
-        if (path === ADMIN_UNFREEZE_PATH) {
-          await handleUnfreeze(req, res, method)
           return
         }
 

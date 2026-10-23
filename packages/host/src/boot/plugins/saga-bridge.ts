@@ -151,11 +151,14 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
         name: string,
         args: Readonly<Record<string, unknown>>,
         callId: string,
+        ticketId?: ToolCallInput['ticketId'],
       ): Promise<unknown> =>
         registry().get(name).execute(args, {
           sessionId: sessionId() as never,
           callId,
           signal: NEVER_ABORT,
+          // 票据是随机 UUID，sub-step 必须沿用它，自己去拼 `ticket:${callId}` 会核销失败
+          ...(ticketId === undefined ? {} : { ticketId }),
         })
 
       const runSagaFor = async (call: ToolCallInput): Promise<unknown> => {
@@ -229,7 +232,7 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
               return { kind: 'err', code: 'recipe-missing' }
             }
             try {
-              const payload = await executeTool(spec.toolName, spec.args, call.callId)
+              const payload = await executeTool(spec.toolName, spec.args, call.callId, call.ticketId)
               // 外层工具的结果必须是**最后一步**的产出（预检的返回值不能顶包扣款结果）
               if (step.stepId === lastStepId) lastPayload = payload
               return { kind: 'ok', responseDigest: digestOf(payload) }

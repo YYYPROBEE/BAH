@@ -147,7 +147,12 @@ describe('七段管线', () => {
         'approval/decided',
         'tool/result',
       ])
-      expect(h.log()[1]).toMatchObject({ data: { ticketId: 'ticket:c1', amount: 50_000 } })
+      // 票据 ID 是随机 UUID：只断言形状（`ticket:` + 36 位），不再断言具体值。
+      // 断言形状本身就是在钉"不可预测"这个性质——写死一个值反而在鼓励可预测。
+      expect(h.log()[1]?.data).toMatchObject({ amount: 50_000 })
+      expect(String((h.log()[1]?.data as { ticketId?: string }).ticketId)).toMatch(
+        /^ticket:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      )
       expect(h.log()[2]).toMatchObject({ data: { decision: 'unavailable' } })
     })
   })

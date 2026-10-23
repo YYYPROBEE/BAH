@@ -53,6 +53,32 @@ export function amountText(cents: number | undefined): string | undefined {
 }
 
 /**
+ * 从工具参数里取**脱敏后的**收款人手机号（`payee.phone`）。
+ *
+ * 审批弹窗要显示手机号来区分同名收款人，但审计面不该出现完整号码；
+ * 渠道只拿到这一份脱敏文本，原值留在工具参数里（不进前端帧）。
+ */
+export function maskedPayeePhoneFromArgs(args: unknown): string | undefined {
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) return undefined
+  const payee = (args as Record<string, unknown>)['payee']
+  if (typeof payee !== 'object' || payee === null || Array.isArray(payee)) return undefined
+  const phone = (payee as Record<string, unknown>)['phone']
+  if (typeof phone !== 'string' || phone.trim().length === 0) return undefined
+  return maskPhone(phone.trim())
+}
+
+/**
+ * 手机号脱敏：保留前 3 位与后 4 位。
+ *
+ * 位数不足时整段遮掉——"短号码保留几位"没有安全的阈值，宁可显示 `****`。
+ */
+export function maskPhone(phone: string): string {
+  const digits = phone.trim()
+  if (digits.length < 7) return '****'
+  return `${digits.slice(0, 3)}****${digits.slice(-4)}`
+}
+
+/**
  * 从工具结果文本里抽风险提示（理财合规：`disclaimerId` 必须展示）。
  *
  * 口径来自施工单 08：`projectContent` 把 `disclaimerId` 写进正文

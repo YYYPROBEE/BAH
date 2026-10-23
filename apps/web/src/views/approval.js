@@ -2,6 +2,7 @@
  * 审批弹窗（施工单 13 §3.2 六要素 + §5 T-WEB-003 / 004）。
  *
  * 六要素：操作类型、金额、收款人、风险级别、等待时长、拒绝理由输入框。
+ * 有数据时再补两项：收款人手机（已脱敏）与手续费（来自本 turn 的预演结果）。
  *
  * 两个刻意的决定：
  * 1. **不做倒计时**：`approval/asked` 不带票据 TTL（偏差 R-WEB-D8），编一个倒计时等于
@@ -169,6 +170,8 @@ export function createApprovalController(root, handlers) {
             field('操作类型', frame.operation),
             amountField(frame),
             field('收款人', frame.payeeName ?? '—'),
+            ...(frame.payeePhone === undefined ? [] : [field('收款手机', frame.payeePhone)]),
+            ...(frame.feeText === undefined ? [] : [field('手续费', frame.feeText)]),
             el('div', { class: 'field' }, [
               el('dt', { class: 'field__label', text: '风险级别' }),
               el('dd', { class: 'field__value' }, [el('span', { class: tier.cls, text: tier.label })]),

@@ -113,6 +113,57 @@ export function createSentryPostExecuteListener(
   })
 }
 
+/** `agent/turn-stopping` 监听器形状（serial，无 `next` 参数）。 */
+export type TurnStoppingListener = (payload: unknown) => void
+
+/**
+ * turn-stopping 版 fail-closed 的固定判停理由。
+ *
+ * 这里没有"block"可返回，唯一的失败即"不许正常收尾"——所以异常一律转成 `stop()`。
+ */
+export const TURN_STOPPING_BLOCK_REASON =
+  '【行动断言】行动核验组件异常，本轮不能按正常完成收尾，已判停。'
+
+/**
+ * 把 `agent/turn-stopping` 监听器包成 fail-closed（D5 / S-1）。
+ *
+ * 为什么 turn-stopping 也要包：行动断言守卫挂在收尾钩子上，它自己崩了如果只是
+ * 静默跳过，带成功断言的消息就正常收尾了——**核验组件失效的那一次，恰好是最该拦的那一次**。
+ *
+ * 三条纪律与 post-execute 版一致：不向上抛、错误详情不进模型可见文本、落
+ * `sentry/verifier-failed` 让运维知道是组件坏了。
+ */
+export function failClosedTurnStopping(
+  listener: TurnStoppingListener,
+  options: FailClosedOptions,
+): TurnStoppingListener {
+  const { sessionId, trace, record, now } = options
+
+  return (payload) => {
+    try {
+      listener(payload)
+    } catch (error) {
+      const at = now()
+      const message = truncate(reasonOf(error), MAX_MESSAGE)
+      trace.append({ session: sessionId, kind: 'honesty-verifier-failed', message, at })
+      record('sentry/verifier-failed', {
+        listener: 'agent/turn-stopping',
+        code: VERIFIER_UNAVAILABLE,
+        message,
+        at,
+      })
+      const stop = isRecord(payload) ? payload['stop'] : undefined
+      if (typeof stop === 'function') {
+        try {
+          ;(stop as (reason?: string) => void)(TURN_STOPPING_BLOCK_REASON)
+        } catch {
+          // 判停本身都失败时没有更强的兜底：至少异常详情已经进审计
+        }
+      }
+    }
+  }
+}
+
 /**
  * `next` 的一次性包装。
  *

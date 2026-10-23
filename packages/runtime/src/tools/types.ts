@@ -6,7 +6,7 @@
  * 不在任何地方复制一份 `ToolDefinition`——契约只有一份（阶段 1 签审的那份）。
  */
 
-import type { ContentBlock, UiCard } from '@bah/core'
+import type { ContentBlock, TicketId, UiCard } from '@bah/core'
 
 import type { ToolResultData } from '../session/types.ts'
 
@@ -30,6 +30,14 @@ export interface ToolCallInput {
   readonly callId: string
   readonly name: string
   readonly args: Readonly<Record<string, unknown>>
+  /**
+   * 本次调用对应的票据 ID（只有走过审批的调用才有）。
+   *
+   * 为什么挂在这里：`tools/execute` 是环绕式 waterfall，外层包裹函数（如 saga 桥接）
+   * 拿到的就是这个 call。票据 ID 是随机 UUID，包裹层若不能从参数里读到它，
+   * 就只能猜或去翻全局状态。挂在 call 上是最小且不撒谎的办法。
+   */
+  readonly ticketId?: TicketId
 }
 
 /** 一次执行的最终产出（结果已落账、卡片已生成）。 */
