@@ -60,4 +60,18 @@ export const DOCS_PATH_EXCLUSIONS: readonly DocsPathExclusion[] = [
     path: 'packages/xxx/src/yyy.ts',
     why: '施工单 07 §2-4 里的示意写法（xxx/yyy 占位），不是真实文件',
   },
+  // 计划 §18 P1-4：三件套从 README 三章拆回三份独立文档（赛题 §五.2 要求）。
+  // 计划里引用"待建文件"是合理的；三份落地后**必须删掉这三条**，否则门禁成了挡箭牌。
+  {
+    path: 'docs/architecture.md',
+    why: '计划 §18 P1-4 待建（三件套之一），落地即删本条',
+  },
+  {
+    path: 'docs/algorithms.md',
+    why: '计划 §18 P1-4 待建（三件套之一），落地即删本条',
+  },
+  {
+    path: 'docs/security-design.md',
+    why: '计划 §18 P1-4 待建（三件套之一），落地即删本条',
+  },
 ]

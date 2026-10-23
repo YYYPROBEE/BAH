@@ -1,15 +1,15 @@
 # BAH 事实表（演示材料的唯一数字来源）
 
-> 更新：2026-10-23（D6 复审实测）。任何 PPT / 视频 / 自评里的数字先查这里；
+> 更新：2026-10-23（D6 复审实测；23:05 复核 `pnpm test` = 164 文件 / 1561 用例、`test:web` = 6 文件 / 52 用例）。任何 PPT / 视频 / 自评里的数字先查这里；
 > 改代码后重跑对应命令再改本表。**不要把三行测试数相加成一个"总用例数"**。
 
 ## 1. 测试与门禁（三行口径）
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **161 文件 / 1476 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **164 文件 / 1561 用例** |
 | `pnpm -F @bah/eval test` | 评测包（不在根 vitest include 内） | **14 文件 / 133 用例** |
-| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗） | **5 文件 / 47 用例** |
+| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗） | **6 文件 / 52 用例** |
 
 其他口径：
 
