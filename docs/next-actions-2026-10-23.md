@@ -617,3 +617,63 @@ usage/summary ：calls 2          → calls 3
 - 最小评测 3 场景、PPT 12 页（D9）
 - 视频（必须拍到真实拒绝画面）、终检、公开预检（D10）
 - 冻结 tag 与报名系统提交（D11）
+
+---
+
+## 17. 10-23 午后追加：覆盖率红已闭合，快照红记入待办
+
+### 17.1 `test:coverage` 闭合（提交 `9eb0e2f`）
+
+根因不是代码坏了：`scripts/coverage-allowlist.ts` 把新写的生产代码登记进强制名单，用例没跟上。
+156 行未覆盖逐段还原成带上下文的代码核过，**全是兜底与收尾路径，没有一处死代码**，
+所以没缩名单、没删代码、没为凑数写假用例。
+
+| 项 | 改前 | 改后 |
+|---|---|---|
+| 阈值 ERROR | 39 条（15 个文件） | **0 条** |
+| `All files` | 未达标 | **100 \| 96.15 \| 100 \| 100** |
+| 用例数 | 1476 | **1559（+83）** |
+| `pnpm gate` | — | **27/27** |
+
+生产侧只动两处：`observeToolOutcomes` 的 deepseek 分支不再造 `() => []` 这个没人调用、
+却在类型上假装"真实模型也有工具结局视图"的假读口；`honesty.ts` 两个封闭联合的
+`assertNever` 收尾按仓内已有 5 处的同一约定加 `/* v8 ignore next */` 与理由。
+顺带修了一条**假绿用例**：`packages/runtime/src/tools/pipeline.test.ts` 里标题写
+"审计通道自身失败"的那条实际只测到会话服务的监听器隔离（`emitIsolated`），
+`toHaveBeenCalled()` 断到的是另一条日志；现在它如实断 `bah-runtime:` 前缀，
+"审计通道真坏"由新增用例覆盖。
+
+`pnpm check` 现状：typecheck / lint / build / unit / test:coverage / gate 全绿，
+e2e 按设计 skip（无 `DEEPSEEK_API_KEY`），`rag:check` 75 passed。**只剩 `test:snapshot`。**
+
+### 17.2 待办：票据 ID 随机化打穿了快照的确定性护栏
+
+**现象**（不是抖动，稳定复现）：`snapshots/sandbox-compute` 与 `snapshots/web-channel` 各 2 例红
+（T-AUD-005 录制↔回放全等、T-AUD-006 两次回放全等），共 4 例；不含审批票据的
+`headless-basic` 绿。差异只落在带 `ticketId` 的 5 类事件上：
+
+```text
+#35 approval/asked        录制 ticket:call-2  ⟶ 回放 ticket:d9b55b48-4ead-…
+#36 ticket/issued         同上（ignorable 标记帮不上，比较器比的是整行 JSON）
+#37 approval/challenge-issued / #39 ticket/approved / #40 approval/decided
+```
+
+**根因链**：`7314143`（D5–D7）把 `packages/runtime/src/tools/pipeline.ts:449` 的票据 ID
+从 `ticket:${callId}` 改成 `ticket:${randomUUID()}`——理由正确且必须保留
+（票据号出现在 `/api/approval/:ticketId` 与审计里，可预测等于拿 URL 当权限）。
+但录制件停在 `5d6a9ea` 的旧形状，而 `compareEvents` 刻意"整行 JSON 全等"，
+于是 T-AUD-005 必然红；更本质的是 **T-AUD-006 连"两次回放互相全等"都红**——
+每次 `mintTicket` 都 mint 新 UUID，说明这条确定性断言与不可预测 ID 在结构上互斥。
+
+**三个方案**（10-23 拍板：本轮不动，先记着）：
+
+1. **harness 注入确定性 ID 源（推荐）**：给 `ToolPipeline` 加可选 `mintTicketId`，
+   生产仍 `randomUUID`，快照面注入按 `callId` 派生。现有录制件零重录，
+   并把"不可预测属生产、可复现属验收"这条边界写进代码。约 0.5d，含补用例。
+2. **比较器归一化 `ticketId`**：只改 `@bah/test-support`，最快，
+   但削弱"整行全等＝模型看到的与用户看到的完全一样"这条证据强度。
+3. **先注入再按新形状重录**：录制件重写成 `ticket:<确定性值>`，
+   代价是改动审计证据基线，答辩时要能说明重录理由。
+
+**为什么现在可以带着它跑**：`pnpm check` 会在 `test:snapshot` 处阻断合并，
+所以这条不修，任何依赖 `check` 全绿的验收动作都得手动跳过它——记在 D8 之前处理。
