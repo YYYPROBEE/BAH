@@ -1,7 +1,8 @@
 # BAH 事实表（演示材料的唯一数字来源）
 
-> 更新：2026-10-26（W20 收口后全量复核）。任何 PPT / 视频 / 自评里的数字先查这里；
+> 更新：2026-10-27（C07 数字归一后复核）。任何 PPT / 视频 / 自评里的数字先查这里；
 > 改代码后重跑对应命令再改本表。**不要把三行测试数相加成一个"总用例数"**。
+> 数字的取值命令与原始输出见 `docs/facts-sources.md`；门禁 `verify-facts` 逐项比对，不一致即红。
 > ⚠ 本表上一版停在 2026-10-24，被 W03–W17 甩在后面（门禁还写 27/27、工具还写 14 个、
 > HP-2/3/4 还写"未施工"）。本版已逐条按命令输出重校。
 
@@ -9,15 +10,15 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **194 文件 / 1951 用例** |
-| `pnpm -F @bah/eval test` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **198 文件 / 1995 用例** |
+| `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗） | **7 文件 / 55 用例** |
 
 其他口径：
 
 | 命令 | 结果 | 说明 |
 |---|---|---|
-| `pnpm gate` | **34/34** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
+| `pnpm gate` | **35/35** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
 | `pnpm test:snapshot` | 5 文件 / 18 用例（18/18 绿） | 录制回放；`pnpm snapshot:record` 重录 |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
