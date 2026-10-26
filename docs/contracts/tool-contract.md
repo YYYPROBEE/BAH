@@ -93,7 +93,7 @@ const transferCreateContract: ToolContract<ToolSchema, ToolSchema> = {
     required: ['toAccount', 'amount'],
     properties: {
       toAccount: { type: 'string', minLength: 8 },
-      // 入参金额是 number，单位「元」—— 14 个工具现状如此，见 W03 的口径
+      // 入参金额是 number，单位「元」—— 16 个工具现状如此，见 W03 的口径
       amount: { type: 'number', exclusiveMinimum: 0 },
       remark: { type: 'string', maxLength: 140 },
     },
@@ -118,7 +118,7 @@ const transferCreateContract: ToolContract<ToolSchema, ToolSchema> = {
 > `dailyUsedCents` / `dailyLimitCents` / `remainingCents`。**没有 `balance`，也没有 `amount`。**
 > W03 写出参边界时若按「元」写，阈值会差 100 倍。
 
-**金额类型提示**：14 个工具当前 `amount` 是 `{ type: 'number' }`（元）。
+**金额类型提示**：16 个工具当前 `amount` 是 `{ type: 'number' }`（元）。
 W03 **只做边界校验**（非有限数 / 负数 / 精度越界 / 超安全整数），
 换算复用既有的 `yuanToCents`（已防 `1.005 * 100` 陷阱），**不要自己写 `Math.round(x * 100)`**。
 

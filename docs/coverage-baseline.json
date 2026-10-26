@@ -1,7 +1,7 @@
 {
-  "measuredAt": "2026-10-26",
-  "command": "NODE_EXTRA_CA_CERTS= npx vitest run --coverage --coverage.include='packages/*/src/**/*.ts' --coverage.reportsDirectory=.ci-artifacts/cov-w19 --coverage.reporter=json-summary",
-  "line": { "covered": 29163, "total": 34517, "pct": 84.48 },
+  "measuredAt": "2026-10-27",
+  "command": "NODE_EXTRA_CA_CERTS= pnpm test:coverage:all",
+  "line": { "covered": 29163, "total": 34517, "pct": 84.49 },
   "packages": { "atLeast80": 14, "total": 16 },
-  "note": "全仓口径（不是 vitest.config.ts 里「强制 100% 名单」那个口径）。测量时 194 文件 / 1951 例全绿。两个未达 80% 的包：memory-store 72.71%、eval 40.73%（eval 主体是评测 harness，行数多在场景数据装载上）。"
+  "note": "全仓口径（不是 vitest.config.ts 里「强制 100% 名单」那个口径）。测量时 198 文件 / 1995 例全绿。两个未达 80% 的包：memory-store 72.71%、eval 40.73%（eval 主体是评测 harness，行数多在场景数据装载上）。"
 }

@@ -4922,3 +4922,53 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
    日志头与 PROGRESS 均已写明这一区别，历史计数（187/1919、189/1935、29/29）保持原样。
 3. **没有覆盖 `.ci-artifacts` 的其它引用**：本包只按任务书修 W05/W06 两处；W13/W14/W15 的日志仍在忽略目录，
    属同一类问题但不在本包范围（可并入 C11 或赛后 B 类）。
+
+---
+
+## 96.7 2026-10-27 C07 数字归一 + `verify-facts` 门禁（门禁 35/35）
+
+### 96.7.1 做了什么
+
+- 新建 `docs/facts-sources.md`：机器块 12 键（门禁 / 工具 / plan 行 / 快照 / 覆盖率 / 主仓用例），
+  每条附取值命令与 2026-10-27 实测输出；列明"历史件不许改"名单。
+- 新建 `scripts/verify-facts.ts`：从代码/文件**重算**五类事实，与 facts-sources 和 `facts.md` 比对；
+  另校验覆盖率台账内部自洽 + `.ci-artifacts/cov-all` 报表新鲜度（无报表时只记 note，不误伤干净 clone）。
+- 覆盖率定死：`docs/coverage-baseline.json` 的 `pct` 84.48 → **84.49**（29163/34517），
+  `measuredAt` 2026-10-27；跑 `gen-architecture.ts` 重生成三份文档事实块（门禁 34→35、覆盖率 84.49）。
+- 冻结契约 `docs/contracts/tool-contract.md:96-121` 的「14 个工具」→「16 个工具」。
+- `facts.md`：主仓测试 194/1951 → **198/1995**；门禁 34/34 → **35/35**；
+  eval 命令 `pnpm -F @bah/eval test` → **`pnpm eval:unit`**（前者 cwd 在包内，实测 5 例红）。
+- 三张过期状态表**整表重写**（next-orders / next-three-w11-w12-w05 / next-three-w12-w05-w06），
+  并在表下保留原值时点注，避免改写历史。
+
+### 96.7.2 判据与输出
+
+| 判据 | 命令 | 实测 |
+|---|---|---|
+| 新门禁单独绿 | `npx tsx scripts/verify-facts.ts` | `✔ facts`；重算 `门禁 35 · 工具 16 · plan 2208 行 · 快照 5/18 · 覆盖率 84.49%（29163/34517）` |
+| 全量门禁 | `npx tsx scripts/run-gates.ts` | **全部通过（35/35）** |
+| 旧数只剩说明句 | `Select-String -Pattern "14 个工具" README.md facts.md docs/contracts/*.md docs/security-design.md` | 仅 `security-design.md:109`「"14 个工具"是旧数（现为 16）」 |
+| 覆盖率单一值 | `Select-String -Pattern "84\.48" *.md docs/*.md` | 只剩 PROGRESS 历史小节、C02 handoff、facts-sources 的"截尾旧值"说明 |
+| 脚本入库 | `git ls-files scripts/verify-facts.ts` | 有输出 |
+| 类型 | `npx tsc -b tsconfig.host.json tsconfig.client.json` | 退出码 0 |
+
+**负例（L3）**：把 `facts.md` 的 1995 改成 1996 → `✘ facts · facts.md 缺「198 文件 / 1995 用例」`，EXIT=1；
+改回 1995 → `✔ facts`，EXIT=0。
+
+### 96.7.3 偏差与未闭合
+
+1. **覆盖率命令与任务书不同**：任务书建议 `.ci-artifacts/cov-facts`；实际用 `pnpm test:coverage:all`
+   （`coverage-summary.ts` 固定读 `cov-all`）。`clean:false` 已在配置里，未改。重跑值与 10-26 恰好同值，
+   不是抄旧数：报表时间 00:20:08、`measuredAt` 已改 2026-10-27。
+2. **C07 在 C08 / C13 未闭合时执行**（用户指定顺序）：C08 只动 `docs/adr/**`、C13 只动归档横幅与
+   四份排期件，均不在 `verify-facts` 检查面；若之后又改 `facts.md` / `security-design.md` /
+   `tool-contract.md`，必须重跑该门禁。
+3. **eval 包 22/158 的取值命令已改为 `pnpm eval:unit`**：`pnpm -F @bah/eval test` 从包内 cwd 跑会丢
+   `profiles/`（实测 5 例红）。`packages/eval/vitest.config.ts` 仍写"零 workspace 依赖"，与实测不符，
+   属代码债，未在本包改。
+4. **`docs/coverage-baseline.json` 的 pct 仍是手写字段**：门禁校验它等于 covered/total 四舍五入两位，
+   但生成脚本不会自动写它。
+5. **历史件未动**：`docs/preflight-2026-10-25.md:44` 的「14（目标 16）」、`docs/next-actions-2026-10-23.md`
+   的旧数与 PROGRESS §96.2 的"留给 C07"记录均保留——时间线不改写。
+6. **新增门禁后计数会变**：以后再加任何 `scripts/verify-*.ts`，`gates=35` 要同步 +1，
+   否则 `verify-facts` 当场红（这是设计，不是缺陷）。
