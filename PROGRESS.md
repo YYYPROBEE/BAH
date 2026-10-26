@@ -3370,8 +3370,8 @@ W11（`plan/node-waiting` + `incident` + 动态 args）可以直接接：`replay
 
 ### 74.4 三绿与专项
 
-- 全量：`NODE_EXTRA_CA_CERTS= npx vitest run` → **187 文件 / 1919 例**（`.ci-artifacts/w05-review-vitest.log`）。
-- 门禁：`BAH_ALLOW_NO_SNAPSHOT=1 … run-gates.ts` → **29/29**（`.ci-artifacts/w05-review-gates.log`）。
+- 全量：`NODE_EXTRA_CA_CERTS= npx vitest run` → **187 文件 / 1919 例**（原引用 `.ci-artifacts/w05-review-vitest.log` 被 `.gitignore:13` 忽略，不可入库；2026-10-27 重跑见 `docs/evidence/w05-review-vitest.log`：**198 文件 / 1995 例**）。
+- 门禁：`BAH_ALLOW_NO_SNAPSHOT=1 … run-gates.ts` → **29/29**（原引用 `.ci-artifacts/w05-review-gates.log` 同样不可入库；2026-10-27 不带逃生口重跑见 `docs/evidence/w06-gates.log`：**34/34**）。
 - 类型：`npx tsc -b tsconfig.host.json tsconfig.client.json` → 退出码 0。
 - 快照：`npx vitest run --config vitest.snapshot.config.ts` → **18/18**，`headless-basic` diff=0。
 - 既有冻结面未动：`core/src/api.ts` diff=0；工具 16、plan 9 态、saga 11 态、`PlanSettings` 7 键。
@@ -3504,8 +3504,8 @@ W11（`plan/node-waiting` + `incident` + 动态 args）可以直接接：`replay
 
 ### 76.4 三绿与专项
 
-- 全量：`NODE_EXTRA_CA_CERTS= npx vitest run` → **189 文件 / 1935 例**（`.ci-artifacts/w06-vitest.log`）。
-- 门禁：`BAH_ALLOW_NO_SNAPSHOT=1 … run-gates.ts` → **29/29**（`.ci-artifacts/w06-gates.log`）。
+- 全量：`NODE_EXTRA_CA_CERTS= npx vitest run` → **189 文件 / 1935 例**（原引用 `.ci-artifacts/w06-vitest.log` 被 `.gitignore:13` 忽略；2026-10-27 与 §74.4 同轮重跑见 `docs/evidence/w05-review-vitest.log`：**198 文件 / 1995 例**）。
+- 门禁：`BAH_ALLOW_NO_SNAPSHOT=1 … run-gates.ts` → **29/29**（原引用 `.ci-artifacts/w06-gates.log` 同样不可入库；2026-10-27 不带逃生口重跑见 `docs/evidence/w06-gates.log`：**34/34**）。
 - 类型：`npx tsc -b tsconfig.host.json tsconfig.client.json` → 退出码 0。
 - 快照：**18/18**，diff=0。
 - 签名一致性：`pnpm knowledge:sign --check` → `✔ 10 条语料、1 条 fixture 证据`。
@@ -4889,3 +4889,36 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
    属代码文件，C02 明确不改 `packages/`。
 4. **同批提交说明**：本文件同时带上 C01 已写好的 §96.1（C01 其余 5 个文件仍未提交）；
    `packages/` 下 10-26 并发工作流遗留已先行独立收口，故本包门禁能到 34/34。
+
+---
+
+## 96.9 2026-10-27 C09 取证日志（W05/W06 引用改为可入库路径）
+
+### 96.9.1 做了什么
+
+- 新建 `docs/evidence/w05-review-vitest.log`：2026-10-27 重跑 `NODE_EXTRA_CA_CERTS= npx vitest run`，
+  **198 文件 / 1995 例全绿**；ANSI 与 PowerShell 包装噪声已去，中段折叠，37 行。
+- 新建 `docs/evidence/w06-gates.log`：2026-10-27 重跑 `npx tsx scripts/run-gates.ts`，
+  **34/34**，命令里不带 `BAH_ALLOW_NO_SNAPSHOT`；131 行（≤200，未折叠）。
+- 改 `PROGRESS` §74.4 / §76.4 共 4 条引用：原 `.ci-artifacts/*` 被 `.gitignore:13` 忽略、不可入库，
+  改为指向 `docs/evidence/`，并保留 10-26 的历史计数、并列写明重跑值。
+
+### 96.9.2 判据与输出
+
+| 判据 | 命令 | 实测 |
+|---|---|---|
+| 两份日志存在且非空 | `ls -l docs/evidence/w05-review-vitest.log docs/evidence/w06-gates.log` | 37 行 / 131 行 |
+| 真正入库 | `git ls-files docs/evidence` | 2 个文件 |
+| 引用一致 | `Select-String -Pattern "w05-review-vitest|w06-gates" PROGRESS.md` | 4 处，全部指向 `docs/evidence/`，且保留历史值 |
+| 门禁 | `npx tsx scripts/run-gates.ts` | **34/34** |
+| 负例 | 改前 `ls .ci-artifacts` 过滤 `w05|w06` | 空——原引用指向的文件从未存在（这正是本包要修的自证失效） |
+
+### 96.9.3 偏差与未闭合
+
+1. **任务书写「两份日志」，实测引用是 4 条**（§74.4 vitest+gates、§76.4 vitest+gates）。做法：
+   两个文件分别承担 vitest / gates 证据，四条引用都指向这两份真实文件；`git ls-files docs/evidence` = **2**，
+   与验收一致，但**不能**据此声称"§74.4 与 §76.4 各有一次独立跑批"。
+2. **两份日志是 2026-10-27 重跑，不是 10-26 的原始跑批**：原 `.ci-artifacts` 文件从未存在，无法复原。
+   日志头与 PROGRESS 均已写明这一区别，历史计数（187/1919、189/1935、29/29）保持原样。
+3. **没有覆盖 `.ci-artifacts` 的其它引用**：本包只按任务书修 W05/W06 两处；W13/W14/W15 的日志仍在忽略目录，
+   属同一类问题但不在本包范围（可并入 C11 或赛后 B 类）。
