@@ -1,26 +1,37 @@
 # BAH 事实表（演示材料的唯一数字来源）
 
-> 更新：2026-10-24（R1/R3 后复核 `pnpm test` = 165 文件 / 1570 用例、`test:web` = 6 文件 / 52 用例）。任何 PPT / 视频 / 自评里的数字先查这里；
+> 更新：2026-10-26（W20 收口后全量复核）。任何 PPT / 视频 / 自评里的数字先查这里；
 > 改代码后重跑对应命令再改本表。**不要把三行测试数相加成一个"总用例数"**。
+> ⚠ 本表上一版停在 2026-10-24，被 W03–W17 甩在后面（门禁还写 27/27、工具还写 14 个、
+> HP-2/3/4 还写"未施工"）。本版已逐条按命令输出重校。
 
 ## 1. 测试与门禁（三行口径）
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **165 文件 / 1570 用例** |
-| `pnpm -F @bah/eval test` | 评测包（不在根 vitest include 内） | **14 文件 / 133 用例** |
-| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗） | **6 文件 / 52 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **194 文件 / 1951 用例** |
+| `pnpm -F @bah/eval test` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
+| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗） | **7 文件 / 55 用例** |
 
 其他口径：
 
 | 命令 | 结果 | 说明 |
 |---|---|---|
-| `pnpm gate` | **27/27** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1 |
+| `pnpm gate` | **34/34** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
-| `pnpm test:snapshot` | 4 文件 / 14 用例（14/14 绿） | 录制回放；`pnpm snapshot:record` 重录 |
-| `pnpm check` | 十步总闸 | typecheck → lint → build → test → coverage → gate → e2e → snapshot → web → rag |
+| `pnpm test:snapshot` | 5 文件 / 18 用例（18/18 绿） | 录制回放；`pnpm snapshot:record` 重录 |
+| `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
+| `pnpm test:coverage:all` | **行口径 84.49%**（29163/34517）/ **包口径 14/16** | 两个口径必须一起说；未达标 `memory-store` 72.71%、`eval` 40.73% |
 
-## 2. 工具：14 个（12 绿 / 1 黄 / 1 红）
+评测平面（`pnpm eval`）：
+
+| 指标 | 实测 |
+|---|---|
+| 场景 | 60 个（Q/T/P/S/D/K 六族），boot 8 次 |
+| 任务成功率 / 越权拦截率 / 拒答正确率 | 49/49 · 5/5 · 6/6，平均 1.25 步 |
+| 对抗集 | 45 例（分母 44，排除 1 例 `[unverified]` 来源），总拦截 41/44；注入 14/14、越权 15/15、幻觉 12/15 |
+
+## 2. 工具：16 个（12 绿 / 2 黄 / 2 红）
 
 | # | 工具 | 级别 | 职责 |
 |---|---|---|---|
@@ -38,10 +49,12 @@
 | 12 | `verify_face` | green | 人脸挑战 |
 | 13 | `verify_sms` | green | 短信挑战 |
 | 14 | `verify_ushield` | green | U 盾挑战 |
+| 15 | `card_report_lost` | **red** | 挂失银行卡（不可逆，必进审批 + 强验证） |
+| 16 | `sub_cancel` | **yellow** | 取消自动扣款订阅（可逆） |
 
 口径：
 
-- 上限 28，当前 14（`docs/tool-catalog.md` 由 `pnpm tool-catalog` 生成，门禁逐字比对）。
+- 上限 28，当前 16（`docs/tool-catalog.md` 由 `pnpm tool-catalog` 生成，门禁逐字比对）。
 - `verify_*` 虽为 green，但 `sideEffect: write`，不参与并行读批。
 - 模型参数金额单位是**元**，核心与事件是**分**（字段带 `Cents`）。
 
@@ -90,5 +103,11 @@
 - 供应链：Dependabot + `.github/workflows/security.yml`（npm audit 用官方源；pip-audit 先收集基线）。
 - 银行账本是内存仿真，进程重启回种子；不宣称持久。
 - 强验证渠道（短信/人脸/U 盾）语义位齐全，但全部是 mock，未接真实渠道。
-- HP-2（RAG 签名 / TS 验签门）、HP-3（HALT 解除）、HP-4（出参契约）**未施工**；
-  自评里按"未施工"登记，不说成"已支持"。
+- **已知未做清单以 `docs/security-design.md` §4 的 7 条为准**（每条写了为什么不做 + 影响面）：
+  HP-2 RAG 响应信封签名 / HP-4 工具出参运行时契约校验 / 强验证接真实渠道 /
+  对抗集 H-13~H-15 幻觉族召回缺口 / plan 内写工具的补偿 / plan 动态 args 跨 `resume` /
+  `incident` 状态的真实触发源。
+  ⚠ 旧版本这里写的"HP-2 / HP-3（HALT 解除）/ HP-4 未施工"**已过期**：
+  HP-2 对应的知识库双层签名（W06）、HP-3 对应的 HALT 闭环（W07）、HP-4 对应的工具出参契约（W03）都已落地。
+- 断言核验门（W05）当前口径：`verified` 原文发 / `needs-evidence` 加`【未核实】`前缀 /
+  `reject` 换拒答文本（`reasonCode=assertion-unverified`）。对抗集幻觉族 12/15，3 例为已知召回缺口。

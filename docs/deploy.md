@@ -192,7 +192,7 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>"   # 完整验签：需 k
 | 知识问答报 `knowledge-unavailable` | 7801 sidecar 没起 | `pnpm rag:dev`（或按 `services/rag` 的 README 起），再确认探活 |
 | 断路器冻结，解不掉 | 在用 headless | headless 只能重启；Web 用管理路由 |
 | 提交被 `pnpm gate` 拒绝 | 27 项里有红 | 看输出末段；`docs` 路径红最常见（引用了不存在的文件） |
-| 推送被 `pnpm check` 拒绝 | 10 步里有红 | 先 `pnpm test:snapshot`；快照红会卡在最后一步 |
+| 推送被 `pnpm check` 拒绝 | 14 步里有红 | 先 `pnpm test:snapshot`；快照红会卡在最后一步 |
 | 演示日志里全是历史转账 | 用 `pnpm web` 起在了共享 `sessions/`；`demo:web` 才会每次新建独立目录 | 改用 `pnpm demo:web`，按打印的目录审计；不要删别人的历史目录 |
 
 ---
@@ -200,12 +200,24 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>"   # 完整验签：需 k
 ## 6. 演示前 60 秒检查
 
 ```bash
-pnpm gate                 # 27/27
-pnpm test:snapshot        # 14/14
+pnpm gate                 # 34/34（不需要 BAH_ALLOW_NO_SNAPSHOT）
+pnpm test:snapshot        # 18/18
 pnpm demo:verifier-fail   # 退出码 0
 pnpm demo:web             # 另开终端；记下打印的“本次会话目录”
 curl -s http://127.0.0.1:7331/api/health   # 返回 JSON，且不含票据 ID
 pnpm bah audit --dir "<本次会话目录>" --no-signature  # 链连续、投影 diff=0
 ```
 
-五条都过再上台。任何一条红，先修再讲——现场不要靠「应该没事」。
+另外三条**环境前置**（缺了会当场起不来）：
+
+```bash
+echo "$BAH_KNOWLEDGE_KEY"     # 必须非空：知识库签名密钥缺失时 web 直接拒绝启动
+netstat -ano | grep ":7331"   # 必须没有 LISTENING：端口占用不会自动换端口
+node -v                       # 需要 ^22.19 || >=24
+```
+
+八条都过再上台。任何一条红，先修再讲——现场不要靠「应该没事」。
+
+> 现场无模型密钥时的兜底：把 profile 的 `core:model` **和** `core:agent.loop.model`
+> 一起换成 `router:router-chat`。只换前者会报 `provider deepseek 未注册`
+> （主循环仍指向 deepseek）。
