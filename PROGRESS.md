@@ -4501,3 +4501,50 @@ W17 剩下的实际是"新门禁 + `noUncheckedIndexedAccess` 收尾 + 把 eval/
 - 任何人再提覆盖率，必须带 `行口径` / `包口径` 标签，且数字抄 `pnpm test:coverage:all` 的输出（不许手填）。
 - 新增测试文件的标准动作：写用例 → `npx tsx scripts/verify-assertions.ts --update` → 一起提交。
 - `.ci-artifacts/cov-all/` 不进库（已被 `.gitignore` 覆盖），`scripts/assertion-baseline.json` 必须进库。
+
+## 91. 2026-10-26 整体提交 + 一条已知红（`snapshot-fresh`）
+
+### 91.1 提交
+
+- `697d91e`：`feat: W05–W17 收口（…）`，**294 文件 / +37167 −942**，工作区随即干净；
+- 提交前实测：主 vitest **194 文件 / 1951 例**、门禁 **34/34**（带逃生口，见下）、`tsc -b` **0 错**。
+
+### 91.2 一条必须记账的红
+
+**现象**：不带 `BAH_ALLOW_NO_SNAPSHOT=1` 跑门禁，`snapshot-fresh` 红，`阻断合并：1/34`。
+
+**它要求什么**：敏感面（`runtime/llm/bank/saga/persistence/safety` 的 `src/` + `host/src/boot/`）
+里被改动的每个文件，都必须被某个快照场景的 `snapshot.json` 的 `coveredSources` 声明覆盖，
+**且**该场景目录本次有改动（= 重录过）。本次未覆盖的 9 个文件：
+
+```text
+packages/persistence/src/index.ts
+packages/persistence/src/replay/index.ts
+packages/runtime/src/agent/index.ts
+packages/safety/src/index.ts
+packages/safety/src/verify/extract.ts
+packages/safety/src/verify/index.ts
+packages/safety/src/verify/normalize.ts
+packages/safety/src/verify/route.ts
+packages/saga/src/compensation/index.ts
+```
+
+**性质**：这是 W05–W17 累积的记账债，不是本次提交引入的。此前每轮"三绿"都带
+`BAH_ALLOW_NO_SNAPSHOT=1`（该逃生口在非 CI 环境有效、在 CI 环境无效），所以一直没暴露。
+本次提交沿用了同一个逃生口。
+
+**修法（不许糊）**：
+1. 真被场景覆盖的（`runtime/src/agent/index.ts`、`safety/src/verify/*`）→ 补 `coveredSources`
+   **并同批 `pnpm snapshot:record` 重录** `headless-basic`；
+2. 不进主循环的（纯 barrel 的 `*/src/index.ts`、离线读取器 `persistence/src/replay/index.ts`）
+   → 走 `scripts/verify-snapshot-fresh.ts` 里那份逐条带理由的"离线读取器"名单（先例 `chain/audit-report.ts`）。
+
+**验收**：不带逃生口 `npx tsx scripts/run-gates.ts` 也 34/34。清单与上下文见
+`docs/handoff-2026-10-26-w20-next.md` §6.1（内部文档，不入库）。
+
+### 91.3 为什么本次不顺手修
+
+改 `coveredSources` 是**声明行为**：写进去就等于声称"这个场景确实覆盖了这个文件"。
+在没有重录、也没逐个确认调用链的情况下补声明，正是这条门禁注释里点名的"假仪式"。
+把它留在账上、写清两种正确修法，比让它表面变绿更符合本仓库的纪律
+（"缺口单列一节，比评委问出来强"）。
