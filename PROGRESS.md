@@ -4820,3 +4820,72 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 3. **100 问 C24/D4/D5 的证据命令是编的**（`--help` / `--list` 都不存在）。抽验时抓到，改成
    `grep -n "'--"` 与 `grep -n "name: '"`，并把这个过程写进 94.3——**编出来的命令比编出来的数字更危险**，
    因为数字会被核，命令会被直接执行。
+
+---
+
+## 96.1 2026-10-26 C01 发布基线（本地收口，远端推送待凭证）
+
+### 96.1.1 做了什么
+
+- 全量 bundle 备份：`../bah-backup-2026-10-26.bundle`，3,575,911 字节，2026-10-26 23:03:08。
+- 敏感面检查：`sessions/` 入库 0、`.tmp` 入库 0；`.env.local` 被 `.gitignore:5` 忽略且无历史；入库文件里只有 `.env.example` 占位与 `pii.test.ts` 假值，**无 `git rm --cached`**。
+- 交付包边界三问拍板：`snapshots/` 进、`sessions/` 不进；`bah-audit/` 与 `sentry-dsh-plugin/` 均为参考件（仓库外层独立仓，`docs/audit.md:15-16` 与 `PROGRESS.md:2575` 已写明不参与本仓证据）；`.env.local` 密钥轮换标【待】本人。
+- 对外三处：README 顶部加仓库地址与许可指向；`docs/deploy.md` 新增 §0 获取代码；新建根 `LICENSE`，选择"仅参赛评审使用"（用户指定，非 MIT / Apache-2.0）。
+- 本地 tag 重打：**待提交后执行**——计划删除旧 `v1.0-submit`（对象 b098a3a）后按 `submit 2026-11-02` 重建，指向本包提交；当前尚未重打。
+
+### 96.1.2 判据与输出
+
+| 判据 | 命令 | 实测 |
+|---|---|---|
+| 门禁 | `NODE_EXTRA_CA_CERTS= npx tsx scripts/run-gates.ts` | **全部通过（34/34）** |
+| 地址命中 | `grep -rn "github.com" README.md docs/deploy.md` | 2 处：README:3、deploy:13 |
+| 本地 tag 落后 | `git rev-list --count v1.0-submit..HEAD` | **待执行**：重打后应为 0 |
+| 远端落后 | `git rev-list --count origin/main..HEAD` | 34（提交前）/ 35（提交后未推），**未达成** |
+| 远端 tag | `git ls-remote --tags origin \| grep v1.0-submit` | **401 Authentication failed**，未达成 |
+| 负例 | `git rev-parse v1.0-submit~1` vs `git rev-parse HEAD` | 重打前 edf2ba9 ≠ be877f0；重打后 tag~1 ≠ HEAD（tag 真指向本包提交） |
+
+完整原始输出、失败层与双角度复审见 `docs/release-baseline-2026-10-26.md`。
+
+### 96.1.3 偏差与未闭合
+
+1. **提交被并发工作流阻塞**：23:14 复跑门禁时 `tracked-sources` 由绿变红，原因是工作树里出现 2 个未跟踪测试（`packages/cli/src/cli/audit-replay.test.ts`、`packages/persistence/src/replay/replay.test.ts`），另有至少 8 个 `packages/**` 测试文件在 23:11–23:24 被改动或新建（仍在增长）；这些均非 C01 所为。按用户决定等并发工作流收口，C01 未 stage、未修改、未删除这些文件，本包 5 个文件保持未提交。
+2. **远端推送未完成，卡在 GitHub 凭证层（401，不是 DNS/TLS/分支保护）**：`credential.helper=manager`，Windows 凭据管理器只有 gitee 条目、无 github.com；无 `GITHUB_TOKEN` / `GH_TOKEN`；`gh` 未安装。按用户决定"先跳过推送，本地收口"。
+3. **远端 tag 未更新**：本地 tag 当前仍未重打（待提交后执行）；将来推送前必须先 `git push origin :refs/tags/v1.0-submit` 删远端旧引用，否则非快进被拒。
+4. **两张截图未取**：仓库可见性页、Actions 页均需 GitHub 登录，标【待】。本地只能确认 `ci.yml:33` 引用 `secrets.DEEPSEEK_API_KEY`、`ci.yml:7` 注明无密钥时 e2e 显式 SKIP。
+5. **`.env.local` 密钥轮换【待】本人**：涉及真实密钥，agent 未读值、未改值，只留 4 步检查清单。
+6. 本包只动文档与根 LICENSE，**未碰 `packages/`、未改任何文档结论、未转公开仓**。
+
+---
+
+## 96.2 2026-10-27 C02 口径纠错（HP-4 已实现，不再列为缺口）
+
+### 96.2.1 做了什么
+
+- 指定 7 处全部改正：`security-design.md` §4 删 HP-4 行（7 项→6 项，余行重排）、
+  `security-self-assessment.md` R-03 行 / §11 状态表 / R-16 二分句、`facts.md` 未做清单（7→6）、
+  `drill-final-checklist` §11（七条→六条）、仓库外总案 `:449`（「只做 6 个」→「16 个全量」）。
+- 另清 3 处同类漏网：`security-self-assessment.md:26` 的「未实装：HP-2、HP-4」、同文 §8.1
+  「口径（写死）」段「两条一条都不满足」、`SECURITY.md:35` 英文口径把 HP-3/HP-4 写成未实现。
+- 判据引用照门禁语法写成 `:172-197`（`:172/197` 会被 `docs-paths` 判为不存在路径）。
+- `docs/handoff-2026-10-26-c02.md`：三元组表 + 负例 + 边界。
+
+### 96.2.2 判据与输出
+
+| 判据 | 命令 | 实测 |
+|---|---|---|
+| HP-4 无「未实现」 | `Select-String -Pattern "HP-4"`（5 文件） | 10 处命中，全为「已实现 / 已闭合 / 已过期」 |
+| 未实现清单条数 | `Select-String -Pattern "未实现清单" docs/security-design.md` | `## 4. 未实现清单（6 项…）`，表体 1–6 |
+| 未碰代码 | `git diff --name-only` 过滤 `^packages/` | `EMPTY` |
+| 门禁 | `npx tsx scripts/run-gates.ts` | **全部通过（34/34）** |
+| 负例 | 改前同一 grep | 命中 `security-design.md:92`、`security-self-assessment.md:26/247/348`、`SECURITY.md:35` 等「未实现/未施工」；改后不再命中 |
+
+### 96.2.3 偏差与未闭合
+
+1. **数字类未动**：`contracts/tool-contract.md` 的「14 个工具」、`security-design.md` §4 的覆盖率
+   84.48（应为 84.49）均留给 C07；本包按任务书边界不碰数字。
+2. **历史件保留**：`docs/preflight-2026-10-25.md:43`（时点记录）与 `docs/next-actions-2026-10-23.md`
+   的 HP-4 旧表述不改——改历史会让复核者失去时间线。
+3. **代码注释未改**：`packages/bank/src/tools/result-schemas.ts` 文件头仍写「14 个银行工具」，
+   属代码文件，C02 明确不改 `packages/`。
+4. **同批提交说明**：本文件同时带上 C01 已写好的 §96.1（C01 其余 5 个文件仍未提交）；
+   `packages/` 下 10-26 并发工作流遗留已先行独立收口，故本包门禁能到 34/34。

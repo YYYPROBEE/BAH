@@ -18,7 +18,7 @@
 | 8 | Web 端到端 | 200 / 401 / 403 / 202 + 审批走完 | 见 §8 表 | ✅ |
 | 9 | 评测平面 | eval 60 场景 + 基线比对 + 对抗集 | 49-49 / 5-5 / 6-6；41-44 | ✅ |
 | 10 | 数字一致性 | 文档里的数与命令输出一致 | 抽查 4 处一致 | ✅ |
-| 11 | 已知限制可当场念 | 7 条 + 偏差可查 | `docs/security-design.md` §4 七条 | ✅ |
+| 11 | 已知限制可当场念 | 6 条 + 偏差可查 | `docs/security-design.md` §4 六条 | ✅ |
 | 12 | 交付物齐全 | 代码/契约/ADR/三份材料/演练材料 | 见 §12 | ✅ |
 
 ## 逐条
@@ -158,7 +158,7 @@ NODE_EXTRA_CA_CERTS= npx tsx scripts/eval.ts --adversarial
 sed -n '/^## 4/,/^## 5/p' docs/security-design.md
 ```
 
-七条：HP-2 RAG 响应信封签名 / HP-4 工具出参运行时契约校验 / 强验证接真实渠道 /
+六条：HP-2 RAG 响应信封签名 / 强验证接真实渠道 /
 对抗集 H-13~H-15 召回缺口 / plan 内写工具的补偿 / plan 动态 args 跨 `resume` / `incident` 真实触发源。
 
 另有三处本轮新增偏差（`PROGRESS.md` §92.7）：`sandbox-compute` 的 `【未核实】`、

@@ -103,8 +103,8 @@
 - 供应链：Dependabot + `.github/workflows/security.yml`（npm audit 用官方源；pip-audit 先收集基线）。
 - 银行账本是内存仿真，进程重启回种子；不宣称持久。
 - 强验证渠道（短信/人脸/U 盾）语义位齐全，但全部是 mock，未接真实渠道。
-- **已知未做清单以 `docs/security-design.md` §4 的 7 条为准**（每条写了为什么不做 + 影响面）：
-  HP-2 RAG 响应信封签名 / HP-4 工具出参运行时契约校验 / 强验证接真实渠道 /
+- **已知未做清单以 `docs/security-design.md` §4 的 6 条为准**（每条写了为什么不做 + 影响面）：
+  HP-2 RAG 响应信封签名 / 强验证接真实渠道 /
   对抗集 H-13~H-15 幻觉族召回缺口 / plan 内写工具的补偿 / plan 动态 args 跨 `resume` /
   `incident` 状态的真实触发源。
   ⚠ 旧版本这里写的"HP-2 / HP-3（HALT 解除）/ HP-4 未施工"**已过期**：
