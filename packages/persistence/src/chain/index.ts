@@ -15,13 +15,25 @@ import { dirname, join, resolve } from 'node:path'
 
 import { BahError, canonicalJson, sha256Hex } from '@bah/util'
 
-import { ChainFile, type ChainRecord } from './chain-file.ts'
+import {
+  ChainFile,
+  type ChainDecisionEnvelope,
+  type ChainRecord,
+} from './chain-file.ts'
+import { canonicalOf, isBrokenRow, rowHash } from './hash.ts'
 import { loadSigningKeys, signRecord, verifyRecord, type SigningKeys } from './sign.ts'
 
 import type { Context } from '@bah/core'
 
 export { ChainFile } from './chain-file.ts'
-export type { ChainFileOptions, ChainRecord } from './chain-file.ts'
+export { canonicalOf } from './hash.ts'
+export type {
+  ChainDecision,
+  ChainDecisionEnvelope,
+  ChainEnvelopeVersion,
+  ChainFileOptions,
+  ChainRecord,
+} from './chain-file.ts'
 export * from './vault.ts'
 
 /** 创世前序哈希（空串，等价于"无前驱"）。 */
@@ -62,6 +74,8 @@ export interface SagaAuditHandle {
     type: string,
     data: unknown,
     refs?: { happensBefore?: readonly number[]; vaultRef?: string },
+    /** v2 判决信封（W08）；省略 = 写 v1 行，既有调用点不需要改。 */
+    envelope?: ChainDecisionEnvelope,
   ): { seqInSaga: number; recordHash: string }
   verify(sagaId?: string): { ok: boolean; brokenAt?: number }
   /** 只验哈希连续性：不读密钥、不验签；缺密钥也能给出链断结论。 */
@@ -152,8 +166,10 @@ export function createSagaAudit(options: SagaAuditOptions): SagaAuditHandle {
     type: string,
     data: unknown,
     refs?: { happensBefore?: readonly number[]; vaultRef?: string },
+    envelope?: ChainDecisionEnvelope,
   ): { seqInSaga: number; recordHash: string } {
     const { seq, prevHash } = tailOf(file, sagaId, deferredRows)
+    if (envelope !== undefined) assertDecisionEnvelope(envelope)
     const unsigned = {
       s: sagaId,
       q: seq + 1,
@@ -163,6 +179,16 @@ export function createSagaAudit(options: SagaAuditOptions): SagaAuditHandle {
       d: sha256Hex(canonicalJson(data)),
       keyVersion,
       recordedAt: now(),
+      ...(envelope === undefined
+        ? {}
+        : {
+            version: 2 as const,
+            subject: envelope.subject,
+            decision: envelope.decision,
+            policyVersion: envelope.policyVersion,
+            // v2 显式化前驱；与短键 `p` 同值（见 `ChainDecisionEnvelope` 注释）
+            prevHash,
+          }),
     }
     const recordHash = sha256Hex(`${prevHash}|${canonicalJson(unsigned)}`)
     const record: ChainRecord = {
@@ -186,7 +212,7 @@ export function createSagaAudit(options: SagaAuditOptions): SagaAuditHandle {
     for (const [, chain] of groupBySaga(rows)) {
       let prev = GENESIS_HASH
       for (const row of chain) {
-        if (row.p !== prev || row.r !== rowHash(prev, row)) {
+        if (isBrokenRow(prev, row)) {
           return { ok: false, brokenAt: row.q }
         }
         prev = row.r
@@ -223,8 +249,7 @@ export function createSagaAudit(options: SagaAuditOptions): SagaAuditHandle {
     for (const [chainSaga, chain] of groupBySaga(rows)) {
       let prev = GENESIS_HASH
       for (const row of chain) {
-        const expected = rowHash(prev, row)
-        if (row.p !== prev || row.r !== expected) {
+        if (isBrokenRow(prev, row)) {
           return { ok: false, brokenAt: row.q }
         }
         if (row.sig !== undefined) {
@@ -296,24 +321,6 @@ export function createSagaAudit(options: SagaAuditOptions): SagaAuditHandle {
 }
 
 /** 一条链记录的期望 recordHash：写入与所有校验路径的唯一算法入口。 */
-function rowHash(prev: string, row: ChainRecord): string {
-  return sha256Hex(`${prev}|${canonicalJson(canonicalOf(row))}`)
-}
-
-/** 参与哈希的 unsigned 投影（与 append 写入的字段逐键同构）。 */
-export function canonicalOf(row: ChainRecord): Record<string, unknown> {
-  return {
-    s: row.s,
-    q: row.q,
-    t: row.t,
-    sub: row.sub,
-    hb: row.hb,
-    d: row.d,
-    keyVersion: row.keyVersion,
-    recordedAt: row.recordedAt,
-  }
-}
-
 /** 确定性 Merkle 根：叶子两两 `sha256(left + right)`，奇数层末叶轮空晋级。 */
 export function merkleRootOf(leaves: readonly string[]): string {
   if (leaves.length === 0) return sha256Hex('')
@@ -374,11 +381,34 @@ function subjectRefOf(type: string, data: unknown): string {
     const action = record['action']
     if (typeof stepId === 'string' && typeof action === 'string') return `${stepId}#${action}`
   }
-  for (const key of ['stepId', 'compId', 'ticketId', 'sagaId', 'dlqId']) {
+  // W08：`tool/call` / `sentry/decision` 的对象引用是 callId；放在 step/comp 之后，
+  // 确保既有 `saga/*` 行的 sub 取值不被改变。
+  for (const key of ['stepId', 'compId', 'ticketId', 'sagaId', 'callId', 'dlqId']) {
     const value = record[key]
     if (typeof value === 'string' && value.length > 0) return value
   }
   return ''
+}
+
+/**
+ * v2 信封的运行期校验（类型不负责安全：宿主可能从配置/端口拿到任意字符串）。
+ *
+ * 只校验"能进哈希"的最小形状；**不**校验 decision 的枚举值——枚举值被改成
+ * 任意字符串时，`verifyContinuity` 会用 recordHash 定位到具体条目，而不是解析期丢证据。
+ */
+function assertDecisionEnvelope(envelope: ChainDecisionEnvelope): void {
+  if (typeof envelope.subject !== 'string' || envelope.subject.length === 0) {
+    throw new BahError('chain-envelope-invalid', 'bah-saga: chain-envelope-invalid: subject 必须是非空字符串')
+  }
+  if (typeof envelope.decision !== 'string') {
+    throw new BahError('chain-envelope-invalid', 'bah-saga: chain-envelope-invalid: decision 必须是字符串')
+  }
+  if (typeof envelope.policyVersion !== 'string' || envelope.policyVersion.length === 0) {
+    throw new BahError(
+      'chain-envelope-invalid',
+      'bah-saga: chain-envelope-invalid: policyVersion 必须是非空字符串',
+    )
+  }
 }
 
 function emitKeyAccess(

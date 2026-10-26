@@ -95,6 +95,40 @@ describe('bank:challenge 端口', () => {
     expect(verdict).toMatchObject({ ok: false, code: 'verify-locked', lockedUntil: 65_000 })
   })
 
+  it('TC-W09-08：失败逐次落账 + 锁定一条，事件计数与内存计数一致', async () => {
+    const { records, audit } = auditSink()
+    const clock = { now: 1_700_000_000_000 }
+    const verify = new VerifyService({
+      provider: ALWAYS_FAIL,
+      maxAttempts: 3,
+      lockMs: 30 * 60_000,
+      now: () => clock.now,
+    })
+    const port = createBankChallengePort({ verify, sessionId, audit })
+    const issued = port.issue('face')
+    if (!issued.ok) throw new Error('unreachable')
+
+    await port.verify(issued.challengeId, 'face')
+    await port.verify(issued.challengeId, 'face')
+    await port.verify(issued.challengeId, 'face')
+
+    const attempts = records.filter((record) => record.type === 'verify/face')
+    expect(attempts).toHaveLength(3)
+    expect(
+      attempts.map((record) => (record.data as { result: { attempts: number } }).result.attempts),
+    ).toEqual([1, 2, 3])
+    const locked = records.filter((record) => record.type === 'verify/locked')
+    expect(locked).toHaveLength(1)
+    expect(locked[0]?.data).toEqual({
+      sessionId,
+      channel: 'face',
+      until: clock.now + 30 * 60_000,
+      attempts: 3,
+    })
+    expect(verify.get(issued.challengeId)?.attempts).toBe(3)
+    expect(verify.lockedUntil(sessionId)).toBe(clock.now + 30 * 60_000)
+  })
+
   it('未知挑战 / 渠道不符：结构化理由码', async () => {
     const verify = new VerifyService({ provider: createMockVerifyProvider(), now: () => 1_000 })
     const port = createBankChallengePort({ verify, sessionId })

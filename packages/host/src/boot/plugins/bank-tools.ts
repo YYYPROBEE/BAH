@@ -15,16 +15,21 @@
 
 import {
   BANK_CHALLENGE,
+  BANK_COMPENSATION,
   BANK_COMPUTE,
   BANK_IDENTITY,
   BANK_TICKET_GUARD,
+  BANK_RESULT_SCHEMAS,
   BANK_TOOL_NAME_SET,
+  specOf,
+  type BankToolName,
   MockBankCore,
   SessionIdentityStore,
   VerifyService,
   buildBankDataset,
   createBankChallengePort,
   createBankTools,
+  createGatewayVerifyProvider,
   createMockVerifyProvider,
   defaultCompute,
   provideBankGovernance,
@@ -45,7 +50,7 @@ import {
   ImIdentityMap,
   MockSmsLoginService,
 } from '@bah/persistence'
-import { SESSION_SERVICE, TOOLS_SERVICE } from '@bah/runtime'
+import { SESSION_SERVICE, TOOLS_SERVICE, findPolicyEngine, provideToolContracts } from '@bah/runtime'
 import type { SessionApi } from '@bah/runtime'
 import { BahError, seededRandom } from '@bah/util'
 
@@ -54,6 +59,7 @@ import { RUN_SERVICE } from '../boot.ts'
 import {
   asRecord,
   bootError,
+  readBoolean,
   readEnum,
   readPositiveInteger,
   readString,
@@ -69,11 +75,22 @@ export interface BankToolsSettings extends BankToolsConfig {
   readonly seed: number
   /** 造数档位。 */
   readonly datasetTier: ForgeTier
-  /** 强验证 mock 参数。 */
+  /** 强验证参数（W09：`provider` 可选网关适配器或确定性 mock）。 */
   readonly verify: {
+    readonly provider: 'mock' | 'gateway'
     readonly successAfter: number
     readonly maxAttempts: number
     readonly lockMinutes: number
+  }
+  /**
+   * 执行 lease（W12）：审批通过后的短窗口。
+   *
+   * `enforce: false` = 回滚到"只用票据 TTL"的旧行为；`ttlSeconds` 缺省 = `ticketTtlSeconds`
+   * （默认与今日等价，快照不动）。`ttlSeconds > ticketTtlSeconds` 启动即 fail-loud。
+   */
+  readonly ticketLease: {
+    readonly enforce: boolean
+    readonly ttlSeconds: number
   }
 }
 
@@ -94,11 +111,17 @@ export const DEFAULT_BANK_TOOLS: Omit<BankToolsSettings, 'demoUserId'> = {
   dailyTransferLimit: 1_000,
   riskyOps: ['transfer_create', 'wealth_purchase'],
   riskyCallThreshold: 3,
-  verify: { successAfter: 1, maxAttempts: 3, lockMinutes: 30 },
+  // W09：默认走测试网关适配器；`mock` 只是回滚开关（两者行为在演示档等价）。
+  verify: { provider: 'gateway', successAfter: 1, maxAttempts: 3, lockMinutes: 30 },
+  // W12：默认 lease 窗口 = 票据 TTL（等价于今日行为）；要更紧的窗口由 profile 显式调小。
+  ticketLease: { enforce: true, ttlSeconds: 120 },
 }
 
 /** 允许的强验证渠道。 */
 const CHANNELS: readonly StrongAuth[] = ['face', 'sms', 'ushield']
+
+/** 强验证 Provider 选择（W09 §5 的 `verify.provider` 回滚开关）。 */
+const VERIFY_PROVIDERS = ['mock', 'gateway'] as const
 
 /** 允许的造数档位。 */
 const DATASET_TIERS: readonly ForgeTier[] = ['demo', 'stress', 'adversarial']
@@ -123,7 +146,10 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         limits: { ...dataset.limits, dailyTransferLimitCents: yuanToCents(config.dailyTransferLimit) },
       })
       const verify = new VerifyService({
-        provider: createMockVerifyProvider({ successAfter: config.verify.successAfter }),
+        provider:
+          config.verify.provider === 'gateway'
+            ? createGatewayVerifyProvider({ successAfter: config.verify.successAfter })
+            : createMockVerifyProvider({ successAfter: config.verify.successAfter }),
         maxAttempts: config.verify.maxAttempts,
         lockMs: config.verify.lockMinutes * 60_000,
         now: run.now,
@@ -136,6 +162,15 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         revokeAll: (reason, at) => core.tickets.revokeAll(reason, at),
       }
       ctx.effect(ctx.provide(BANK_TICKET_GUARD, ticketGuard))
+
+      // W12：冲正窄端口（saga 补偿调用）。只交出 reverse / reversalOf，
+      // 不暴露票据、审批或任意账本写入面。
+      ctx.effect(
+        ctx.provide(BANK_COMPENSATION, {
+          reverse: (txnId) => core.reverse(txnId),
+          reversalOf: (txnId) => core.reversalOf(txnId),
+        }),
+      )
 
       const session = ctx.get(SESSION_SERVICE)
       const identity = new SessionIdentityStore()
@@ -234,7 +269,45 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
       for (const definition of createBankTools(deps)) {
         ctx.effect(registry.register(definition))
       }
-      provideBankGovernance({ ctx, sessionId: run.sessionId, deps, lifecycle: tickets })
+
+      /**
+       * 契约注册表（W03）：把本包的工具目录包成 `runtime:tool-contracts` 的实现。
+       *
+       * **这一行不通电，整条 G-1 校验就等于没做**——`pipeline` 拿不到契约会静默跳过校验
+       * （见 `packages/runtime/src/tools/contracts.ts` 的"缺省不校验"说明）。
+       *
+       * `argsSchema` 直接复用 `spec.schema`：它本来就是入参 JSON Schema，
+       * 再抄一份就是第二真相源（TC-W03-08 的"快照 diff=0"也靠这个保证）。
+       * 没写 `resultSchema` 的工具返回 `{}`（无约束）= 出参不校验，属登记的降级。
+       */
+      ctx.effect(
+        provideToolContracts(ctx, {
+          get: (name) => {
+            if (!BANK_TOOL_NAME_SET.has(name)) return undefined
+            const spec = specOf(name as BankToolName)
+            return {
+              argsSchema: spec.schema,
+              resultSchema: BANK_RESULT_SCHEMAS[name as BankToolName] ?? {},
+              validateAt: 'pre-execute',
+            }
+          },
+        }),
+      )
+
+      // 策略引擎（W04）：宿主若装了 `runtime:policy`（插件行 / 测试装置），治理平面就用它；
+      // 没装则回落到 bank 的 `createTierPolicy`（= 既有 tier.ts，零行为变化）。
+      const policy = findPolicyEngine(ctx)
+      provideBankGovernance({
+        ctx,
+        sessionId: run.sessionId,
+        deps,
+        lifecycle: tickets,
+        ...(policy === undefined ? {} : { policy }),
+        lease: {
+          enforce: config.ticketLease.enforce,
+          ttlMs: config.ticketLease.ttlSeconds * 1_000,
+        },
+      })
     },
   },
 
@@ -253,13 +326,38 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         'riskyOps',
         'riskyCallThreshold',
         'verify',
+        'ticketLease',
       ],
       'bank:tools',
     )
 
     const demoUserId = readString(config, 'demoUserId', 'bank:tools')
     const verify = config['verify'] === undefined ? {} : asRecord(config['verify'], 'bank:tools.verify')
-    rejectUnknownKeys(verify, ['successAfter', 'maxAttempts', 'lockMinutes'], 'bank:tools.verify')
+    rejectUnknownKeys(
+      verify,
+      ['provider', 'successAfter', 'maxAttempts', 'lockMinutes'],
+      'bank:tools.verify',
+    )
+    const ticketTtlSeconds =
+      readPositiveInteger(config, 'ticketTtlSeconds', 'bank:tools') ??
+      DEFAULT_BANK_TOOLS.ticketTtlSeconds
+    const leaseConfig =
+      config['ticketLease'] === undefined
+        ? {}
+        : asRecord(config['ticketLease'], 'bank:tools.ticketLease')
+    rejectUnknownKeys(leaseConfig, ['enforce', 'ttlSeconds'], 'bank:tools.ticketLease')
+    const leaseTtlSeconds =
+      readPositiveInteger(leaseConfig, 'ttlSeconds', 'bank:tools.ticketLease') ?? ticketTtlSeconds
+    // TC-W12-09：装配期 fail-loud。运行期用 Math.min 兜住是防御，不是许可——
+    // 配置把 lease 写得比票据还长，等于宣称"短窗口"却发了一张全窗口的票。
+    if (leaseTtlSeconds > ticketTtlSeconds) {
+      throw bootError(
+        'invalid-config',
+        `bank:tools.ticketLease.ttlSeconds(${String(leaseTtlSeconds)}s) 不得大于 ` +
+          `ticketTtlSeconds(${String(ticketTtlSeconds)}s)：lease 是票据 TTL 内的短窗口`,
+        { where: 'bank:tools.ticketLease', leaseTtlSeconds, ticketTtlSeconds },
+      )
+    }
     const riskyOps = readStringArray(config, 'riskyOps', 'bank:tools')
     if (riskyOps !== undefined) {
       const unknown = riskyOps.filter((name) => !BANK_TOOL_NAME_SET.has(name))
@@ -280,9 +378,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         DEFAULT_BANK_TOOLS.datasetTier,
       disclaimerId:
         readString(config, 'disclaimerId', 'bank:tools') ?? DEFAULT_BANK_TOOLS.disclaimerId,
-      ticketTtlSeconds:
-        readPositiveInteger(config, 'ticketTtlSeconds', 'bank:tools') ??
-        DEFAULT_BANK_TOOLS.ticketTtlSeconds,
+      ticketTtlSeconds,
       computeTimeoutMs:
         readPositiveInteger(config, 'computeTimeoutMs', 'bank:tools') ??
         DEFAULT_BANK_TOOLS.computeTimeoutMs,
@@ -295,7 +391,14 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
       riskyCallThreshold:
         readPositiveInteger(config, 'riskyCallThreshold', 'bank:tools') ??
         DEFAULT_BANK_TOOLS.riskyCallThreshold,
+      ticketLease: {
+        enforce: readBoolean(leaseConfig, 'enforce', 'bank:tools.ticketLease', true),
+        ttlSeconds: leaseTtlSeconds,
+      },
       verify: {
+        provider:
+          readEnum(verify, 'provider', 'bank:tools.verify', VERIFY_PROVIDERS) ??
+          DEFAULT_BANK_TOOLS.verify.provider,
         successAfter:
           readPositiveInteger(verify, 'successAfter', 'bank:tools.verify') ??
           DEFAULT_BANK_TOOLS.verify.successAfter,

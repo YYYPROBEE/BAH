@@ -22,7 +22,7 @@ import { loadBundles, readLayers, readProfile } from '@bah/cli'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
 import { ReplayAdapter, asSessionId, createRecordingAdapter, fixedClock } from '@bah/test-support'
 
-import type { SessionEvent } from '@bah/core'
+import type { SessionEvent, TicketId } from '@bah/core'
 import type { Exchange, LoadedSnapshot, SnapshotMeta, SnapshotRow } from '@bah/test-support'
 import type { Agent } from '@bah/runtime'
 
@@ -70,6 +70,8 @@ export const CASE = {
     'packages/bank/src/tools/',
     'packages/host/src/boot/',
     'packages/persistence/src/jsonl/',
+    // W08：audit:decisions 在每次 tool/call 与审批结论上真写链（信封 v1/v2 混链）
+    'packages/persistence/src/chain/',
     'packages/persistence/src/saga-store/',
     'packages/safety/src/sentry/',
     'packages/interaction/src/approval/',
@@ -93,6 +95,9 @@ export const CASE = {
 function noHome(): string {
   return join(tmpdir(), 'bah-snapshot-no-home')
 }
+
+/** 快照面的票据 ID：按 `callId` 派生（生产仍随机；见 `ToolPipelineOptions.mintTicketId`）。 */
+const snapshotTicketId = (callId: string): TicketId => `ticket:${callId}` as TicketId
 
 /** 跑完全部 prompt（每个 prompt 一个 turn）。 */
 async function runPrompts(agent: Agent, prompts: readonly string[]): Promise<void> {
@@ -135,6 +140,7 @@ export async function runRecord(): Promise<{
       sessionId: asSessionId(CASE.sessionId),
       now: clock.now,
       sandboxNow: sandboxClock.tick,
+      mintTicketId: snapshotTicketId,
       jsonlDir: scratch,
     },
   })
@@ -200,6 +206,7 @@ export async function runReplay(snapshot: LoadedSnapshot): Promise<readonly Sess
       sessionId: asSessionId(snapshot.meta.sessionId),
       now: clock.now,
       sandboxNow: sandboxClock.tick,
+      mintTicketId: snapshotTicketId,
       jsonlDir: scratch,
     },
   })

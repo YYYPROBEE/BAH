@@ -4,6 +4,8 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { asSessionId } from '@bah/test-support'
+
 import { createHeadlessResponder } from './headless-responder.ts'
 import type { ApprovalAnswer, ApprovalView, ChallengeView, Timer } from './types.ts'
 
@@ -12,6 +14,7 @@ function makeView(challenge?: ChallengeView): { view: ApprovalView; answers: App
   const answers: ApprovalAnswer[] = []
   const view: ApprovalView = {
     ticketId: 'ticket:c1',
+    sessionId: asSessionId('s-1'),
     callId: 'c1',
     name: 'transfer_create',
     summary: { title: '执行 transfer_create', amount: 800, tier: 'yellow' },

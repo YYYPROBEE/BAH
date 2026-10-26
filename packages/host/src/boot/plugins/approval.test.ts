@@ -97,6 +97,9 @@ function payloads(events: readonly AnySessionEvent[], type: string): Record<stri
 describe('interaction:approval 配置（fail-loud）', () => {
   it('默认值：没有应答者（默认拒绝）；其余字段有默认', () => {
     expect(approvalPlugin.validate({})).toEqual(DEFAULT_APPROVAL)
+    // W04：没写结论 = reject（不能靠"忘了配置"变成自动放行）
+    expect(DEFAULT_APPROVAL.autoDecision).toBe('reject')
+    expect(approvalPlugin.validate({ responder: 'headless' }).autoDecision).toBe('reject')
   })
 
   it('显式覆盖：responder / 结论 / 是否验挑战 / 延迟', () => {
@@ -141,8 +144,25 @@ describe('审批服务端到端', () => {
     }
   })
 
-  it('headless 自动批准：ticket issued → approved → redeemed → consumed', async () => {
+  it('TC-W04-04 autoDecision 缺省 = reject：headless 没写结论也会被拒', async () => {
     const app = await run({ approval: { responder: 'headless' } })
+    try {
+      const result = payloads(app.events, 'tool/result')[0] as { isError: boolean; code?: string }
+      expect(result.isError).toBe(true)
+      expect(result.code).toBe('approval-rejected')
+      expect(payloads(app.events, 'approval/decided')[0]).toMatchObject({
+        decision: 'rejected',
+        reason: 'headless-reject',
+      })
+      expect(payloads(app.events, 'transfer/created')).toHaveLength(0)
+      expect(payloads(app.events, 'ticket/blocked')).toHaveLength(1)
+    } finally {
+      await app.dispose()
+    }
+  })
+
+  it('headless 自动批准：ticket issued → approved → redeemed → consumed', async () => {
+    const app = await run({ approval: { responder: 'headless', autoDecision: 'allow' } })
     try {
       const result = payloads(app.events, 'tool/result')[0] as { isError: boolean }
       expect(result.isError).toBe(false)
@@ -199,7 +219,10 @@ describe('审批服务端到端', () => {
 
 describe('红级挑战链（施工单 09 §6）', () => {
   it('超日限额 → 签发挑战 → 强验证通过 → 才允许批准 → 核销', async () => {
-    const app = await run({ amount: 6_000, approval: { responder: 'headless' } })
+    const app = await run({
+      amount: 6_000,
+      approval: { responder: 'headless', autoDecision: 'allow' },
+    })
     try {
       const asked = payloads(app.events, 'approval/asked')[0]
       expect(asked?.['challenge']).toBe('sms')
@@ -216,7 +239,7 @@ describe('红级挑战链（施工单 09 §6）', () => {
   it('不验挑战就批准：approval/challenge-failed + rejected（批准不可达）', async () => {
     const app = await run({
       amount: 6_000,
-      approval: { responder: 'headless', autoVerify: false },
+      approval: { responder: 'headless', autoDecision: 'allow', autoVerify: false },
     })
     try {
       const result = payloads(app.events, 'tool/result')[0] as { code?: string }
@@ -236,7 +259,7 @@ describe('红级挑战链（施工单 09 §6）', () => {
     const app = await run({
       amount: 6_000,
       bank: { verify: { successAfter: 999, maxAttempts: 1, lockMinutes: 30 } },
-      approval: { responder: 'headless' },
+      approval: { responder: 'headless', autoDecision: 'allow' },
     })
     try {
       const result = payloads(app.events, 'tool/result')[0] as { code?: string }
@@ -252,7 +275,7 @@ describe('红级挑战链（施工单 09 §6）', () => {
 
 describe('票据账本接线', () => {
   it('批准后核销：账本按序落 issued → approved → redeemed → consumed', async () => {
-    const app = await run({ approval: { responder: 'headless' } })
+    const app = await run({ approval: { responder: 'headless', autoDecision: 'allow' } })
     try {
       const ticketTypes = app.events
         .map((event) => event.type)

@@ -13,3 +13,5 @@ export * from './projection/index.ts'
 export * from './saga-store/index.ts'
 export * from './saga-store/migrations/index.ts'
 export * from './saga-store/types.ts'
+
+export * from './replay/index.ts'

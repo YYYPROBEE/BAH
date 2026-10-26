@@ -11,6 +11,7 @@ import {
   asSessionId,
   createTestContext,
   fixedClock,
+  type Clock,
   type TestContext,
 } from '@bah/test-support'
 import {
@@ -24,6 +25,7 @@ import {
 import type { SessionApi } from '@bah/runtime'
 import type { Context, ToolDefinition, ToolExecContext } from '@bah/core'
 import type { AnySessionEvent, ToolExecution } from '@bah/runtime'
+import type { PolicyEngine } from '@bah/runtime'
 
 import type { ForgeTier } from '../forge/index.ts'
 import { DEMO_NOW, buildBankDataset } from '../forge/index.ts'
@@ -32,6 +34,7 @@ import { createBankTools } from './catalog.ts'
 import type { BankAudit, BankSessionEventMap, BankSessionEventType } from './events.ts'
 import { provideBankGovernance } from './governance.ts'
 import type { BankToolDeps, BankToolsConfig, ComputeSeam } from './types.ts'
+import type { AccountId } from '../core/model.ts'
 import { VerifyService, createMockVerifyProvider } from '../verify/index.ts'
 
 /** 落账记录（测试断言用）。 */
@@ -168,10 +171,24 @@ export function createPipelineHarness(options: {
   readonly sessionId?: string
   /** 调用 ID 前缀（跨会话共用 core 时避免票据 ID 撞车）。 */
   readonly callIdPrefix?: string
+  /** 策略引擎（缺省 = `tier.ts` 的默认实现；W04 的注入面）。 */
+  readonly policy?: PolicyEngine
+  /**
+   * 可控时钟（缺省 = 内部确定性钟）。
+   *
+   * W12：lease 过期需要"审批后、执行前"推进时间——用例把钟拿在手上，
+   * 在 `tools/execute` 监听器里 advance，就能测到"核销前被拒"而不是只测记账。
+   */
+  readonly clock?: Clock
+  /** 执行 lease（W12：窄窗口；缺省 = 只用票据 TTL）。 */
+  readonly lease?: {
+    readonly enforce: boolean
+    readonly ttlMs: number
+  }
 } = {}): PipelineHarness {
   const test = createTestContext()
   const sessionId = asSessionId(options.sessionId ?? 's-bank-pipe')
-  const clock = fixedClock({ start: DEMO_NOW, step: 10 })
+  const clock = options.clock ?? fixedClock({ start: DEMO_NOW, step: 10 })
   provideSession(test.ctx, { sessionId, now: clock.now })
   const session = test.ctx.get(SESSION_SERVICE)
   const registry = new ToolRegistry()
@@ -185,7 +202,13 @@ export function createPipelineHarness(options: {
     ...(options.core === undefined ? {} : { core: options.core }),
   })
   for (const tool of createBankTools(deps)) registry.register(tool)
-  provideBankGovernance({ ctx: test.ctx, sessionId, deps })
+  provideBankGovernance({
+    ctx: test.ctx,
+    sessionId,
+    deps,
+    ...(options.policy === undefined ? {} : { policy: options.policy }),
+    ...(options.lease === undefined ? {} : { lease: options.lease }),
+  })
 
   if (options.approval !== undefined) {
     const decision = options.approval
@@ -226,7 +249,7 @@ export function createPipelineHarness(options: {
 }
 
 /** 当前用户名下的主账户 ID（测试里少写一次 listAccounts）。 */
-export async function primaryAccountId(core: MockBankCore): Promise<string> {
+export async function primaryAccountId(core: MockBankCore): Promise<AccountId> {
   const accounts = await core.listAccounts(bankIds.user('u-1'))
   const current = accounts.find((account) => account.type === 'current') ?? accounts[0]
   if (current === undefined) throw new Error('demo 数据没有账户')

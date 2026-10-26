@@ -94,6 +94,8 @@ interface HarnessOptions {
   readonly prepare?: (harness: Harness) => void
   /** 包一层会话（B3 并行 flush 失败隔离用）。 */
   readonly wrapSession?: (session: SessionApi) => SessionApi
+  /** 入队前的全系统闸（W07 HALT）。 */
+  readonly beforeSend?: () => void
 }
 
 async function withHarness(
@@ -125,6 +127,7 @@ async function withHarness(
       now: clock.now,
       ...(options.channel === undefined ? {} : { channel: options.channel }),
       ...(options.runtime === false ? {} : { runtimeContext: () => ({ user: { name: '张三' } }) }),
+      ...(options.beforeSend === undefined ? {} : { beforeSend: options.beforeSend }),
     })
 
     const harness: Harness = {
@@ -1387,6 +1390,33 @@ describe('T-LOOP-015 只读工具并行（P-P4）', () => {
         expect(auditAttempts).toBeGreaterThanOrEqual(2)
         expect(spy).toHaveBeenCalled()
         spy.mockRestore()
+      },
+    )
+  })
+})
+
+describe('beforeSend（W07 全系统闸）', () => {
+  it('闸抛错 → 输入不入队；放行后正常入队（闸不改变既有时序）', async () => {
+    let armed = true
+    await withHarness(
+      {
+        steps: [textStep('收到')],
+        beforeSend: () => {
+          if (armed) {
+            throw Object.assign(new Error('系统已 HALT'), { code: 'safety-halted' })
+          }
+        },
+      },
+      async (harness) => {
+        expect(() => harness.loop.send('这条不该入队')).toThrowError(/系统已 HALT/)
+        expect(harness.loop.inbox.pending).toBe(0)
+        expect(harness.types()).not.toContain('turn/start')
+
+        armed = false
+        harness.loop.send('这条可以入队')
+        expect(harness.loop.inbox.pending).toBe(1)
+        await harness.loop.run()
+        expect(harness.types()).toContain('turn/start')
       },
     )
   })

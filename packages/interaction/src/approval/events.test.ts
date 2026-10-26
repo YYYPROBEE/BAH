@@ -10,13 +10,14 @@ import { describe, expect, it } from 'vitest'
 import { INTERACTION_SESSION_EVENT_TYPES } from './events.ts'
 
 describe('interaction 领域事件表', () => {
-  it('9 个事件按声明顺序登记（ticket/* 5 个 + approval/* 4 个）', () => {
+  it('10 个事件按声明顺序登记（ticket/* 6 个 + approval/* 4 个）', () => {
     expect([...INTERACTION_SESSION_EVENT_TYPES]).toEqual([
       'ticket/issued',
       'ticket/approved',
       'ticket/redeemed',
       'ticket/consumed',
       'ticket/blocked',
+      'ticket/lease-renewed',
       'approval/duplicate',
       'approval/timeout',
       'approval/challenge-issued',

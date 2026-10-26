@@ -33,7 +33,8 @@ function harness(overrides: Readonly<Record<string, unknown>> = {}): {
   const stopped: string[] = []
   let now = 1_000
   let seq = 0
-  const settings = resolveSentrySettings(overrides)
+  // W08：trace.sink 无缺省值；单测不必落盘，显式选 memory
+  const settings = resolveSentrySettings({ trace: { sink: 'memory' }, ...overrides })
   const handle = provideSentry(ctx, settings, {
     sessionId: 's-honesty' as SessionId,
     now: () => {

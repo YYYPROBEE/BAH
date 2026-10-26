@@ -21,8 +21,8 @@ pnpm install
 
 | 目的 | 命令 | 说明 |
 |---|---|---|
-| **起演示** | `pnpm demo:web` | 读 `.env.local` 的 `BAH_MODEL_KEY`，打开 `http://127.0.0.1:7331` |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 164 文件 / 1561 用例 |
+| **起演示** | `pnpm demo:web` | 读 `.env.local` 的 `BAH_MODEL_KEY`，每次新建独立会话目录，打开 `http://127.0.0.1:7331` |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 165 文件 / 1570 用例 |
 | **门禁** | `pnpm gate` | 27 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
@@ -73,7 +73,7 @@ flowchart LR
 | 组合根 | `packages/host` | profile 解析、boot、插件行（渠道、模型、工具、sentry 的接线） |
 | 主循环 | `packages/runtime` | turn/step、提示词装配、七段工具管线、会话存储、压缩、恢复 |
 | 模型 | `packages/llm` | DeepSeek（OpenAI 兼容协议）、离线意图路由、固定脚本 mock |
-| 银行 | `packages/bank` | 内存账本、14 个工具、三级权限升级、票据桥接、强验证状态机 |
+| 银行 | `packages/bank` | 内存账本、16 个工具、三级权限升级、票据桥接、强验证状态机 |
 | 交互 | `packages/interaction` | 审批仲裁器 + 票据账本（五绑定、一次性核销、过期） |
 | 安全 | `packages/safety` | sentry（检测 / 控制 / 票据观测 / 审计 / 幻觉防护 / 断路器）+ 沙箱 |
 | 可靠性 | `packages/saga` | 多步配方、补偿、幂等键、审计锚点 |
@@ -124,10 +124,16 @@ flowchart LR
 票据绑定 `sessionId / tool / 参数指纹 / 金额（分）/ 到期时刻`；ID 是随机 UUID，不由调用 ID 派生。
 批准一次性核销；拒绝、过期、无人应答都落 `blocked`。审批 URL 里读到上一张票，猜不出下一张。
 
+W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发时由宿主注入，
+`lease.expiresAt <= 票据 TTL`；过期即作废、不重签，核销点直接拒绝（`ticket-expired`）。
+`TicketLease` 是独立类型，不改动既有两份 `TicketRef`。
+
 ### 3.4 Saga、沙箱、审计链
 
 - **Saga**：配方化多步执行（演示主场景是"预检 → 执行"两段 DAG），每步带幂等键与状态机；
-  失败按配方补偿，补偿结论落审计，止于"决策 + 人工核销"（银行核心无冲正接口）；
+  失败经窄端口自动冲正——`MockBankCore.reverse(txnId)` 落"原交易 + 冲正流水"两条，幂等键 = `txnId`，
+  当日额度按净转出回退；补偿成功 → `COMPENSATED`，失败 → `COMPENSATION_DLQ`（可人工 `MANUALLY_CLOSED`）。
+  **Mock 提供幂等冲正语义，生产必须接银行核心的冲正/退款接口**；
 - **沙箱**：`query-only` / `compute-bounded` / `none` 三档；模型生成的代码只能进隔离档，
   一次性 worker + 硬时限 + 堆上限 + 空能力白名单；会话只能收紧档位，放宽必须有人签过的一次性批准；
 - **审计链**：`recordHash = sha256(prevHash | canonicalJson(record))`，确定性 canonical JSON；
@@ -149,15 +155,19 @@ flowchart LR
 | fail-closed | sentry 判决件 | 核验异常 → block / stop，错误详情只进审计 |
 | PII 脱敏 | 事件与审批帧 | 收款人姓名令牌化（`王**`）、手机号前 3 后 4；业务侧用令牌还原真名 |
 | 票据安全 | `packages/interaction` | 五绑定、随机 UUID、一次性核销、过期即拒绝 |
-| 沙箱 | `packages/safety` | 模型代码禁入 `none` 档；worker 硬杀；能力白名单恒空 |
-| Web 凭证 | `packages/host` | 除健康探针与管理路由外，`/api/*` 要求 Bearer token；SSE 用查询参数 |
-| 审计诚实 | `packages/persistence` | 零签名报 `unsigned`；CLI 按"审计未完成"退出码 2 |
+| 沙箱 | `packages/safety` | 模型代码禁入 `none` 档；worker 硬杀；能力白名单恒空；逻辑隔离，不是 OS/容器隔离 |
+| Web 凭证 | `packages/host` | 除健康探针与管理路由外，`/api/*` 要求 Bearer token；SSE 用查询参数；写请求另需同源 Origin 或 CSRF double-submit |
+| 浏览器边界 | `packages/host` | CSP / XFO / XCTO / Referrer-Policy / Permissions-Policy；`/api/*` 每来源 60s/120 次限流 |
+| 审计诚实 | `packages/persistence` | 零签名报 `unsigned`；CLI 按"审计未完成"退出码 2；`--no-signature` 只验连续性 |
+| 风险分判决 | `packages/safety` | 会话升到 `high` 后非绿工具一律拒绝；读工具不受影响（W09） |
+| 全系统停机 | `packages/safety` | HALT 单例：新 turn / 任意工具 / plan 节点三处全拒；解除只凭会话内 U 盾 MFA 票据（进程内存，重启清零） |
 
 **明确不做/未做**（回答追问时照实说）：
 
-- 没有真实登录、多租户、速率限制；Web 鉴权是最小 Bearer token，不是身份系统；
-- 银行账本是内存仿真，进程重启回种子；强验证渠道全部是 mock；
-- HP-2（RAG 签名）、HP-3（HALT 人工解除）、HP-4（工具出参契约）未施工；
+- 没有真实登录、多租户、身份系统；Web 鉴权是最小 Bearer token，限流是单机级，不是网关；
+- 银行账本是内存仿真，进程重启回种子；强验证默认是测试网关适配器（未接真实短信/人脸/U 盾供应商），锁定状态在内存、重启丢失；
+- HP-2（RAG 签名）、HP-4（工具出参契约）未施工；HP-3（HALT 人工解除）已落地，
+  但状态只在进程内存、headless 无远程控制入口；
 - DAG 规划层未实现，Saga 两步 DAG 是唯一可演示的规划物；
 - 卡片挂失/解挂、密码修改未实现；注入检测只记分，不直接阻断。
 
@@ -194,7 +204,7 @@ facts.md             演示材料唯一数字来源
 
 | 命令 | 范围 | 实测（2026-10-23） |
 |---|---|---|
-| `pnpm test` | 主仓 | 164 文件 / 1561 用例 |
+| `pnpm test` | 主仓 | 165 文件 / 1570 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 14 文件 / 133 用例 |
 | `pnpm test:web` | 前端 | 6 文件 / 52 用例 |
 | `pnpm gate` | 门禁 | 27/27 |
@@ -202,4 +212,5 @@ facts.md             演示材料唯一数字来源
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
 
 更多材料：[docs/](docs/)；200 字简介见 [docs/简介-200字.md](docs/简介-200字.md)；
-演示脚本、安全自评与部署说明见后续交付文档。
+部署见 [docs/deploy.md](docs/deploy.md)，安全自评见 [docs/security-self-assessment.md](docs/security-self-assessment.md)，
+漏洞披露见 [SECURITY.md](SECURITY.md)。

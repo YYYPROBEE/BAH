@@ -28,6 +28,13 @@ export default defineConfig({
     include: ['packages/*/src/**/*.test.ts'],
     exclude: ['packages/*/src/**/*.e2e.test.ts'],
     passWithNoTests: true,
+    /**
+     * W06：签名门的固定测试密钥。
+     *
+     * 这是**完整性测试密钥**（公开、非机密）；运行时仍要求显式注入
+     * `BAH_KNOWLEDGE_KEY`，库代码里没有任何默认密钥。
+     */
+    env: { BAH_KNOWLEDGE_KEY: 'demo-key-not-for-prod' },
     coverage: {
       provider: 'v8',
       include: allowlistedSources,

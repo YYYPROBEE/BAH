@@ -12,6 +12,7 @@
     "typecheck": "tsc -b tsconfig.host.json && tsc -b tsconfig.client.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:coverage:all": "vitest run --config vitest.coverage.config.ts && tsx scripts/coverage-summary.ts",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:snapshot": "vitest run --config vitest.snapshot.config.ts",
     "snapshot:record": "node scripts/record-snapshot.mjs",
@@ -31,9 +32,18 @@
     "rag:ingest": "node scripts/rag.mjs ingest",
     "rag:contract": "node scripts/rag.mjs contract",
     "demo:rag": "node scripts/demo-rag.mjs",
+    "demo:verifier-fail": "tsx scripts/demo-verifier-fail.ts",
     "lint": "eslint \"packages/*/src/**/*.ts\"",
     "web": "tsx packages/cli/src/main.ts --profile web --serve",
-    "demo:web": "node scripts/demo-web.mjs"
+    "demo:web": "node scripts/demo-web.mjs",
+    "knowledge:sign": "tsx scripts/sign-knowledge.ts",
+    "eval": "tsx scripts/eval.ts",
+    "replay": "tsx scripts/replay.ts",
+    "eval:unit": "vitest run --config vitest.eval.config.ts",
+    "eval:smoke": "tsx scripts/eval.ts --smoke",
+    "eval:baseline": "tsx scripts/eval.ts --baseline-check",
+    "eval:baseline:record": "tsx scripts/eval.ts --baseline-record",
+    "evidence:replay": "tsx scripts/replay.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

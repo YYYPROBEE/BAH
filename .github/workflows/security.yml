@@ -1,0 +1,59 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "23 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # 本地 pnpm 可能配置了 npmmirror，审计端点不存在；CI 显式用官方源。
+      NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.34.7
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Audit production npm dependencies
+        run: pnpm audit --prod --audit-level high
+
+  pip-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # 首次接入先收集基线；清零后删除 continue-on-error，让它成为阻断项。
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+
+      - name: Audit Python dependencies
+        run: pip-audit -r services/rag/requirements.txt --strict

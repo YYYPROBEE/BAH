@@ -100,3 +100,77 @@ describe('VerifyService 并发提交', () => {
     expect(verify.get(challenge.id)?.status).toBe('passed')
   })
 })
+
+describe('W09 强验证出口（锁定 / 隔离 / 重启）', () => {
+  /** 永远失败的 Provider（不依赖 mock 的 successAfter 语义）。 */
+  const alwaysFail: VerifyProvider = { verify: async () => ({ success: false }) }
+
+  it('TC-W09-01：连续 3 次失败 → 锁 30 分钟，第 4 次直接 verify-locked', async () => {
+    const clock = { now: 1_000_000 }
+    const verify = new VerifyService({
+      provider: alwaysFail,
+      maxAttempts: 3,
+      lockMs: 30 * 60_000,
+      now: () => clock.now,
+    })
+    const challenge = verify.issue(sessionId, 'face')
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const submitted = await verify.submit(sessionId, challenge.id, 'face')
+      expect(submitted.result.attempts).toBe(attempt)
+    }
+    expect(verify.isLocked(sessionId)).toBe(true)
+    expect(verify.lockedUntil(sessionId)).toBe(clock.now + 30 * 60_000)
+
+    const next = verify.issue(sessionId, 'face')
+    await expect(verify.submit(sessionId, next.id, 'face')).rejects.toMatchObject({
+      code: 'verify-locked',
+    })
+
+    // 30 分钟到期自动解锁（不需要人工重置）
+    clock.now += 30 * 60_000 + 1
+    expect(verify.isLocked(sessionId)).toBe(false)
+  })
+
+  it('TC-W09-07：锁定按会话隔离——A 被锁后 B 的强验证仍可用', async () => {
+    const a = asSessionId('s-verify-a')
+    const b = asSessionId('s-verify-b')
+    const clock = { now: 2_000_000 }
+    const verify = new VerifyService({
+      provider: alwaysFail,
+      maxAttempts: 1,
+      lockMs: 30 * 60_000,
+      now: () => clock.now,
+    })
+    const challengeA = verify.issue(a, 'sms')
+    await verify.submit(a, challengeA.id, 'sms')
+    expect(verify.isLocked(a)).toBe(true)
+
+    const passing = new VerifyService({ now: () => clock.now })
+    const challengeB = passing.issue(b, 'sms')
+    await expect(passing.submit(b, challengeB.id, 'sms')).resolves.toMatchObject({
+      result: { success: true },
+    })
+    expect(passing.isLocked(b)).toBe(false)
+  })
+
+  it('TC-W09-09：新建 VerifyService（进程内重启）后锁定归零——已知限制，不是持久化', async () => {
+    const clock = { now: 3_000_000 }
+    const first = new VerifyService({
+      provider: alwaysFail,
+      maxAttempts: 1,
+      lockMs: 30 * 60_000,
+      now: () => clock.now,
+    })
+    const challenge = first.issue(sessionId, 'ushield')
+    await first.submit(sessionId, challenge.id, 'ushield')
+    expect(first.isLocked(sessionId)).toBe(true)
+
+    const restarted = new VerifyService({ now: () => clock.now })
+    expect(restarted.isLocked(sessionId)).toBe(false)
+    const fresh = restarted.issue(sessionId, 'ushield')
+    await expect(restarted.submit(sessionId, fresh.id, 'ushield')).resolves.toMatchObject({
+      result: { success: true },
+    })
+  })
+})
+

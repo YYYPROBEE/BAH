@@ -73,17 +73,43 @@ export interface SentryHonestySettings {
   readonly noResult: boolean
 }
 
+/**
+ * 风险分判决配置（W09）。
+ *
+ * `enforce=true`：会话风险等级升至 `high` 后，**非绿工具**一律拒绝（读工具永不误伤）；
+ * `enforce=false` 是回滚开关（关掉必须在自评报告登记）。
+ */
+export interface SentryRiskScoreSettings {
+  readonly enforce: boolean
+}
+
+/**
+ * HALT 配置（W07 / HP-3）。
+ *
+ * `enabled=false` 是**唯一回滚开关**：关掉后三处拒绝全部失效，且必须在自评报告登记
+ * "演示期间关闭过 HALT"（W07 §5 风险表）。解除票据 TTL 与银行票据同量级（默认 120s），
+ * 避免"一张票解一整天"。
+ */
+export interface SentryHaltSettings {
+  readonly enabled: boolean
+  /** 解除票据有效期（秒）。 */
+  readonly ticketTtlSeconds: number
+}
+
+/** TraceLog 的落盘口（W08 起**必须显式配置**，没有缺省值）。 */
+export const TRACE_SINKS = ['memory', 'stderr', 'session'] as const
+
 /** TraceLog 配置（施工单 10 §2 第 8 件）。 */
 export interface SentryTraceSettings {
   readonly ringSize: number
   readonly flushThreshold: number
   /**
    * 落盘出口：
-   * - `memory` = 只留内存环；
+   * - `memory` = 只留内存环（必须**显式**写，进程退出即丢）；
    * - `session` = 逐条落 durable 会话事件（可回放，推荐）；
    * - `stderr` = 逐批写标准错误（仅演示；生产环境宿主会 fail-loud）。
    */
-  readonly sink: 'memory' | 'stderr' | 'session'
+  readonly sink: (typeof TRACE_SINKS)[number]
 }
 
 /** `safety:sentry` 的完整配置（校验后形状）。 */
@@ -95,12 +121,25 @@ export interface SentrySettings {
   readonly degrade: SentryDegradeSettings
   readonly guard: SentryGuardSettings
   readonly honesty: SentryHonestySettings
+  readonly riskScore: SentryRiskScoreSettings
+  readonly halt: SentryHaltSettings
   readonly trace: SentryTraceSettings
 }
 
 /** 各层允许的键（与校验器共用，避免"文档里能写、代码里不认"）。 */
 export const SENTRY_CONFIG_KEYS = {
-  root: ['detector', 'rules', 'budget', 'breaker', 'degrade', 'guard', 'honesty', 'trace'],
+  root: [
+    'detector',
+    'rules',
+    'budget',
+    'breaker',
+    'degrade',
+    'guard',
+    'honesty',
+    'riskScore',
+    'halt',
+    'trace',
+  ],
   detector: ['warnThreshold', 'highThreshold'],
   rules: ['disabled', 'demoWhitelist', 'crossScenario', 'extra'],
   rule: ['id', 'pattern', 'family', 'note'],
@@ -109,6 +148,8 @@ export const SENTRY_CONFIG_KEYS = {
   degrade: ['invalidArgsThreshold'],
   guard: ['maxToolsPerTurn'],
   honesty: ['numeric', 'noResult'],
+  riskScore: ['enforce'],
+  halt: ['enabled', 'ticketTtlSeconds'],
   trace: ['ringSize', 'flushThreshold', 'sink'],
 } as const
 
@@ -119,8 +160,24 @@ export const SENTRY_CONFIG_KEYS = {
  * - `denyThreshold=5`：幕 2 只产生 1 次拒绝，幕 3 是 0 次；
  * - `budget.amountYuan=200000`：demo 的 800 元与 T-SNT-001 的 5 万元都在额度内；
  * - `maxToolsPerTurn=12`：正常一步 1–2 个工具，离上限有一个数量级。
+ *
+ * **`trace.sink` 不在默认值里**（W08）：它没有缺省值，必须由 profile 显式选择。
+ * 这个类型刻意与 `SentrySettings` 不同，防止将来有人顺手把 `memory` 塞回来当默认。
  */
-export const DEFAULT_SENTRY_SETTINGS: SentrySettings = {
+export type SentryDefaults = Omit<SentrySettings, 'trace'> & {
+  readonly trace: Omit<SentryTraceSettings, 'sink'>
+}
+
+/**
+ * 判决策略版本（W08 入链的 `policyVersion`）。
+ *
+ * 改阈值 / 内置规则 / 判决顺序时**必须**升位：审计要能回答"这条判决是按哪版策略做的"。
+ * 它与事件表版本、代码包版本都不是一回事。
+ */
+export const SENTRY_POLICY_VERSION = 'sentry-policy/2'
+
+/** 默认值（**不含** `trace.sink`；缺它 = 载入失败）。 */
+export const DEFAULT_SENTRY_SETTINGS: SentryDefaults = {
   detector: { warnThreshold: 0.45, highThreshold: 0.8 },
   // XSC-001/002 是"部署侧追加规则"：默认关，演示/压测 profile 显式打开。
   // 上线前用 `pnpm sentry:fp` 跑真实语料统计（见 docs/sentry.md §10.7）。
@@ -130,7 +187,11 @@ export const DEFAULT_SENTRY_SETTINGS: SentrySettings = {
   degrade: { invalidArgsThreshold: 3 },
   guard: { maxToolsPerTurn: 12 },
   honesty: { numeric: true, noResult: true },
-  trace: { ringSize: 200, flushThreshold: 1, sink: 'memory' },
+  // W09：高风险会话拒非绿工具；读工具不受影响
+  riskScore: { enforce: true },
+  // 默认开启：HALT 是"全系统停机"面，默认关闭等于没有
+  halt: { enabled: true, ticketTtlSeconds: 120 },
+  trace: { ringSize: 200, flushThreshold: 1 },
 }
 
 /**
@@ -174,6 +235,8 @@ export function resolveSentrySettings(
   const degrade = readSection(raw, 'degrade', SENTRY_CONFIG_KEYS.degrade)
   const guard = readSection(raw, 'guard', SENTRY_CONFIG_KEYS.guard)
   const honesty = readSection(raw, 'honesty', SENTRY_CONFIG_KEYS.honesty)
+  const riskScore = readSection(raw, 'riskScore', SENTRY_CONFIG_KEYS.riskScore)
+  const halt = readSection(raw, 'halt', SENTRY_CONFIG_KEYS.halt)
   const trace = readSection(raw, 'trace', SENTRY_CONFIG_KEYS.trace)
 
   const warnThreshold = readRatio(
@@ -284,6 +347,28 @@ export function resolveSentrySettings(
         DEFAULT_SENTRY_SETTINGS.honesty.noResult,
       ),
     },
+    riskScore: {
+      enforce: readBoolean(
+        riskScore,
+        'enforce',
+        'safety:sentry.riskScore',
+        DEFAULT_SENTRY_SETTINGS.riskScore.enforce,
+      ),
+    },
+    halt: {
+      enabled: readBoolean(
+        halt,
+        'enabled',
+        'safety:sentry.halt',
+        DEFAULT_SENTRY_SETTINGS.halt.enabled,
+      ),
+      ticketTtlSeconds: readPositiveInteger(
+        halt,
+        'ticketTtlSeconds',
+        'safety:sentry.halt',
+        DEFAULT_SENTRY_SETTINGS.halt.ticketTtlSeconds,
+      ),
+    },
     trace: {
       ringSize: readPositiveInteger(
         trace,
@@ -297,13 +382,9 @@ export function resolveSentrySettings(
         'safety:sentry.trace',
         DEFAULT_SENTRY_SETTINGS.trace.flushThreshold,
       ),
-      sink: readEnum(
-        trace,
-        'sink',
-        'safety:sentry.trace',
-        ['memory', 'stderr', 'session'] as const,
-        DEFAULT_SENTRY_SETTINGS.trace.sink,
-      ),
+      // W08：没有缺省值。缺 `trace.sink` 必须载入期失败——否则进程一退，
+      // 审计 trace 就静默消失，"有审计"变成演示时的一句口头承诺。
+      sink: readRequiredEnum(trace, 'sink', 'safety:sentry.trace', TRACE_SINKS),
     },
   }
 }
@@ -415,6 +496,36 @@ function readEnum<T extends string>(
   fallback: T,
 ): T {
   return readConfigEnum(record, key, where, allowed, fallback, invalidSentry) ?? fallback
+}
+
+/**
+ * 读**必须显式配置**的单值枚举（W08）。
+ *
+ * 与 `readEnum` 的区别只在"未写"分支：这里直接抛结构化错误，不走默认值。
+ * 单独一个错误码 `sentry-trace-sink-required` 便于 TC-W08-05 与运维排查。
+ */
+function readRequiredEnum<T extends string>(
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+  where: string,
+  allowed: readonly T[],
+): T {
+  const value = record[key]
+  if (value === undefined) {
+    throw sentryConfigError(
+      'sentry-trace-sink-required',
+      `${where}.${key} 必须显式配置（${allowed.join(' | ')}）：缺省不再退化为内存环`,
+      { where, key, allowed },
+    )
+  }
+  if (typeof value !== 'string' || !allowed.includes(value as T)) {
+    throw sentryConfigError(
+      'sentry-invalid-config',
+      `${where}.${key} 只能是 ${allowed.join(' | ')}（收到 ${describe(value)}）`,
+      { where, key },
+    )
+  }
+  return value as T
 }
 
 /** 读追加规则（逐条校验并按字符串编译正则，失败即抛）。 */

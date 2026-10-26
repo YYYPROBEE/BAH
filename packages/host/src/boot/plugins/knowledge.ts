@@ -15,7 +15,19 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { BANK_IDENTITY } from '@bah/bank'
-import { KNOWLEDGE_SERVICE, createFixtureKnowledgePort, createHttpKnowledgePort, createKnowledgeTools } from '@bah/knowledge'
+import {
+  KNOWLEDGE_SERVICE,
+  collectFixtureEntries,
+  createFixtureKnowledgePort,
+  createHttpKnowledgePort,
+  createKnowledgeTools,
+  createVerifiedKnowledgePort,
+  loadManifest,
+  missingEntryFor,
+  parseCorpus,
+  requireKnowledgeKey,
+  verifyManifest,
+} from '@bah/knowledge'
 import type { FixtureKnowledgeOptions, KnowledgePort } from '@bah/knowledge'
 import { SESSION_SERVICE, TOOLS_SERVICE } from '@bah/runtime'
 import { BahError } from '@bah/util'
@@ -40,6 +52,15 @@ export interface KnowledgeClaims {
   readonly region: string
 }
 
+export interface KnowledgeSignatureSettings {
+  /** `false` = 不做签名门（仅限演示回滚；必须在 PROGRESS 登记）。 */
+  readonly enabled: boolean
+  /** 签名清单（相对仓库根）。 */
+  readonly manifestPath: string
+  /** 语料索引（相对仓库根；10 篇 demo 的全文）。 */
+  readonly corpusPath: string
+}
+
 export interface KnowledgeSettings {
   readonly mode: 'http' | 'fixture'
   readonly baseUrl: string
@@ -56,11 +77,17 @@ export interface KnowledgeSettings {
     readonly health: number
   }
   readonly fixturePath?: string
+  readonly signature: KnowledgeSignatureSettings
 }
 
 const WHERE = 'bank:knowledge'
 const MODES = ['http', 'fixture'] as const
 const CLAIM_KEYS = ['role', 'audience', 'region'] as const
+const SIGNATURE_DEFAULTS: KnowledgeSignatureSettings = {
+  enabled: true,
+  manifestPath: 'packages/knowledge/fixtures/knowledge.manifest.json',
+  corpusPath: 'packages/knowledge/fixtures/corpus.json',
+}
 
 const DEFAULT_CLAIMS: KnowledgeClaims = {
   role: 'retail',
@@ -76,6 +103,7 @@ const DEFAULT_SETTINGS: Omit<KnowledgeSettings, 'fixturePath'> = {
   channel: 'headless',
   claims: { default: DEFAULT_CLAIMS, users: {} },
   timeouts: { answer: 8_000, query: 1_500, health: 1_000 },
+  signature: SIGNATURE_DEFAULTS,
 }
 
 function parseClaims(value: unknown, where: string, fallback?: KnowledgeClaims): KnowledgeClaims {
@@ -114,13 +142,35 @@ function parseTimeouts(value: unknown): KnowledgeSettings['timeouts'] {
   }
 }
 
+function parseSignature(value: unknown): KnowledgeSignatureSettings {
+  if (value === undefined) return SIGNATURE_DEFAULTS
+  const where = `${WHERE}.signature`
+  const record = asRecord(value, where)
+  rejectUnknownKeys(record, ['enabled', 'manifestPath', 'corpusPath'], where)
+  return {
+    enabled: readBoolean(record, 'enabled', where, SIGNATURE_DEFAULTS.enabled),
+    manifestPath: readString(record, 'manifestPath', where) ?? SIGNATURE_DEFAULTS.manifestPath,
+    corpusPath: readString(record, 'corpusPath', where) ?? SIGNATURE_DEFAULTS.corpusPath,
+  }
+}
+
 /** 校验并补默认值（fail-loud；未知键直接拒绝）。 */
 export function parseKnowledgeSettings(
   config: Readonly<Record<string, unknown>>,
 ): KnowledgeSettings {
   rejectUnknownKeys(
     config,
-    ['mode', 'baseUrl', 'tokenEnv', 'required', 'channel', 'claims', 'timeouts', 'fixturePath'],
+    [
+      'mode',
+      'baseUrl',
+      'tokenEnv',
+      'required',
+      'channel',
+      'claims',
+      'timeouts',
+      'fixturePath',
+      'signature',
+    ],
     WHERE,
   )
   const claims = config['claims'] === undefined
@@ -146,17 +196,82 @@ export function parseKnowledgeSettings(
     channel: readString(config, 'channel', WHERE) ?? DEFAULT_SETTINGS.channel,
     claims,
     timeouts: parseTimeouts(config['timeouts']),
+    signature: parseSignature(config['signature']),
     ...(fixturePath === undefined ? {} : { fixturePath }),
   }
 }
 
-function loadFixture(path: string): KnowledgePort {
+interface LoadedFixture {
+  readonly port: KnowledgePort
+  readonly raw: unknown
+  readonly fullPath: string
+}
+
+function loadFixture(path: string): LoadedFixture {
   const full = resolve(process.cwd(), path)
   try {
     const raw = JSON.parse(readFileSync(full, 'utf8')) as FixtureKnowledgeOptions
-    return createFixtureKnowledgePort(raw)
+    return { port: createFixtureKnowledgePort(raw), raw, fullPath: full }
   } catch {
     throw bootError('invalid-config', `${WHERE}.fixturePath 读取失败：${full}`, { path: full })
+  }
+}
+
+/**
+ * 装配签名门（W06）：密钥 → 清单 → 文件摘要 → 条目 HMAC → 可验证端口。
+ *
+ * 任何一步失败都 `invalid-config`（不是告警）：没有签名清单的权威库等于没有权威库。
+ * 错误信息必须点名出问题的文件（TC-W06-04）。
+ */
+function applySignatureGate(options: {
+  readonly config: KnowledgeSettings
+  readonly fixture: LoadedFixture | undefined
+  readonly port: KnowledgePort
+}): KnowledgePort {
+  const { config, fixture, port } = options
+  const root = process.cwd()
+  try {
+    const key = requireKnowledgeKey()
+    const manifest = loadManifest(root, config.signature.manifestPath)
+    const requiredFiles = [
+      config.signature.corpusPath,
+      ...(fixture === undefined || config.fixturePath === undefined ? [] : [config.fixturePath]),
+    ]
+    verifyManifest({ root, manifest, key, requiredFiles })
+
+    if (fixture !== undefined) {
+      const entries = manifest.entries.filter((entry) => entry.source === 'fixture')
+      const actual = collectFixtureEntries(fixture.raw)
+      const missing = missingEntryFor(entries, actual)
+      if (missing !== undefined) {
+        throw new BahError(
+          'knowledge-signature-entry-missing',
+          `签名清单缺少 fixture 条目：${missing.docId}#${String(missing.chunkId)}`,
+          { docId: missing.docId, chunkId: missing.chunkId },
+        )
+      }
+      return createVerifiedKnowledgePort({ port, entries, key })
+    }
+
+    const corpus = parseCorpus(
+      readFileSync(resolve(root, config.signature.corpusPath), 'utf8'),
+      config.signature.corpusPath,
+    )
+    const entries = manifest.entries.filter((entry) => entry.source === 'corpus')
+    const missing = missingEntryFor(entries, corpus.docs)
+    if (missing !== undefined) {
+      throw new BahError(
+        'knowledge-signature-entry-missing',
+        `签名清单缺少语料条目：${missing.docId}#${String(missing.chunkId)}；请运行 pnpm knowledge:sign`,
+        { docId: missing.docId, chunkId: missing.chunkId },
+      )
+    }
+    return createVerifiedKnowledgePort({ port, entries, key })
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw bootError('invalid-config', `${WHERE}.signature: ${reason}`, {
+      code: error instanceof BahError ? error.code : 'knowledge-signature-failed',
+    })
   }
 }
 
@@ -172,16 +287,19 @@ export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
       const session = ctx.get(SESSION_SERVICE)
       const identity = ctx.get(BANK_IDENTITY)
 
-      const port =
+      const fixture =
         config.mode === 'fixture' && config.fixturePath !== undefined
           ? loadFixture(config.fixturePath)
-          : createHttpKnowledgePort({
-              baseUrl: config.baseUrl,
-              ...(process.env[config.tokenEnv] === undefined
-                ? {}
-                : { token: process.env[config.tokenEnv] as string }),
-              timeoutMs: config.timeouts,
-            })
+          : undefined
+      const port =
+        fixture?.port ??
+        createHttpKnowledgePort({
+          baseUrl: config.baseUrl,
+          ...(process.env[config.tokenEnv] === undefined
+            ? {}
+            : { token: process.env[config.tokenEnv] as string }),
+          timeoutMs: config.timeouts,
+        })
 
       if (config.mode === 'http') {
         try {
@@ -198,10 +316,14 @@ export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
         }
       }
 
-      ctx.effect(ctx.provide(KNOWLEDGE_SERVICE, port))
+      const activePort = config.signature.enabled
+        ? applySignatureGate({ config, fixture, port })
+        : port
+
+      ctx.effect(ctx.provide(KNOWLEDGE_SERVICE, activePort))
 
       const [answerTool, queryTool] = createKnowledgeTools({
-        port,
+        port: activePort,
         principalOf: (sessionId) => {
           const userId = identity.resolve(sessionId)
           if (userId === undefined) {

@@ -96,6 +96,19 @@ export interface BankSessionEventMap {
     readonly reason: string
     readonly at: number
   }
+  /** 银行卡挂失（ADR-0003；红档写操作）。 */
+  'card/reported-lost': {
+    readonly cardId: string
+    readonly tail: string
+    readonly status: 'lost'
+    readonly at: number
+  }
+  /** 取消自动扣款订阅（ADR-0003；黄档写操作）。 */
+  'sub/cancelled': {
+    readonly subscriptionId: string
+    readonly merchant: string
+    readonly at: number
+  }
 }
 
 declare module '@bah/core' {
@@ -124,6 +137,8 @@ export const BANK_SESSION_EVENT_TYPES = [
   'verify/ushield',
   'verify/locked',
   'ticket/ledger-failed',
+  'card/reported-lost',
+  'sub/cancelled',
 ] as const satisfies readonly BankSessionEventType[]
 
 /**

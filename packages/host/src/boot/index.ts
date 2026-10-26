@@ -31,10 +31,13 @@ export {
   echoPlugin,
   modelPlugin,
   persistencePlugin,
+  planPlugin,
   promptPlugin,
   sessionPlugin,
   toolsPlugin,
 } from './plugins/index.ts'
+// 编排原语的服务键：消费方（快照场景 / 上层插件）按键取 `PlanApi`，不碰插件实现
+export { PLAN_SERVICE, SAGA_BRIDGE_RECIPES } from './plugins/index.ts'
 export { SESSION_FILES, type SessionFiles } from './plugins/persistence.ts'
 // 管理面的两个常量给 `bah sentry unfreeze` 用：环境变量名与缺省理由只能有一份，
 // 各写一份迟早会漂（改了 host 忘了 cli，命令就静默读错变量）

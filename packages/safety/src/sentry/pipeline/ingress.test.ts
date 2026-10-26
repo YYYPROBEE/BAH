@@ -8,12 +8,15 @@ import { createContext } from '@bah/core'
 import type { Context, SessionId } from '@bah/core'
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_SENTRY_SETTINGS, provideSentry, type SentrySettings } from './index.ts'
+import { provideSentry, resolveSentrySettings, type SentrySettings } from './index.ts'
 import { markUntrustedIm } from './im.ts'
 import type { SentryHandle } from './index.ts'
 
 /** 造一个只装了 sentry 的内核上下文。 */
-function harness(settings: SentrySettings = DEFAULT_SENTRY_SETTINGS): {
+function harness(
+  // W08：trace.sink 无缺省值；单测显式选 memory
+  settings: SentrySettings = resolveSentrySettings({ trace: { sink: 'memory' } }),
+): {
   readonly ctx: Context
   readonly handle: SentryHandle
   readonly events: { type: string; data: Record<string, unknown> }[]

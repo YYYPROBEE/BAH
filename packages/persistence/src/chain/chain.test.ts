@@ -249,6 +249,92 @@ describe('金库与访问审计', () => {
   })
 })
 
+describe('审计信封 v2（W08）', () => {
+  /** 追加一条 v2 判决行（信封四字段由 append 的第 5 个可选参数带入）。 */
+  function appendDecision(
+    chain: ReturnType<typeof createSagaAudit>,
+    type: string,
+    data: unknown,
+    overrides: Partial<{ subject: string; decision: 'allow' | 'deny' | 'ask'; policyVersion: string }> = {},
+  ): { seqInSaga: number; recordHash: string } {
+    return chain.append('s1', type, data, undefined, {
+      subject: overrides.subject ?? 'session:s-w08',
+      decision: overrides.decision ?? 'allow',
+      policyVersion: overrides.policyVersion ?? 'sentry-policy/1',
+    })
+  }
+
+  it('TC-W08-02/09：v1 与 v2 混链可验；4 参调用点行为与键集不变', () => {
+    const dir = root()
+    // approval/decided 在签名白名单里；本用例只验信封与哈希，显式关签名以免依赖密钥
+    const chain = audit(dir, { signedTypes: [] })
+    chain.append('s1', 'saga/created', { sagaId: 's1' })
+    appendDecision(chain, 'approval/decided', { ticketId: 't-1', decision: 'allowed-once' })
+    chain.append('s1', 'saga/call-result', { sagaId: 's1', stepId: 'st-1' })
+
+    const rows = new ChainFile({ rootDir: join(dir, 'audit'), fsync: false }).read('s1')
+    expect(rows.map((row) => row.version ?? 1)).toEqual([1, 2, 1])
+    const decision = rows[1]!
+    expect(decision.subject).toBe('session:s-w08')
+    expect(decision.decision).toBe('allow')
+    expect(decision.policyVersion).toBe('sentry-policy/1')
+    expect(decision.prevHash).toBe(decision.p)
+    expect(decision.sub).toBe('t-1')
+    // v1 行的哈希投影仍只有 8 个键（历史算法不改）
+    expect(Object.keys(canonicalOf(rows[0]!)).sort()).toEqual(
+      ['d', 'hb', 'keyVersion', 'q', 'recordedAt', 's', 'sub', 't'].sort(),
+    )
+    expect(Object.keys(canonicalOf(decision)).sort()).toEqual(
+      ['d', 'decision', 'hb', 'keyVersion', 'policyVersion', 'prevHash', 'q', 'recordedAt', 's', 'subject', 'sub', 't', 'version'].sort(),
+    )
+    expect(chain.verify('s1')).toEqual({ ok: true })
+    expect(chain.verifyContinuity('s1')).toEqual({ ok: true })
+  })
+
+  it('TC-W08-03：篡改 v2 的 decision 字段 → 验链失败并指出条目序号', () => {
+    const dir = root()
+    const chain = audit(dir)
+    chain.append('s1', 'saga/created', { sagaId: 's1' })
+    appendDecision(chain, 'sentry/decision', { callId: 'c-1', name: 'transfer_create' }, { decision: 'deny' })
+    chain.append('s1', 'saga/call-result', { sagaId: 's1', stepId: 'st-1' })
+
+    const path = join(dir, 'audit', 's1', 'audit.jsonl')
+    const lines = readFileSync(path, 'utf8').split('\n').filter((line) => line.length > 0)
+    const row = JSON.parse(lines[1] as string) as ChainRecord
+    expect(row.decision).toBe('deny')
+    lines[1] = JSON.stringify({ ...row, decision: 'allow' })
+    writeFileSync(path, `${lines.join('\n')}\n`, 'utf8')
+
+    const reopened = audit(dir)
+    expect(reopened.verifyContinuity('s1')).toEqual({ ok: false, brokenAt: 2 })
+    expect(reopened.verify('s1')).toEqual({ ok: false, brokenAt: 2 })
+  })
+
+  it('v2 的 prevHash 与 p 不一致 → 验链失败（显式别名同样受哈希保护）', () => {
+    const dir = root()
+    const chain = audit(dir)
+    appendDecision(chain, 'sentry/decision', { callId: 'c-1' })
+
+    const path = join(dir, 'audit', 's1', 'audit.jsonl')
+    const lines = readFileSync(path, 'utf8').split('\n').filter((line) => line.length > 0)
+    const row = JSON.parse(lines[0] as string) as ChainRecord
+    lines[0] = JSON.stringify({ ...row, prevHash: sha256Hex('tampered-prev') })
+    writeFileSync(path, `${lines.join('\n')}\n`, 'utf8')
+
+    expect(audit(dir).verifyContinuity('s1')).toEqual({ ok: false, brokenAt: 1 })
+  })
+
+  it('v2 信封字段为空 → 写入期拒绝（不是写进去再靠验链发现）', () => {
+    const chain = audit(root())
+    expect(() => appendDecision(chain, 'sentry/decision', {}, { subject: '' })).toThrow(
+      /chain-envelope-invalid/,
+    )
+    expect(() => appendDecision(chain, 'sentry/decision', {}, { policyVersion: '' })).toThrow(
+      /chain-envelope-invalid/,
+    )
+  })
+})
+
 describe('Merkle 锚定', () => {
   it('T-SA11-013/014/015：根与手工一致；同日重复幂等；三点发布', async () => {
     const dir = root()

@@ -9,6 +9,7 @@
  */
 
 import { LLM_ADAPTERS } from '@bah/llm'
+import { HALT_SERVICE } from '@bah/safety'
 import {
   AgentLoop,
   AgentRegistry,
@@ -16,8 +17,10 @@ import {
   provideAgents,
   resolveAgentLoopConfig,
 } from '@bah/runtime'
+import { BahError } from '@bah/util'
 
 import type { AgentLoopConfig, ChannelKind, RuntimeContextView } from '@bah/runtime'
+import type { HaltHandle } from '@bah/safety'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
@@ -53,12 +56,36 @@ export const agentPlugin: HostPlugin<AgentSettings> = {
       const agents = new AgentRegistry()
       provideAgents(ctx, agents)
 
+      /**
+       * 新 turn 的 HALT 闸（W07 TC-01）。
+       *
+       * 惰性取服务：`core:agent` 在 base 里排在 `safety:sentry` **之前**，apply 期硬取
+       * 会永远等不到；而没有 sentry 的 profile（最小装配）也不该起不来——那种装配没有
+       * HALT 面，闸自然放行。
+       */
+      const beforeSend = (): void => {
+        let halt: HaltHandle
+        try {
+          halt = ctx.get(HALT_SERVICE)
+        } catch {
+          return
+        }
+        if (!halt.halted) return
+        throw new BahError(
+          'safety-halted',
+          'safety: 系统已进入 HALT，拒绝新的 turn（需人工 MFA 票据解除）',
+          { reason: halt.reason },
+        )
+      }
+
       const loop = new AgentLoop({
         ctx,
         session: ctx.get(SESSION_SERVICE),
         registry: ctx.get(LLM_ADAPTERS),
         config: config.loop,
         now: run.now,
+        beforeSend,
+        ...(run.mintTicketId === undefined ? {} : { mintTicketId: run.mintTicketId }),
         ...(config.channel === undefined ? {} : { channel: config.channel }),
         ...(config.runtimeContext === undefined
           ? {}

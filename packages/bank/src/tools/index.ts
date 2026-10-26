@@ -9,6 +9,7 @@
  * - `events.ts`：领域 durable 事件。
  */
 
+export * from './account-ops.ts'
 export * from './catalog.ts'
 export * from './compute.ts'
 export * from './dto.ts'
@@ -16,7 +17,9 @@ export * from './events.ts'
 export * from './governance.ts'
 export * from './identity.ts'
 export * from './presenters.ts'
+export * from './policy.ts'
 export * from './render.ts'
+export * from './result-schemas.ts'
 export * from './specs.ts'
 export * from './tier.ts'
 export * from './types.ts'

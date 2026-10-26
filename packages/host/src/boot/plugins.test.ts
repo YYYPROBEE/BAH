@@ -114,17 +114,21 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       'core:model',
       'core:agent',
       'core:persistence',
+      'audit:decisions',
       'demo:echo',
       'bank:tools',
       'bank:knowledge',
       'interaction:approval',
       'safety:sentry',
+      'safety:verify',
       'safety:sandbox',
       'bank:saga-store',
       'bank:saga',
       'bank:saga-audit',
       // 接线层：把写工具接进协调器（缺了它 `runSaga` 生产零调用）
       'bank:saga-bridge',
+      // 编排原语（plan:dag）：登记 = 可被 patch 的 `use` 引用，不等于默认装配
+      'plan:dag',
       // 渠道（施工单 13）：不在 base bundle 里，由 profiles/web 的 patch 加行
       'channel:web',
     ])

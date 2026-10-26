@@ -19,6 +19,7 @@ function view(overrides: Partial<ApprovalViewLike> = {}): ApprovalViewLike & { a
   const controller = new AbortController()
   return {
     ticketId: 'ticket:call-1',
+    sessionId: 's-web',
     callId: 'call-1',
     name: 'transfer_create',
     signal: controller.signal,
@@ -73,6 +74,38 @@ describe('WebChannelAdapter · 出站', () => {
 
     const frames = await adapter.render(events)
     expect(frames.map((frame) => frame.kind)).toEqual(['turn', 'message'])
+  })
+})
+
+describe('WebChannelAdapter · 审批归属（W04）', () => {
+  it('他会话的票据：decide 与 verify 都返回 foreign-ticket，且不触达 answer', async () => {
+    const adapter = createWebChannelAdapter({ sessionId: 's-web' })
+    const foreign = view({
+      ticketId: 'ticket:foreign',
+      sessionId: 's-other',
+      challenge: { channel: 'sms', verify: async () => ({ ok: true }) },
+    })
+    adapter.attachApproval(foreign)
+
+    expect(adapter.decide('ticket:foreign', { decision: 'allowed-once' })).toMatchObject({
+      ok: false,
+      code: 'foreign-ticket',
+    })
+    expect(foreign.answers).toEqual([])
+    await expect(adapter.verify('ticket:foreign')).resolves.toMatchObject({
+      ok: false,
+      code: 'foreign-ticket',
+    })
+  })
+
+  it('本会话的票据照常放行；未绑定会话时保持旧行为（单测 / 纯投影）', () => {
+    const bound = createWebChannelAdapter({ sessionId: 's-web' })
+    bound.attachApproval(view({ sessionId: 's-web' }))
+    expect(bound.decide('ticket:call-1', { decision: 'allowed-once' })).toEqual({ ok: true })
+
+    const unbound = createWebChannelAdapter()
+    unbound.attachApproval(view({ sessionId: 's-any' }))
+    expect(unbound.decide('ticket:call-1', { decision: 'allowed-once' })).toEqual({ ok: true })
   })
 })
 

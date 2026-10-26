@@ -6,14 +6,22 @@
  * 这三条同时成立才说明"预检 → 扣款"确实按拓扑顺序跑过一次，且没有被重试。
  */
 
-import { createHash } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { createHash, generateKeyPairSync } from 'node:crypto'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createContext } from '@bah/core'
+import { BANK_COMPENSATION } from '@bah/bank'
 import { createSagaStore } from '@bah/persistence'
-import { AGENTS_SERVICE, provideSession, provideTools, ToolRegistry } from '@bah/runtime'
+import {
+  AGENTS_SERVICE,
+  provideSession,
+  provideTools,
+  SESSION_SERVICE,
+  TOOLS_SERVICE,
+  ToolRegistry,
+} from '@bah/runtime'
 import {
   installIdempotency,
   parseSagaSettings,
@@ -69,12 +77,16 @@ const TRANSFER_SCRIPT = [
 ]
 
 /** 最小可跑行集：银行工具 + 审批 + saga 三行 + 接线层。 */
-function rows(bridgeConfig: Readonly<Record<string, unknown>>): readonly PluginRow[] {
+function rows(
+  bridgeConfig: Readonly<Record<string, unknown>>,
+  script: readonly Readonly<Record<string, unknown>>[] = TRANSFER_SCRIPT,
+  signingKeyPath?: string,
+): readonly PluginRow[] {
   return [
     { id: 'core:session' },
     { id: 'core:tools' },
     { id: 'core:prompt' },
-    { id: 'core:model', config: { provider: 'mock', script: TRANSFER_SCRIPT } },
+    { id: 'core:model', config: { provider: 'mock', script } },
     { id: 'core:agent', config: { loop: { model: 'mock:mock-chat' } } },
     { id: 'core:persistence', config: { root: 'sessions', fsync: false } },
     { id: 'bank:tools', config: { demoUserId: 'u-1', seed: 7, datasetTier: 'demo' } },
@@ -84,7 +96,12 @@ function rows(bridgeConfig: Readonly<Record<string, unknown>>): readonly PluginR
     },
     { id: 'bank:saga-store', config: { dbPath: ':memory:' } },
     { id: 'bank:saga' },
-    { id: 'bank:saga-audit' },
+    {
+      id: 'bank:saga-audit',
+      // W12：补偿事件（saga/comp-issued / comp-result）在签名白名单里，没有私钥会
+      // commit-failed。生产靠部署注入；测试生成一次性临时钥匙（不进仓库）。
+      ...(signingKeyPath === undefined ? {} : { config: { signingKeyPath } }),
+    },
     { id: 'bank:saga-bridge', config: bridgeConfig },
   ]
 }
@@ -92,9 +109,16 @@ function rows(bridgeConfig: Readonly<Record<string, unknown>>): readonly PluginR
 /** 起一个应用（落盘目录临时、dispose 后清理）。 */
 async function bootWith(
   bridgeConfig: Readonly<Record<string, unknown>>,
+  script: readonly Readonly<Record<string, unknown>>[] = TRANSFER_SCRIPT,
 ): Promise<{ readonly app: BootedApp; readonly cleanup: () => void }> {
   const dir = mkdtempSync(join(tmpdir(), 'bah-saga-bridge-'))
-  const bundle: Bundle = { name: 'fx-saga', rows: rows(bridgeConfig) }
+  const signingKeyPath = join(dir, 'saga-ed25519.pem')
+  writeFileSync(
+    signingKeyPath,
+    generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    { mode: 0o600 },
+  )
+  const bundle: Bundle = { name: 'fx-saga', rows: rows(bridgeConfig, script, signingKeyPath) }
   const options: BootOptions = {
     profile: PROFILE,
     bundles: [bundle],
@@ -131,6 +155,19 @@ describe('bank:saga-bridge 配置校验', () => {
     expect(() => sagaBridgePlugin.validate({ eligible: ['transfer_create'], extra: 1 })).toThrow(
       /extra/,
     )
+  })
+
+  it('W12 补偿开关：默认注入、可显式关闭、嵌套未知键 fail-loud', () => {
+    expect(sagaBridgePlugin.validate({}).compensation).toEqual({ enabled: true })
+    expect(
+      sagaBridgePlugin.validate({ compensation: { enabled: false } }).compensation,
+    ).toEqual({ enabled: false })
+    expect(() => sagaBridgePlugin.validate({ compensation: { enabled: 'yes' } })).toThrow(
+      /enabled/,
+    )
+    expect(() =>
+      sagaBridgePlugin.validate({ compensation: { enabled: true, extra: 1 } }),
+    ).toThrow(/extra/)
   })
 
   it('saga 段的非法值也会被解析面拦下', () => {
@@ -346,6 +383,7 @@ describe('bank:saga-bridge 单元面：接线层的错误码与副作用', () =>
       eligible: ['no_recipe'],
       tickIntervalMs: 0,
       saga: parseSagaSettings({ maxAttempts: 1 }),
+      compensation: { enabled: true },
     }
     const h = await bridgeUnit(settings)
     try {
@@ -414,10 +452,11 @@ describe('bank:saga-bridge 单元面：接线层的错误码与副作用', () =>
       expect(detail.code).toBe('risk-decline')
       expect(error.message).toContain(detail.sagaId)
 
-      // 副作用判据：失败只 CAS 到 COMPENSATING（决策为止），**不假装补偿成功**；
+      // 副作用判据（W12 修订）：失败发生在任何执行成功的副作用之前 → 没有可退的东西，
+      // 补偿通道注入后按 COMPENSATED 收敛（"无事可做"= 补偿成功），不是假阳性。
       // maxAttempts=1 → attempts=1，绝不自动重试（重试就是真的多扣一次钱）。
       const saga = h.store.listAllSagas()[0]!
-      expect(saga.state).toBe('COMPENSATING')
+      expect(saga.state).toBe('COMPENSATED')
       const step = h.store.listSteps(saga.sagaId)[0]!
       expect(step.state).toBe('FAILED')
       expect(step.attempts).toBe(1)
@@ -478,7 +517,7 @@ describe('bank:saga-bridge 单元面：接线层的错误码与副作用', () =>
     }
   })
 
-  it('派发时回查不到配方步（本地名重复致全局 stepId 反查失联）：该步记 recipe-missing，整笔走失败结算且不假装补偿成功', async () => {
+  it('派发时回查不到配方步（本地名重复致全局 stepId 反查失联）：该步记 recipe-missing，已执行副作用无绑定 → fail-closed 到 COMPENSATION_DLQ', async () => {
     // `localToGlobal` 反查靠"本地名→全局 id"唯一；配方把两个本地名写成同一个，
     // 先落库的那步就再也反查不回自己的 spec——这条防御不许静默跳过（那等于悄悄少执行一步）。
     registerFakeRecipe('dup_call', [
@@ -505,8 +544,12 @@ describe('bank:saga-bridge 单元面：接线层的错误码与副作用', () =>
       expect(detail.code).toBe('recipe-missing')
       expect(error.message).toContain('recipe-missing')
 
+      // 实测（W12）：配方撞名让第二个 spec 同时顶替两步——先落库的那步拿到
+      // `recipe-missing`（FAILED），另一步以 `dup_tool_b`（EXTERNAL_UNDOABLE）**执行成功**。
+      // 已执行的副作用没有补偿绑定 → 绑定缺口，正确落点是 COMPENSATION_DLQ（人工处置），
+      // 绝不能静默报 COMPENSATED。
       const saga = h.store.listAllSagas()[0]!
-      expect(saga.state).toBe('COMPENSATING')
+      expect(saga.state).toBe('COMPENSATION_DLQ')
       const steps = h.store.listSteps(saga.sagaId)
       expect([...steps.map((step) => step.state)].sort()).toEqual(['EXECUTED', 'FAILED'])
     } finally {
@@ -602,5 +645,181 @@ describe('bank:saga-bridge 单元面：接线层的错误码与副作用', () =>
     } finally {
       vi.restoreAllMocks()
     }
+  })
+})
+
+describe('W12 补偿回读：saga 真冲正', () => {
+  /** 先扣款、后置校验失败的确定性脚本（外层仍叫 transfer_create，票据绑定才对得上）。 */
+  const COMP_SCRIPT = [
+    {
+      tool: {
+        id: 'call-comp',
+        name: 'transfer_create',
+        args: {
+          amount: 800,
+          payee: { name: '王建国', phone: '13900002222' },
+          remark: '房租',
+        },
+      },
+    },
+    { text: '补偿演示：扣款后失败。' },
+  ] as const
+
+  it('TC-W12-03 转账成功后后续步骤失败 → reverse(txnId) → COMPENSATED，余额回到初值', async () => {
+    // 配方只在本用例内替换（direct assignment + finally 复原），
+    // 不能走 registerFakeRecipe：afterEach 会 delete 掉真实的 transfer_create 配方。
+    const table = SAGA_BRIDGE_RECIPES as unknown as Record<
+      string,
+      (call: ToolCallInput) => readonly {
+        readonly stepId: string
+        readonly toolName: string
+        readonly sideEffectClass: SideEffectClass
+        readonly deps: readonly string[]
+        readonly args: Readonly<Record<string, unknown>>
+      }[]
+    >
+    const original = table['transfer_create']!
+    table['transfer_create'] = (call) => [
+      {
+        stepId: 'pay',
+        toolName: 'transfer_create',
+        sideEffectClass: 'EXTERNAL_UNDOABLE',
+        deps: [],
+        args: call.args,
+      },
+      { stepId: 'post', toolName: 'post_check', sideEffectClass: 'NONE', deps: ['pay'], args: {} },
+    ]
+
+    const { app, cleanup } = await bootWith(
+      { enabled: true, eligible: ['transfer_create'], saga: { maxAttempts: 1 } },
+      COMP_SCRIPT,
+    )
+    try {
+      const tools = app.ctx.get(TOOLS_SERVICE)
+      tools.register({
+        name: 'post_check',
+        description: '补偿用例：扣款后失败',
+        schema: { type: 'object' },
+        tier: { level: 'green' },
+        execute: async () => {
+          throw new BahError('post-check-failed', '后置校验失败（演示补偿）')
+        },
+      })
+      const sessionId = asSessionId('s-saga-bridge')
+      const readBalance = async (callId: string): Promise<{ balanceCents: number; availableCents: number }> =>
+        (await tools.get('account_balance')!.execute({}, {
+          sessionId,
+          callId,
+          signal: new AbortController().signal,
+        })) as { balanceCents: number; availableCents: number }
+
+      const before = await readBalance('read-before')
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('给王建国转 800 元房租')
+      await agent.run()
+      const after = await readBalance('read-after')
+
+      // 本单最硬的证据：账户前后对比（扣了又退回来了）
+      expect(after.balanceCents).toBe(before.balanceCents)
+      expect(after.availableCents).toBe(before.availableCents)
+
+      const store = app.ctx.get(SAGA_STORE)
+      const sagas = store.listAllSagas()
+      expect(sagas).toHaveLength(1)
+      expect(sagas[0]!.state).toBe('COMPENSATED')
+      expect(store.tx((tx) => tx.listCompensations(sagas[0]!.sagaId)).map((comp) => comp.state)).toEqual([
+        'OK',
+      ])
+
+      // 冲正真的发生了：从 transfer/created 找到原流水号，窄端口能查回冲正结果
+      // 领域事件不在 AnySessionEvent 的窄联合里，按结构读一遍（只取 transfer/created 的 result）
+      const events = app.ctx.get(SESSION_SERVICE).events() as readonly {
+        readonly type: string
+        readonly data: unknown
+      }[]
+      const created = events.find((event) => event.type === 'transfer/created')
+      const txnId = (created?.data as { result?: { txnId?: string } } | undefined)?.result?.txnId
+      expect(txnId).toBeDefined()
+      expect(app.ctx.get(BANK_COMPENSATION).reversalOf(txnId!)).toBeDefined()
+    } finally {
+      await app.dispose('test-done')
+      cleanup()
+      table['transfer_create'] = original
+    }
+  })
+
+  it('compensation.enabled:false → 不注入通道，失败停在 COMPENSATING（旧行为可回滚）', async () => {
+    const table = SAGA_BRIDGE_RECIPES as unknown as Record<
+      string,
+      (call: ToolCallInput) => readonly {
+        readonly stepId: string
+        readonly toolName: string
+        readonly sideEffectClass: SideEffectClass
+        readonly deps: readonly string[]
+        readonly args: Readonly<Record<string, unknown>>
+      }[]
+    >
+    const original = table['transfer_create']!
+    table['transfer_create'] = (call) => [
+      {
+        stepId: 'pay',
+        toolName: 'transfer_create',
+        sideEffectClass: 'EXTERNAL_UNDOABLE',
+        deps: [],
+        args: call.args,
+      },
+      { stepId: 'post', toolName: 'post_check', sideEffectClass: 'NONE', deps: ['pay'], args: {} },
+    ]
+    const { app, cleanup } = await bootWith(
+      {
+        enabled: true,
+        eligible: ['transfer_create'],
+        saga: { maxAttempts: 1 },
+        compensation: { enabled: false },
+      },
+      COMP_SCRIPT,
+    )
+    try {
+      app.ctx.get(TOOLS_SERVICE).register({
+        name: 'post_check',
+        description: '补偿用例：扣款后失败',
+        schema: { type: 'object' },
+        tier: { level: 'green' },
+        execute: async () => {
+          throw new BahError('post-check-failed', '后置校验失败（演示补偿）')
+        },
+      })
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('给王建国转 800 元房租')
+      await agent.run()
+
+      const saga = app.ctx.get(SAGA_STORE).listAllSagas()[0]!
+      expect(saga.state).toBe('COMPENSATING')
+      // 关闭注入 = 退回"止于决策"：不注册、不绑定、不发射，库里的补偿面为空
+      expect(
+        app.ctx.get(SAGA_STORE).tx((tx) => tx.listCompensations(saga.sagaId)),
+      ).toHaveLength(0)
+    } finally {
+      await app.dispose('test-done')
+      cleanup()
+      table['transfer_create'] = original
+    }
+  })
+})
+
+describe('W12 装配顺序（复审回归）', () => {
+  it('apply 期不取 saga 服务：先装桥接、后装存储也能起（行顺序不是隐性契约）', async () => {
+    const ctx = createContext()
+    // 刻意不提供 SAGA_STORE / SAGA_CLOCK / SAGA_TEMPLATES：apply 只挂监听器
+    await ctx.use(
+      sagaBridgePlugin.plugin,
+      sagaBridgePlugin.validate({
+        eligible: ['transfer_create'],
+        compensation: { enabled: true },
+      }),
+    )
+    await ctx.start()
+    // 没有在 apply 期抛 service-missing 即为通过；真正的 saga 调用会由 planSaga 报缺服务
+    await ctx.dispose('test-done')
   })
 })

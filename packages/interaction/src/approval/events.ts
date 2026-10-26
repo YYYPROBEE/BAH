@@ -8,6 +8,7 @@
  * ```text
  * ask ─▶ ticket/issued ─▶ approval/asked ─▶（挑战签发 / 超时 / 重复应答）
  *     ─▶ approval/decided ─▶ ticket/approved ─▶ 执行 ─▶ ticket/redeemed ─▶ ticket/consumed
+ *                                              ├─▶ ticket/lease-renewed（W12：只前移 lease）
  *                                              └─▶ ticket/blocked（拒绝 / 超时 / 执行失败）
  * ```
  *
@@ -71,6 +72,19 @@ export interface TicketBlockedData {
   readonly at: number
 }
 
+/** 票据 lease 已续租（W12：只前移到期时刻，不动票据 TTL）。 */
+export interface TicketLeaseRenewedData {
+  readonly ticketId: string
+  readonly callId: string
+  readonly name: string
+  readonly leaseId: string
+  /** 续租前的到期时刻。 */
+  readonly previousExpiresAt: number
+  /** 续租后的到期时刻（必须 ≤ 票据 `expiresAt`）。 */
+  readonly expiresAt: number
+  readonly at: number
+}
+
 /** 重复应答（后到者被拒；**报警但绝不重复执行**）。 */
 export interface ApprovalDuplicateData {
   readonly ticketId: string
@@ -123,6 +137,8 @@ export interface InteractionSessionEventMap {
   'ticket/consumed': TicketConsumedData
   /** 票据已阻断。 */
   'ticket/blocked': TicketBlockedData
+  /** 票据 lease 已续租。 */
+  'ticket/lease-renewed': TicketLeaseRenewedData
   /** 重复应答报警。 */
   'approval/duplicate': ApprovalDuplicateData
   /** 审批超时。 */
@@ -147,6 +163,7 @@ export const INTERACTION_SESSION_EVENT_TYPES = [
   'ticket/redeemed',
   'ticket/consumed',
   'ticket/blocked',
+  'ticket/lease-renewed',
   'approval/duplicate',
   'approval/timeout',
   'approval/challenge-issued',

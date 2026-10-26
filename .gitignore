@@ -5,6 +5,7 @@ dist-types/
 .env*
 !.env.example
 sessions/
+keys/
 coverage/
 coverage-*/
 .tmp-rag/

@@ -12,6 +12,13 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
+
+// W06：知识库签名门需要一个密钥。演示用公开的完整性测试密钥并明确警告；
+// 生产必须换成独立密钥（npx tsx scripts/sign-knowledge.ts 重签）。
+if (process.env.BAH_KNOWLEDGE_KEY === undefined || process.env.BAH_KNOWLEDGE_KEY === '') {
+  process.env.BAH_KNOWLEDGE_KEY = 'demo-key-not-for-prod'
+  console.warn('[demo:rag] 未设置 BAH_KNOWLEDGE_KEY，使用公开演示密钥（仅完整性校验，不用于生产）')
+}
 const PROMPT = '稳盈90天持有不满7天赎回费率是多少？'
 const SESSION = process.env.DEMO_SESSION ?? `s-rag-demo-${Date.now()}`
 const PATCH = process.env.DEMO_PATCH ?? 'profiles/headless/patch-knowledge.yml'

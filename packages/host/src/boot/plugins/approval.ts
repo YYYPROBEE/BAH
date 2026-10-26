@@ -38,10 +38,15 @@ export interface ApprovalSettings {
   readonly autoDelayMs?: number
 }
 
-/** 默认配置：默认仍是拒绝（没有任何自动放行的默认值）。 */
+/**
+ * 默认配置：**默认拒绝**（W04 起 `autoDecision` 缺省为 `reject`）。
+ *
+ * 演示 / 回归要批准必须在 profile 里**显式**写 `autoDecision: allow`——
+ * 「没配置 = 自动放行」是最容易被忽略的一条放行通道。
+ */
 export const DEFAULT_APPROVAL: ApprovalSettings = {
   responder: 'none',
-  autoDecision: 'allow',
+  autoDecision: 'reject',
   autoVerify: true,
 }
 

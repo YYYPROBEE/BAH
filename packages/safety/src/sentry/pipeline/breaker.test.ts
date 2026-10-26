@@ -19,7 +19,8 @@ function harness(overrides: Readonly<Record<string, unknown>> = {}): {
   readonly trace: TraceLog
   tick(at: number): void
 } {
-  const settings = resolveSentrySettings(overrides)
+  // W08：trace.sink 无缺省值；单测不必落盘，显式选 memory
+  const settings = resolveSentrySettings({ trace: { sink: 'memory' }, ...overrides })
   const state = new SentryState()
   let now = 1_000
   const events: { type: SentrySessionEventType; data: unknown }[] = []

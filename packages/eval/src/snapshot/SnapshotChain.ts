@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import type { FlatState, Snapshot, SnapshotReason } from '../types.ts'
 import { deepClone } from '../deepClone.ts'
 import { DEFAULT_RUNS_DIR } from '../recorder/TrajectoryRecorder.ts'
+import { leafHash, merkleRoot as rootOf, sampleProofs, type MerkleProof } from './merkle.ts'
 
 export interface SnapshotChainOptions {
   readonly episodeId: string
@@ -95,6 +96,21 @@ export class SnapshotChain {
     return this.pairs()
       .filter((pair) => pair.before === undefined || pair.after === undefined)
       .map((pair) => pair.callId)
+  }
+
+  /** 全部快照的叶子哈希（顺序 = 快照顺序）。 */
+  merkleLeaves(): readonly string[] {
+    return this.collected.map((snapshot) => leafHash(snapshot))
+  }
+
+  /** Merkle 根（空链返回空串）。 */
+  merkleRoot(): string {
+    return rootOf(this.merkleLeaves())
+  }
+
+  /** 抽样包含证明（默认 10%）；证明可脱离本实例离线验证。 */
+  sampleInclusionProofs(ratio = 0.1): readonly MerkleProof[] {
+    return sampleProofs(this.merkleLeaves(), ratio)
   }
 
   /** 落盘 `snapshots.json`。可重复调用（幂等覆盖）。 */

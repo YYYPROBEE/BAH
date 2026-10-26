@@ -3,7 +3,7 @@
 > 本文件由 `pnpm tool-catalog` 从 `packages/bank/src/tools/specs.ts` 生成，**不要手改**。
 > 门禁 `verify-tool-catalog` 会逐字比对；改工具定义后请重新生成。
 
-共 **14** 个工具（上限 28）。级别由工具定义处声明，治理平面统一解释。
+共 **16** 个工具（上限 28）。级别由工具定义处声明，治理平面统一解释。
 
 | # | 工具 | 级别 | 场景 | 参数 | 落账事件 | 说明 |
 |---|---|---|---|---|---|---|
@@ -21,6 +21,8 @@
 | 12 | `verify_face` | green | 强验证 | challengeId* | `verify/face` | 红色操作的挑战链要求人脸验证时用；没有挑战 ID 时不要调用，独立调用会返回 no-challenge。 |
 | 13 | `verify_sms` | green | 强验证 | challengeId* | `verify/sms` | 红色操作的挑战链要求短信验证时用；没有挑战 ID 时不要调用，独立调用会返回 no-challenge。 |
 | 14 | `verify_ushield` | green | 强验证 | challengeId* | `verify/ushield` | 红色操作的挑战链要求 U 盾验证时用；没有挑战 ID 时不要调用，独立调用会返回 no-challenge。 |
+| 15 | `card_report_lost` | red | 账户/账单 | cardId* | `card/reported-lost` | 挂失银行卡（红档写操作，不可逆：挂失后该卡即刻不可用），必然进入审批并触发强验证。用户**明确说要挂失**后才用；只是询问卡状态请用 account_list，不要用它试探。 |
+| 16 | `sub_cancel` | yellow | 账户/账单 | subscriptionId* | `sub/cancelled` | 取消自动扣款订阅（黄档写操作，可逆：用户可重新签约）。用户明确要求"取消/退订某个自动续费"后用；查订阅明细请用 txn_query，不要用它代替查询。 |
 
 ## 说明
 

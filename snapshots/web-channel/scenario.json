@@ -60,6 +60,11 @@
       }
     },
     {
+      "id": "audit:decisions",
+      "use": "audit:decisions",
+      "config": {}
+    },
+    {
       "id": "bank:tools",
       "use": "bank:tools",
       "config": {
@@ -81,6 +86,9 @@
       "id": "safety:sentry",
       "use": "safety:sentry",
       "config": {
+        "trace": {
+          "sink": "session"
+        },
         "rules": {
           "crossScenario": true
         }
@@ -94,9 +102,7 @@
     {
       "id": "bank:saga-store",
       "use": "bank:saga-store",
-      "config": {
-        "dbPath": "sessions/saga.sqlite"
-      }
+      "config": {}
     },
     {
       "id": "bank:saga",
@@ -167,6 +173,7 @@
     "packages/bank/src/tools/",
     "packages/host/src/boot/",
     "packages/persistence/src/jsonl/",
+    "packages/persistence/src/chain/",
     "packages/persistence/src/saga-store/",
     "packages/safety/src/sentry/",
     "packages/interaction/src/approval/",

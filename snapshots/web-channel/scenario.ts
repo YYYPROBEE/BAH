@@ -25,7 +25,7 @@ import { loadBundles, readLayers, readProfile } from '@bah/cli'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
 import { ReplayAdapter, asSessionId, createRecordingAdapter, fixedClock } from '@bah/test-support'
 
-import type { SessionEvent } from '@bah/core'
+import type { SessionEvent, TicketId } from '@bah/core'
 import type { Exchange, LoadedSnapshot, SnapshotMeta, SnapshotRow } from '@bah/test-support'
 import type { Agent } from '@bah/runtime'
 
@@ -61,6 +61,8 @@ export const CASE = {
     'packages/bank/src/tools/',
     'packages/host/src/boot/',
     'packages/persistence/src/jsonl/',
+    // W08：audit:decisions 在每次 tool/call 与审批结论上真写链（信封 v1/v2 混链）
+    'packages/persistence/src/chain/',
     'packages/persistence/src/saga-store/',
     'packages/safety/src/sentry/',
     'packages/interaction/src/approval/',
@@ -75,6 +77,15 @@ const OVERLAY = join(REPO_ROOT, 'snapshots', CASE.name, 'overlay.yml')
 function noHome(): string {
   return join(tmpdir(), 'bah-snapshot-no-home')
 }
+
+/**
+ * 快照面的票据 ID：按 `callId` 派生。
+ *
+ * 生产必须用随机 UUID（票号会出现在审批 URL 里）；验收要求"两次回放逐条全等"。
+ * 两者不可兼得，所以在装配处注入——**不可预测属生产、可复现属验收**。
+ * 旧录制件本来就是 `ticket:<callId>`，因此零重录。
+ */
+const snapshotTicketId = (callId: string): TicketId => `ticket:${callId}` as TicketId
 
 /** 跑完全部 prompt（每个 prompt 一个 turn）。 */
 async function runPrompts(agent: Agent, prompts: readonly string[]): Promise<void> {
@@ -108,7 +119,12 @@ export async function runRecord(): Promise<{
     bundles,
     layers,
     catalog: createCatalog(),
-    run: { sessionId: asSessionId(CASE.sessionId), now: clock.now, jsonlDir: scratch },
+    run: {
+      sessionId: asSessionId(CASE.sessionId),
+      now: clock.now,
+      mintTicketId: snapshotTicketId,
+      jsonlDir: scratch,
+    },
   })
 
   try {
@@ -163,7 +179,12 @@ export async function runReplay(snapshot: LoadedSnapshot): Promise<readonly Sess
     bundles: [{ name: 'snapshot', rows: snapshot.meta.rows }],
     layers: [],
     catalog: createCatalog(),
-    run: { sessionId: asSessionId(snapshot.meta.sessionId), now: clock.now, jsonlDir: scratch },
+    run: {
+      sessionId: asSessionId(snapshot.meta.sessionId),
+      now: clock.now,
+      mintTicketId: snapshotTicketId,
+      jsonlDir: scratch,
+    },
   })
 
   try {

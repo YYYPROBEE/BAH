@@ -12,6 +12,7 @@ import { createAccountBalanceTool, createAccountListTool, createAnalysisTool, cr
 import { BANK_TOOL_SPECS, type BankToolName } from './specs.ts'
 import { createTransferCreateTool, createTransferPreviewTool } from './transfers.ts'
 import type { BankToolDeps } from './types.ts'
+import { createCardReportLostTool, createSubCancelTool } from './account-ops.ts'
 import { createVerifyTool } from './verification.ts'
 import { createWealthCompareTool, createWealthListTool, createWealthPurchaseTool } from './wealth.ts'
 
@@ -31,6 +32,8 @@ const FACTORIES: Readonly<Record<BankToolName, (deps: BankToolDeps) => ToolDefin
   'verify_face': (deps) => createVerifyTool(deps, 'face'),
   'verify_sms': (deps) => createVerifyTool(deps, 'sms'),
   'verify_ushield': (deps) => createVerifyTool(deps, 'ushield'),
+  'card_report_lost': createCardReportLostTool,
+  'sub_cancel': createSubCancelTool,
 }
 
 /**
@@ -54,6 +57,8 @@ const SIDE_EFFECTS: Readonly<Record<BankToolName, NonNullable<ToolDefinition['si
   verify_face: 'write',
   verify_sms: 'write',
   verify_ushield: 'write',
+  card_report_lost: 'write',
+  sub_cancel: 'write',
 }
 
 /** 工厂表里的名字（门禁核对目录完整性用）。 */

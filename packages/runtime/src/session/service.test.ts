@@ -61,6 +61,46 @@ describe('provideSession', () => {
     })
   })
 
+  /**
+   * TC-W18-01：广播的重入顺序。
+   *
+   * 缺陷现场（W18 阻塞）：`safety:sentry` 的 `trace.sink='session'` 会在**自己的
+   * `session/event` 回调里**再 `appendDomain` 一条 `sentry/trace`。旧实现直接同步重入
+   * `emitIsolated`，排在这个写者**后面**的监听器就先收到 seq=N+1、后收到 seq=N；
+   * 按 seq 单调消费的 `WebProjector` 于是把 N 丢掉——网页收不到 `tool` / `approval` 帧，
+   * 审批弹窗永不出现。
+   *
+   * 判据：后注册者看到的顺序必须等于落账顺序。
+   */
+  it('TC-W18-01：监听器在回调里再 append 时，后注册者仍按落账顺序收到事件', async () => {
+    await withTestContext(async (test) => {
+      provideSession(test.ctx, { sessionId: asSessionId('s-reentrant') })
+      const session = test.ctx.get(SESSION_SERVICE)
+      const seen: { seq: number; type: string }[] = []
+
+      // 先注册：边收边写（= sentry 的 trace.sink='session'）
+      test.ctx.events.on('session/event', ({ event }) => {
+        if (event.type === 'turn/start') {
+          session.appendDomain('sentry/trace', { kind: 'turn-start' }, { ignorable: true })
+        }
+      })
+      // 后注册：按 seq 单调消费（= channel:web 的 WebProjector）
+      test.ctx.events.on('session/event', ({ event }) => {
+        seen.push({ seq: event.seq, type: event.type })
+      })
+
+      session.append('turn/start', { turn: 1 })
+
+      expect(seen).toEqual([
+        { seq: 1, type: 'turn/start' },
+        { seq: 2, type: 'sentry/trace' },
+      ])
+      // 嵌套那条也要真的落账，不能"为了排序把事件丢了"
+      expect(session.lastSeq()).toBe(2)
+      expect(session.events().map((event) => event.type)).toEqual(['turn/start', 'sentry/trace'])
+    })
+  })
+
   it('可复用已 restore 的存储（JSONL 回放的接缝）', async () => {
     await withTestContext(async (test) => {
       const store = new SessionStore({ now: fixedClock({ start: 7 }).now })

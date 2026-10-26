@@ -39,6 +39,7 @@ export const SESSION_EVENT_TYPES = [
   'tool/callback-failed',
   'approval/asked',
   'approval/decided',
+  'safety/assertion',
   'usage/summary',
   'compaction/summary',
 ] as const
@@ -105,6 +106,21 @@ declare module '@bah/core' {
       decision: ApprovalDecision
       reason?: string
       code?: string
+    }
+    /**
+     * 断言核验门的一次判决（W05；载荷与事件表 v1.0.1 逐字一致）。
+     *
+     * 四个计数必须满足 `verified + needsEvidence + rejected = total`（门禁用例钉住）。
+     * 这是"拦截与否"的可审计证据：日志里记的是最终事实，模型原话不单独留。
+     */
+    'safety/assertion': {
+      readonly planId?: string
+      readonly turnId: string
+      readonly total: number
+      readonly verified: number
+      readonly needsEvidence: number
+      readonly rejected: number
+      readonly at: number
     }
     /**
      * 一个 turn 的成本汇总（施工单 05 §3：按 turn 汇总 tokens，进审计导出）。

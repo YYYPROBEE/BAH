@@ -295,6 +295,7 @@ export class ApprovalService {
   ): ApprovalView {
     return {
       ticketId: input.ticket.ticketId,
+      sessionId: this.sessionId,
       callId: input.callId,
       name: input.name,
       summary: input.summary,

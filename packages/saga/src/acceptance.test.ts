@@ -299,10 +299,16 @@ describe('SA-14 终局验收', () => {
     expect(result.ok, result.findings.join('\n')).toBe(true)
   })
 
-  it('T-SA14-009：verify-event-modes 门禁通过（tick 唯一 serial）', async () => {
-    const result = await runGate('verify-event-modes.ts')
-    expect(result.ok, result.findings.join('\n')).toBe(true)
-  })
+  // 显式超时：`runGate` 会 spawn 一个 tsx 进程跑门禁脚本，5s 默认值在负载高时会假红。
+  // 断言一条没改，只是给它真实的执行预算（W01 §4 已登记该环境性抖动）。
+  it(
+    'T-SA14-009：verify-event-modes 门禁通过（tick 唯一 serial）',
+    { timeout: 30_000 },
+    async () => {
+      const result = await runGate('verify-event-modes.ts')
+      expect(result.ok, result.findings.join('\n')).toBe(true)
+    },
+  )
 
   it('T-SA14-010：快照纪律（会话快照载体存在且与 saga 回放分离）', () => {
     const config = readFileSync(join(ROOT, 'vitest.snapshot.config.ts'), 'utf8')
