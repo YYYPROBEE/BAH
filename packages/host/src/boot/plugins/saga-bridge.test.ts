@@ -35,7 +35,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { boot, type BootOptions, type ProfileSummary } from '../boot.ts'
 import { createCatalog } from './index.ts'
-import { sagaBridgePlugin, SAGA_BRIDGE_RECIPES } from './saga-bridge.ts'
+import { compensationDepsFor, sagaBridgePlugin, SAGA_BRIDGE_RECIPES } from './saga-bridge.ts'
 
 import type { Context } from '@bah/core'
 import type { SagaAudit, SideEffectClass } from '@bah/saga'
@@ -804,6 +804,120 @@ describe('W12 补偿回读：saga 真冲正', () => {
       cleanup()
       table['transfer_create'] = original
     }
+  })
+})
+
+describe('W12 补偿通道 · 反查与探诊的失败面', () => {
+  const template = {
+    templateId: 'tpl-1',
+    templateVersion: 1,
+    targetTool: 'transfer_create',
+    compKind: 'FULL_REFUND' as const,
+    compEndpoint: 'tool://transfer_create',
+    compIdempotent: true,
+    residualRules: [],
+    approvalRequired: false,
+    payloadProjection: '{}',
+    status: 'ACTIVE',
+  }
+  const invocation = {
+    sagaId: 'saga-1',
+    stepId: 'st-1',
+    compId: 'comp-1',
+    toolName: 'transfer_create',
+    endpoint: 'tool://transfer_create',
+    compKind: 'FULL_REFUND' as const,
+    compKey: 'k-1',
+    payload: {},
+    template,
+  }
+  const stepRef = { sagaId: 'saga-1', stepId: 'comp-1', toolName: 'transfer_create' }
+  const signal = new AbortController().signal
+
+  function depsWith(port: {
+    reverse: (txnId: string) => Promise<unknown>
+    reversalOf: (txnId: string) => unknown
+  }): ReturnType<typeof compensationDepsFor> {
+    const ctx = { get: () => port } as unknown as Pick<Context, 'get'>
+    return compensationDepsFor(ctx, new Map([['st-1', {}]]), new Map())
+  }
+
+  it('正向结果里没有 txnId → reverse-source-missing（不猜流水号、不空退）', async () => {
+    const deps = depsWith({ reverse: async () => ({ ok: true }), reversalOf: () => undefined })
+    await expect(deps.invoke(invocation, signal)).resolves.toEqual({
+      kind: 'err',
+      code: 'reverse-source-missing',
+    })
+  })
+
+  it('冲正抛错 → 保留工具码；成功 → 返回摘要并记住 compId→txnId', async () => {
+    const failed = compensationDepsFor(
+      {
+        get: () => ({
+          reverse: async () => {
+            throw new BahError('upstream-unavailable', '核心不可用')
+          },
+          reversalOf: () => undefined,
+        }),
+      } as unknown as Pick<Context, 'get'>,
+      new Map([['st-1', { txnId: 'txn-1' }]]),
+      new Map(),
+    )
+    await expect(failed.invoke({ ...invocation }, signal)).resolves.toEqual({
+      kind: 'err',
+      code: 'upstream-unavailable',
+    })
+
+    const okCtx = { get: () => ({ reverse: async () => ({ reversalId: 'r-1' }), reversalOf: () => undefined }) }
+    const maps = new Map<string, string>()
+    const deps = compensationDepsFor(
+      okCtx as unknown as Pick<Context, 'get'>,
+      new Map([['st-1', { txnId: 'txn-1' }]]),
+      maps,
+    )
+    const result = await deps.invoke({ ...invocation }, signal)
+    expect(result).toMatchObject({ kind: 'ok' })
+    expect(maps.get('comp-1')).toBe('txn-1')
+  })
+
+  it('探诊：未记录 → failed；未发生 → not-executed；已发生 → executed；端口抛错 → failed', async () => {
+    const maps = new Map<string, string>()
+    const deps = depsWith({ reverse: async () => ({}), reversalOf: () => ({ reversalId: 'r-1' }) })
+
+    await expect(deps.probe('tool://x', stepRef, signal)).resolves.toEqual({ kind: 'failed' })
+
+    maps.set('comp-1', 'txn-1')
+    const withMissing = compensationDepsFor(
+      { get: () => ({ reverse: async () => ({}), reversalOf: () => undefined }) } as unknown as Pick<Context, 'get'>,
+      new Map(),
+      maps,
+    )
+    await expect(withMissing.probe('tool://x', stepRef, signal)).resolves.toEqual({
+      kind: 'not-executed',
+    })
+
+    const withResult = compensationDepsFor(
+      { get: () => ({ reverse: async () => ({}), reversalOf: () => ({ reversalId: 'r-1' }) }) } as unknown as Pick<Context, 'get'>,
+      new Map(),
+      maps,
+    )
+    await expect(withResult.probe('tool://x', stepRef, signal)).resolves.toMatchObject({
+      kind: 'executed',
+    })
+
+    const withThrow = compensationDepsFor(
+      {
+        get: () => ({
+          reverse: async () => ({}),
+          reversalOf: () => {
+            throw new BahError('db-down', '库存不可读')
+          },
+        }),
+      } as unknown as Pick<Context, 'get'>,
+      new Map(),
+      maps,
+    )
+    await expect(withThrow.probe('tool://x', stepRef, signal)).resolves.toEqual({ kind: 'failed' })
   })
 })
 

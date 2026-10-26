@@ -18,8 +18,12 @@ import type {
   KnowledgePrincipal,
   KnowledgeQueryResponse,
 } from './port.ts'
-import { loadManifest, requireKnowledgeKey } from './sign.ts'
-import { SIGNATURE_REFUSAL_TEXT, createVerifiedKnowledgePort } from './verify-port.ts'
+import { loadManifest, requireKnowledgeKey, sha256Hex, type ManifestEntry } from './sign.ts'
+import {
+  SIGNATURE_REFUSAL_TEXT,
+  createVerifiedKnowledgePort,
+  missingEntryFor,
+} from './verify-port.ts'
 
 const ROOT = process.cwd()
 const MANIFEST_PATH = 'packages/knowledge/fixtures/knowledge.manifest.json'
@@ -236,5 +240,71 @@ describe('W06 · 可验证端口', () => {
     )
     const response = await port.answer({ ...ANSWER_REQUEST, query: 'VIP 专属费率' })
     expect(response).toEqual(refusal)
+  })
+
+  it('摘要对得上但条目 HMAC 被替换 → 仍拒答（签名不是只看 sha256）', async () => {
+    const base = fixture.answers[0]?.response
+    const evidence = base?.evidence[0]
+    if (base === undefined || evidence === undefined) throw new Error('fixture 缺少答案证据')
+    const forged: ManifestEntry = {
+      source: 'fixture',
+      docId: evidence.docId,
+      chunkId: evidence.chunkId,
+      textSha256: sha256Hex(evidence.text),
+      hmac: '0'.repeat(64),
+    }
+    const rejections: unknown[] = []
+    const port = createVerifiedKnowledgePort({
+      port: createFixtureKnowledgePort({
+        answers: [{ match: '稳盈90天', response: base }],
+        queries: [],
+      }),
+      entries: [forged],
+      key: KEY,
+      onRejected: (info) => rejections.push(info),
+    })
+
+    const response = await port.answer(ANSWER_REQUEST)
+
+    expect(response.kind).toBe('refusal')
+    expect(response.reasonCode).toBe('signature-invalid')
+    expect(rejections).toHaveLength(1)
+    expect((rejections[0] as { detail: string }).detail).toContain('HMAC')
+  })
+
+  it('query 没有证据 → 拒答（空检索结果不能当权威依据）', async () => {
+    const queryBase = fixture.queries[0]?.response
+    if (queryBase === undefined) throw new Error('fixture 缺少 query')
+    const empty: KnowledgeQueryResponse = { ...queryBase, evidence: [], values: [] }
+    const port = verified(
+      createFixtureKnowledgePort({ answers: [], queries: [{ match: '稳盈90天', response: empty }] }),
+    )
+
+    const response = await port.query(QUERY_REQUEST)
+
+    expect(response.kind).toBe('refusal')
+    expect(response.reasonCode).toBe('signature-invalid')
+    expect(response.evidence).toEqual([])
+    expect(response.values).toEqual([])
+  })
+
+  it('health 原样透传（验签层不改写健康检查语义）', async () => {
+    const port = verified(createFixtureKnowledgePort({ answers: [], queries: [] }))
+    await expect(port.health()).resolves.toEqual(fixture.health)
+  })
+
+  it('missingEntryFor：条目存在但摘要对不上 → 仍判为缺签名', () => {
+    const evidence = fixture.answers[0]?.response.evidence[0]
+    if (evidence === undefined) throw new Error('fixture 缺少答案证据')
+    const entry = manifest.entries.find(
+      (item) => item.source === 'fixture' && item.docId === evidence.docId && item.chunkId === evidence.chunkId,
+    )
+    if (entry === undefined) throw new Error('fixture 缺少签名条目')
+
+    expect(missingEntryFor([entry], [evidence])).toBeUndefined()
+    expect(missingEntryFor([entry], [{ ...evidence, text: '伪造的费率 0.00%。' }])).toEqual({
+      docId: evidence.docId,
+      chunkId: evidence.chunkId,
+    })
   })
 })

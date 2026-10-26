@@ -18,8 +18,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { ADMIN_TOKEN_ENV } from '../web-admin.ts'
 import { resolveWebSettings } from './config.ts'
-import type { RateLimiter, WebDeps } from './deps.ts'
+import type { RateLimiter, WebDeps, WebRequest } from './deps.ts'
 import { createDispatcher } from './dispatch.ts'
+import { handleAdmin } from './handlers/admin.ts'
 import type { SseHub } from './sse.ts'
 
 /** 测试固定的凭证（生产未配置时随机生成）。 */
@@ -261,6 +262,28 @@ describe('W16 分派矩阵 · 有 Web 凭证', () => {
     }
   })
 
+  it('审批的 400 分支：适配器返回未知码时兜底 400，不默认 200', async () => {
+    const adapter = {
+      decide: () => ({ ok: false, code: 'bad-request', reason: '结论格式不对' }),
+      verify: () => Promise.resolve({ ok: true }),
+    }
+    const probe = await call('POST', '/api/approval/t-1', {
+      headers: AUTHED,
+      body: '{}',
+      deps: makeDeps({ adapter: adapter as never }),
+    })
+    expect(probe.status).toBe(400)
+    expect(codeOf(probe)).toBe('bad-request')
+  })
+
+  it('管理面 default 分支：路由表外的路径 → 404（将来新增路径不会静默成功）', async () => {
+    const { res, probe } = makeRes()
+    const request = { method: 'POST', path: '/api/admin/not-in-table', rest: '' } as WebRequest
+    await handleAdmin(makeReq('POST', request.path, {}, '{}'), res, request, makeDeps())
+    expect(probe.status).toBe(404)
+    expect(codeOf(probe)).toBe('web-not-found')
+  })
+
   it('HEAD 与 DELETE：HEAD 走静态（404），DELETE 落到 405', async () => {
     expect((await call('HEAD', '/', { headers: AUTHED })).status).toBe(404)
     expect((await call('DELETE', '/api/health', { headers: AUTHED })).status).toBe(405)
@@ -320,5 +343,14 @@ describe('W16 分派矩阵 · 管理面', () => {
       body: '{}',
     })
     expect(unauth.status).toBe(401)
+  })
+})
+
+describe('channel:web 配置面', () => {
+  it('csrf 不是对象 / enabled 不是布尔 → web-invalid-config（配置错误不许静默放行）', () => {
+    expect(() => resolveWebSettings({ csrf: 'off' })).toThrow(/csrf 必须是对象/)
+    expect(() => resolveWebSettings({ csrf: null })).toThrow(/csrf 必须是对象/)
+    expect(() => resolveWebSettings({ csrf: [] })).toThrow(/csrf 必须是对象/)
+    expect(() => resolveWebSettings({ csrf: { enabled: 'yes' } })).toThrow(/布尔/)
   })
 })

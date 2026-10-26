@@ -515,6 +515,43 @@ describe('plan:dag · W11 接缝（incident / node-waiting / 动态 args）', ()
     expect(api.snapshot('p-inc')?.nodes[0]?.state).toBe('succeeded')
   })
 
+  it('并发同一 planId：第二次被拒后**还回**第一次的 guard，正在跑的 run 不撞 plan-guard-missing', async () => {
+    booted = await bootPlan()
+    const api: PlanApi = booted.app.ctx.get(PLAN_SERVICE)
+
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const running = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    booted.app.ctx.get(TOOLS_SERVICE).register({
+      name: 'probe_slow',
+      description: '模拟慢工具：用于制造同 planId 的并发窗口',
+      schema: { type: 'object' },
+      tier: { level: 'green' },
+      execute: async () => {
+        started()
+        await gate
+        return { ok: true }
+      },
+    })
+
+    const plan: Plan = { planId: 'p-conc', nodes: [{ id: 'only', tool: 'probe_slow', args: {}, deps: [] }] }
+    const first = api.run(plan)
+    await running
+
+    await expect(api.run(plan)).rejects.toMatchObject({ code: 'plan-already-running' })
+
+    // 第二次的 finally 若把正在跑的 guard 删掉，这里就会撞 plan-guard-missing
+    release()
+    await expect(first).resolves.toMatchObject({ status: 'succeeded' })
+    // 槽位完全归还：再跑一次仍能正常拿到新 guard
+    await expect(api.run(plan)).resolves.toMatchObject({ status: 'succeeded' })
+  })
+
   it('动态 args 端到端：取的是**结构化原值**，不是 projectContent 渲染出来的文本', async () => {
     booted = await bootPlan()
     const api: PlanApi = booted.app.ctx.get(PLAN_SERVICE)

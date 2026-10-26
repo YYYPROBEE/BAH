@@ -679,6 +679,20 @@ describe('channel:web 静态资源安全', () => {
     }
   })
 
+  it('非 index 静态资源原样返回且 no-cache（不注入 token、不做 no-store）', async () => {
+    const harness = await boot()
+    try {
+      const asset = await authedFetch(`${harness.url}package.json`)
+      expect(asset.status).toBe(200)
+      expect(asset.headers.get('content-type')).toContain('application/json')
+      expect(asset.headers.get('cache-control')).toBe('no-cache')
+      // token 只属于 index：任意静态文件里都不许出现
+      expect(await asset.text()).not.toContain(WEB_TOKEN)
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
   it('方法不支持 → 405', async () => {
     const harness = await boot()
     try {
