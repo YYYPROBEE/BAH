@@ -53,6 +53,9 @@ export const CASE = {
    */
   coveredSources: [
     'packages/runtime/src/agent-loop/',
+    // `runtime:agents` 服务键与 `dispatchReply` 都定义在 `agent/`：每次回复都要过
+    // `agent/reply` waterfall（本场景现已装核验门，见下面 `safety/src/verify/`）。
+    'packages/runtime/src/agent/',
     'packages/runtime/src/session/',
     'packages/runtime/src/system-prompt/',
     'packages/runtime/src/tools/',
@@ -71,6 +74,12 @@ export const CASE = {
     'packages/persistence/src/chain/',
     'packages/persistence/src/saga-store/',
     'packages/safety/src/sentry/',
+    // W05：`safety:verify` 是 base bundle 的常驻行（每次回复都过一遍 `agent/reply`）。
+    // 声明它之前本场景的录制产物里**没有** `safety/assertion`——那份快照是 W05 之前的装配，
+    // 回放只读 `scenario.json` 里的 rows，所以它永远不会因为"少装了一个插件"而红。
+    // 现在重录一次，`safety/assertion`（total=4 / verified=4）就进事件流了，
+    // 这条声明因此有实物背书，而不是一句声明。
+    'packages/safety/src/verify/',
     'packages/interaction/src/approval/',
     'packages/saga/src/recovery/',
     // 场景装配了 `bank:saga`（config 为空 → b3/b4 全开）：boot 期就会走 provideSaga

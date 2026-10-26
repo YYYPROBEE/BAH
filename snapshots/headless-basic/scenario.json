@@ -102,6 +102,11 @@
       }
     },
     {
+      "id": "safety:verify",
+      "use": "safety:verify",
+      "config": {}
+    },
+    {
       "id": "safety:sandbox",
       "use": "safety:sandbox",
       "config": {}
@@ -159,6 +164,7 @@
   },
   "coveredSources": [
     "packages/runtime/src/agent-loop/",
+    "packages/runtime/src/agent/",
     "packages/runtime/src/session/",
     "packages/runtime/src/system-prompt/",
     "packages/runtime/src/tools/",
@@ -174,6 +180,7 @@
     "packages/persistence/src/chain/",
     "packages/persistence/src/saga-store/",
     "packages/safety/src/sentry/",
+    "packages/safety/src/verify/",
     "packages/interaction/src/approval/",
     "packages/saga/src/recovery/",
     "packages/saga/src/index.ts",

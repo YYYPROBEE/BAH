@@ -4548,3 +4548,151 @@ packages/saga/src/compensation/index.ts
 在没有重录、也没逐个确认调用链的情况下补声明，正是这条门禁注释里点名的"假仪式"。
 把它留在账上、写清两种正确修法，比让它表面变绿更符合本仓库的纪律
 （"缺口单列一节，比评委问出来强"）。
+
+---
+
+## 92. 2026-10-26 W20-0 施工回执（`snapshot-fresh` 关红）
+
+> 目标只有一个：`npx tsx scripts/run-gates.ts` **不带** `BAH_ALLOW_NO_SNAPSHOT` 也 34/34。
+> 结果是达成了，但**过程否决了交接件的两条假设**——先把被证伪的部分写清楚。
+
+### 92.1 交接件 §6.1 的两处假设，实测都不成立
+
+| 交接件的说法 | 实测 | 结论 |
+|---|---|---|
+| 「`packages/safety/src/verify/*` 真被场景覆盖」 | 四个快照的 `scenario.json` 里**根本没有 `safety:verify` 这一行**；`session.jsonl` 里 **0 条 `safety/assertion`** | **假设错**：不是"少写声明"，是这条装配从来没被录进去 |
+| 「补进 `coveredSources` 并重录即可」 | 重录后才出现 `safety:verify` 行与 1 条 `safety/assertion` | 修法对，但**必须重录**；只补声明就是假仪式 |
+| 「`saga/src/compensation/` 真被场景覆盖」 | 探针实测：超限金额那笔 `transfer_create` **没到 `tools/execute`**（`safety:sentry` 在 `tools/pre-execute` 就拒了），saga 事务不创建 | **假设错**：没有任何现有场景能到这段代码 |
+
+### 92.2 顺带查出一个更严重的事实：快照的"绿"是假的
+
+`snapshots/<case>/scenario.json` 里的 `rows` 是**录制时**的生效行，回放只读它。
+于是"base bundle 加了一个插件"这种事，回放**永远发现不了**——四个场景可以一直是绿的，
+而它们测的是一份**已经不存在的装配**。
+
+实测证据：重录前后 `headless-basic` 的差异只有一处新增事件 + 序号平移：
+
+```text
++{"seq":27,...,"type":"safety/assertion","data":{"turnId":"turn:1","total":4,"verified":4,"needsEvidence":0,"rejected":0,...}}
+```
+
+也就是说：从 W05 落地到今天，**核验门从未被任何快照覆盖过**，而快照面一直是 18/18 绿。
+这正是"逃生口跑了五轮三绿"的真实代价——它掩盖的不是一条门禁，是**一整条产品面**。
+
+### 92.3 九个文件逐个定性（不按目录通配）
+
+| 文件 | 性质 | 处置 |
+|---|---|---|
+| `packages/runtime/src/agent/index.ts` | 主循环接缝（`runtime:agents` 服务键 + `dispatchReply`），每次回复都走 | 补 `packages/runtime/src/agent/` 到 headless-basic + 重录 |
+| `packages/safety/src/verify/extract.ts` | 断言抽取（核验门三件之一） | 同上，补 `packages/safety/src/verify/` |
+| `packages/safety/src/verify/normalize.ts` | 值规范化（金额/费率/日期/尾号） | 同上 |
+| `packages/safety/src/verify/route.ts` | 三态路由 | 同上 |
+| `packages/safety/src/verify/index.ts` | 该模块的再导出面（被 `safety/src/index.ts` 传递再导出） | 同上（它在 `verify/` 目录内） |
+| `packages/safety/src/index.ts` | **纯 barrel**（只有 `export *`） | 豁免：结构性校验"只含再导出" |
+| `packages/persistence/src/index.ts` | **纯 barrel** | 同上 |
+| `packages/persistence/src/replay/index.ts` | 离线重放读取器（入口只有脚本与 `bah audit`），不进主循环 | 豁免：`offline` + 背书面 `packages/eval/tests/replay/replay.test.ts` |
+| `packages/saga/src/compensation/index.ts` | 在治理平面内，但**当前装配下无确定性路径可触发**（见 92.1 第三行） | 豁免：`unreachable` + 背书面 `packages/saga/src/compensation/compensation.test.ts` |
+
+### 92.4 改法：豁免名单从"路径数组"升级成"可判红的账"
+
+`scripts/verify-snapshot-fresh.ts` 原来的 `NON_RUNTIME` 是一个正则数组，只有一条注释。
+现在改成 `EXEMPT` 结构体列表，每条带 `kind` / `reason` / `backing`，并且**每次跑门禁都自审**：
+
+1. 被豁免的文件必须真实存在（删了 / 改名了 → 红）；
+2. `barrel` 必须仍只含再导出（`export *` / `export {…}` / `export type {…}` 三种形态）；
+3. `offline` / `unreachable` 必须给出**存在且含 `expect(`** 的测试文件；
+4. 整份名单每次都打进 `notes`（公开的账，不是暗门）。
+
+### 92.5 负例
+
+| 负例 | 动作 | 实测 |
+|---|---|---|
+| N1 | 往 `packages/safety/src/index.ts` 追加 `export const sneak = 1` | `✘ 声明为 barrel 豁免，但文件里出现了再导出之外的代码` |
+| N2 | 把 compensation 的 `backing` 改成不存在的路径 | `✘ backing 不存在 —— packages/saga/src/compensation/nope.test.ts` |
+| N3（顺带） | 补声明但不重录 | 报 `由场景 headless-basic 覆盖，但本次没有重录` |
+
+N1 第一次**没红**（`export const` 也以 `export ` 开头），当场收紧成"只认三种再导出形态"。
+把它写在这里，因为它说明"结构性校验"比"路径清单"更需要负例。
+
+### 92.6 四个场景全部重录（不只是被要求的那一个）
+
+既然根因是"快照过期"，只重录一个场景等于留三个假绿。四个都重录，差异全部可解释：
+
+| 场景 | `scenario.json` | `session.jsonl` | 说明 |
+|---|---|---|---|
+| `headless-basic` | +1 行（`safety:verify`）+2 条 coveredSources | +1 事件 / 序号平移 | 余额回复 4 条断言全 verified |
+| `web-channel` | +1 行 | +1 事件 / 序号平移 | 转账回复 1 条断言 verified，文本未被改写 |
+| `sandbox-compute` | +1 行 | +3 事件 + 序号平移 | **第 1 幕回复被改写**，见 92.7 |
+| `plan` | +1 行 | **零变化**（该场景 `prompts: []`，没有回复可核验） | — |
+
+`llm.jsonl` 四份**一个字节都没变**（模型看到的请求与录制时完全相同）。
+
+### 92.7 偏差与已知限制
+
+1. **`sandbox-compute` 第 1 幕的回复被加上了 `【未核实】` 前缀**。
+   原句「餐饮在交通加餐饮中的占比约为 78%」，证据是 `round(...) = 78（8 次运算，0 ms）`——
+   工具有 `78`，没有 `78%`。核验门按"费率断言必须命中费率值"判 `needs-evidence`。
+   **这是核验门按设计工作**（它拒绝为一个没出现过的单位背书），不是回归；
+   代价是一次误报（语义上 78 确实是百分数）。处置：**保留真实行为、不改期望值**，
+   并在答辩材料里把它当"我们连单位都要求有据"的例子讲（见 `docs/drill-qa-100-2026-10-26.md` B15）。
+2. **`saga/src/compensation/` 仍然没有快照覆盖**。豁免只是"承认并记账"，不是"解决了"。
+   真要覆盖，需要一条"saga 步骤在 preflight 之后失败"的场景；当前配方做不到
+   （`transfer_create` 只有 `preview + create` 两步，且失败一律先被 pre-execute 拦）。已登记为已知限制。
+3. **`plan` 场景重录后 `scenario.json` 多了一行 `safety:verify`，但事件流零变化**——
+   该场景不跑对话。它的声明是"装配覆盖"而非"行为覆盖"，按现有门禁语义成立，
+   但它是四份里唯一"声明多于实证"的，记在这里。
+
+### 92.8 三绿（本轮实测）
+
+| 面 | 命令 | 实测 |
+|---|---|---|
+| 主 vitest | `NODE_EXTRA_CA_CERTS= npx vitest run` | **194 文件 / 1951 例**绿 |
+| 门禁 | `npx tsx scripts/run-gates.ts`（**无逃生口**） | **34/34** |
+| 类型 | `npx tsc -b tsconfig.host.json tsconfig.client.json` | **0 错** |
+| 快照面 | `npx vitest run --config vitest.snapshot.config.ts` | 5 文件 / **18 例**绿 |
+| 覆盖率 | `pnpm test:coverage:all` | 行口径 **84.49%**（29163/34517） / 包口径 **14/16** |
+
+### 92.9 改动清单
+
+- `scripts/verify-snapshot-fresh.ts`：`NON_RUNTIME` → `EXEMPT`（结构化 + 自审 + 每次打印）+ `isPureBarrel`；
+- `snapshots/headless-basic/scenario.ts`：`coveredSources` 增 `packages/runtime/src/agent/` 与 `packages/safety/src/verify/`；
+- 四个场景的 `scenario.json`：+`safety:verify` 行（重录产物）；
+- 三个场景的 `session.jsonl`：重录产物（含 `safety/assertion`）。
+
+---
+
+## 93. 2026-10-26 W20-0 双角度复审
+
+### 93.1 视角 A（验收与契约）
+
+| 检查 | 结论 |
+|---|---|
+| 验收判据（不带逃生口 34/34） | **达成**，实测 `全部通过（34/34）` |
+| 有没有靠"往 coveredSources 塞路径"糊绿 | 没有。塞进去的两条都**同批重录**，重录后有实物事件（`safety/assertion`）；`llm.jsonl` 零变化说明模型输入没被动过 |
+| 有没有改期望值迁就现象 | 没有。`packages/eval/**`、基线文件、既有测试断言一字未动；`sandbox-compute` 的 `【未核实】` 是**被记录**而不是被抹掉 |
+| 契约面（R-1） | `packages/core/src/api.ts` 未改；事件键未新增 |
+| 门禁自身会不会假绿 | 两条负例实测红（92.5）；N1 第一次没红、收紧后才红——这条比"能红"更重要，已登记 |
+| 文档一致性 | 交接件 §6.1 的两处错误假设已在 92.1 显式否决，不再当事实引用 |
+| 数字诚实性 | 用例数、快照例数、覆盖率四个数全部来自本轮命令输出 |
+
+### 93.2 视角 B（对抗与回归）
+
+| 风险 | 处置 | 实测 |
+|---|---|---|
+| 豁免名单变成"什么都能塞" | 三条自审判据 + 每次打印 | 负例 N1/N2 红 |
+| barrel 里偷偷写逻辑 | `isPureBarrel` 只认三种再导出形态 | 负例 N1 红 |
+| 删掉背书面测试让豁免永绿 | `backing` 必须存在且含 `expect(` | 负例 N2 红 |
+| 重录掩盖行为变化 | 逐场景比对 `session.jsonl` 与 `llm.jsonl`；`llm` 四份零变化 | 92.6 表 |
+| 重录引入不确定性 | 快照面"同一快照两次回放全等"仍绿；18 例全过 | 快照面 18/18 |
+| 只修一个场景、其余继续假绿 | 四个场景全部重录 | 92.6 |
+| `sandbox-compute` 的 `【未核实】` 是真回归吗 | 不是：抽取按"费率必须有 %"判，属有意的保守；已记账并进答辩材料 | `npx vitest run packages/safety/src/verify` 全绿 |
+| 端口 / 临时目录残留 | 排练两轮后 7331 监听数 0；`.tmp-*` 全在 `.gitignore` 内 | `docs/drill-rehearsal-2026-10-26.md` §2.4 |
+
+### 93.3 复审里当场改掉的两处
+
+1. **`isPureBarrel` 判据太松**：`export const sneak = 1` 一开始被判成 barrel。改成只认
+   `export *` / `export {…}` / `export type {…}`，并把这次失败写进 92.5——判据的第一次实现
+   通常是错的，负例才是判据的验收。
+2. **豁免方案原本打算照交接件把 compensation 也塞进 `coveredSources`**：探针实测后发现
+   `transfer_create` 根本没到 `tools/execute`，于是改成 `unreachable` 豁免。
+   **没有**为了凑绿去造一条假的 saga 失败场景。
