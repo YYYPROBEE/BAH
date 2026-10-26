@@ -3,7 +3,7 @@
 **一个把"模型能做什么"关进可审计边界里的银行智能体演示系统。**
 
 模型只负责理解和表达；能不能执行、执行到什么程度、出事后怎么解释，全部由确定性代码决定。
-14 个银行工具、七段工具管线、三级权限、一次性票据、四接缝安全平面、append-only 会话日志与
+16 个银行工具、七段工具管线、三级权限、一次性票据、四接缝安全平面、append-only 会话日志与
 SHA-256 审计链，构成一条可回放、可核验、可解释的业务链。
 
 > 演示材料里的数字统一取自 [facts.md](facts.md)；架构细节见 [docs/pipeline.md](docs/pipeline.md)、
@@ -22,7 +22,7 @@ pnpm install
 | 目的 | 命令 | 说明 |
 |---|---|---|
 | **起演示** | `pnpm demo:web` | 读 `.env.local` 的 `BAH_MODEL_KEY`，每次新建独立会话目录，打开 `http://127.0.0.1:7331` |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 165 文件 / 1570 用例 |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 194 文件 / 1951 用例 |
 | **门禁** | `pnpm gate` | 27 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
@@ -166,14 +166,17 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 
 - 没有真实登录、多租户、身份系统；Web 鉴权是最小 Bearer token，限流是单机级，不是网关；
 - 银行账本是内存仿真，进程重启回种子；强验证默认是测试网关适配器（未接真实短信/人脸/U 盾供应商），锁定状态在内存、重启丢失；
-- HP-2（RAG 签名）、HP-4（工具出参契约）未施工；HP-3（HALT 人工解除）已落地，
-  但状态只在进程内存、headless 无远程控制入口；
-- DAG 规划层未实现，Saga 两步 DAG 是唯一可演示的规划物；
-- 卡片挂失/解挂、密码修改未实现；注入检测只记分，不直接阻断。
+- HALT 人工解除已落地，但解除状态只在进程内存、headless 无远程控制入口；知识库双层签名（W06）与
+  工具出参契约（W03）已落地，**未做**的是 RAG 响应的信封签名（跨语言验签）与出参的运行时动态校验；
+- 编排有两层：**plan:dag**（外部传入一张计划，引擎校验 + 拓扑执行 + 断点续跑）与 saga（"预检 → 执行"两段，
+  失败经窄端口冲正）。plan 编排 saga，但 plan 自身节点写操作的补偿未做（见 `docs/security-design.md` §4）；
+- 卡片挂失已实现（`card_report_lost`，红档不可逆、必进审批 + 强验证）；**解挂与密码修改未实现**；
+- 注入 / 越权检测在演示与压测 profile 下**直接阻断**（对抗集注入族 14 例期望 `block` 全部通过）；
+  生产 profile 默认关掉跨场景规则（`rules.crossScenario`），需按真实语料开启；
 
 ---
 
-## 5. 14 个工具与权限
+## 5. 16 个工具与权限
 
 | 级别 | 工具 | 说明 |
 |---|---|---|
@@ -182,6 +185,8 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 | **yellow** | `transfer_create` | 发起转账；必进审批，超限/新收款人升红 |
 | green | `wealth_list` `wealth_compare` | 理财查询与对比（必带风险提示） |
 | **red** | `wealth_purchase` | 购买理财：强验证 + 审批 |
+| **red** | `card_report_lost` | 挂失银行卡：不可逆，必进审批 + 强验证 |
+| **yellow** | `sub_cancel` | 取消自动扣款订阅：可逆 |
 | green | `verify_face` `verify_sms` `verify_ushield` | 强验证挑战（`sideEffect: write`，不参与并行读批） |
 
 完整参数、落账事件与生成规则见 [docs/tool-catalog.md](docs/tool-catalog.md)（由 `pnpm tool-catalog` 生成，门禁逐字比对）。
@@ -194,7 +199,7 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 apps/web/            前端（对话 / 工具卡 / 审批 / DAG / 审计）
 packages/            16 个包（见 §2.1）
 profiles/            web / headless 装配与 patch
-scripts/             27 个 verify-* 门禁、录制、演示脚本
+scripts/             34 个 verify-* 门禁、录制、演示脚本
 design/bah-ds/       自研设计系统（与应用内分发副本逐字节一致）
 docs/                管线、sentry、审计、前端、测试等落地文档
 facts.md             演示材料唯一数字来源
@@ -202,12 +207,13 @@ facts.md             演示材料唯一数字来源
 
 ## 7. 测试与资料
 
-| 命令 | 范围 | 实测（2026-10-23） |
+| 命令 | 范围 | 实测（2026-10-26） |
 |---|---|---|
-| `pnpm test` | 主仓 | 165 文件 / 1570 用例 |
-| `pnpm -F @bah/eval test` | 评测包 | 14 文件 / 133 用例 |
-| `pnpm test:web` | 前端 | 6 文件 / 52 用例 |
-| `pnpm gate` | 门禁 | 27/27 |
+| `pnpm test` | 主仓 | 194 文件 / 1951 用例 |
+| `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
+| `pnpm test:web` | 前端 | 7 文件 / 55 用例 |
+| `pnpm test:snapshot` | 快照回放 | 5 文件 / 18 用例 |
+| `pnpm gate` | 门禁 | 34/34 |
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
 
