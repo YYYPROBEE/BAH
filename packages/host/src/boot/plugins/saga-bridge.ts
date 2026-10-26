@@ -56,8 +56,8 @@ import {
 import { SESSION_SERVICE, TOOLS_SERVICE } from '@bah/runtime'
 import { BahError } from '@bah/util'
 
-import type { PlannedStep, SagaSettings, SideEffectClass } from '@bah/saga'
-import type { CompensationDeps, CompTemplate, TargetSystem } from '@bah/saga'
+import type { Context } from '@bah/core'
+import type { CompensationDeps, CompTemplate, PlannedStep, SagaSettings, SideEffectClass, TargetSystem } from '@bah/saga'
 import type { ToolCallInput, ToolRegistry } from '@bah/runtime'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
@@ -199,6 +199,49 @@ function txnIdOf(payload: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
+/**
+ * 补偿通道（每个 saga 一份闭包）：
+ * - `stepOutputs`：全局 stepId → 正向结果（冲正需要 `txnId`，它不在事件载荷里）；
+ * - `txnOfComp`：补偿主键 → 原交易 ID（探诊用，`ref.stepId` 就是 compId）。
+ *
+ * 单独导出是为了能直接测"拿不到流水号 / 探诊读失败"这类只有在真实冲正中段才出现的分支；
+ * 生产调用点仍按 saga 作用域各建一份 Map。
+ */
+export function compensationDepsFor(
+  ctx: Pick<Context, 'get'>,
+  stepOutputs: ReadonlyMap<string, unknown>,
+  txnOfComp: Map<string, string>,
+): CompensationDeps {
+  return {
+    invoke: async (input) => {
+      const txnId = txnIdOf(stepOutputs.get(input.stepId))
+      if (txnId === undefined) {
+        // 正向结果里没有流水号：不能猜、不能空退；按失败收敛到 DLQ。
+        return { kind: 'err', code: 'reverse-source-missing' }
+      }
+      txnOfComp.set(input.compId, txnId)
+      try {
+        const result = await ctx.get(BANK_COMPENSATION).reverse(txnId)
+        return { kind: 'ok', responseDigest: digestOf(result) }
+      } catch (error) {
+        return { kind: 'err', code: codeOf(error) }
+      }
+    },
+    probe: async (_endpoint, ref) => {
+      const txnId = txnOfComp.get(ref.stepId)
+      if (txnId === undefined) return { kind: 'failed' }
+      try {
+        const result = ctx.get(BANK_COMPENSATION).reversalOf(txnId)
+        return result === undefined
+          ? { kind: 'not-executed' }
+          : { kind: 'executed', responseDigest: digestOf(result) }
+      } catch {
+        return { kind: 'failed' }
+      }
+    },
+  }
+}
+
 export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
   id: 'bank:saga-bridge',
 
@@ -256,43 +299,6 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
         })
       }
 
-      /**
-       * 补偿通道（每个 saga 一份闭包）：
-       * - `stepOutputs`：全局 stepId → 正向结果（冲正需要 `txnId`，它不在事件载荷里）；
-       * - `txnOfComp`：补偿主键 → 原交易 ID（探诊用，`ref.stepId` 就是 compId）。
-       */
-      const compensationDepsFor = (
-        stepOutputs: ReadonlyMap<string, unknown>,
-        txnOfComp: Map<string, string>,
-      ): CompensationDeps => ({
-        invoke: async (input) => {
-          const txnId = txnIdOf(stepOutputs.get(input.stepId))
-          if (txnId === undefined) {
-            // 正向结果里没有流水号：不能猜、不能空退；按失败收敛到 DLQ。
-            return { kind: 'err', code: 'reverse-source-missing' }
-          }
-          txnOfComp.set(input.compId, txnId)
-          try {
-            const result = await ctx.get(BANK_COMPENSATION).reverse(txnId)
-            return { kind: 'ok', responseDigest: digestOf(result) }
-          } catch (error) {
-            return { kind: 'err', code: codeOf(error) }
-          }
-        },
-        probe: async (_endpoint, ref) => {
-          const txnId = txnOfComp.get(ref.stepId)
-          if (txnId === undefined) return { kind: 'failed' }
-          try {
-            const result = ctx.get(BANK_COMPENSATION).reversalOf(txnId)
-            return result === undefined
-              ? { kind: 'not-executed' }
-              : { kind: 'executed', responseDigest: digestOf(result) }
-          } catch {
-            return { kind: 'failed' }
-          }
-        },
-      })
-
       /** 直接取工具定义执行：**不**经过七段管线（审批已在最外层发生过一次）。 */
       const executeTool = async (
         name: string,
@@ -318,7 +324,7 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
         const stepOutputs = new Map<string, unknown>()
         const txnOfComp = new Map<string, string>()
         const compensation = compensationEnabled
-          ? compensationDepsFor(stepOutputs, txnOfComp)
+          ? compensationDepsFor(ctx, stepOutputs, txnOfComp)
           : undefined
 
         // `saga_step.step_id` 是**全局主键**（不是 `(saga_id, step_id)` 复合键）：

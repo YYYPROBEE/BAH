@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { asSessionId, captureThrown } from '@bah/test-support'
 import { AGENTS_SERVICE, SESSION_SERVICE, TOOLS_SERVICE, TOOL_CONTRACTS } from '@bah/runtime'
 import {
+  BANK_CHALLENGE,
   BANK_RESULT_SCHEMAS,
   SessionIdentityStore,
   restoreSessionIdentity,
@@ -377,6 +378,29 @@ describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
  * 没有它们，`packages/runtime/src/tools/contracts.ts` 的"缺省不校验"会让整条校验静默失效
  * ——测试全绿、生产零校验，这是本仓历史上最贵的一种假绿。
  */
+describe('强验证 provider 回滚开关（W09 §5）', () => {
+  it('verify.provider=mock：真的装配确定性 mock（第 successAfter 次才过），不是只改配置值', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-verify-'))
+    const app = await bootWith(
+      { demoUserId: 'u-1', verify: { provider: 'mock', successAfter: 2 } },
+      's-bank-verify-mock',
+      dir,
+    )
+    try {
+      const challenge = app.ctx.get(BANK_CHALLENGE)
+      const issued = challenge.issue('sms')
+      if (!issued.ok) throw new Error(`签发失败：${issued.code}`)
+
+      await expect(challenge.verify(issued.challengeId, 'sms')).resolves.toMatchObject({ ok: false })
+      await expect(challenge.verify(issued.challengeId, 'sms')).resolves.toEqual({ ok: true })
+      expect(challenge.passed(issued.challengeId)).toBe(true)
+    } finally {
+      await app.dispose('test')
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('契约注册表（W03 · G-1 通电）', () => {
   it('boot 后可取到契约，且 argsSchema 与 spec.schema 是**同一份对象**（不是抄的第二真相源）', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bah-contract-'))

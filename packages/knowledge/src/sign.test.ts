@@ -13,8 +13,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildManifest,
   collectFixtureEntries,
+  entryHmacInput,
+  hmacHex,
   loadManifest,
   parseCorpus,
+  parseManifest,
   requireKnowledgeKey,
   sha256Hex,
   verifyManifest,
@@ -213,5 +216,162 @@ describe('W06 · 清单校验', () => {
         requiredFiles: [CORPUS_PATH],
       }),
     ).toThrow(/条目签名不匹配/)
+  })
+
+  it('buildManifest 条目签名 = hmac(来源#docId#chunkId#sha256(text))', () => {
+    const dir = tempDir()
+    const bytes = Buffer.from('{"schemaVersion":"knowledge-corpus.v1","docs":[]}', 'utf8')
+    writeFileSync(join(dir, 'corpus.json'), bytes)
+    const manifest = buildManifest({
+      key: KEY,
+      signedAt: '2026-10-26T00:00:00.000Z',
+      files: [{ path: 'corpus.json', bytes }],
+      entries: [{ source: 'corpus', docId: 'doc-1', chunkId: 2, text: '赎回费率 1.50%' }],
+    })
+
+    const digest = sha256Hex('赎回费率 1.50%')
+    expect(manifest.entries[0]).toEqual({
+      source: 'corpus',
+      docId: 'doc-1',
+      chunkId: 2,
+      textSha256: digest,
+      hmac: hmacHex(KEY, entryHmacInput('corpus', 'doc-1', 2, digest)),
+    })
+    expect(() =>
+      verifyManifest({ root: dir, manifest, key: KEY, requiredFiles: ['corpus.json'] }),
+    ).not.toThrow()
+  })
+
+  it('parseManifest：非法 JSON / 顶层非对象 / 形状越界全部 fail-loud', () => {
+    expect(() => parseManifest('not-json', 'm.json')).toThrow(/不是合法 JSON/)
+    expect(() => parseManifest('[]', 'm.json')).toThrow(/顶层必须是对象/)
+
+    const base = {
+      schemaVersion: 'knowledge-manifest.v1',
+      keyId: 'kid',
+      signedAt: '2026-10-26T00:00:00.000Z',
+      files: [],
+      entries: [],
+    }
+    expect(() => parseManifest(JSON.stringify({ ...base, files: 'nope' }), 'm.json')).toThrow(
+      /必须是数组/,
+    )
+    expect(() =>
+      parseManifest(
+        JSON.stringify({
+          ...base,
+          entries: [{ source: 'web', docId: 'd', chunkId: 1, textSha256: 'x', hmac: 'y' }],
+        }),
+        'm.json',
+      ),
+    ).toThrow(/corpus \/ fixture/)
+    expect(() =>
+      parseManifest(
+        JSON.stringify({
+          ...base,
+          entries: [{ source: 'corpus', docId: 'd', chunkId: 1.5, textSha256: 'x', hmac: 'y' }],
+        }),
+        'm.json',
+      ),
+    ).toThrow(/整数/)
+    expect(() => parseManifest(JSON.stringify({ ...base, schemaVersion: 'v2' }), 'm.json')).toThrow(
+      /schemaVersion/,
+    )
+    expect(() => parseManifest(JSON.stringify({ ...base, files: [1] }), 'm.json')).toThrow(
+      /必须是对象/,
+    )
+    expect(() =>
+      parseManifest(
+        JSON.stringify({
+          ...base,
+          entries: [{ source: 'corpus', docId: '', chunkId: 1, textSha256: 'x', hmac: 'y' }],
+        }),
+        'm.json',
+      ),
+    ).toThrow(/必须是非空字符串/)
+  })
+
+  it('collectFixtureEntries：跨 answers / queries 去重并按 docId#chunkId 排序', () => {
+    const entries = collectFixtureEntries({
+      answers: [
+        {
+          response: {
+            evidence: [
+              { docId: 'Z', chunkId: 2, text: 'b' },
+              { docId: 'A', chunkId: 1, text: 'a' },
+              { docId: 'A', chunkId: 1, text: 'a' },
+            ],
+          },
+        },
+      ],
+      queries: [
+        { response: { evidence: [{ docId: 'B', chunkId: 1, text: 'c' }] } },
+      ],
+    })
+
+    expect(entries.map((entry) => `${entry.docId}#${String(entry.chunkId)}`)).toEqual([
+      'A#1',
+      'B#1',
+      'Z#2',
+    ])
+  })
+
+  it('parseCorpus：非法 JSON / 版本不符 / chunkId 非整数全部 fail-loud', () => {
+    expect(() => parseCorpus('{', 'c.json')).toThrow(/不是合法 JSON/)
+    expect(() => parseCorpus(JSON.stringify({ schemaVersion: 'v2', docs: [] }), 'c.json')).toThrow(
+      /schemaVersion/,
+    )
+    expect(() =>
+      parseCorpus(
+        JSON.stringify({
+          schemaVersion: 'knowledge-corpus.v1',
+          docs: [{ docId: 'd', chunkId: 0.5, title: 't', text: 'x' }],
+        }),
+        'c.json',
+      ),
+    ).toThrow(/整数/)
+  })
+
+  it('verifyManifest：缺文件条目 / 文件不存在 / 文件 HMAC 被替换都会拒', () => {
+    const dir = tempDir()
+    const bytes = Buffer.from('corpus-v1', 'utf8')
+    writeFileSync(join(dir, 'corpus.json'), bytes)
+    const manifest = buildManifest({
+      key: KEY,
+      signedAt: '2026-10-26T00:00:00.000Z',
+      files: [{ path: 'corpus.json', bytes }],
+      entries: [],
+    })
+
+    expect(() =>
+      verifyManifest({ root: dir, manifest: { ...manifest, files: [] }, key: KEY, requiredFiles: ['corpus.json'] }),
+    ).toThrow(/缺少文件条目/)
+
+    expect(() =>
+      verifyManifest({
+        root: dir,
+        manifest: { ...manifest, schemaVersion: 'knowledge-manifest.v2' },
+        key: KEY,
+        requiredFiles: ['corpus.json'],
+      }),
+    ).toThrow(/schemaVersion/)
+
+    const ghost = buildManifest({
+      key: KEY,
+      signedAt: '2026-10-26T00:00:00.000Z',
+      files: [{ path: 'ghost.json', bytes }],
+      entries: [],
+    })
+    expect(() =>
+      verifyManifest({ root: dir, manifest: ghost, key: KEY, requiredFiles: ['ghost.json'] }),
+    ).toThrow(/文件不存在/)
+
+    const forged: KnowledgeManifest = {
+      ...manifest,
+      files: manifest.files.map((entry) => ({ ...entry, hmac: '0'.repeat(64) })),
+    }
+    expect(() =>
+      verifyManifest({ root: dir, manifest: forged, key: KEY, requiredFiles: ['corpus.json'] }),
+    ).toThrow(/文件签名不匹配/)
   })
 })

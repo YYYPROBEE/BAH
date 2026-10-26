@@ -105,7 +105,7 @@ function sessionChainId(ctx: Context): string {
     )
   }
   // 与 `ChainFile.assertSagaId` 同口径
-  new ChainFile({ fsync: false, warn: () => {} }).pathOf(id)
+  new ChainFile({ fsync: false }).pathOf(id)
   return id
 }
 
@@ -134,7 +134,7 @@ export const auditDecisionsPlugin: HostPlugin<Record<string, never>> = {
         // 决策链不引入密钥依赖：无密钥的演示/CI 也要能起；完整性由哈希链负责
         signedTypes: [],
         fsync: true,
-        warn: (message) => console.warn(message),
+        warn: console.warn,
       })
 
       ctx.effect(

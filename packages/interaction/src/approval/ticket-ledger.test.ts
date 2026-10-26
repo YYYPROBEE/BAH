@@ -70,6 +70,14 @@ describe('签发', () => {
     expect(captureThrown(() => ledger.issue(issue())).code).toBe('ticket-duplicate')
   })
 
+  it('lease 的 leaseId 空白 → lease-invalid（签发期就拒，不留半绑定票据）', () => {
+    const ledger = new TicketLedger()
+    expect(
+      captureThrown(() => ledger.issue(issue({ lease: { leaseId: '  ', expiresAt: 20 } }))).code,
+    ).toBe('lease-invalid')
+    expect(ledger.size).toBe(0)
+  })
+
   it('缺省无审计出口也能工作（纯内存）', () => {
     const ledger = new TicketLedger()
     expect(ledger.issue(issue()).status).toBe('issued')

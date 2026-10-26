@@ -6,6 +6,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { buildManifest, collectFixtureEntries, requireKnowledgeKey } from '@bah/knowledge'
 import { asSessionId } from '@bah/test-support'
 import {
   AGENTS_SERVICE,
@@ -339,6 +340,112 @@ describe('W06 · 签名门启动校验', () => {
       ).rejects.toThrow(/签名清单缺少文件条目/)
     } finally {
       rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('清单文件条目齐全但缺 fixture 证据条目 → 启动失败并点名 docId#chunkId', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-w06-entry-'))
+    const fixturePath = join(dir, 'fixture.json')
+    const manifestPath = join(dir, 'manifest.json')
+    try {
+      const raw = JSON.parse(readFileSync(FIXTURE, 'utf8')) as {
+        answers: { response: { evidence: Record<string, unknown>[] } }[]
+      }
+      raw.answers[0]!.response.evidence.push({
+        marker: 'K2',
+        docId: 'FORGED-2025',
+        chunkId: 1,
+        title: '清单外证据',
+        clauseNo: '伪造',
+        tier: 1,
+        charStart: 0,
+        charEnd: 10,
+        text: '这条证据不在签名清单里。',
+      })
+      const bytes = Buffer.from(JSON.stringify(raw), 'utf8')
+      writeFileSync(fixturePath, bytes)
+
+      const corpusBytes = readFileSync('packages/knowledge/fixtures/corpus.json')
+      const manifest = buildManifest({
+        key: requireKnowledgeKey(),
+        signedAt: '2026-10-26T00:00:00.000Z',
+        files: [
+          { path: 'packages/knowledge/fixtures/corpus.json', bytes: corpusBytes },
+          { path: fixturePath, bytes },
+        ],
+        // 刻意不签 FORGED-2025：文件签名全对，只有条目覆盖有缺口
+        entries: collectFixtureEntries(raw).filter((entry) => entry.docId !== 'FORGED-2025'),
+      })
+      writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8')
+
+      await expect(
+        bootWith(
+          rows({
+            knowledge: {
+              mode: 'fixture',
+              fixturePath,
+              claims: CLAIMS,
+              signature: { manifestPath },
+            },
+          }),
+        ),
+      ).rejects.toThrow(/签名清单缺少 fixture 条目：FORGED-2025#1/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('http 模式签名清单缺语料条目 → 启动失败（先验文件、再验条目前置事实）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-w06-corpus-'))
+    const manifestPath = join(dir, 'manifest.json')
+    try {
+      const corpusPath = 'packages/knowledge/fixtures/corpus.json'
+      const manifest = buildManifest({
+        key: requireKnowledgeKey(),
+        signedAt: '2026-10-26T00:00:00.000Z',
+        files: [{ path: corpusPath, bytes: readFileSync(corpusPath) }],
+        entries: [],
+      })
+      writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8')
+
+      await expect(
+        bootWith(
+          rows({
+            knowledge: {
+              mode: 'http',
+              claims: CLAIMS,
+              signature: { manifestPath },
+            },
+          }),
+        ),
+      ).rejects.toThrow(/签名清单缺少语料条目/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('signature.enabled=false：不读清单也能起（显式关闭才允许的降级）', async () => {
+    const app = await bootWith(
+      rows({
+        knowledge: {
+          mode: 'fixture',
+          fixturePath: FIXTURE,
+          claims: CLAIMS,
+          // 路径刻意指向不存在：启用时必然启动失败，关闭时必须完全跳过
+          signature: { enabled: false, manifestPath: 'no/such-manifest.json' },
+        },
+      }),
+    )
+    try {
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('稳盈90天赎回费率')
+      await agent.run()
+      const answered = rawEvents(app.ctx.get(SESSION_SERVICE).events()).find(
+        (event) => event.type === 'knowledge/answered',
+      )
+      expect(answered?.data).toMatchObject({ kind: 'answer', verdict: 'GREEN' })
+    } finally {
+      await app.dispose('test-done')
     }
   })
 })

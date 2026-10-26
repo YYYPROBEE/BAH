@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { boot, createCatalog, HOST_PLUGINS, type BootOptions, type BootedApp, type HostPlugin } from '@bah/host'
 
+import { DECISION_AUDIT } from './audit-decisions.ts'
 import type { Context } from '@bah/core'
 
 import type { PluginRow } from '../profile-plugins.ts'
@@ -226,6 +227,39 @@ describe('W08 · 会话级证据链', () => {
       }
     } finally {
       write.mockRestore()
+    }
+  })
+
+  it('verifyAll：链文件中段损坏读不出来 → 记为 brokenAt=0 并带 error（不能静默跳过）', async () => {
+    const dir = root()
+    const app = await bootWith({
+      dir,
+      sessionId: 's-w08-unreadable',
+      seen: [],
+      script: [
+        {
+          tool: { id: 'call-1', name: 'account_balance', args: {} },
+        },
+        { text: '查询完成。' },
+      ],
+    })
+    try {
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('查余额')
+      await agent.run()
+
+      const path = join(dir, 's-w08-unreadable', 'audit.jsonl')
+      const lines = readFileSync(path, 'utf8').trim().split('\n')
+      // 至少要两行：末行半写会被容忍，只有中段损坏才进入"读不出来"分支
+      expect(lines.length).toBeGreaterThan(1)
+      writeFileSync(path, `${['{ 坏行', ...lines.slice(1)].join('\n')}\n`, 'utf8')
+
+      const breaks = app.ctx.get(DECISION_AUDIT).verifyAll()
+      expect(breaks).toHaveLength(1)
+      expect(breaks[0]).toMatchObject({ chainId: 's-w08-unreadable', brokenAt: 0 })
+      expect(breaks[0]?.error).toBeTruthy()
+    } finally {
+      await app.dispose('test')
     }
   })
 })

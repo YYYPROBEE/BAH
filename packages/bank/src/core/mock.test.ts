@@ -656,6 +656,26 @@ describe('W12 冲正（补偿回读的账本面）', () => {
   })
 })
 
+describe('银行卡 / 订阅的归属校验', () => {
+  it('未知卡 / 非本人卡 / 未知订阅 / 非本人订阅 → fail-loud，绝不静默改状态', async () => {
+    const core = setup()
+    const stranger = bankIds.user('u-999')
+
+    expect((await captureThrownAsync(() => core.reportCardLost(USER, bankIds.card('c-missing')))).code).toBe(
+      'card-unknown',
+    )
+    expect((await captureThrownAsync(() => core.reportCardLost(stranger, bankIds.card('c-1')))).code).toBe(
+      'card-not-owned',
+    )
+    expect(
+      (await captureThrownAsync(() => core.cancelSubscription(USER, bankIds.subscription('s-missing')))).code,
+    ).toBe('subscription-unknown')
+    expect(
+      (await captureThrownAsync(() => core.cancelSubscription(stranger, bankIds.subscription('s-1')))).code,
+    ).toBe('subscription-not-owned')
+  })
+})
+
 /** 异步抛错捕获（本文件其余用例用同步 rejection；冲正是 Promise）。 */
 async function captureThrownAsync(run: () => Promise<unknown>): Promise<{ readonly code?: string }> {
   try {

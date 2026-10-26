@@ -61,6 +61,31 @@ describe('provideSession', () => {
     })
   })
 
+  it('监听器声明模式与广播不一致：装配错误抛给 append，但事件已落账且下一次广播能恢复', async () => {
+    await withTestContext(async (test) => {
+      provideSession(test.ctx, { sessionId: asSessionId('s-mode-mismatch') })
+      const off = test.ctx.events.on('session/event', () => undefined, 'serial')
+      const session = test.ctx.get(SESSION_SERVICE)
+
+      let error: unknown
+      try {
+        session.append('user/message', { content: '第一次' })
+      } catch (caught) {
+        error = caught
+      }
+
+      expect(error).toMatchObject({ code: 'event-mode-mismatch' })
+      // 落账先于广播：装配错误不许把已经记下的账"回滚"掉
+      expect(session.lastSeq()).toBe(1)
+      expect(session.events()).toHaveLength(1)
+
+      // 摘掉错配监听器后，队列状态必须已经复位（否则下一次 append 会静默丢事件）
+      off()
+      expect(() => session.append('user/message', { content: '第二次' })).not.toThrow()
+      expect(session.lastSeq()).toBe(2)
+    })
+  })
+
   /**
    * TC-W18-01：广播的重入顺序。
    *

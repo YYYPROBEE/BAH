@@ -487,21 +487,10 @@ function readStringArray(
   return [...(value as readonly string[])]
 }
 
-/** 读单值枚举（未写取默认值）。 */
-function readEnum<T extends string>(
-  record: Readonly<Record<string, unknown>>,
-  key: string,
-  where: string,
-  allowed: readonly T[],
-  fallback: T,
-): T {
-  return readConfigEnum(record, key, where, allowed, fallback, invalidSentry) ?? fallback
-}
-
 /**
  * 读**必须显式配置**的单值枚举（W08）。
  *
- * 与 `readEnum` 的区别只在"未写"分支：这里直接抛结构化错误，不走默认值。
+ * 与"可选枚举 + 默认值"的读法区别只在"未写"分支：这里直接抛结构化错误，不走默认值。
  * 单独一个错误码 `sentry-trace-sink-required` 便于 TC-W08-05 与运维排查。
  */
 function readRequiredEnum<T extends string>(
