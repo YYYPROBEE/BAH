@@ -20,6 +20,8 @@
 import { defineService } from '@bah/core'
 import type { Context, Disposer, ServiceKey, SessionId, ToolTierLevel } from '@bah/core'
 
+import { HaltState } from '../halt.ts'
+import type { HaltEvent, HaltHandle, HaltTicket } from '../halt.ts'
 import { BudgetLedger, TraceLog } from '../kernel/index.ts'
 import type { TraceSink } from '../kernel/index.ts'
 
@@ -27,7 +29,12 @@ import { createAuditListener } from './audit.ts'
 import { SentryBreaker } from './breaker.ts'
 import type { SentrySettings } from './config.ts'
 import type { SentrySessionEventType } from './events.ts'
-import { createControlListener, type ToolTierLookup } from './control.ts'
+import {
+  createControlListener,
+  createHaltListener,
+  type SentryDecisionRecord,
+  type ToolTierLookup,
+} from './control.ts'
 import { createSentryPostExecuteListener, failClosedTurnStopping } from './fail-closed.ts'
 import { createTurnStoppingListener } from './honesty.ts'
 import { createIngressListener } from './ingress.ts'
@@ -62,8 +69,27 @@ export interface SentryPorts {
   readonly revokeTickets: (reason: string, at: number) => number
   /** 把纠正提示推回 inbox 的 `next-step` 车道。 */
   readonly nudge: (agentId: string, text: string) => void
+  /**
+   * 判决记录出口（W08）：每次 `tools/pre-execute` 的最终结论（含 HALT 闸）。
+   *
+   * 宿主接到会话证据链的 v2 信封（`sentry/decision`）；缺省 = 不落链。
+   * **不是会话事件**：事件表没有 `sentry/decision`，不要在这里 `session.append`。
+   */
+  readonly recordDecision?: (decision: SentryDecisionRecord) => void
   /** TraceLog 落盘出口（`trace.sink = 'memory'` 时缺省 = 只留内存环）。 */
   readonly traceSink?: TraceSink
+  /**
+   * `safety/halt` / `safety/unfreeze` 的落账口。
+   *
+   * **必须**是 `session.append`（不是 `appendDomain`）：事件表 v1.0.1 §3.1 的纪律，
+   * 用 `appendDomain` 会让两个键静默逃过 `verify-session-events` 的声明检查。
+   */
+  readonly recordHalt?: (event: HaltEvent) => void
+  /**
+   * 申请一张解除票据（宿主实现：一次 `interaction:approval` 的 U 盾审批）。
+   * 缺省 = 本进程没有审批面，`requestUnfreeze()` 返回 `halt-approval-absent`。
+   */
+  readonly requestHaltTicket?: () => Promise<HaltTicket | undefined>
 }
 
 /** 对外观察视图（审计面板 / 用例断言 / 人工接管前置检查）。 */
@@ -82,6 +108,8 @@ export interface SentryHandle {
   readonly trace: TraceLog
   readonly breaker: SentryBreaker
   readonly state: SentryState
+  /** HALT 状态机（HP-3；与断路器是两条独立的停机面）。 */
+  readonly halt: HaltHandle
   /** 显式人工解冻断路器（返回是否真的解除）。 */
   unfreeze(by: string, reason?: string): boolean
   /** 解除"只绿模式"（显式人工恢复；返回是否真的恢复）。 */
@@ -114,6 +142,13 @@ export function provideSentry(
     now: ports.now,
   })
   const state = new SentryState()
+  // HALT（HP-3）：状态机在安全包，票据与审批端口由宿主注入
+  const halt = new HaltState({
+    now: ports.now,
+    recordHalt: ports.recordHalt ?? (() => undefined),
+    enabled: settings.halt.enabled,
+    ...(ports.requestHaltTicket === undefined ? {} : { requestTicket: ports.requestHaltTicket }),
+  })
   const budget = new BudgetLedger({
     total_calls: settings.budget.totalCalls,
     risky_calls: settings.budget.riskyCalls,
@@ -139,10 +174,38 @@ export function provideSentry(
   }
 
   ctx.effect(ctx.events.on('agent/pre-step', createIngressListener(shared)))
+  /**
+   * HALT 闸（W07 §2.1）：**必须**在 `next()` 之前返回 deny。
+   *
+   * 写成"先 `await next()` 再判"会让下游（含审批桥接）先拿到控制权；工厂顺序一旦变化，
+   * 票据就可能先签出去。这里刻意不调 `next()`——短路就是判决本身。
+   */
   ctx.effect(
     ctx.events.on(
       'tools/pre-execute',
-      createControlListener({ ...shared, breaker, budget, toolTier: ports.toolTier }),
+      createHaltListener({
+        sessionId,
+        trace,
+        record: ports.record,
+        now: ports.now,
+        isHalted: () => halt.halted,
+        ...(ports.recordDecision === undefined ? {} : { onDecision: ports.recordDecision }),
+      }),
+    ),
+  )
+  ctx.effect(
+    ctx.events.on(
+      'tools/pre-execute',
+      createControlListener({
+        ...shared,
+        breaker,
+        budget,
+        toolTier: ports.toolTier,
+        onP0Hit: () => {
+          halt.noteP0Hit()
+        },
+        ...(ports.recordDecision === undefined ? {} : { onDecision: ports.recordDecision }),
+      }),
     ),
   )
   ctx.effect(
@@ -177,6 +240,7 @@ export function provideSentry(
     trace,
     breaker,
     state,
+    halt,
     unfreeze(by, reason = 'operator-unfreeze') {
       return breaker.unfreeze(by, reason, ports.now())
     },

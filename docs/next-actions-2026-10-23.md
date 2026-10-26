@@ -4,6 +4,7 @@
 > **融合：00:58，吸收 `文档归档/BAH下一步施工总案-2026-10-23.md` 的 6 条补丁（见 §5）**
 > 基线：`HEAD 0cd4a5d` + 13 项未提交改动
 > 口径：单人对付，10-23 … 11-01 十个工作日 + 11-02 上午冻结
+> 2026-10-24 更新：用例数与安全口径以 `facts.md` 为准；CSP/限流/演示独立目录已补，文中旧数字与旧缺口为历史记录。
 
 ---
 
@@ -226,7 +227,7 @@ HP-3（HALT 解除）和 HP-4（输出契约）是"答辩时讲的设计"，D-1/
 
 ### 5.4 安全自评的已知风险表（必须写，不写会被追问）
 
-- 无真实登录/用户认证，当前是本机单用户演示；Web 只有 Bearer token，无 Origin/CSP（本轮砍掉）
+- 无真实登录/用户认证，当前是本机单用户演示；Web 只有 Bearer token（2026-10-24 已补 CSP/XFO/XCTO/Referrer-Policy/Permissions-Policy）
 - 强验证 Provider 全 mock（短信/人脸/U盾语义位齐，未接真实渠道）
 - 银行账本为内存仿真，进程重启回种子；不宣称持久
 - 审计链只保证链内自洽，覆盖 Saga 状态迁移；零签名状态已改 `unsigned`
@@ -238,7 +239,7 @@ HP-3（HALT 解除）和 HP-4（输出契约）是"答辩时讲的设计"，D-1/
 - 补偿止于"决策 + 人工核销"，银行核心无冲正接口
 - 记忆层内核完成（40 用例）但未进演示路径
 - 注入检测只记分不阻断，`riskScore` 无生产消费点
-- 单会话、无多租户、无速率限制
+- 单会话、无多租户；Web `/api/*` 为单机级 60s/120 次限流（不是网关/WAF）
 - 演示主路径依赖真实模型端点；断网时降级到 router（`mock` provider）
 
 ---
@@ -647,6 +648,10 @@ usage/summary ：calls 2          → calls 3
 e2e 按设计 skip（无 `DEEPSEEK_API_KEY`），`rag:check` 75 passed。**只剩 `test:snapshot`。**
 
 ### 17.2 待办：票据 ID 随机化打穿了快照的确定性护栏
+
+> **已修（2026-10-24）**：按下面方案 1 给 `ToolPipeline` 注入 `mintTicketId`
+> （生产仍随机、快照按 `callId` 派生），`pnpm test:snapshot` 恢复 14/14，录制件零重录。
+> 回执见 `PROGRESS.md` §51。
 
 **现象**（不是抖动，稳定复现）：`snapshots/sandbox-compute` 与 `snapshots/web-channel` 各 2 例红
 （T-AUD-005 录制↔回放全等、T-AUD-006 两次回放全等），共 4 例；不含审批票据的

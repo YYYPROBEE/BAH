@@ -22,6 +22,15 @@ const MAX_BY = 64
 /** `reason` 字段上限（字符）。 */
 const MAX_REASON = 200
 
+/** HALT 详情上限（字符）。 */
+const MAX_DETAIL = 200
+
+/** 解除票据 ID 上限（字符）。 */
+const MAX_TICKET_ID = 128
+
+/** 票据 ID 的保守字符集（UUID / `ticket:<uuid>` / 确定性派生票号都覆盖）。 */
+const TICKET_ID_PATTERN = /^[A-Za-z0-9:_.-]{1,128}$/
+
 /** 缺省理由（请求没写 reason 时用它，审计里可读）。 */
 export const DEFAULT_UNFREEZE_REASON = 'operator-unfreeze'
 
@@ -74,6 +83,74 @@ export function tokenMatches(expected: string, authorization: string | undefined
   const right = Buffer.from(presented, 'utf8')
   if (left.length !== right.length) return false
   return timingSafeEqual(left, right)
+}
+
+/** `POST /api/admin/halt` 的请求体（`reason` 写死 `manual`，不接受客户端自报）。 */
+export type HaltBody =
+  | { readonly ok: true; readonly detail?: string }
+  | { readonly ok: false; readonly code: 'web-admin-invalid-body'; readonly detail: string }
+
+/**
+ * 解析 `bah halt` 的请求体。
+ *
+ * **只接受 `detail`**：触发原因只有 `manual` 一种能从管理面带进来
+ * （`chain-broken` / `p0-threshold` 是系统判定，不许远程自报——否则就成了"手工伪造 P0"）。
+ */
+export function parseHaltBody(body: unknown): HaltBody {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return { ok: false, code: 'web-admin-invalid-body', detail: '请求体必须是 JSON 对象' }
+  }
+  const record = body as Record<string, unknown>
+  for (const key of Object.keys(record)) {
+    if (key !== 'detail') {
+      return { ok: false, code: 'web-admin-invalid-body', detail: `未知字段：${key}` }
+    }
+  }
+  const detail = record['detail']
+  if (detail === undefined) return { ok: true }
+  if (typeof detail !== 'string') {
+    return { ok: false, code: 'web-admin-invalid-body', detail: 'detail 必须是字符串' }
+  }
+  if ([...detail].length > MAX_DETAIL) {
+    return {
+      ok: false,
+      code: 'web-admin-invalid-body',
+      detail: `detail 不得超过 ${String(MAX_DETAIL)} 字符`,
+    }
+  }
+  const trimmed = detail.trim()
+  return trimmed === '' ? { ok: true } : { ok: true, detail: trimmed }
+}
+
+/** `POST /api/admin/halt/unfreeze` 的请求体。 */
+export type UnfreezeTicketBody =
+  | { readonly ok: true; readonly ticketId: string }
+  | { readonly ok: false; readonly code: 'web-admin-invalid-body'; readonly detail: string }
+
+/** 解析解除 HALT 的票据请求体（严格拒绝未知键；**没有 `force` 字段**）。 */
+export function parseUnfreezeTicketBody(body: unknown): UnfreezeTicketBody {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return { ok: false, code: 'web-admin-invalid-body', detail: '请求体必须是 JSON 对象' }
+  }
+  const record = body as Record<string, unknown>
+  for (const key of Object.keys(record)) {
+    if (key !== 'ticketId') {
+      return { ok: false, code: 'web-admin-invalid-body', detail: `未知字段：${key}` }
+    }
+  }
+  const raw = record['ticketId']
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    return { ok: false, code: 'web-admin-invalid-body', detail: 'ticketId 必填且非空' }
+  }
+  const ticketId = raw.trim()
+  if (!TICKET_ID_PATTERN.test(ticketId)) {
+    return {
+      ok: false,
+      code: 'web-admin-invalid-body',
+      detail: `ticketId 非法（${String(MAX_TICKET_ID)} 字符以内的字母数字与 :_.-）`,
+    }
+  }
+  return { ok: true, ticketId }
 }
 
 /**

@@ -30,6 +30,10 @@
 
 - id: safety:sentry
   config:
+    # W08：审计 trace 必须显式选落盘口（W08 起缺省不再退化为内存环，缺配置即载入失败）。
+    # `session` = 逐条落 durable 会话事件（可回放）；`memory` 只用于确认不需要留证的场景。
+    trace:
+      sink: session
     # XSC-001/002 默认关（生产先用真实语料统计误报）；演示/压测 profile 显式打开
     rules:
       crossScenario: true

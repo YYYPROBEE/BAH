@@ -30,6 +30,27 @@ import {
   splitLogLines,
 } from '@bah/util'
 
+/** 审计信封版本：v2 显式写 `version: 2`；v1 是历史行（没有 `version` 字段）。 */
+export type ChainEnvelopeVersion = 2
+
+/** 一项判决（v2 信封的语义字段）。 */
+export type ChainDecision = 'allow' | 'deny' | 'ask'
+
+/**
+ * v2 判决信封（W08）。
+ *
+ * - `subject`：**谁**被判决（本仓用 `session:<sessionId>`；与 v1 的 `sub`（对象引用）不同）；
+ * - `decision`：最终判决；
+ * - `policyVersion`：做出判决的策略版本（可追溯"当时用的是哪套规则"）；
+ * - `prevHash`：前一条的 `recordHash`。它与 `p` **同值**，是 v2 显式化的人读别名：
+ *   单条导出时不必再记 v1 的短键，也能直接自证前驱。
+ */
+export interface ChainDecisionEnvelope {
+  readonly subject: string
+  readonly decision: ChainDecision
+  readonly policyVersion: string
+}
+
 /** 一条链记录（写进 JSONL 的完整行）。 */
 export interface ChainRecord {
   readonly s: string
@@ -44,6 +65,12 @@ export interface ChainRecord {
   readonly sig?: string
   readonly keyVersion: number
   readonly recordedAt: number
+  /* ── v2 信封（W08；v1 行没有这些键，读取时按 `version` 区分） ── */
+  readonly version?: ChainEnvelopeVersion
+  readonly subject?: string
+  readonly decision?: ChainDecision
+  readonly policyVersion?: string
+  readonly prevHash?: string
 }
 
 /** 链文件选项。 */
@@ -149,7 +176,7 @@ function stableSort(rows: readonly ChainRecord[]): readonly ChainRecord[] {
 function isChainRecord(value: unknown): value is ChainRecord {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
-  return (
+  const base =
     typeof record['s'] === 'string' &&
     typeof record['q'] === 'number' &&
     Number.isSafeInteger(record['q']) &&
@@ -161,6 +188,21 @@ function isChainRecord(value: unknown): value is ChainRecord {
     typeof record['keyVersion'] === 'number' &&
     typeof record['recordedAt'] === 'number' &&
     Array.isArray(record['hb'])
+  if (!base) return false
+
+  // v2：只要出现任一 v2 键，就必须是完整形状（`version` 必须为 2）。
+  // 刻意**不**校验 decision 的枚举值：被改成任意字符串也要能读出来，
+  // 由 `verifyContinuity` 用 recordHash 定位"第几条被改"，而不是在解析期丢掉证据。
+  const v2Keys = ['version', 'subject', 'decision', 'policyVersion', 'prevHash'] as const
+  if (v2Keys.every((key) => record[key] === undefined)) return true
+  return (
+    record['version'] === 2 &&
+    typeof record['subject'] === 'string' &&
+    record['subject'].length > 0 &&
+    typeof record['decision'] === 'string' &&
+    typeof record['policyVersion'] === 'string' &&
+    record['policyVersion'].length > 0 &&
+    typeof record['prevHash'] === 'string'
   )
 }
 

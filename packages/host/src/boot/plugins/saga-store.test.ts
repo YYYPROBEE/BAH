@@ -7,10 +7,15 @@
  * - 未配 `dbPath` 时落到缺省文件名，而不是 `undefined` 让下游崩。
  */
 
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { createContext } from '@bah/core'
 import { SAGA_STORE, TARGET_REGISTRY } from '@bah/saga'
 import { describe, expect, it } from 'vitest'
 
+import { SESSION_FILES } from './persistence.ts'
 import { sagaStorePlugin } from './saga-store.ts'
 
 describe('bank:saga-store 配置校验', () => {
@@ -24,6 +29,25 @@ describe('bank:saga-store 配置校验', () => {
 })
 
 describe('bank:saga-store 装配', () => {
+  it('相对 dbPath 跟随会话根目录，并自建尚未存在的父目录', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'bah-saga-store-'))
+    const root = join(base, 'nested')
+    const ctx = createContext()
+    try {
+      ctx.provide(SESSION_FILES, {
+        root,
+        fileOf: (session) => join(root, String(session), 'session.jsonl'),
+      })
+      await ctx.use(sagaStorePlugin.plugin, sagaStorePlugin.validate({}))
+      await ctx.start()
+
+      expect(existsSync(join(root, 'saga.sqlite'))).toBe(true)
+    } finally {
+      await ctx.dispose('test')
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
   it(':memory: 走内存库，不被拼成磁盘路径', async () => {
     const ctx = createContext()
     await ctx.use(sagaStorePlugin.plugin, sagaStorePlugin.validate({ dbPath: ':memory:' }))

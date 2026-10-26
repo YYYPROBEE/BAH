@@ -7,4 +7,6 @@
 export * from './brand/index.ts'
 export * from './jsonl/index.ts'
 export * from './random/index.ts'
+export * from './tool-contract.ts'
+export * from './tool-contract-validate.ts'
 export * from './util/index.ts'

@@ -6,7 +6,7 @@ import { createContext } from '@bah/core'
 import type { Context, SessionId } from '@bah/core'
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_SENTRY_SETTINGS, provideSentry, type SentryHandle } from './index.ts'
+import { provideSentry, resolveSentrySettings, type SentryHandle } from './index.ts'
 
 /** 记账平面测试台：票据状态由用例注入。 */
 function harness(statuses: Readonly<Record<string, string>>): {
@@ -16,7 +16,7 @@ function harness(statuses: Readonly<Record<string, string>>): {
 } {
   const ctx = createContext()
   let now = 1_000
-  const handle = provideSentry(ctx, DEFAULT_SENTRY_SETTINGS, {
+  const handle = provideSentry(ctx, resolveSentrySettings({ trace: { sink: 'memory' } }), {
     sessionId: 's-ticket' as SessionId,
     now: () => {
       now += 1

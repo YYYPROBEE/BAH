@@ -48,6 +48,14 @@ function fullLog(): ReturnType<SessionStore['events']> {
     content: [{ type: 'text', text: '余额 100' }],
   })
   store.append('step/end', { turn: 1, step: 1 })
+  store.append('safety/assertion', {
+    turnId: 'turn:1',
+    total: 1,
+    verified: 1,
+    needsEvidence: 0,
+    rejected: 0,
+    at: 1,
+  })
   store.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
   return store.events()
 }

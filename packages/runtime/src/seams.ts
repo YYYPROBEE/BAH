@@ -13,6 +13,7 @@ import type { ContentBlock, SessionId, TicketRef } from '@bah/core'
 
 import type {
   AgentPreStepInput,
+  AgentReplyInput,
   AgentRequestInput,
   AgentTurnStoppingInput,
   LlmStreamer,
@@ -164,6 +165,15 @@ declare module '@bah/core' {
      * @mode waterfall
      */
     'llm/stream': LlmStreamer
+
+    /**
+     * 助手回复落账前的改写点（核验门 / 合规改写 / 敏感信息拦截）。
+     *
+     * 派发点在 `assistant/message` **落账之前**：返回值就是用户与 channels 看到的最终文本。
+     *
+     * @mode waterfall
+     */
+    'agent/reply': AgentReplyInput
 
     /**
      * turn 收尾钩子（serial：顺序执行、无 next 参数）：汇总 / 写审计 / 循环 guard 判停。

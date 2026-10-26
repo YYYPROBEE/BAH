@@ -176,7 +176,12 @@ export const BANK_TOOL_SPECS = [
     schema: {
       type: 'object',
       properties: {
-        amount: { type: 'number', description: '金额（元，必须 > 0）' },
+        amount: {
+          type: 'number',
+          description: '金额（元，最多两位小数，必须 > 0）',
+          exclusiveMinimum: 0,
+          multipleOf: 0.01,
+        },
         payee: PAYEE_SCHEMA,
         remark: { type: 'string', description: '转账附言（可选）' },
       },
@@ -194,7 +199,12 @@ export const BANK_TOOL_SPECS = [
     schema: {
       type: 'object',
       properties: {
-        amount: { type: 'number', description: '金额（元，必须 > 0）' },
+        amount: {
+          type: 'number',
+          description: '金额（元，最多两位小数，必须 > 0）',
+          exclusiveMinimum: 0,
+          multipleOf: 0.01,
+        },
         payee: PAYEE_SCHEMA,
         remark: { type: 'string', description: '转账附言（可选）' },
         when: { type: 'string', description: '执行时间：now（缺省）/ ISO 时间（定时转账属 P1，当前会拒绝）' },
@@ -259,7 +269,12 @@ export const BANK_TOOL_SPECS = [
       type: 'object',
       properties: {
         productId: { type: 'string', description: '理财产品 ID（必填）' },
-        amount: { type: 'number', description: '购买金额（元，必须 ≥ 起投额）' },
+        amount: {
+          type: 'number',
+          description: '购买金额（元，最多两位小数，必须 ≥ 起投额）',
+          exclusiveMinimum: 0,
+          multipleOf: 0.01,
+        },
         accountId: ACCOUNT_ID_FIELD,
       },
       required: ['productId', 'amount'],
@@ -313,9 +328,41 @@ export const BANK_TOOL_SPECS = [
     batch: 'P0',
     scenario: '强验证',
   },
+  {
+    name: 'card_report_lost',
+    description:
+      '挂失银行卡（红档写操作，不可逆：挂失后该卡即刻不可用），必然进入审批并触发强验证。用户**明确说要挂失**后才用；只是询问卡状态请用 account_list，不要用它试探。',
+    schema: {
+      type: 'object',
+      properties: {
+        cardId: { type: 'string', description: '要挂失的银行卡 ID（从 account_list 的卡片信息里取）' },
+      },
+      required: ['cardId'],
+    },
+    tier: { level: 'red' },
+    event: 'card/reported-lost',
+    batch: 'P0',
+    scenario: '账户/账单',
+  },
+  {
+    name: 'sub_cancel',
+    description:
+      '取消自动扣款订阅（黄档写操作，可逆：用户可重新签约）。用户明确要求"取消/退订某个自动续费"后用；查订阅明细请用 txn_query，不要用它代替查询。',
+    schema: {
+      type: 'object',
+      properties: {
+        subscriptionId: { type: 'string', description: '要取消的订阅 ID（从账单/订阅明细里取）' },
+      },
+      required: ['subscriptionId'],
+    },
+    tier: { level: 'yellow' },
+    event: 'sub/cancelled',
+    batch: 'P0',
+    scenario: '账户/账单',
+  },
 ] as const satisfies readonly BankToolSpec[]
 
-/** 工具名联合（14 个字面量）。 */
+/** 工具名联合（16 个字面量）。 */
 export type BankToolName = (typeof BANK_TOOL_SPECS)[number]['name']
 
 /** 工具数量上限（施工单 08 §2）。 */

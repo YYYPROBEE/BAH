@@ -1,13 +1,13 @@
 # BAH 事实表（演示材料的唯一数字来源）
 
-> 更新：2026-10-23（D6 复审实测；23:05 复核 `pnpm test` = 164 文件 / 1561 用例、`test:web` = 6 文件 / 52 用例）。任何 PPT / 视频 / 自评里的数字先查这里；
+> 更新：2026-10-24（R1/R3 后复核 `pnpm test` = 165 文件 / 1570 用例、`test:web` = 6 文件 / 52 用例）。任何 PPT / 视频 / 自评里的数字先查这里；
 > 改代码后重跑对应命令再改本表。**不要把三行测试数相加成一个"总用例数"**。
 
 ## 1. 测试与门禁（三行口径）
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **164 文件 / 1561 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **165 文件 / 1570 用例** |
 | `pnpm -F @bah/eval test` | 评测包（不在根 vitest include 内） | **14 文件 / 133 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗） | **6 文件 / 52 用例** |
 
@@ -17,7 +17,7 @@
 |---|---|---|
 | `pnpm gate` | **27/27** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1 |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
-| `pnpm test:snapshot` | 4 文件 / 14 用例 | 录制回放；`pnpm snapshot:record` 重录 |
+| `pnpm test:snapshot` | 4 文件 / 14 用例（14/14 绿） | 录制回放；`pnpm snapshot:record` 重录 |
 | `pnpm check` | 十步总闸 | typecheck → lint → build → test → coverage → gate → e2e → snapshot → web → rag |
 
 ## 2. 工具：14 个（12 绿 / 1 黄 / 1 红）
@@ -53,15 +53,17 @@
 | **7801** | RAG sidecar | `127.0.0.1` | `bank:knowledge mode:http`；`required: false`，不起也能跑主场景 |
 
 静态根 `apps/web`：原生 ES 模块，无构建步骤。
+`pnpm demo:web` 每次新建 `sessions/demo-<stamp>-<随机>/`，日志、Saga 库与审计链都在该目录；
+`pnpm gate` 用 `.tmp-saga-wiring/` 的独立库，不写 `sessions/`。
 
 ## 4. 常用命令（四类）
 
 | 目的 | 命令 |
 |---|---|
-| 起演示（读 `.env.local` 的 `BAH_MODEL_KEY`） | `pnpm demo:web` |
-| 起演示（直接用当前环境变量） | `pnpm web` |
+| 起演示（读 `.env.local` 的 `BAH_MODEL_KEY`） | `pnpm demo:web`（打印本次会话目录） |
+| 起演示（直接用当前环境变量，共享 `sessions/`） | `pnpm web` |
 | 自检 | `pnpm typecheck && pnpm test && pnpm gate` |
-| 审计已落盘的链 | `pnpm bah audit --dir <path> [--format json]` |
+| 审计已落盘的链 | `pnpm bah audit --dir <demo 打印的目录> [--no-signature] [--format json]` |
 
 其他：
 
@@ -76,13 +78,16 @@
 | 密钥 | `apiKeyEnv: BAH_MODEL_KEY`（`.env.local`，被 `.gitignore` 挡住，不入库） |
 | 断网兜底 | `provider: router`（`router-chat`）：读消息做意图路由，不读固定脚本；**手动改 profile，不是自动降级** |
 | 审批 | 黄级 `transfer_create` → 票据 → Web 弹窗；红级另加强验证 |
-| 会话作用域 | 单用户、单会话、单进程；无多租户、无速率限制 |
+| 会话作用域 | 单用户、单会话、单进程；无多租户；Web `/api/*` 有 60s/120 次每来源限流 |
 
 ## 6. 交付与安全口径（写材料时照抄）
 
 - 审计链零签名状态是 **`unsigned`**（"没签过"≠"验签通过"）；CLI 按"审计未完成"退出码 2。
+  只验链连续性与投影用 `--no-signature`（退出码 0），这不是完整验签。
 - Web 鉴权是 **Bearer token 最小集**：`BAH_WEB_TOKEN`，未配置时每进程随机生成并注入 `index.html`；
-  无 Origin/CSP/安全响应头，**不是登录**。
+  响应带 CSP / XFO / XCTO / Referrer-Policy / Permissions-Policy，`/api/*` 每来源 60s/120 次限流，
+  **不是登录**；无 CORS（同源）。
+- 供应链：Dependabot + `.github/workflows/security.yml`（npm audit 用官方源；pip-audit 先收集基线）。
 - 银行账本是内存仿真，进程重启回种子；不宣称持久。
 - 强验证渠道（短信/人脸/U 盾）语义位齐全，但全部是 mock，未接真实渠道。
 - HP-2（RAG 签名 / TS 验签门）、HP-3（HALT 解除）、HP-4（出参契约）**未施工**；

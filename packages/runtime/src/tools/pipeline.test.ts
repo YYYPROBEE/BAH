@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { asSessionId, captureRejection, createTestContext, fixedClock, type TestContext } from '@bah/test-support'
 
-import type { SessionEventMap } from '@bah/core'
+import type { SessionEventMap, TicketId } from '@bah/core'
 
 import type { AppendOptions, AnySessionEvent, SessionEventType } from '../session/types.ts'
 import {
@@ -161,6 +161,41 @@ describe('七段管线', () => {
         /^ticket:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
       )
       expect(h.log()[2]).toMatchObject({ data: { decision: 'unavailable' } })
+    })
+  })
+
+  it('票据 ID 可注入：验收面按 callId 派生，生产默认随机', async () => {
+    await withHarness(async (h) => {
+      h.registry.register(tool({ name: 'bank:probe' }))
+      h.test.ctx.events.on('tools/pre-execute', (input) => ({
+        ...input,
+        verdict: { kind: 'ask', ticket: { fingerprint: 'fp-1', amount: 50_000, ttlMs: 60_000 } },
+      }))
+
+      const pipeline = (
+        mintTicketId?: (callId: string) => TicketId,
+      ): ToolPipeline =>
+        new ToolPipeline({
+          ctx: h.test.ctx,
+          registry: h.registry,
+          session: h.session,
+          guard: new ToolGuard(),
+          sessionId: h.session.sessionId,
+          now: fixedClock({ start: 1_000, step: 1 }).now,
+          ...(mintTicketId === undefined ? {} : { mintTicketId }),
+        })
+
+      await pipeline((callId) => `ticket:snap-${callId}` as TicketId).execute(CALL)
+      expect(h.log().at(-3)?.data).toMatchObject({ ticketId: 'ticket:snap-c1' })
+
+      // 默认不传：同一 callId 两次签发必须是不同的票号——否则"不可预测"就是假的
+      await pipeline().execute(CALL)
+      await pipeline().execute(CALL)
+      const asks = h.log().filter((event) => event.type === 'approval/asked')
+      const before = String((asks.at(-2)?.data as { ticketId?: string }).ticketId)
+      const after = String((asks.at(-1)?.data as { ticketId?: string }).ticketId)
+      expect(before).not.toBe(after)
+      expect(before).toMatch(/^ticket:[0-9a-f-]{36}$/)
     })
   })
 

@@ -13,7 +13,7 @@
 import { createContext, defineService, describeThrown } from '@bah/core'
 import { BahError } from '@bah/util'
 
-import type { BahContext, SessionId } from '@bah/core'
+import type { BahContext, SessionId, TicketId } from '@bah/core'
 
 import { PluginManager } from '../plugin-manager/index.ts'
 import type { PluginCatalog, ValidatedRow } from '../plugin-manager/index.ts'
@@ -46,6 +46,13 @@ export interface RunContext {
    * 快照/回放可注入独立计数钟，让 `sandbox/done` 的 `elapsedMs` 与会话事件时间戳解耦。
    */
   readonly sandboxNow?: () => number
+  /**
+   * 票据 ID 生成器（验收/快照面注入；生产不传）。
+   *
+   * 不传时管线用 `ticket:<randomUUID>`——票号会出现在审批 URL 与审计里，必须不可预测。
+   * 快照回放注入按 `callId` 派生的确定性 ID，才能断言"两次回放逐条全等"。
+   */
+  readonly mintTicketId?: (callId: string) => TicketId
 }
 
 /** 服务键：`bah:run`（插件以 `inject: ['bah:run']` 声明依赖）。 */

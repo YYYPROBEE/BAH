@@ -58,17 +58,25 @@ interface RagStep {
 
 type Step = CommandStep | VitestStep | E2eStep | RagStep
 
-/** 用例地板：取 2026-10-22 实测值（不是估值），任何一条被删即红。 */
+/** 用例地板：取 2026-10-24 实测值（不是估值），任何一条被删即红。 */
 const STEPS: readonly Step[] = [
   { kind: 'command', name: 'typecheck', command: 'pnpm typecheck' },
   { kind: 'command', name: 'lint', command: 'pnpm lint' },
   { kind: 'command', name: 'build', command: 'pnpm build' },
-  { kind: 'vitest', name: 'test (unit)', minCases: 1337 },
-  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 1337 },
+  { kind: 'vitest', name: 'test (unit)', minCases: 1570 },
+  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 1570 },
+  // W17：全仓覆盖率口径（分母 = packages/*/src 全量，不是 allowlist 名单）。
+  // 上一步的 `test:coverage` 守"名单内逐文件 100%"，这一步报"全仓行口径 ≥80% / 包口径 ≥14/16"。
+  // 两步都要：只有前者会"分母只算一半"，只有后者会丢掉"确定性组件必须 100%"的硬约束。
+  { kind: 'command', name: 'test:coverage:all', command: 'pnpm test:coverage:all' },
   { kind: 'command', name: 'gate', command: 'pnpm gate' },
+  // W15：eval 三步接线（unit / smoke / baseline）；都走真实 boot，不进主 vitest 面。
+  { kind: 'command', name: 'eval:unit', command: 'pnpm eval:unit' },
+  { kind: 'command', name: 'eval:smoke', command: 'pnpm eval:smoke' },
+  { kind: 'command', name: 'eval:baseline', command: 'pnpm eval:baseline' },
   { kind: 'e2e', name: 'test:e2e' },
   { kind: 'vitest', name: 'test:snapshot', config: 'vitest.snapshot.config.ts', minCases: 14 },
-  { kind: 'vitest', name: 'test:web', config: 'vitest.web.config.ts', minCases: 46 },
+  { kind: 'vitest', name: 'test:web', config: 'vitest.web.config.ts', minCases: 52 },
   { kind: 'rag', name: 'rag:check', minCases: 75 },
 ]
 

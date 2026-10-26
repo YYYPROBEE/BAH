@@ -15,6 +15,7 @@
 import { BahError, assertNever, errorCodeOf, reasonOf } from '@bah/util'
 
 import type { Context, SessionId, TicketDraft, TicketId, ToolTierLevel } from '@bah/core'
+import type { PolicyEngine } from '@bah/runtime'
 
 import type { TransferPreview } from '../core/provider.ts'
 import { yuanToCents } from '../core/index.ts'
@@ -22,6 +23,7 @@ import { requireAccount } from './accounts.ts'
 import { readString } from './args.ts'
 import { fingerprintOf } from './fingerprint.ts'
 import { assertExecutableNow, parsePurchaseAmount, parseTransferInput } from './inputs.ts'
+import { createTierPolicy } from './policy.ts'
 import { BANK_TOOL_NAME_SET, specOf, type BankToolName, type BankToolSpec } from './specs.ts'
 import { decide, isRiskyOp, type TierConfig, type TierReason } from './tier.ts'
 import type { BankToolDeps } from './types.ts'
@@ -84,6 +86,15 @@ export interface TicketLifecycleIssueInput {
   readonly fingerprint: string
   readonly amountCents?: number
   readonly expiresAt: number
+  /**
+   * 执行 lease（W12；宿主生成后随票据一起注入）。
+   *
+   * 结构内联：bank 包不 import `@bah/runtime`，也不在治理面再定义一份 `TicketLease`。
+   */
+  readonly lease?: {
+    readonly leaseId: string
+    readonly expiresAt: number
+  }
   readonly at: number
 }
 
@@ -103,6 +114,22 @@ export interface BankGovernanceOptions {
   readonly deps: BankToolDeps
   /** 票据生命周期账本（缺省 = 只记 bank-core 状态，不落 `ticket/*` 事件；单测可用）。 */
   readonly lifecycle?: TicketLifecycle
+  /**
+   * 策略引擎（W04）。缺省 = `createTierPolicy(tierConfig)`，即既有 `tier.ts` 的判决。
+   *
+   * 注入的引擎只能**加严**：`deny` 生效，`allow` 不能把黄/红降级（组合规则见 `evaluateCall`）。
+   */
+  readonly policy?: PolicyEngine
+  /**
+   * 执行 lease（W12）：`enforce = false` 时退回"只用票据 TTL"的旧行为。
+   *
+   * lease 的到期时刻 = `min(票据 TTL, 签发时刻 + ttlMs)`，写进 bank-core 五绑定的
+   * `expiresAt`——**核销点**就是执行点，不存在"钱先出去、账本再拦"的窗口。
+   */
+  readonly lease?: {
+    readonly enforce: boolean
+    readonly ttlMs: number
+  }
 }
 
 /** 一次判决的完整审计记录（`tier/decided` 的载荷）。 */
@@ -126,6 +153,8 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
     riskyOps: deps.config.riskyOps,
     riskyCallThreshold: deps.config.riskyCallThreshold,
   }
+  // 默认实现直接委托 tier.ts；注入的引擎只能加严（见 evaluateCall 的组合规则）
+  const policy = options.policy ?? createTierPolicy(tierConfig)
   /** 组合风险是「同一 turn 内」的口径：turn/start 重置（跨 turn 的日累计由 core 账本负责）。 */
   let riskyCallsInTurn = 0
 
@@ -169,7 +198,16 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
       if (downstream.verdict.kind !== 'allow') return downstream
 
       const spec = specOf(input.call.name as BankToolName)
-      const audit = await evaluateCall(deps, sessionId, input.call, spec, tierConfig, riskyCallsInTurn, now)
+      const audit = await evaluateCall(
+        deps,
+        sessionId,
+        input.call,
+        spec,
+        tierConfig,
+        riskyCallsInTurn,
+        now,
+        policy,
+      )
       deps.audit.append('tier/decided', {
         callId: input.call.callId,
         name: spec.name,
@@ -197,12 +235,22 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
       const issuedAt = now()
       // 这里是唯一同时见到 callId 与 ticketId 的地方：记下映射，`tools/result` 才找得到票据
       ticketOfCall.set(input.callId, ticketId)
+      // W12：lease 窗口从签发时刻起算；到期时刻同时写进 bank-core 五绑定，
+      // 于是核销（= 执行）时由 TicketStore 自己拒绝过期票据，不靠事后记账补拦。
+      const leaseExpiresAt =
+        options.lease?.enforce === true
+          ? Math.min(input.ticket.expiresAt, issuedAt + options.lease.ttlMs)
+          : input.ticket.expiresAt
+      const lease =
+        options.lease?.enforce === true
+          ? { leaseId: `lease:${ticketId}`, expiresAt: leaseExpiresAt }
+          : undefined
       const binding = {
         sessionId,
         tool: input.name,
         fingerprint: input.ticket.fingerprint,
         amountCents: centsOf(input.ticket.amount),
-        expiresAt: input.ticket.expiresAt,
+        expiresAt: leaseExpiresAt,
       }
       if (deps.tickets.get(ticketId) === undefined) {
         try {
@@ -221,6 +269,7 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
             fingerprint: binding.fingerprint,
             amountCents: binding.amountCents,
             expiresAt: binding.expiresAt,
+            ...(lease === undefined ? {} : { lease }),
             at: issuedAt,
           }),
         )
@@ -319,6 +368,7 @@ async function evaluateCall(
   config: TierConfig,
   riskyCallsInTurn: number,
   now: () => number,
+  policy: PolicyEngine,
 ): Promise<DecisionAudit> {
   const userId = deps.identity.resolve(sessionId)
   if (userId === undefined || userId.trim().length === 0) {
@@ -354,6 +404,7 @@ async function evaluateCall(
     amountCents = checked.amountCents
   }
 
+  const verifyLocked = deps.verify.isLocked(sessionId)
   const decision = decide({
     name: spec.name,
     declared: spec.tier.level,
@@ -361,10 +412,33 @@ async function evaluateCall(
     state: {
       userId,
       riskyCallsInTurn,
-      verifyLocked: deps.verify.isLocked(sessionId),
+      verifyLocked,
     },
     ...(preview === undefined ? {} : { preview }),
   })
+
+  // 策略意见（W04）：只咨询**非绿**工具——读操作不受策略拒绝影响（TC-W04-06）。
+  // 组合规则是"取严不取宽"：策略 deny 生效；策略 allow 不能把黄/红降级。
+  if (spec.tier.level !== 'green' && decision.kind !== 'deny') {
+    const stance = policy.decide(
+      { userId },
+      { name: spec.name, declared: spec.tier.level },
+      {
+        riskyCallsInTurn,
+        verifyLocked,
+        ...(preview === undefined ? {} : { preview }),
+      },
+    )
+    if (stance.verdict === 'deny') {
+      const code = stance.code ?? 'policy-denied'
+      return {
+        verdict: { kind: 'deny', code, reason: stance.reason },
+        level: decision.level,
+        reason: 'declared',
+        code,
+      }
+    }
+  }
 
   switch (decision.kind) {
     case 'allow':

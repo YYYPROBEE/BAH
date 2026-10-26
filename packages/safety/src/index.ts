@@ -12,3 +12,5 @@
 export * from './sandbox-policy/index.ts'
 export * from './sandbox-runtime/index.ts'
 export * from './sentry/index.ts'
+// W05：断言核验门（纯函数；宿主装配在 `safety:verify`）
+export * from './verify/index.ts'

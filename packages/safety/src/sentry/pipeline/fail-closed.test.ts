@@ -338,7 +338,7 @@ describe('fail-closed：sentry 集成（HP0-04）', () => {
   it('downstream 监听器抛错 → sentry 包装器把它转成 block，结果不进模型可信内容', async () => {
     const ctx: Context = createContext()
     const recorded: { type: string; data: Record<string, unknown> }[] = []
-    provideSentry(ctx, resolveSentrySettings({}), {
+    provideSentry(ctx, resolveSentrySettings({ trace: { sink: 'memory' } }), {
       sessionId: 's-integration' as SessionId,
       now: () => 1_000,
       record: (type, data) => recorded.push({ type, data: data as Record<string, unknown> }),
@@ -378,7 +378,7 @@ describe('fail-closed：sentry 集成（HP0-04）', () => {
     const trace = new TraceLog({ now: () => 1_000 })
     const listener = createSentryPostExecuteListener({
       sessionId: 's-compose',
-      settings: resolveSentrySettings({}),
+      settings: resolveSentrySettings({ trace: { sink: 'memory' } }),
       state: new SentryState(),
       trace,
       record: () => undefined,

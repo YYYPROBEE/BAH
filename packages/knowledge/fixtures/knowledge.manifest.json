@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "knowledge-manifest.v1",
+  "keyId": "kid-82d6dbbf47e2",
+  "signedAt": "2026-10-25T18:29:12.097Z",
+  "files": [
+    {
+      "path": "packages/knowledge/fixtures/corpus.json",
+      "sha256": "6386e8b22a102a12c6bcbfdaa9556104b8d3343122bb49aa411cdc1a2326be2e",
+      "hmac": "2c59328356f08283d63aba46194ae59ef35e0a0fd4c1dbb2f4a46e54a1b7083c",
+      "keyId": "kid-82d6dbbf47e2",
+      "signedAt": "2026-10-25T18:29:12.097Z"
+    },
+    {
+      "path": "packages/knowledge/fixtures/headless.json",
+      "sha256": "37c725e60e86f7530c59ae7e734483d7600d6de44d5d912d2532d4b533ab75eb",
+      "hmac": "4fc79f3fb999c12a0039643060ffb0e2837b76a9f8be7299498710dbe2e4c9a8",
+      "keyId": "kid-82d6dbbf47e2",
+      "signedAt": "2026-10-25T18:29:12.097Z"
+    }
+  ],
+  "entries": [
+    {
+      "source": "corpus",
+      "docId": "FAQ-REDEEM",
+      "chunkId": 27,
+      "textSha256": "69893e5cc9ffb345a9423cd4c6b6dbd2cb82af479a29ace0033fd13e961f43cb",
+      "hmac": "0aed791fd6f9c7e02129761aa3f68081e8aef95c1fbc0050d6c1306c9f9d0720"
+    },
+    {
+      "source": "corpus",
+      "docId": "FEE-2024-v1",
+      "chunkId": 22,
+      "textSha256": "1c4b230f390246f3771910ad7530507809772dca339caf08e32c01da3bf70b52",
+      "hmac": "de9e2f6039f014c829ebd6bce03010fc626862b106425464a9192c178027c058"
+    },
+    {
+      "source": "corpus",
+      "docId": "FEE-2025-v3",
+      "chunkId": 21,
+      "textSha256": "b3c15d0a74260430d61ee65ce9c0d7248e9b84ba03ed226e57ee96178748768e",
+      "hmac": "7c211f839367c96c8589f20ea5638f03293f4074148f251d91e50ef9f7511e9a"
+    },
+    {
+      "source": "corpus",
+      "docId": "FEE-SZ-PROMO",
+      "chunkId": 28,
+      "textSha256": "a7bdefed392a0bd8c39279d9e328ee3edf44a88b30f0d2d5ead3229bdfb94d09",
+      "hmac": "5f55fccf5adc899fdfa3a5af68b437205d9a6eae71ba28b1516545ab8740830f"
+    },
+    {
+      "source": "corpus",
+      "docId": "POISON-001",
+      "chunkId": 29,
+      "textSha256": "e8d45a0a171e6d02369efec41e3121e7e3ed334ef2bbeb735c597e7e22577fe4",
+      "hmac": "e7660b097112541388e34a171faa95c2dd43490e46e4dd22658eb20907ab56ec"
+    },
+    {
+      "source": "corpus",
+      "docId": "PROD-W-001",
+      "chunkId": 23,
+      "textSha256": "8cdcf68e96a64e767e563c8b3071f32755936babb09e2948fde51ecc81fa8cd7",
+      "hmac": "9504e64941df200a482efa7ea9492aa21228b5f3755d9b562f60224e01e0b7bf"
+    },
+    {
+      "source": "corpus",
+      "docId": "PROD-W-002",
+      "chunkId": 24,
+      "textSha256": "ee2569698b3108fcc58bfe6f103c0384c161d7b422c4188381a0288140ca224b",
+      "hmac": "301f400e7c9d38ec8f6ef6c48ef6539ac756c10e5115897ea38dc02ecf57048d"
+    },
+    {
+      "source": "corpus",
+      "docId": "PROD-W-003",
+      "chunkId": 25,
+      "textSha256": "e22679c3ee7b77e908db5dbdcb57e804575bd744ab708719c14a320c1cb37752",
+      "hmac": "c029e87a92366b32c3056992a4cdaa9c21cee2ffbead39a1f9abcd4fdb55e24f"
+    },
+    {
+      "source": "corpus",
+      "docId": "RULE-REGION-SH",
+      "chunkId": 30,
+      "textSha256": "e25f08d84ed4f0699c934a4431d8258f76807f91f9b0fff564974053a812c47b",
+      "hmac": "dc0d10fa66fad6ca38f96f79db0a38f77db9f1a755d5a8fc29b964b3ed4228c0"
+    },
+    {
+      "source": "corpus",
+      "docId": "RULE-TRANSFER-MOBILE",
+      "chunkId": 26,
+      "textSha256": "aa6ff7ef0574745142693c91357bd9300cbced61b19c6cd4e28cc834c9e448c9",
+      "hmac": "f1281ee413747773381ecd6a18dc642b98bfc47b557f210718f288664f908f31"
+    },
+    {
+      "source": "fixture",
+      "docId": "FEE-2025-v3",
+      "chunkId": 1,
+      "textSha256": "526eba35dc17b38dad3aeec51dc708009afb78440dba98d4afe254593105b95a",
+      "hmac": "a03f448867f91cf7f3b1e5f65d76a85a05c0d966d80eb241b177bd92b324f94e"
+    }
+  ]
+}

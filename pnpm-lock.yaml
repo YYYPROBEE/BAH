@@ -110,6 +110,34 @@ importers:
         version: 3.18.0
 
   packages/eval:
+    dependencies:
+      '@bah/cli':
+        specifier: workspace:*
+        version: link:../cli
+      '@bah/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bah/host':
+        specifier: workspace:*
+        version: link:../host
+      '@bah/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
+      '@bah/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@bah/persistence':
+        specifier: workspace:*
+        version: link:../persistence
+      '@bah/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@bah/saga':
+        specifier: workspace:*
+        version: link:../saga
+      '@bah/util':
+        specifier: workspace:*
+        version: link:../util
     devDependencies:
       vitest:
         specifier: ^3

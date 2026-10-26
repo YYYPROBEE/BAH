@@ -44,6 +44,24 @@ export interface ToolCallInput {
 export interface ToolExecution {
   /** 冻结的权威结果（与 `tool/result` 落账内容一致）。 */
   readonly result: ToolResultData
+  /**
+   * 工具返回的**结构化原值**（成功时才有）。
+   *
+   * 为什么需要它：`result.content` 是**渲染投影**（`projectContent` 之后），模型能读、
+   * 程序读不了。plan 的动态 args（`"${node.<id>.<path>}"`）要按字段取值，只能拿原值。
+   *
+   * 三条纪律：① **不进任何事件**——金额与收款人不得进 append-only 日志；
+   * ② 只在 `result.isError === false` 时挂载（失败没有"结果原文"可言）；
+   * ③ 消费方只读不写，引擎侧不落盘（跨不了 resume 窗口）。
+   */
+  readonly value?: unknown
+  /**
+   * 本次调用为等审批花掉的毫秒数（没走审批 / 没等待时为 `undefined`）。
+   *
+   * 用**注入钟**测（`this.now()`），与 `tool/result.durationMs` 同一时间轴：
+   * `plan/node-waiting.waitedMs` 直接取它，因此快照回放里这个数可复现。
+   */
+  readonly approvalWaitedMs?: number
   /** 待执行卡片（`presentCall` 的产物；无 presenter 时为 `undefined`）。 */
   readonly callCard?: UiCard
   /** 完成卡片（`presentResult` 的产物；出错或未执行时缺省）。 */

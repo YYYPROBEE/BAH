@@ -2,7 +2,7 @@
  * `bank:knowledge` 宿主插件：配置校验 + fixture 端到端 + 失败策略。
  */
 
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -130,6 +130,17 @@ describe('bank:knowledge 配置校验', () => {
     ).toThrow(/必填/)
     expect(() => parseKnowledgeSettings({ timeouts: { answer: 0 } })).toThrow(/正整数/)
   })
+
+  it('W06 签名配置：默认启用 + 默认路径；未知键拒绝', () => {
+    const settings = parseKnowledgeSettings({})
+    expect(settings.signature).toEqual({
+      enabled: true,
+      manifestPath: 'packages/knowledge/fixtures/knowledge.manifest.json',
+      corpusPath: 'packages/knowledge/fixtures/corpus.json',
+    })
+    expect(() => parseKnowledgeSettings({ signature: { nope: 1 } })).toThrow(/未知配置键/)
+    expect(() => parseKnowledgeSettings({ signature: { enabled: 'yes' } })).toThrow(/布尔/)
+  })
 })
 
 describe('bank:knowledge 端到端（fixture）', () => {
@@ -222,8 +233,7 @@ describe('bank:knowledge 端到端（fixture）', () => {
   })
 })
 
-describe('bank:knowledge 失败策略', () => {
-  it('required=true 且 sidecar 不可达时拒绝启动', async () => {
+describe('bank:knowledge 失败策略', () => {  it('required=true 且 sidecar 不可达时拒绝启动', async () => {
     const promise = bootWith(
       rows({
         knowledge: {
@@ -265,5 +275,70 @@ describe('bank:knowledge 失败策略', () => {
         }),
       ),
     ).rejects.toThrow(/fixturePath 读取失败/)
+  })
+})
+
+describe('W06 · 签名门启动校验', () => {
+  it('TC-W06-01 fixture 正常答案逐字不变（签名门是透明装饰）', async () => {
+    const app = await bootWith(rows())
+    const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+    agent.send('稳盈90天赎回费率')
+    await agent.run()
+    const events = rawEvents(app.ctx.get(SESSION_SERVICE).events())
+    const answered = events.find((event) => event.type === 'knowledge/answered')
+    expect(answered?.data).toMatchObject({ kind: 'answer', verdict: 'GREEN', reasonCode: null })
+    const result = events.find(
+      (event) =>
+        event.type === 'tool/result' &&
+        (event.data as { name?: string }).name === 'knowledge_answer',
+    )
+    expect(JSON.stringify(result?.data)).toContain('赎回费率（持有<7天）为1.50%')
+  })
+
+  it('清单缺失 → invalid-config（不是静默降级）', async () => {
+    await expect(
+      bootWith(
+        rows({
+          knowledge: {
+            mode: 'fixture',
+            fixturePath: FIXTURE,
+            claims: CLAIMS,
+            signature: { manifestPath: 'packages/knowledge/fixtures/no-such.json' },
+          },
+        }),
+      ),
+    ).rejects.toThrow(/清单不存在/)
+  })
+
+  it('密钥缺失 → invalid-config（不许默认密钥）', async () => {
+    const before = process.env['BAH_KNOWLEDGE_KEY']
+    try {
+      delete process.env['BAH_KNOWLEDGE_KEY']
+      await expect(bootWith(rows())).rejects.toThrow(/BAH_KNOWLEDGE_KEY/)
+    } finally {
+      if (before === undefined) delete process.env['BAH_KNOWLEDGE_KEY']
+      else process.env['BAH_KNOWLEDGE_KEY'] = before
+    }
+  })
+
+  it('fixture 文件不在签名清单里 → 启动失败并点名文件', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-w06-unsign-'))
+    const path = join(dir, 'fixture.json')
+    try {
+      writeFileSync(path, readFileSync(FIXTURE, 'utf8'), 'utf8')
+      await expect(
+        bootWith(
+          rows({
+            knowledge: {
+              mode: 'fixture',
+              fixturePath: path,
+              claims: CLAIMS,
+            },
+          }),
+        ),
+      ).rejects.toThrow(/签名清单缺少文件条目/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

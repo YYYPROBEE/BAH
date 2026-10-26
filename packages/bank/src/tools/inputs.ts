@@ -20,6 +20,26 @@ export interface TransferInput {
   readonly idempotencyKey?: string
 }
 
+/**
+ * 元 → 整数分；核心账本的 `money-invalid` 在工具边界归一为 `tool-args-invalid`。
+ *
+ * TC-W03-02 ⑤ 要求"超过 `MAX_SAFE_INTEGER/100`"表现为**参数非法**。换算精度归
+ * `yuanToCents`（唯一铸造点），但 `money-invalid` 是账本错误码，不该让模型在同一件事上
+ * 看到两个码。
+ */
+function amountToCents(amount: number): number {
+  try {
+    return yuanToCents(amount)
+  } catch (error) {
+    if (error instanceof BahError && error.code === 'money-invalid') {
+      throw new BahError('tool-args-invalid', 'bank-tools: amount 超出可精确表示的范围（单位：元）', {
+        amount,
+      })
+    }
+    throw error
+  }
+}
+
 /** 读取收款人。 */
 function parsePayee(args: Readonly<Record<string, unknown>>): TransferReq['payee'] {
   const payee = readObject(args, 'payee', 'transfer')
@@ -49,7 +69,7 @@ export function parseTransferInput(args: Readonly<Record<string, unknown>>): Tra
   const when = readOptionalString(args, 'when', 'transfer')
   const idempotencyKey = readOptionalString(args, 'idempotencyKey', 'transfer')
   return {
-    amountCents: yuanToCents(amount),
+    amountCents: amountToCents(amount),
     payee: parsePayee(args),
     ...(when === undefined ? {} : { when }),
     ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
@@ -118,7 +138,7 @@ export function parsePurchaseAmount(args: Readonly<Record<string, unknown>>): nu
   if (amount <= 0) {
     throw new BahError('tool-args-invalid', 'bank-tools: amount 必须大于 0（单位：元）', { amount })
   }
-  return yuanToCents(amount)
+  return amountToCents(amount)
 }
 
 /** 解析账期口径。 */

@@ -54,6 +54,9 @@
 
 - id: safety:sentry
   config:
+    # W08：审计 trace 显式落 durable 会话事件；缺省不再退化为内存环。
+    trace:
+      sink: session
     rules:
       crossScenario: true
 

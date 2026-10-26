@@ -28,13 +28,13 @@ import { createBankHarness } from './testing.ts'
 const CATALOG_DOC = new URL('../../../../docs/tool-catalog.md', import.meta.url)
 
 describe('工具目录（施工单 08 §2）', () => {
-  it('14 个 P0 工具、数量不超上限、名字唯一', () => {
-    expect(BANK_TOOL_SPECS).toHaveLength(14)
+  it('16 个 P0 工具、数量不超上限、名字唯一', () => {
+    expect(BANK_TOOL_SPECS).toHaveLength(16)
     expect(BANK_TOOL_SPECS.length).toBeLessThanOrEqual(BANK_TOOL_LIMIT)
     expect(new Set(BANK_TOOL_NAMES).size).toBe(BANK_TOOL_NAMES.length)
   })
 
-  it('6 查询 + 2 转账 + 3 理财 + 3 强验证，顺序稳定', () => {
+  it('6 查询 + 2 转账 + 3 理财 + 3 强验证 + 2 资产处置，顺序稳定', () => {
     expect(BANK_TOOL_NAMES).toEqual([
       'account_list',
       'account_balance',
@@ -50,6 +50,9 @@ describe('工具目录（施工单 08 §2）', () => {
       'verify_face',
       'verify_sms',
       'verify_ushield',
+      // W03 §1.3 新增（ADR-0003）：挂失（红）与退订（黄）
+      'card_report_lost',
+      'sub_cancel',
     ])
     expect(specOf('transfer_create').tier).toEqual({ level: 'yellow', amountPath: 'amount' })
     expect(specOf('wealth_purchase').tier.level).toBe('red')
@@ -60,6 +63,47 @@ describe('工具目录（施工单 08 §2）', () => {
     for (const spec of BANK_TOOL_SPECS) {
       expect(spec.description, spec.name).toContain('用')
       expect(spec.description, spec.name).toContain('不要')
+    }
+  })
+
+  it('TC-W03-02 三个金额工具的 amount 契约：> 0 且最多两位小数', () => {
+    for (const name of ['transfer_preview', 'transfer_create', 'wealth_purchase'] as const) {
+      expect(specOf(name).schema.properties?.['amount'], name).toMatchObject({
+        type: 'number',
+        exclusiveMinimum: 0,
+        multipleOf: 0.01,
+      })
+    }
+  })
+
+  it('TC-W03-05 16 个工具的档位 + amountPath 逐条钉死', () => {
+    // 与 `scripts/verify-tiers.ts` 同源：门禁管提交前，这条管测试面（两边任何一边漏都红）
+    const expected: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
+      account_list: { level: 'green' },
+      account_balance: { level: 'green' },
+      txn_query: { level: 'green' },
+      bill_analyze: { level: 'green' },
+      bill_report: { level: 'green' },
+      analysis_calc: { level: 'green' },
+      transfer_preview: { level: 'green' },
+      transfer_create: { level: 'yellow', amountPath: 'amount' },
+      wealth_list: { level: 'green' },
+      wealth_compare: { level: 'green' },
+      wealth_purchase: { level: 'red' },
+      verify_face: { level: 'green' },
+      verify_sms: { level: 'green' },
+      verify_ushield: { level: 'green' },
+      card_report_lost: { level: 'red' },
+      sub_cancel: { level: 'yellow' },
+    }
+    expect(Object.fromEntries(BANK_TOOL_NAMES.map((name) => [name, specOf(name).tier]))).toEqual(
+      expected,
+    )
+    // amountPath 必须指向真实参数（门禁 3 的测试面版本）
+    for (const spec of BANK_TOOL_SPECS) {
+      const amountPath = 'amountPath' in spec.tier ? spec.tier.amountPath : undefined
+      if (amountPath === undefined) continue
+      expect(Object.hasOwn(spec.schema.properties ?? {}, amountPath), spec.name).toBe(true)
     }
   })
 

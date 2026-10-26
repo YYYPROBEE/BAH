@@ -17,13 +17,17 @@
  * 演示前请确认 `profiles/web/patch.yml` 的 `core:model.apiKeyEnv` 与这里同名。
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const envFile = join(root, '.env.local')
+const runsRoot = join(root, 'sessions')
+mkdirSync(runsRoot, { recursive: true })
+const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+const runDir = mkdtempSync(join(runsRoot, `demo-${stamp}-`))
 
 /** 读 `.env.local`（宽松解析：只认 `KEY=VALUE`，空行与 `#` 注释跳过）。 */
 function readEnvFile(path) {
@@ -45,6 +49,14 @@ const fromFile = readEnvFile(envFile)
 // 已存在的环境变量优先：CI / 临时覆盖不该被本地文件顶掉
 const env = { ...fromFile, ...process.env }
 
+// W06：知识库签名门需要密钥。演示用公开的完整性测试密钥并明确警告。
+if (env.BAH_KNOWLEDGE_KEY === undefined || env.BAH_KNOWLEDGE_KEY === '') {
+  env.BAH_KNOWLEDGE_KEY = 'demo-key-not-for-prod'
+  console.warn(
+    '[demo:web] 未设置 BAH_KNOWLEDGE_KEY，使用公开演示密钥（仅完整性校验；生产必须换独立密钥并重签）',
+  )
+}
+
 const keyName = 'BAH_MODEL_KEY'
 if (env[keyName] === undefined || env[keyName] === '') {
   console.warn(
@@ -54,9 +66,25 @@ if (env[keyName] === undefined || env[keyName] === '') {
   )
 }
 
+console.log(`[demo:web] 本次会话目录：${runDir}`)
+console.log(
+  `[demo:web] 审计（链连续性，无密钥）：pnpm bah audit --dir "${runDir}" --no-signature`,
+)
+console.log(
+  `[demo:web] 审计（完整验签，需 keys/saga-ed25519.pem）：pnpm bah audit --dir "${runDir}"`,
+)
+
 const child = spawn(
   process.execPath,
-  [join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs'), 'packages/cli/src/main.ts', '--profile', 'web', '--serve'],
+  [
+    join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+    'packages/cli/src/main.ts',
+    '--profile',
+    'web',
+    '--serve',
+    '--jsonl',
+    runDir,
+  ],
   { cwd: root, stdio: 'inherit', env },
 )
 

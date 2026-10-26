@@ -180,6 +180,8 @@ export interface Transaction {
   readonly category: TxnCategory
   readonly channel: TxnChannel
   readonly status: TxnStatus
+  /** 冲正流水指向的原交易（W12）：只有冲正流水带这个字段，原交易永不被删改。 */
+  readonly reversalOf?: TxnId
 }
 
 /** 账单异常标记。 */

@@ -32,6 +32,10 @@ export interface TicketLedgerEntry {
   readonly amountCents?: number
   /** 过期时刻（epoch ms）——同时是审批超时的截止时刻（同源于 `ticketTtlSeconds`）。 */
   readonly expiresAt: number
+  /** 执行 lease 的 ID（W12；宿主注入，缺省 = 无 lease、行为与旧版完全一致）。 */
+  readonly leaseId?: string
+  /** 执行 lease 的到期时刻（epoch ms）；**必须 ≤ `expiresAt`**。 */
+  readonly leaseExpiresAt?: number
   /** 当前状态。 */
   readonly status: TicketLifecycleStatus
   /** 签发时刻。 */
@@ -56,6 +60,16 @@ export interface TicketIssueInput {
   readonly fingerprint: string
   readonly amountCents?: number
   readonly expiresAt: number
+  /**
+   * 执行 lease（W12；由宿主随票据一起注入）。
+   *
+   * 结构内联而不是命名类型：`interaction` 不 import `@bah/runtime`（TC-W12-10），
+   * 也不在本包再声明一份 `TicketLease`（那会成为第二个真相源）。
+   */
+  readonly lease?: {
+    readonly leaseId: string
+    readonly expiresAt: number
+  }
   /** 签发时刻。 */
   readonly at: number
 }
@@ -107,6 +121,7 @@ export class TicketLedger {
         ticketId: input.ticketId,
       })
     }
+    if (input.lease !== undefined) this.assertLeaseFitsTicket(input)
     this.prune(input.at)
     const entry: TicketLedgerEntry = {
       ticketId: input.ticketId,
@@ -115,6 +130,9 @@ export class TicketLedger {
       fingerprint: input.fingerprint,
       ...(input.amountCents === undefined ? {} : { amountCents: input.amountCents }),
       expiresAt: input.expiresAt,
+      ...(input.lease === undefined
+        ? {}
+        : { leaseId: input.lease.leaseId, leaseExpiresAt: input.lease.expiresAt }),
       status: 'issued',
       issuedAt: input.at,
     }
@@ -134,6 +152,63 @@ export class TicketLedger {
       },
     })
     return entry
+  }
+
+  /**
+   * 续租执行 lease（`leaseId` 不变，只前移到期时刻）。
+   *
+   * @throws `BahError('lease-missing')` 该票据没有 lease（未注入）
+   * @throws `BahError('ticket-unknown')` / `BahError('ticket-closed')`
+   * @throws `BahError('ticket-expired')` lease 已过期（不重签）
+   * @throws `BahError('lease-renew-invalid')` 新到期时刻未前移
+   * @throws `BahError('lease-outlives-ticket')` 越过票据 TTL
+   */
+  renewLease(ticketId: string, expiresAt: number, at: number): TicketLedgerEntry {
+    const entry = this.require(ticketId)
+    if (entry.leaseExpiresAt === undefined || entry.leaseId === undefined) {
+      throw new BahError('lease-missing', `interaction: 票据没有执行 lease：${ticketId}`, {
+        ticketId,
+      })
+    }
+    if (entry.status === 'redeemed' || entry.status === 'consumed' || entry.status === 'blocked') {
+      throw this.closed(entry, 'renew')
+    }
+    if (at >= entry.leaseExpiresAt) {
+      this.block(ticketId, 'ticket-expired', at)
+      throw new BahError('ticket-expired', `interaction: lease 已过期：${ticketId}`, {
+        ticketId,
+        leaseId: entry.leaseId,
+        expiresAt: entry.leaseExpiresAt,
+        now: at,
+      })
+    }
+    if (!Number.isFinite(expiresAt) || expiresAt <= entry.leaseExpiresAt) {
+      throw new BahError(
+        'lease-renew-invalid',
+        `interaction: 续租只能前移（${String(expiresAt)} <= ${String(entry.leaseExpiresAt)}）：${ticketId}`,
+        { ticketId, expiresAt, current: entry.leaseExpiresAt },
+      )
+    }
+    if (expiresAt > entry.expiresAt) {
+      throw new BahError(
+        'lease-outlives-ticket',
+        `interaction: lease(${String(expiresAt)}) 晚于票据 TTL(${String(entry.expiresAt)})：${ticketId}`,
+        { ticketId, expiresAt, ticketExpiresAt: entry.expiresAt },
+      )
+    }
+    const previousExpiresAt = entry.leaseExpiresAt
+    return this.transition(entry, { leaseExpiresAt: expiresAt }, (next) => ({
+      type: 'ticket/lease-renewed',
+      data: {
+        ticketId: next.ticketId,
+        callId: next.callId,
+        name: next.name,
+        leaseId: entry.leaseId as string,
+        previousExpiresAt,
+        expiresAt,
+        at,
+      },
+    }))
   }
 
   /**
@@ -166,6 +241,16 @@ export class TicketLedger {
       })
     }
     if (entry.status !== 'approved') throw this.closed(entry, 'redeem')
+    // W12：lease 是比票据 TTL 更紧的窗口；过期即作废，不重签、不放行。
+    if (entry.leaseExpiresAt !== undefined && at >= entry.leaseExpiresAt) {
+      this.block(ticketId, 'ticket-expired', at)
+      throw new BahError('ticket-expired', `interaction: 票据 lease 已过期：${ticketId}`, {
+        ticketId,
+        leaseId: entry.leaseId,
+        expiresAt: entry.leaseExpiresAt,
+        now: at,
+      })
+    }
     return this.transition(entry, { status: 'redeemed', redeemedAt: at }, (next) => ({
       type: 'ticket/redeemed',
       data: { ticketId: next.ticketId, callId: next.callId, name: next.name, at },
@@ -247,6 +332,32 @@ export class TicketLedger {
       throw new BahError('ticket-unknown', `interaction: 未知票据：${ticketId}`, { ticketId })
     }
     return entry
+  }
+
+  /** 签发期 lease 校验：窗口必须为正、不越过票据 TTL（TC-W12-09 的账本侧）。 */
+  private assertLeaseFitsTicket(input: TicketIssueInput): void {
+    const lease = input.lease
+    if (lease === undefined) return
+    if (typeof lease.leaseId !== 'string' || lease.leaseId.trim().length === 0) {
+      throw new BahError('lease-invalid', `interaction: leaseId 非法：${input.ticketId}`, {
+        ticketId: input.ticketId,
+        leaseId: lease.leaseId,
+      })
+    }
+    if (!Number.isFinite(lease.expiresAt) || lease.expiresAt <= input.at) {
+      throw new BahError('lease-invalid', `interaction: lease 签发即过期：${input.ticketId}`, {
+        ticketId: input.ticketId,
+        expiresAt: lease.expiresAt,
+        at: input.at,
+      })
+    }
+    if (lease.expiresAt > input.expiresAt) {
+      throw new BahError(
+        'lease-outlives-ticket',
+        `interaction: lease(${String(lease.expiresAt)}) 晚于票据 TTL(${String(input.expiresAt)})：${input.ticketId}`,
+        { ticketId: input.ticketId, expiresAt: lease.expiresAt, ticketExpiresAt: input.expiresAt },
+      )
+    }
   }
 
   private closed(entry: TicketLedgerEntry, action: string): BahError {

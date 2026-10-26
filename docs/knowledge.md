@@ -167,6 +167,37 @@ bah: 知识卡
 - `required: false`：sidecar 不可达时只告警，工具返回 `knowledge-unavailable`；`required: true`：启动即失败。
 - `claims` 是演示档的权限映射；生产应由登录凭证绑定，插件只消费 `BANK_IDENTITY` 的 userId。
 
+### 4.1 签名门（W06）
+
+```yaml
+    signature:
+      enabled: true            # false = 关掉签名门（仅演示回滚；必须在 PROGRESS 登记）
+      manifestPath: packages/knowledge/fixtures/knowledge.manifest.json
+      corpusPath: packages/knowledge/fixtures/corpus.json
+```
+
+- **清单形状**：`{ schemaVersion, keyId, signedAt, files: [{ path, sha256, hmac, keyId, signedAt }], entries: [{ source, docId, chunkId, textSha256, hmac }] }`；
+  `files` 覆盖语料索引与 fixture，`entries` 覆盖 10 个 chunk（`source: corpus`）与 fixture 证据（`source: fixture`）。
+- **两级验签**：启动时校验文件 sha256 + HMAC（语料被整体替换 / 改了忘重签 → `invalid-config`，
+  错误点名文件）；每次检索命中逐条校验 `(docId, chunkId, text)` 的 sha256 + HMAC（服务端内容漂移 /
+  拼接伪造 → 该条不算命中，整条答案降级为拒答）。
+- **拒答语义**：`kind: 'refusal'`、`verdict: 'RED'`、`reasonCode: 'signature-invalid'`，
+  复用既有 `knowledge/answered` 事件（**不新增事件类型**）。
+- **密钥**：只从 `BAH_KNOWLEDGE_KEY` 读，缺失即 `invalid-config`（库代码无默认密钥）。
+  本地 `export BAH_KNOWLEDGE_KEY=$(cat .secrets/knowledge.key)`；演示脚本显式注入
+  `demo-key-not-for-prod` 并打印警告；CI 在 workflow `env:` 注入固定测试密钥。
+  `profiles/*.yml` **不得**写密钥（会进 git）。无 KMS/HSM，生产必须换独立密钥并重签。
+- **生成与检查**：
+
+  ```bash
+  npx tsx scripts/sign-knowledge.ts --from-sqlite   # 从 RAG SQLite 重新导出 10 篇语料索引（开发机）
+  pnpm knowledge:sign                               # 用当前 BAH_KNOWLEDGE_KEY 重新签名
+  pnpm knowledge:sign --check                       # CI：只检查，不改文件
+  ```
+
+- **诚实边界**：语料只有 **10 篇 / 10 chunks**，"10/10 通过"不构成覆盖面证据（K-6 未接）；
+  HMAC 是对称完整性校验，不是来源认证。
+
 ## 5. 工具契约
 
 | 工具 | 用途 | 参数 |
@@ -209,3 +240,4 @@ Python 侧的锚点：
 | K-6 | 真实语料解析未接 | 只有 10 篇 demo | **记账，确认以后干**：PDF/DOCX/XLSX + 结构分块 + 哨兵 |
 | K-7 | FTS5 trigram 对长中文问句召回弱 | 混合检索实际由向量通道兜底 | 可选：jieba 分词或 2-4 gram 展开；当前不影响演示题库 |
 | K-8 | 向量绝对距离闸 0.45 为 demo 语料实测值 | 换语料/换模型需重标 | 配置项 `VECTOR_MAX_DISTANCE`，黄金集首跑后校准 |
+| K-9 | 签名清单基于 **10 篇 demo 语料**（`corpus.json` 由 SQLite 导出） | 真实语料接入后必须重跑 `pnpm knowledge:sign`，否则启动 fail-loud | W06 已落地；重签命令与 CI 检查见 §4.1 |

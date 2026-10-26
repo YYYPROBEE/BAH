@@ -5,3 +5,6 @@ export * from './tools.ts'
 export * from './fixture.ts'
 export * from './events.ts'
 export * from './service.ts'
+// W06：权威库签名门（清单/条目验签 + 可验证端口）
+export * from './sign.ts'
+export * from './verify-port.ts'

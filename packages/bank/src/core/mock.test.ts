@@ -587,3 +587,81 @@ describe('幂等表软上限', () => {
     expect((await core.balance(ACCOUNT)).balanceCents).toBeLessThan(NOW)
   })
 })
+
+describe('W12 冲正（补偿回读的账本面）', () => {
+  it('reverse 保留原交易并新增冲正流水：余额回补、额度回退、对账看得见两条', async () => {
+    const core = setup()
+    const before = await core.balance(ACCOUNT)
+    const created = await core.createTransfer(transfer(), ticket(core))
+
+    const reversal = await core.reverse(created.txnId)
+
+    expect(reversal.txnId).toBe(created.txnId)
+    expect(reversal.reversalTxnId).not.toBe(created.txnId)
+    expect(reversal.amountCents).toBe(80_000)
+
+    const after = await core.balance(ACCOUNT)
+    expect(after.balanceCents).toBe(before.balanceCents)
+    expect(after.availableCents).toBe(before.availableCents)
+    expect(reversal.dailyUsedCents).toBe(0)
+
+    const page = await core.queryTransactions({
+      userId: USER,
+      accountId: ACCOUNT,
+      from: NOW - 1_000,
+      to: NOW + 1_000,
+    })
+    const flows = page.items.filter((item) => item.id === created.txnId || item.id === reversal.reversalTxnId)
+    expect(flows).toHaveLength(2)
+    expect(flows.find((item) => item.id === created.txnId)).toMatchObject({
+      direction: 'out',
+      category: 'transfer',
+      status: 'success',
+    })
+    expect(flows.find((item) => item.id === reversal.reversalTxnId)).toMatchObject({
+      direction: 'in',
+      category: 'refund',
+      status: 'success',
+      reversalOf: created.txnId,
+    })
+  })
+
+  it('TC-W12-04 同一 txnId 冲正两次只生效一次（幂等，不重复回补）', async () => {
+    const core = setup()
+    const created = await core.createTransfer(transfer(), ticket(core))
+    const first = await core.reverse(created.txnId)
+    const afterFirst = await core.balance(ACCOUNT)
+
+    const second = await core.reverse(created.txnId)
+    const afterSecond = await core.balance(ACCOUNT)
+
+    expect(second).toEqual(first)
+    expect(afterSecond).toEqual(afterFirst)
+    expect(core.reversalOf(created.txnId)).toEqual(first)
+
+    const page = await core.queryTransactions({ userId: USER, accountId: ACCOUNT })
+    const reversals = page.items.filter((item) => item.reversalOf === created.txnId)
+    expect(reversals).toHaveLength(1)
+  })
+
+  it('只允许冲正“成功 + 转出 + transfer”：其余 fail-loud，不静默跳过', async () => {
+    const core = setup()
+    expect((await captureThrownAsync(() => core.reverse('txn:missing'))).code).toBe('txn-unknown')
+
+    const created = await core.createTransfer(transfer(), ticket(core))
+    const reversal = await core.reverse(created.txnId)
+    expect((await captureThrownAsync(() => core.reverse(reversal.reversalTxnId))).code).toBe(
+      'txn-not-reversible',
+    )
+  })
+})
+
+/** 异步抛错捕获（本文件其余用例用同步 rejection；冲正是 Promise）。 */
+async function captureThrownAsync(run: () => Promise<unknown>): Promise<{ readonly code?: string }> {
+  try {
+    await run()
+  } catch (error) {
+    return error as { readonly code?: string }
+  }
+  throw new Error('预期应抛错，但调用成功了')
+}

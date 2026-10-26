@@ -113,6 +113,27 @@ const ref = {
 审批票据的 `issued → approved / blocked` 生命周期由 `tools/governance.ts` 的 `approval/request`
 桥接同步（详见 [bank-tools.md](bank-tools.md) §3）。
 
+### 4.1 冲正与执行 lease（W12）
+
+**冲正**（`MockBankCore.reverse(txnId)`，不是 `BankCoreProvider` 的方法）：
+
+- 落**两条流水**：原 `out / transfer` 保留，新增 `in / refund / reversalOf = 原 txnId`；
+- 幂等键 = 原 `txnId`：重复调用返回首次结果，不重复回补余额；
+- 只允许冲正"成功 + 转出 + transfer"的交易，其余 `txn-not-reversible`（宁可人工处理）；
+- 当日额度口径改为**净转出**：当日 `out transfer` 之和 − 当日冲正 `refund` 之和（下限 0）。
+  风控速度窗口与重复检测仍按原始流水计数（保守口径：发生过就先算上；要一并回退需另立规则）。
+- 对 saga 暴露的是窄端口 `bank:compensation`（`BANK_COMPENSATION`，只含 `reverse` / `reversalOf`），
+  不暴露票据、审批或任意账本写入面。**生产需换成银行核心的冲正/退款接口**。
+
+**执行 lease**（`packages/runtime/src/policy/ticket.ts`）：
+
+- `TicketLease = { leaseId, ticketId, expiresAt }`，独立类型，不与两份 `TicketRef` 合并；
+- 治理桥接在 `approval/request` 签发时生成 `leaseId = lease:<ticketId>`，
+  并把 **`min(票据 TTL, 签发时刻 + lease TTL)`** 写进 bank-core 五绑定的 `expiresAt`——
+  核销点就是执行点，过期票据不会"钱先出去、账本再拦"；
+- `lease.expiresAt <= 票据 expiresAt` 在配置与账本两处 fail-loud；`renewLease()` 只前移、不动票据 TTL；
+- 回滚开关：`bank:tools.ticketLease.enforce: false`（退回只用票据 TTL）。
+
 ## 5. 造数三档
 
 ```ts

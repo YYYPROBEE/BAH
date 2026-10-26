@@ -5,17 +5,19 @@
  * `service-missing`。打开即迁移；dispose 时关闭连接。
  */
 
-import { resolve } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 
 import { createSagaStore } from '@bah/persistence'
 import { SAGA_STORE, TARGET_REGISTRY } from '@bah/saga'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { readString, rejectUnknownKeys } from '../config.ts'
+import { SESSION_FILES } from './persistence.ts'
 
 /** `bank:saga-store` 的配置。 */
 export interface SagaStoreSettings {
-  /** sqlite 文件路径；相对进程 cwd；`:memory:` 仅用于测试。 */
+  /** sqlite 文件路径；相对会话根目录；`:memory:` 仅用于测试。 */
   readonly dbPath: string
 }
 
@@ -25,7 +27,11 @@ export const sagaStorePlugin: HostPlugin<SagaStoreSettings> = {
   plugin: {
     name: 'bank:saga-store',
     apply(ctx, config) {
-      const dbPath = config.dbPath === ':memory:' ? ':memory:' : resolve(process.cwd(), config.dbPath)
+      // 跟随会话根：否则 --jsonl / per-run demo 只换了会话日志，事务库仍落在 sessions/，
+      // 审计时会出现“库有事务、目录无链”的反向缺口。
+      const dbPath =
+        config.dbPath === ':memory:' ? ':memory:' : resolve(ctx.get(SESSION_FILES).root, config.dbPath)
+      if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true })
       const store = createSagaStore({ dbPath })
       ctx.provide(SAGA_STORE, store)
       // SA-16 §8：批 6 补齐目标登记的生产提供者，避免补偿路径 `service-missing`。

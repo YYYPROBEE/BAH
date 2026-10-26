@@ -8,6 +8,8 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
@@ -38,7 +40,9 @@ describe('CLI 入口（进程级冒烟）', () => {
     expect(result.stderr).toBe('')
   })
 
-  it('--profile headless --dump-config：真实 profile 加载成功、生效树带来源层', () => {
+  // 显式超时：本用例 spawn 一个真实 Node 进程加载 profile，5s 默认值在负载高时会假红
+  // （实测 5333ms 触发过一次）。断言一条没改，只是给它真实的执行预算。
+  it('--profile headless --dump-config：真实 profile 加载成功、生效树带来源层', { timeout: 30_000 }, () => {
     const result = run(['--profile', 'headless', '--dump-config'])
 
     expect(result.error).toBeUndefined()
@@ -49,5 +53,53 @@ describe('CLI 入口（进程级冒烟）', () => {
     expect(result.stdout).toContain('core:model')
     expect(result.stdout).toContain('demo:echo')
     expect(result.stderr).toBe('')
+  })
+
+  // W04 TC-08：web profile 不写 autoDecision（`responder: none` 是"等人点"），
+  // 若有人给它加了 headless 的配置键，`rejectUnknownKeys` 会让这里退出码非 0。
+  it('--profile web --dump-config：web profile 起得来（W04 TC-08）', { timeout: 30_000 }, () => {
+    const result = run(['--profile', 'web', '--dump-config'])
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('profile-patch:profiles/web/patch.yml')
+    expect(result.stdout).toContain('channel:web')
+    expect(result.stdout).toContain('bank:knowledge')
+    expect(result.stderr).toBe('')
+  })
+
+  // W04 TC-09：头尾两个 profile 的审批默认值必须与矩阵一致
+  // （headless / plan 的 allow 是**演示开关**，web 是人工弹窗 + 默认 reject）。
+  it('三个 profile 的审批配置实测值（W04 TC-09）', { timeout: 60_000 }, () => {
+    const expected: readonly (readonly [string, string])[] = [
+      ['headless', '{"responder":"headless","autoDecision":"allow","autoVerify":true}'],
+      ['plan', '{"responder":"headless","autoDecision":"allow","autoVerify":true}'],
+      ['web', '{"responder":"none","autoDecision":"reject","autoVerify":true}'],
+    ]
+    for (const [profile, config] of expected) {
+      const result = run(['--profile', profile, '--dump-config'])
+      expect(result.status, profile).toBe(0)
+      expect(result.stdout, profile).toContain(`interaction:approval`)
+      expect(result.stdout, profile).toContain(config)
+      expect(result.stderr, profile).toBe('')
+    }
+  })
+
+  // W08 TC-08：headless 的 patch-*.yml 变体都必须能载入，且继承基础 patch 的 trace.sink。
+  // 施工单写“7 个 patch-*.yml”；实测 6 个变体（第 7 份是基础 patch.yml，不是变体），
+  // 数字差异记在 W08 回执里。
+  it('W08 TC-08：6 个 headless patch 变体全部可载入（trace.sink 继承）', { timeout: 120_000 }, () => {
+    const dir = join(repoRoot, 'profiles/headless')
+    const variants = readdirSync(dir)
+      .filter((file) => file.startsWith('patch-') && file.endsWith('.yml'))
+      .sort()
+    expect(variants).toHaveLength(6)
+
+    for (const file of variants) {
+      const result = run(['--profile', 'headless', '--patch', `profiles/headless/${file}`, '--dump-config'])
+      expect(result.status, file).toBe(0)
+      expect(result.stderr, file).toBe('')
+      expect(result.stdout, file).toContain('"sink":"session"')
+    }
   })
 })

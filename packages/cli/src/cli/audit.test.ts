@@ -320,6 +320,8 @@ describe('runAudit：链与签名', () => {
     expect(result.code).toBe(1)
     expect(result.out).toContain('链断于 1')
     expect(result.out).toContain('结论：发现异常')
+    // W08 TC-04：断链告警必须点名事件与条目（stderr）
+    expect(result.err).toContain('audit/chain-broken a brokenAt=1')
   })
 
   it('链文件中间行损坏 → errors，退出 1', async () => {

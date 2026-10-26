@@ -10,12 +10,14 @@ import type {
   AccountId,
   BankLimits,
   BillAnomaly,
+  CardId,
   Holding,
   PayeeBinding,
   PayeeId,
   ProductId,
   ProductKind,
   RiskGrade,
+  SubscriptionId,
   Transaction,
   TxnCategory,
   TxnChannel,
@@ -177,6 +179,19 @@ export interface PurchaseReq {
  * 读操作不需要票据；**写操作全部强制 `TicketRef`**（授权进领域边界）。
  * card / subscription 的读写随施工单 08 的工具对齐补齐（本阶段只落九实体与造数）。
  */
+/** 挂失银行卡的结果（ADR-0003）。 */
+export interface CardLostResult {
+  readonly cardId: CardId
+  readonly tail: string
+  readonly status: 'lost'
+}
+
+/** 取消订阅的结果（ADR-0003）。 */
+export interface SubscriptionCancelled {
+  readonly subscriptionId: SubscriptionId
+  readonly merchant: string
+}
+
 export interface BankCoreProvider {
   listAccounts(userId: UserId): Promise<Account[]>
   balance(accountId: AccountId): Promise<Balance>
@@ -190,6 +205,14 @@ export interface BankCoreProvider {
   createTransfer(req: TransferReq, ticket: TicketRef): Promise<TransferResult>
   /** 购买理财（写；票据门禁同上）。 */
   purchaseWealth(req: PurchaseReq, ticket: TicketRef): Promise<Holding>
+
+  /** 挂失银行卡（写；红档，票据门禁同上）。 */
+  reportCardLost(userId: UserId, cardId: CardId): Promise<CardLostResult>
+  /** 取消自动扣款订阅（写；黄档，票据门禁同上）。 */
+  cancelSubscription(
+    userId: UserId,
+    subscriptionId: SubscriptionId,
+  ): Promise<SubscriptionCancelled>
 
   /** 风控阈值（只读视图，供工具层展示/解释用）。 */
   limits(): BankLimits

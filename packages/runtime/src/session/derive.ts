@@ -183,6 +183,9 @@ function project(event: ProjectableEvent, openCalls: Map<string, string>): Deriv
     // 不是模型消息——摘要进历史的方式见 `buildModelHistory`（以一条 user 消息呈现）。
     case 'usage/summary':
     case 'compaction/summary':
+    // W05：核验门的判决计数是审计事实，不是模型消息；投影必须显式忽略它
+    // （平台表新增键后忘补 case 会抛 `session-unprojected-event`，这里由新增用例钉住）。
+    case 'safety/assertion':
       return []
 
     default: {

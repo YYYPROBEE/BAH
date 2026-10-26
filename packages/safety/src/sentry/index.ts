@@ -10,5 +10,6 @@
  * 对外入口只有本文件；包内其它模块从 `../kernel/index.ts` 或 `../pipeline/index.ts` 取用。
  */
 
+export * from './halt.ts'
 export * from './kernel/index.ts'
 export * from './pipeline/index.ts'

@@ -21,6 +21,25 @@ function readWebToken() {
 }
 
 /**
+ * 从 cookie 读 CSRF 令牌（W09 double-submit）。
+ *
+ * 服务端在 index.html 响应里下发 `bah_csrf`（非 HttpOnly），前端把它回填到
+ * `x-bah-csrf` 请求头；跨站脚本既读不到同源响应体，也读不到这条 cookie。
+ *
+ * @param {string} name
+ * @returns {string} 没有 cookie 时返回空串
+ */
+function readCookie(name) {
+  if (typeof document === 'undefined') return ''
+  for (const part of String(document.cookie ?? '').split(';')) {
+    const index = part.indexOf('=')
+    if (index < 0) continue
+    if (part.slice(0, index).trim() === name) return decodeURIComponent(part.slice(index + 1).trim())
+  }
+  return ''
+}
+
+/**
  * HTTP 客户端。
  *
  * @param {{ base?: string, token?: string }} [options]
@@ -28,11 +47,13 @@ function readWebToken() {
 export function createHttpApi(options = {}) {
   const base = options.base ?? ''
   const token = options.token ?? readWebToken()
+  const csrfToken = options.csrfToken ?? readCookie('bah_csrf')
 
   /** 发一个 JSON 请求；非 2xx 不抛，返回结构化结果（界面按 `code` 决定文案）。 */
   async function request(method, path, body) {
     const init = { method, headers: {} }
     if (token !== '') init.headers.authorization = `Bearer ${token}`
+    if (method !== 'GET' && csrfToken !== '') init.headers['x-bah-csrf'] = csrfToken
     if (body !== undefined) {
       init.headers['content-type'] = 'application/json'
       init.body = JSON.stringify(body)

@@ -1,5 +1,8 @@
 # 施工单：把 `bah audit` 接入 monorepo
 
+> 2026-10-24 更新：`bank:saga-bridge` 已接入 `transfer_create`；本文 R145“生产链为空”与 R172“0 事务”已过时。
+> 当前口径以 `docs/audit.md` 与 `docs/security-self-assessment.md` 为准。
+
 > 施工单代号：施工单 16
 > 起草日期：2026-10-21
 > 基线：`pnpm gate` **23/23 全绿**（实测，`BAH_ALLOW_NO_SNAPSHOT=1` 放行 snapshot-fresh）

@@ -5,7 +5,9 @@
 > 基线：`HEAD 0cd4a5d` + 未提交并发改动（eval / memory-store / saga-bridge）
 > 适用范围：`packages/safety`（sentry）、`packages/host`（web 管理路由）、`packages/cli`（sentry 子命令）、文档
 > 依据：`审计-2026-10-22/交叉核查/插件交叉核查报告-2026-10-22.md` C-7/C-8、`文档归档/幻觉防护施工集-处置方案-2026-10-22.md` HP-0
-> 状态：**待施工**（本文只出施工规格，不含代码）
+> 状态：**已施工**（2026-10-23；HP0-01…15 全部落地，回执见 `PROGRESS.md` §49）
+> HP-3（HALT）：**已施工**（2026-10-25，W07）；本文中"HP-3 再做/未实现"的表述是
+> HP-0 阶段的**历史边界**，现状见 `docs/security-self-assessment.md` §6.1。
 
 ---
 
@@ -75,7 +77,7 @@ CLI 客户端（新进程） --POST /api/admin/sentry/unfreeze--> 运行中的 w
 
 - 管理路由只绑本机回环、只接受 `BAH_ADMIN_TOKEN`、默认关闭（未设 token 时 404）。
 - CLI 只是 HTTP 客户端；它不 boot app、不伪造解冻。
-- **headless 限制**：headless 没有 HTTP 服务，HP-0 阶段没有远程解冻入口，只能重启进程。这一点必须写进 `docs/sentry.md`，不能假装 CLI 能解。HP-3 再评估控制套接字或审批票据解除。
+- **headless 限制**：headless 没有 HTTP 服务，HP-0 阶段没有远程解冻入口，只能重启进程。这一点必须写进 `docs/sentry.md`，不能假装 CLI 能解。HP-3 再评估控制套接字或审批票据解除（**2026-10-25 已按审批票据路径落地，见 `docs/sentry.md` §5.2**）。
 
 ---
 
@@ -391,4 +393,4 @@ pnpm gate
 - 禁止把管理路由绑到 `0.0.0.0` 还只靠 token；回环检查必须保留。
 - 禁止在 `sentry/verifier-failed` 里记录工具参数、账户号、金额、用户原话。
 - 禁止用“监听器坏了继续 accept”作为降级理由；这是本单要修的反模式。
-- 禁止把本单扩成 HALT/审批解除；HP-3 再做。
+- 禁止把本单扩成 HALT/审批解除；HP-3 再做（**已于 2026-10-25 由 W07 施工**）。

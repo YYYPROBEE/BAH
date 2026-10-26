@@ -30,7 +30,7 @@
 import { BahError, assertNever, reasonOf } from '@bah/util'
 import { UsageLedger, assembleStream } from '@bah/llm'
 
-import type { Context, SessionId } from '@bah/core'
+import type { ContentBlock, Context, SessionId, TicketId } from '@bah/core'
 import type {
   AssembledStream,
   AssembledToolCall,
@@ -59,6 +59,7 @@ import type { ToolRegistry } from '../tools/registry.ts'
 import {
   dispatchLlmStream,
   dispatchPreStep,
+  dispatchReply,
   dispatchRequest,
   dispatchTurnStopping,
   type Agent,
@@ -111,8 +112,22 @@ export interface AgentLoopOptions {
   readonly runtimeContext?: () => RuntimeContextView | undefined
   readonly now?: () => number
   readonly guard?: ToolGuard
+  /**
+   * 票据 ID 生成器（缺省随机 UUID）。
+   *
+   * 只给验收面注入确定性 ID（快照回放）；生产不传，票号必须不可预测。
+   */
+  readonly mintTicketId?: (callId: string) => TicketId
   /** 分叉来源（`fork()` 内部使用）。 */
   readonly forkInfo?: ForkInfo
+  /**
+   * 入队前的全系统闸（HALT 等）：抛错即拒绝这条输入。
+   *
+   * 为什么放在 `send()` 而不是 `agent/pre-step`：后者只能把 turn 以 `blocked` 关闭，
+   * 宿主拿不到"现在不能接受输入"的同步信号；而 HALT 的出口要求 `agent.send()` 直接
+   * 抛 `safety-halted`（W07 TC-01）。闸的判定归宿主（运行时**不认识** safety 包）。
+   */
+  readonly beforeSend?: () => void
 }
 
 /** 单 step 的输入。 */
@@ -152,6 +167,9 @@ export class AgentLoop implements Agent {
 
   private readonly guard: ToolGuard
 
+  /** 验收面注入的票据 ID 生成器；生产缺省（管线自己用随机 UUID）。 */
+  private readonly mintTicketId: ((callId: string) => TicketId) | undefined
+
   private readonly ledger = new UsageLedger()
 
   private readonly abort = new TurnAbort()
@@ -161,6 +179,9 @@ export class AgentLoop implements Agent {
   private readonly channel: ChannelKind | undefined
 
   private readonly runtimeContext: (() => RuntimeContextView | undefined) | undefined
+
+  /** 入队前的全系统闸（HALT；缺省 = 不设防，由宿主决定）。 */
+  private readonly beforeSend: (() => void) | undefined
 
   /** 已开过的 turn 数（从日志续号：分叉 / 回放的会话不会从 1 重来）。 */
   private turns: number
@@ -181,9 +202,11 @@ export class AgentLoop implements Agent {
     this.inbox = options.inbox ?? new Inbox({ now: options.now ?? (() => Date.now()) })
     this.queue = options.queue ?? new RuntimeContextQueue()
     this.guard = options.guard ?? new ToolGuard()
+    this.mintTicketId = options.mintTicketId
     this.now = options.now ?? (() => Date.now())
     this.channel = options.channel
     this.runtimeContext = options.runtimeContext
+    this.beforeSend = options.beforeSend
     this.turns = lastTurnOf(options.session.events())
     this.sessionId = options.session.sessionId
     this.id = options.id ?? (`agent:${options.session.sessionId}` as AgentId)
@@ -199,6 +222,7 @@ export class AgentLoop implements Agent {
 
   send(text: string, options: SendOptions = {}): void {
     this.ensureAlive()
+    this.beforeSend?.()
     this.inbox.send(text, options)
   }
 
@@ -267,6 +291,7 @@ export class AgentLoop implements Agent {
       forkInfo: info,
       ...(this.channel === undefined ? {} : { channel: this.channel }),
       ...(this.runtimeContext === undefined ? {} : { runtimeContext: this.runtimeContext }),
+      ...(this.mintTicketId === undefined ? {} : { mintTicketId: this.mintTicketId }),
       now: this.now,
     })
   }
@@ -504,28 +529,86 @@ export class AgentLoop implements Agent {
     const toolCalls = assembled.toolCalls
     if (assembled.finishReason === 'tool-calls') {
       if (toolCalls.length === 0) {
-        this.appendAssistantMessage(assembled)
+        await this.appendAssistantMessage(assembled, turn, step, signal)
         return this.fail(turn, '模型以 tool-calls 结束但没有给出任何工具调用（拒绝空转）')
       }
       try {
         await this.runToolCalls(toolCalls, signal)
       } finally {
-        this.appendAssistantMessage(assembled)
+        await this.appendAssistantMessage(assembled, turn, step, signal)
       }
     } else {
-      this.appendAssistantMessage(assembled)
+      await this.appendAssistantMessage(assembled, turn, step, signal)
     }
 
     return outcomeOf(assembled.finishReason)
   }
 
-  /** 落 `assistant/message`（工具调用在这里一并落账，wire 侧才配得上 tool 消息）。 */
-  private appendAssistantMessage(assembled: AssembledStream): void {
+  /**
+   * 落 `assistant/message`（工具调用在这里一并落账，wire 侧才配得上 tool 消息）。
+   *
+   * 落账前先过 `agent/reply`（waterfall）：核验门用它把"未核实/拒答"写进日志的
+   * **最终事实**。没有监听器时原样透传（默认零影响）。钩子自身抛错时 fail-closed：
+   * 落拒答文本，并把异常记进 `assistant/attempt`，绝不把未核验原文发出去。
+   */
+  private async appendAssistantMessage(
+    assembled: AssembledStream,
+    turn: number,
+    step: number,
+    signal: AbortSignal,
+  ): Promise<void> {
     const toolCalls = assembled.toolCalls
+    let content = toSessionBlocks(assembled.content)
+    const originalText = content
+      .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+      .map((block) => block.text)
+      .join('')
+
+    if (originalText.length > 0) {
+      const input = {
+        agent: this.ref,
+        turn,
+        step,
+        text: originalText,
+        toolResults: this.toolResultsOfTurn(turn),
+        hasToolCalls: toolCalls.length > 0,
+        signal,
+      }
+      try {
+        const decided = await dispatchReply(this.ctx, input)
+        if (decided.text !== originalText) content = replaceTextBlocks(content, decided.text)
+      } catch (error) {
+        this.session.append('assistant/attempt', {
+          status: 'failed',
+          reason: `agent/reply 钩子失败（已 fail-closed 落拒答文本）：${reasonOf(error)}`,
+        })
+        content = replaceTextBlocks(content, refusedText())
+      }
+    }
+
     this.session.append('assistant/message', {
-      content: toSessionBlocks(assembled.content),
+      content,
       ...(toolCalls.length === 0 ? {} : { toolCalls: toolCalls.map(toToolCallRecord) }),
     })
+  }
+
+  /** 本 turn 已执行的工具结果（核验证据只取本 turn，不混入历史）。 */
+  private toolResultsOfTurn(turn: number): ToolResultData[] {
+    const events = this.session.events()
+    let start = 0
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index]
+      if (event?.type === 'turn/start' && event.data.turn === turn) {
+        start = index
+        break
+      }
+    }
+    const results: ToolResultData[] = []
+    for (let index = start; index < events.length; index += 1) {
+      const event = events[index]
+      if (event?.type === 'tool/result') results.push(event.data)
+    }
+    return results
   }
 
   /**
@@ -674,6 +757,7 @@ export class AgentLoop implements Agent {
       sessionId: this.session.sessionId,
       now: this.now,
       signal,
+      ...(this.mintTicketId === undefined ? {} : { mintTicketId: this.mintTicketId }),
       ...(emitResult === undefined ? {} : { emitResult }),
     })
   }
@@ -768,6 +852,28 @@ export function outcomeOf(reason: FinishReason): TurnEndReason | null {
 /** 装配后的调用 → `assistant/message.toolCalls` 的记录形状。 */
 function toToolCallRecord(call: AssembledToolCall): ToolCallRecord {
   return { callId: call.callId, name: call.name, args: call.args ?? {} }
+}
+
+/**
+ * 用改写后的文本替换内容里的文本块（图片保留）。
+ *
+ * 多文本块只在模型返回多个 text 块时出现；核验门判的是整条回复，合并成一块
+ * 才能保证"日志里的文本 = 核验过的文本"。
+ */
+function replaceTextBlocks(content: readonly ContentBlock[], text: string): ContentBlock[] {
+  const images = content.filter((block): block is Extract<ContentBlock, { type: 'image' }> =>
+    block.type === 'image',
+  )
+  return [{ type: 'text', text }, ...images]
+}
+
+/**
+ * `agent/reply` 钩子自身抛错时的兜底文本（fail-closed）。
+ *
+ * 运行时不认识 `@bah/safety`，所以这里只写通用拒答；理由码稳定，供 eval/审计检索。
+ */
+function refusedText(): string {
+  return '【拒答】安全检查未能完成，回复已阻止发送。（reasonCode: reply-hook-failed）'
 }
 
 /** 日志里最后一个 turn 号（分叉 / 回放的会话续号用）。 */

@@ -12,7 +12,9 @@ import {
   ADMIN_TOKEN_ENV,
   DEFAULT_UNFREEZE_REASON,
   isLoopbackAddress,
+  parseHaltBody,
   parseUnfreezeBody,
+  parseUnfreezeTicketBody,
   readAdminToken,
   tokenMatches,
 } from './web-admin.ts'
@@ -105,6 +107,48 @@ describe('HP0-10 解冻体解析', () => {
         code: 'web-admin-invalid-body',
         detail: 'reason 必须是字符串',
       })
+    }
+  })
+})
+
+describe('W07 HALT 管理体解析', () => {
+  it('halt：空对象 / 只有 detail 通过；空 detail 视为无 detail', () => {
+    expect(parseHaltBody({})).toEqual({ ok: true })
+    expect(parseHaltBody({ detail: '值班停机' })).toEqual({ ok: true, detail: '值班停机' })
+    expect(parseHaltBody({ detail: '   ' })).toEqual({ ok: true })
+    expect(parseHaltBody({ detail: '  x  ' })).toEqual({ ok: true, detail: 'x' })
+  })
+
+  it('halt：非对象 / 未知键 / detail 类型错 / 超长 全部拒绝', () => {
+    for (const body of [null, [], 'x', { reason: 'manual' }, { force: true }]) {
+      expect(parseHaltBody(body).ok, JSON.stringify(body)).toBe(false)
+    }
+    expect(parseHaltBody({ detail: 42 })).toEqual({
+      ok: false,
+      code: 'web-admin-invalid-body',
+      detail: 'detail 必须是字符串',
+    })
+    expect(parseHaltBody({ detail: 'x'.repeat(201) }).ok).toBe(false)
+  })
+
+  it('unfreeze：ticketId 必填 / 字符集受限 / 没有 force 字段', () => {
+    expect(parseUnfreezeTicketBody({ ticketId: 't-1' })).toEqual({ ok: true, ticketId: 't-1' })
+    expect(parseUnfreezeTicketBody({ ticketId: ' ticket:abc-123 ' })).toEqual({
+      ok: true,
+      ticketId: 'ticket:abc-123',
+    })
+    for (const body of [
+      null,
+      [],
+      {},
+      { ticketId: '' },
+      { ticketId: '   ' },
+      { ticketId: 7 },
+      { ticketId: 'has space' },
+      { ticketId: 'x'.repeat(129) },
+      { ticketId: 't-1', force: true },
+    ]) {
+      expect(parseUnfreezeTicketBody(body).ok, JSON.stringify(body)).toBe(false)
     }
   })
 })
