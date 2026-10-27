@@ -10,7 +10,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { asSessionId, captureThrown } from '@bah/test-support'
+import { asSessionId, captureRejection, captureThrown } from '@bah/test-support'
 import { AGENTS_SERVICE, SESSION_SERVICE, TOOLS_SERVICE, TOOL_CONTRACTS } from '@bah/runtime'
 import {
   BANK_CHALLENGE,
@@ -160,20 +160,23 @@ describe('bank:tools 配置（fail-loud）', () => {
 })
 
 describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
-  it('analysis_calc 经 compute seam 求值（未装 sandbox 行时回退进程内）', async () => {
+  it('D5① fail-closed：未装 safety:sandbox 时 analysis_calc 拒绝执行，不回退进程内', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bah-bank-calc-'))
     const app = await bootWith({ demoUserId: 'u-1', seed: 7, datasetTier: 'demo' }, 's-bank-calc', dir)
     try {
       const definition = app.ctx.get(TOOLS_SERVICE).get('analysis_calc')
-      const result = await definition.execute(
-        { code: '1 + 2 * 3' },
-        {
-          sessionId: asSessionId('s-bank-calc'),
-          callId: 'c-calc',
-          signal: new AbortController().signal,
-        },
+      // 以前这里返回 value 7（进程内求值）；现在必须抛结构化理由码。
+      const error = await captureRejection(() =>
+        definition.execute(
+          { code: '1 + 2 * 3' },
+          {
+            sessionId: asSessionId('s-bank-calc'),
+            callId: 'c-calc',
+            signal: new AbortController().signal,
+          },
+        ),
       )
-      expect(result).toMatchObject({ value: 7 })
+      expect((error as { code?: string }).code).toBe('compute-sandbox-unavailable')
     } finally {
       await app.dispose('test')
       rmSync(dir, { recursive: true, force: true })

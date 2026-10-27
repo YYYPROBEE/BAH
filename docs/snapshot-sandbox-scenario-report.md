@@ -49,7 +49,7 @@ BAH 门禁 · 共 23 项
 | 红级新收款人 | `tier.ts:114-131`（new → red）、`:134-136`（red 必须挑战）、`:189`（ask + challenge）；`governance.ts:346/413` 自动喂 preview；`tier.test.ts:212-238` 已有 100 元新收款人断言 | 一致 |
 | headless 自动过挑战 | `headless-responder.ts:44` 缺省 `verifyChallenge=true`；`:54-55` 真调 `challenge.verify()`；`service.ts:125` 签发 | 一致 |
 | `verify/port.ts` 的 catch 进不了快照 | `verify/index.ts:69-74` 缺省 `successAfter=1`，首次即成功；`port.ts:98-107` catch 分支未执行 | 一致，如实登记未背书 |
-| 日限额 | `forge/index.ts:74` = 500_000 分；`bank-tools.ts:117` 用 Config 收紧；实测 u-1 基准日无转出 | 一致 |
+| 日限额 | `forge/index.ts:80` = 100_000 分（¥1000）；`bank-tools.ts:146` 用 Config 收紧；实测 u-1 基准日无转出 | 一致 |
 | C1/C2/C3 | `vitest.config.ts:59-65` 的 forge 豁免；`scripts/coverage-allowlist.ts` 的 `host/boot/` 100% 与 `safety/sentry/`+`sandbox-policy/`（无 `sandbox-runtime/`） | 一致 |
 | 「复制 headless-basic 改 name/prompts」 | mock 脚本写死在 `profiles/headless/patch.yml:14`；`web-channel` 已用场景内 `overlay.yml`（`snapshots/web-channel/scenario.ts:70`、`:100`） | **部分推翻** → C-2 |
 | `PROGRESS.md` 接 `## 46.` | 现文件已有 `## 46.`（`PROGRESS.md:1180`，门禁扩容 07） | **推翻** → C-3 |

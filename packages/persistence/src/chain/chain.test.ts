@@ -293,7 +293,9 @@ describe('审计信封 v2（W08）', () => {
 
   it('TC-W08-03：篡改 v2 的 decision 字段 → 验链失败并指出条目序号', () => {
     const dir = root()
-    const chain = audit(dir)
+    // 本用例验的是"信封字段被哈希覆盖"，不是签名：显式关签名以免依赖本机 `keys/`
+    // （与 TC-W08-02 同口径；签名本身由 saga-audit 的用例覆盖）
+    const chain = audit(dir, { signedTypes: [] })
     chain.append('s1', 'saga/created', { sagaId: 's1' })
     appendDecision(chain, 'sentry/decision', { callId: 'c-1', name: 'transfer_create' }, { decision: 'deny' })
     chain.append('s1', 'saga/call-result', { sagaId: 's1', stepId: 'st-1' })
@@ -312,7 +314,8 @@ describe('审计信封 v2（W08）', () => {
 
   it('v2 的 prevHash 与 p 不一致 → 验链失败（显式别名同样受哈希保护）', () => {
     const dir = root()
-    const chain = audit(dir)
+    // 同上：只验哈希结构，不验签名
+    const chain = audit(dir, { signedTypes: [] })
     appendDecision(chain, 'sentry/decision', { callId: 'c-1' })
 
     const path = join(dir, 'audit', 's1', 'audit.jsonl')

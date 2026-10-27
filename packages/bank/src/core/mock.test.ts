@@ -88,7 +88,7 @@ describe('T-BANK-002 合法核销', () => {
     expect(result.ticketId).toBe(ref.ticketId)
     expect(result.balanceCents).toBe(before.balanceCents - 80_000)
     expect(result.dailyUsedCents).toBe(80_000)
-    expect(result.remainingCents).toBe(500_000 - 80_000)
+    expect(result.remainingCents).toBe(100_000 - 80_000)
 
     const after = await core.balance(ACCOUNT)
     expect(after.balanceCents).toBe(before.balanceCents - 80_000)
@@ -114,26 +114,26 @@ describe('T-BANK-003 票据重放', () => {
 describe('T-BANK-007 日累计权威口径', () => {
   it('T-BANK-007 当日两笔成功后，preview 的剩余额度正确扣减', async () => {
     const core = setup()
-    await core.createTransfer(transfer({ amountCents: 100_000 }), ticket(core, { amountCents: 100_000 }))
-    await core.createTransfer(transfer({ amountCents: 100_000 }), ticket(core, { amountCents: 100_000 }))
+    await core.createTransfer(transfer({ amountCents: 30_000 }), ticket(core, { amountCents: 30_000 }))
+    await core.createTransfer(transfer({ amountCents: 30_000 }), ticket(core, { amountCents: 30_000 }))
 
-    const preview = await core.previewTransfer(transfer({ amountCents: 100_000 }))
-    expect(preview.dailyUsedCents).toBe(200_000)
-    expect(preview.dailyLimitCents).toBe(500_000)
-    expect(preview.remainingCents).toBe(300_000)
+    const preview = await core.previewTransfer(transfer({ amountCents: 30_000 }))
+    expect(preview.dailyUsedCents).toBe(60_000)
+    expect(preview.dailyLimitCents).toBe(100_000)
+    expect(preview.remainingCents).toBe(40_000)
     // 同一收款人、同一金额在 2 分钟内重复 → 疑似重复提交（warn，不阻断）
     expect(preview.verdict).toBe('warn')
     expect(preview.risks.map((risk) => risk.code)).toContain('duplicate-transfer')
   })
 
-  it('卡片限额与全局阈值取更紧者：配置降到 1000 元 → 预览剩余额度同源下降', async () => {
-    // demo 的卡限额是 5000 元（500_000 分），全局阈值压到 1000 元。
-    // 若只取卡片值，判决层按 1000 升红、预览层却显示"还可转 5000"——口径分裂。
-    const core = setup({}, { ...DEFAULT_LIMITS, dailyTransferLimitCents: 100_000 })
+  it('卡片限额与全局阈值取更紧者：配置降到 500 元 → 预览剩余额度同源下降', async () => {
+    // demo 的卡与全局缺省都是 1000 元（100_000 分）；这里把配置再压到 500 元。
+    // 若只取卡片值，判决层按 500 升红、预览层却显示"还可转 1000"——口径分裂。
+    const core = setup({}, { ...DEFAULT_LIMITS, dailyTransferLimitCents: 50_000 })
     const preview = await core.previewTransfer(transfer({ amountCents: 80_000 }))
 
-    expect(preview.dailyLimitCents).toBe(100_000)
-    expect(preview.remainingCents).toBe(100_000)
+    expect(preview.dailyLimitCents).toBe(50_000)
+    expect(preview.remainingCents).toBe(50_000)
   })
 })
 
@@ -231,8 +231,8 @@ describe('previewTransfer（试算 + 五规则预检）', () => {
     expect(codes).toContain('payee-new')
     expect(codes).toContain('night-large-amount')
     expect(codes).toContain('velocity-high')
-    // 490,000 + 5 × 10,000 已用；本笔 120,000 超出剩余额度
-    expect(preview.dailyUsedCents).toBe(540_000)
+    // 99,000 + 5 × 10,000 已用（只计 transfer 类）；本笔 120,000 超出剩余额度
+    expect(preview.dailyUsedCents).toBe(149_000)
     expect(preview.remainingCents).toBe(0)
   })
 

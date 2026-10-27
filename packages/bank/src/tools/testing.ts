@@ -49,7 +49,7 @@ export const TEST_CONFIG: BankToolsConfig = {
   computeTimeoutMs: 5_000,
   ticketTtlSeconds: 120,
   redChallenge: 'sms',
-  dailyTransferLimit: 5_000,
+  dailyTransferLimit: 1_000,
   riskyOps: ['transfer_create', 'wealth_purchase'],
   riskyCallThreshold: 3,
 }

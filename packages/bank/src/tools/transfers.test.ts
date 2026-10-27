@@ -50,7 +50,7 @@ describe('transfer_preview', () => {
     expect(result.amountCents).toBe(80_000)
     expect(result.payeeBinding).toBe('whitelist')
     expect(result.effectiveTier).toBe('yellow')
-    expect(result.remainingCents).toBe(500_000)
+    expect(result.remainingCents).toBe(100_000)
     expect(h.auditsOf('transfer/preview')).toHaveLength(1)
     expect(h.tools.get('transfer_preview')?.presentResult?.({}, result)).toMatchObject({
       kind: 'bank.transfer-preview',

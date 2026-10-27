@@ -15,7 +15,7 @@
  * 任何一步都只读注入的 Config / 观察状态，**没有概率成分**。
  */
 
-import type { ToolTierLevel } from '@bah/core'
+import type { Listener, ToolTierLevel } from '@bah/core'
 
 import { collectBlob, normalize, scanToolArgs, TokenizerVault } from '../kernel/index.ts'
 import type { Budget, RuleFinding, TraceLog } from '../kernel/index.ts'
@@ -97,7 +97,7 @@ const HALT_DENY_REASON = '系统已进入 HALT：所有工具执行被拒绝；�
  */
 export function createHaltListener(
   options: SentryHaltGateOptions,
-): (payload: unknown, next: (value: unknown) => Promise<unknown>) => Promise<unknown> {
+): Listener<'tools/pre-execute'> {
   const { sessionId, trace, record, now, isHalted, onDecision } = options
 
   return (payload, next) => {
@@ -182,7 +182,7 @@ const PII_VAULT = new TokenizerVault()
  */
 export function createControlListener(
   options: SentryControlOptions,
-): (payload: unknown, next: (value: unknown) => Promise<unknown>) => Promise<unknown> {
+): Listener<'tools/pre-execute'> {
   const { sessionId, settings, state, trace, breaker, budget, record, now, toolTier, onP0Hit, onDecision } =
     options
   const extraRules = [

@@ -17,6 +17,7 @@
 
 import { assertNever } from '@bah/util'
 
+import type { Listener } from '@bah/core'
 import type { TraceLog } from '../kernel/index.ts'
 
 import type { SentrySettings } from './config.ts'
@@ -148,7 +149,7 @@ export function detectActionClaims(texts: readonly string[]): ActionClaim[] {
  */
 export function createNumericListener(
   options: SentryHonestyOptions,
-): (payload: unknown, next: (value: unknown) => Promise<unknown>) => Promise<unknown> {
+): Listener<'tools/post-execute'> {
   const { sessionId, settings, state, trace, record, now } = options
 
   return async (payload, next) => {

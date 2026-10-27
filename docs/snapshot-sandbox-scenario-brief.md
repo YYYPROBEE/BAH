@@ -124,7 +124,7 @@ $ npx vitest run packages/host/src/boot/plugins/sandbox.test.ts
    已有实物背书：`packages/bank/src/tools/tier.test.ts:212-238` 断言 100 元转给新收款人 → `{kind:'ask', level:'red', reason:'new-payee', challenge:true}`。
    headless 能自动过：`packages/interaction/src/approval/headless-responder.ts:44` 缺省 `verifyChallenge = true`，`:54-55` 真调 `view.challenge.verify()`；审批服务在 `service.ts:125 issueChallenge` 处签发 → **`bank/src/verify/port.ts` 的 `issue`/`verify` 真被执行**。
    ⚠️ **但我前一版说错了一句，别照着写**：port 的 `catch` 分支**不会**进快照。缺省 provider 是 `createMockVerifyProvider`（`packages/bank/src/verify/index.ts:69-76`，`successAfter ?? 1` → 第一次尝试即成功），不抛错。要覆盖 `catch` 得把 `verifyProvider` 换成失败替身 —— 那是**另一条单**（会牵动档位与审批事件表），本单只声明到「目录被执行」，并在报告里如实写「catch 分支未背书」。
-   注意别撞日限额把理由搞混：生效上限 = `min(账本卡限额, Config.dailyTransferLimitCents)`（`tier.ts:110-122`），`forge/index.ts:74` 的 `dailyTransferLimitCents: 500_000`（=¥5 000）。用「新收款人 + 小额（如 ¥120）」拿到的 `reason` 才是 `new-payee`，不是 `daily-limit`。
+   注意别撞日限额把理由搞混：生效上限 = `min(账本卡限额, Config.dailyTransferLimitCents)`（`tier.ts:110-122`），`forge/index.ts:80` 的 `dailyTransferLimitCents: 100_000`（=¥1000）。用「新收款人 + 小额（如 ¥120）」拿到的 `reason` 才是 `new-payee`，不是 `daily-limit`。
 
 3. **管线基线** —— 保留一次普通读（如「帮我查一下余额」），让 turn/step/tool 事件结构与前两场景同形，比对时好定位。
 

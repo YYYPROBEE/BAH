@@ -27,6 +27,7 @@
 
 import { reasonOf } from '@bah/util'
 
+import type { Listener } from '@bah/core'
 import type { TraceLog } from '../kernel/index.ts'
 
 import type { SentrySessionEventType } from './events.ts'
@@ -40,11 +41,16 @@ export interface FailClosedOptions {
   readonly now: () => number
 }
 
-/** `tools/post-execute` 监听器形状（与七段管线的 waterfall 一致）。 */
-export type PostExecuteListener = (
-  payload: unknown,
-  next: (value: unknown) => Promise<unknown>,
-) => Promise<unknown>
+/**
+ * `tools/post-execute` 监听器形状。
+ *
+ * 直接取 `Listener<'tools/post-execute'>`，不用手写的 `(payload: unknown, next: …) => …`：
+ * 后者在**同时装载 runtime 类型增强**的 program 里（`tsconfig.scripts.json`：门禁脚本
+ * 同时 import `@bah/host` 与 `@bah/safety`）会因 `next` 参数逆变而不兼容
+ * `ctx.events.on()` 的签名。`@bah/core` 的 `BahEventMap` 是开放索引签名，所以只装
+ * `@bah/core` 的包内 program 仍把 `payload` 解析成 `unknown`，行为与改前逐字一致。
+ */
+export type PostExecuteListener = Listener<'tools/post-execute'>
 
 /** 审计里错误消息的截断长度。 */
 const MAX_MESSAGE = 200
@@ -170,9 +176,12 @@ export function failClosedTurnStopping(
  * 同步抛错**不在这里转成 reject**：让它按普通异常冒泡到内层监听器的调用点，
  * 最终由本层的 catch 接住。若这里转成 `Promise.reject`，内层不 await 它就会
  * 变成 unhandled rejection——用更隐蔽的方式报告同一个错误，不值。
+ *
+ * 泛型而非 `unknown`：`Listener` 的 `next` 参数类型随事件表走（见 `PostExecuteListener`
+ * 的注释），写死 `unknown` 会在逆变位置失配。
  */
-function onceNext(next: (value: unknown) => Promise<unknown>): (value: unknown) => Promise<unknown> {
-  let cached: Promise<unknown> | undefined
+function onceNext<T>(next: (value: T) => Promise<T>): (value: T) => Promise<T> {
+  let cached: Promise<T> | undefined
   return (value) => {
     if (cached === undefined) cached = next(value)
     return cached

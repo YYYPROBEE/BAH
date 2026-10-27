@@ -244,4 +244,93 @@ describe('W15 · 独立重放', () => {
     expect(result.diffs).toEqual(['chain-unsigned'])
     expect(result.ok).toBe(false)
   })
+
+  // ── B4：tool/result 摘要上链后的硬核验 ──────────────────────────────────
+
+  const RESULT_DATA = {
+    callId: 'c-1',
+    name: 'transfer_create',
+    isError: false,
+    content: [{ type: 'text', text: '已转 800 元' }],
+    durationMs: 12,
+  }
+  const RESULT_SUMMARY = {
+    callId: 'c-1',
+    name: 'transfer_create',
+    isError: false,
+    durationMs: 12,
+  }
+
+  /** 一份含 tool/result 的会话 + 链（链侧只存摘要，与宿主 audit:decisions 同构）。 */
+  function withResult(dir: string): void {
+    writeSession(dir, 's-1', [
+      event(1, 'tool/call', TOOL_DATA),
+      event(2, 'tool/result', RESULT_DATA),
+    ])
+    writeChain(dir, 's-1', [
+      { type: 'tool/call', data: TOOL_DATA, envelope: ALLOW },
+      { type: 'tool/result', data: RESULT_SUMMARY },
+    ])
+  }
+
+  it('B4：tool/result 摘要与链一致 → ok（content 不进链也不影响比对）', () => {
+    const dir = root()
+    withResult(dir)
+
+    const result = replay(dir, 's-1')
+
+    expect(result.ok).toBe(true)
+    expect(result.diffs).toEqual([])
+    // 旧口径 warning 不该对 tool/result 误报
+    expect(result.warnings.filter((line) => line.includes('tool/result'))).toEqual([])
+  })
+
+  it('B4：篡改会话侧 tool/result（isError 翻转）→ tool-result-digest，判为不通过', () => {
+    const dir = root()
+    withResult(dir)
+    // 会话侧把成功改成失败：链侧摘要对不上（硬 diff，不是 warning）
+    const path = join(dir, 's-1', 'session.jsonl')
+    const lines = readFileSync(path, 'utf8')
+      .split(/\r?\n/)
+      .map((line) =>
+        line.includes('"isError":false') ? line.replace('"isError":false', '"isError":true') : line,
+      )
+    writeFileSync(path, lines.join('\n'), 'utf8')
+
+    const result = replay(dir, 's-1')
+
+    expect(result.diffs.some((diff) => diff.startsWith('tool-result-digest:'))).toBe(true)
+    expect(result.ok).toBe(false)
+  })
+
+  it('B4：链侧 tool/result 摘要被改 → 链断（brokenAt）且摘要比对失败', () => {
+    const dir = root()
+    withResult(dir)
+    const path = join(dir, 's-1', 'audit.jsonl')
+    const lines = readFileSync(path, 'utf8').split(/\r?\n/)
+    const resultRow = lines.findIndex((line) => line.includes('"t":"tool/result"'))
+    expect(resultRow).toBeGreaterThan(-1)
+    const row = JSON.parse(lines[resultRow] as string) as Record<string, unknown>
+    lines[resultRow] = JSON.stringify({ ...row, d: '0'.repeat(64) })
+    writeFileSync(path, lines.join('\n'), 'utf8')
+
+    const result = replay(dir, 's-1')
+
+    expect(result.chain.ok).toBe(false)
+    expect(result.ok).toBe(false)
+  })
+
+  it('B4：会话有 tool/result 但链没有该行（B4 之前的存量会话）→ 只 warning，不判死', () => {
+    const dir = root()
+    writeSession(dir, 's-1', [
+      event(1, 'tool/call', TOOL_DATA),
+      event(2, 'tool/result', RESULT_DATA),
+    ])
+    writeChain(dir, 's-1', [{ type: 'tool/call', data: TOOL_DATA, envelope: ALLOW }])
+
+    const result = replay(dir, 's-1')
+
+    expect(result.ok).toBe(true)
+    expect(result.warnings.some((line) => line.includes('tool/result'))).toBe(true)
+  })
 })
