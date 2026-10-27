@@ -333,6 +333,80 @@ describe('plan:dag 集成（真实依赖清单 + profile plan）', () => {
     expect(countOf(eventsOf(booted.app), 'plan/created')).toBe(0)
   })
 
+  /**
+   * 为什么补：上一例只钉了"环 / 非银行工具 / 超节点 / 空计划"四条策略约束，
+   * 而模型给的 JSON 是**不可信输入**——节点形态、id 字符集、tool/args/deps 的类型
+   * 每一条都有独立的拒绝分支。漏一条的后果不是"报错不好看"，而是坏字段被
+   * 原样带进执行器（例如 `deps: [1]` 让拓扑排序把数字当节点 id）。
+   */
+  it('B1 模型计划的字段类型逐项校验：非对象 / 坏 id / 缺 tool / args / deps / optional / idempotencyKey', async () => {
+    booted = await bootPlan()
+    const tool = booted.app.ctx.get(TOOLS_SERVICE).get('plan_propose')
+    const toolCtx = {
+      sessionId: asSessionId('s-plan'),
+      callId: 'call-b1-types',
+      signal: new AbortController().signal,
+    }
+    const issueCodesOf = async (args: unknown): Promise<readonly string[]> => {
+      try {
+        await tool.execute(args as never, toolCtx)
+      } catch (error) {
+        const detail = (error as BahError).detail as { issues?: readonly { code: string }[] }
+        return (detail.issues ?? []).map((issue) => issue.code)
+      }
+      throw new Error('期望 plan-invalid，实际执行成功')
+    }
+
+    expect(await issueCodesOf(null)).toEqual(['plan-args-invalid'])
+    expect(await issueCodesOf({ planId: 'p', nodes: [null] })).toEqual(['plan-args-invalid'])
+    expect(
+      await issueCodesOf({ planId: 'p', nodes: [{ id: 'bad id', tool: 'account_balance' }] }),
+    ).toEqual(['plan-node-id'])
+    expect(await issueCodesOf({ planId: 'p', nodes: [{ id: 'a' }] })).toEqual([
+      'plan-tool-missing',
+    ])
+    expect(
+      await issueCodesOf({
+        planId: 'p',
+        nodes: [{ id: 'a', tool: 'account_balance', args: [] }],
+      }),
+    ).toEqual(['plan-args-invalid'])
+    expect(
+      await issueCodesOf({
+        planId: 'p',
+        nodes: [{ id: 'a', tool: 'account_balance', deps: [1] }],
+      }),
+    ).toEqual(['plan-dep-missing'])
+    expect(
+      await issueCodesOf({
+        planId: 'p',
+        nodes: [{ id: 'a', tool: 'account_balance', optional: 'yes' }],
+      }),
+    ).toEqual(['plan-args-invalid'])
+    expect(
+      await issueCodesOf({
+        planId: 'p',
+        nodes: [{ id: 'a', tool: 'account_balance', idempotencyKey: 1 }],
+      }),
+    ).toEqual(['plan-args-invalid'])
+    expect(
+      await issueCodesOf({ planId: '', nodes: [{ id: 'a', tool: 'account_balance' }] }),
+    ).toEqual(['plan-id-invalid'])
+
+    // 合法侧：planId 首尾空白被裁剪、meta.title 透传（未知 meta 键被忽略）
+    const proposal = (await tool.execute(
+      {
+        planId: ' p-meta ',
+        meta: { title: '两步转账', junk: 1 },
+        nodes: [{ id: 'a', tool: 'account_balance', args: {}, deps: [] }],
+      },
+      toolCtx,
+    )) as { planId: string }
+    expect(proposal.planId).toBe('p-meta')
+    // propose 只校验不执行：没有产生任何"计划跑过"的痕迹
+    expect(countOf(eventsOf(booted.app), 'plan/created')).toBe(0)
+  })
+
   it('第 2 节点失败：第 3 节点没有 tool/call，落 node-blocked，completed 判 failed', async () => {
     booted = await bootPlan()
     const api = booted.app.ctx.get(PLAN_SERVICE)

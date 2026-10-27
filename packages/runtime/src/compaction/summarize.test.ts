@@ -908,6 +908,26 @@ describe('token 水位口径（§5.2）', () => {
     expect(tokens).toBe(8)
   })
 
+  /**
+   * 为什么补：未知内容块种类必须**抛错**，不能返回 0。
+   * 平台新增一种块（或下游把私有块塞进请求）时，静默按 0 计会让压缩水位系统性低估，
+   * 表现为"上下文一点点超窗才炸"。这一支是 `assertNever` 的安全网，此前从未执行。
+   */
+  it('未知内容块种类 → 压缩水位估算 fail-loud（不静默按 0 计）', () => {
+    expect(() =>
+      estimateRequestTokens({
+        modelId: 'm',
+        messages: [
+          {
+            role: 'assistant',
+            // 模拟"平台新增了一种块、本模块还没跟"：类型上到不了，运行时必须炸
+            content: [{ kind: 'future-block' } as never],
+          },
+        ],
+      }),
+    ).toThrowError(/model-content-block/)
+  })
+
   it('overheadTokens 参与 token 阈值判定，但缺省时行为不变', async () => {
     await withSession((session) => {
       seedTurns(session)

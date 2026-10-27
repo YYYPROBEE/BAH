@@ -415,6 +415,54 @@ describe('DeepSeekAdapter · 429 / 5xx 同模型退避（C04 判据二）', () =
     )
     expect(calls()).toBe(1)
   })
+
+  /**
+   * 为什么补：取消有两个时点——进入 `stream()` 之前（已有用例）与**退避等待期间**。
+   * 后者此前没有覆盖：用户在退避里按下取消，若循环顶部不复检信号，就会再发一次
+   * 已经无人等待的请求（计费/审计上多一条，重试预算也被烧掉）。
+   */
+  it('退避期间被取消 → 不再发第二次请求，抛 llm-aborted', async () => {
+    const controller = new AbortController()
+    let calls = 0
+    const fetchImpl: FetchLike = () => {
+      calls += 1
+      return Promise.resolve(new Response('slow down', { status: 429, headers: { 'retry-after': '0' } }))
+    }
+    const adapter = new DeepSeekAdapter({
+      apiKey: 'sk-test',
+      fetch: fetchImpl,
+      retryMax: 2,
+      retryBaseMs: 10,
+      sleep: () => Promise.resolve(),
+      // 退避回调正是"第一次响应已到、第二次请求未发"的那一刻
+      onRetry: () => controller.abort(),
+    })
+    const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+    const error = await collect(adapter.stream(prepared, controller.signal)).catch(
+      (thrown: unknown) => thrown,
+    )
+
+    expect(calls).toBe(1)
+    expect(error).toMatchObject({ code: 'llm-aborted' })
+  })
+
+  /**
+   * 为什么补：生产装配不注入 `sleep`，走的是 `setTimeout` 缺省实现；
+   * 此前所有重试用例都替换了 `sleep`，这条**唯一在线上生效**的等待分支从未执行。
+   * `retry-after: 0` 让它以零延迟跑完，不拖慢用例。
+   */
+  it('未注入 sleep 时走默认退避实现（retry-after=0 不挂进程）', async () => {
+    const { fetch, calls } = sequenceFetch([
+      () => new Response('slow down', { status: 429, headers: { 'retry-after': '0' } }),
+      okBody,
+    ])
+    const adapter = new DeepSeekAdapter({ apiKey: 'sk-test', fetch, retryMax: 2, retryBaseMs: 10 })
+    const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+    const chunks = await collect(adapter.stream(prepared, new AbortController().signal))
+
+    expect(calls()).toBe(2)
+    expect(chunks.at(-1)).toEqual({ kind: 'finish', reason: 'stop' })
+  })
 })
 
 describe('DeepSeekAdapter · 未注入 fetch 时的默认出口', () => {

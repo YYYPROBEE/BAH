@@ -6,7 +6,7 @@ import { createContext } from '@bah/core'
 import { LLM_ADAPTERS } from '@bah/llm'
 import { asSessionId } from '@bah/test-support'
 import { BahError } from '@bah/util'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AnySessionEvent } from '@bah/runtime'
 
@@ -455,5 +455,74 @@ describe('core:model 脚本 outcome 步的 tool 键（缺省 ≠ 写了 undefine
     })
     const bound = withTool.script?.[0] as unknown as { outcome: Record<string, unknown> }
     expect(bound.outcome.tool).toBe('transfer_create')
+  })
+})
+
+/**
+ * 重试的**可观测性**（D2）：适配器每次退避都会回调 `onRetry`，宿主这里必须
+ * 把它落成一条结构化日志。演示现场只看到"慢"，看不到"被限流了两次"就没法判断
+ * 是上游的问题还是本机的问题。此前这条接线（`logJson('warn','model-retry',…)`）
+ * 在用例层面从未执行。
+ */
+describe('core:model · 重试观测', () => {
+  it('429 退避落一条 model-retry 日志（带 status/attempt/delayMs，且不含密钥）', async () => {
+    process.env['BAH_MODEL_TEST_KEY'] = 'sk-test-secret'
+    const ctx = createContext()
+    await ctx.use(
+      modelPlugin.plugin,
+      modelPlugin.validate({
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        apiKeyEnv: 'BAH_MODEL_TEST_KEY',
+        retryMax: 1,
+        retryBaseMs: 1,
+      }),
+    )
+    await ctx.start()
+
+    const lines: string[] = []
+    const stderr = vi.spyOn(console, 'error').mockImplementation((line?: unknown) => {
+      lines.push(String(line))
+    })
+    const original = globalThis.fetch
+    let calls = 0
+    globalThis.fetch = async () => {
+      calls += 1
+      if (calls === 1) {
+        return new Response('busy', { status: 429, headers: { 'retry-after': '0' } })
+      }
+      const body = 'data: {"choices":[{"delta":{"content":"稳"},"finish_reason":"stop"}]}\n\n'
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(body))
+            controller.close()
+          },
+        }),
+        { status: 200 },
+      )
+    }
+
+    try {
+      const adapter = ctx.get(LLM_ADAPTERS).resolve('deepseek:deepseek-chat').adapter
+      const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+      const chunks: unknown[] = []
+      for await (const chunk of adapter.stream(prepared, new AbortController().signal)) {
+        chunks.push(chunk)
+      }
+      expect(chunks.at(-1)).toMatchObject({ kind: 'finish' })
+
+      expect(calls).toBe(2)
+      const retry = lines
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .find((payload) => payload.code === 'model-retry')
+      expect(retry).toMatchObject({ level: 'warn', status: 429, attempt: 1, delayMs: 0 })
+      // 日志只带标量上下文：密钥绝不能顺着字段透传进来
+      expect(lines.join('\n')).not.toContain('sk-test-secret')
+    } finally {
+      globalThis.fetch = original
+      stderr.mockRestore()
+      await ctx.dispose('test')
+    }
   })
 })
