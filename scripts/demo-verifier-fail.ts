@@ -30,6 +30,7 @@ import {
   VERIFIER_UNAVAILABLE,
   failClosedPostExecute,
   type FailClosedOptions,
+  type PostExecuteListener,
 } from '@bah/safety'
 
 /** 会话 ID（品牌类型在脚本里只能断言；不引入 test-support）。 */
@@ -125,7 +126,10 @@ async function runScenario(scenario: Scenario): Promise<Evidence> {
     .map((block) => (block.type === 'text' ? block.text : `[${block.type}]`))
     .join('\n')
 
-  const events = session.events()
+  // `session.events()` 的静态类型是 `SessionEventMap` 的封闭联合（只含核心事件）；
+  // `sentry/verifier-failed` 是 sentry 通过 `appendDomain` 追加的领域事件，运行时存在、
+  // 静态类型上不在联合里。这里放宽到结构面再按类型名查——不是断言，是显式收窄失败面。
+  const events: readonly { readonly type: string; readonly data?: unknown }[] = session.events()
   const verifier = events.find((event) => event.type === 'sentry/verifier-failed')
 
   const evidence: Evidence = {
@@ -136,7 +140,12 @@ async function runScenario(scenario: Scenario): Promise<Evidence> {
     additionalContexts: execution.additionalContexts,
     eventTypes: events.map((event) => event.type),
     verifierEvent: verifier?.data as Evidence['verifierEvent'],
-    traceKinds: (trace.rings.get(SESSION_ID) ?? []).map((record) => record.kind),
+    // `TraceRecord` 是 `Record<string, unknown>`（内核对字段零假设），
+    // 所以 `kind` 静态上是 unknown。非字符串时落成 `'unknown'`：
+    // 恰好与 TraceLog 的桶名 fallback 同词，且不会把 `undefined` 混进证据数组。
+    traceKinds: (trace.rings.get(SESSION_ID) ?? []).map((record) =>
+      typeof record['kind'] === 'string' ? record['kind'] : 'unknown',
+    ),
   }
 
   await ctx.dispose('demo-done')
@@ -205,8 +214,9 @@ const scenarioA: Scenario = {
 const scenarioB: Scenario = {
   label: 'B · 下游监听器异常（next() 抛错，包装器兜底）',
   inject: (ctx, options) => {
-    const passThrough = (payload: unknown, next: (value: unknown) => Promise<unknown>) =>
-      next(payload)
+    // 显式标注为 `PostExecuteListener`：不写 `(payload: unknown, next: (v: unknown) => …)`
+    // ——那形状在 `next` 的逆变位置与真实事件载荷不兼容（C2 类型清债）。
+    const passThrough: PostExecuteListener = (payload, next) => next(payload)
     ctx.effect(
       ctx.events.on('tools/post-execute', failClosedPostExecute(passThrough, options)),
     )

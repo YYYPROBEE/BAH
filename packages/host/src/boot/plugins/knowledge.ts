@@ -9,6 +9,10 @@
  *
  * 失败策略：`required: true` 时健康检查失败即拒绝启动；`false` 时只告警，
  * 工具调用会返回 `knowledge-unavailable`，主循环与账户工具不受影响（fail-closed）。
+ *
+ * 鉴权：`/healthz` 匿名，但 `/v1/*` 一律要求 Bearer token（sidecar 无 token 直接拒启）。
+ * 因此"探活通过"不等于"能问答"：缺 `tokenEnv` 时启动期额外告警，工具会以
+ * `knowledge-denied` 明确拒绝，而不是静默返回空证据。
  */
 
 import { readFileSync } from 'node:fs'
@@ -291,13 +295,15 @@ export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
         config.mode === 'fixture' && config.fixturePath !== undefined
           ? loadFixture(config.fixturePath)
           : undefined
+      // 空串等同于未设置：带一个空 Bearer 只会把 401 拖到第一次工具调用，
+      // 启动期就该按"缺 token"处理（见下方告警）。
+      const token = process.env[config.tokenEnv]
+      const hasToken = token !== undefined && token.trim() !== ''
       const port =
         fixture?.port ??
         createHttpKnowledgePort({
           baseUrl: config.baseUrl,
-          ...(process.env[config.tokenEnv] === undefined
-            ? {}
-            : { token: process.env[config.tokenEnv] as string }),
+          ...(hasToken ? { token } : {}),
           timeoutMs: config.timeouts,
         })
 
@@ -306,6 +312,15 @@ export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
       if (config.mode === 'http' && run.probe !== false) {
         try {
           await port.health()
+          // /healthz 是匿名口：能探活不等于能问。缺 token 时工具必然 401，
+          // 启动期就要说清，不能等演示现场第一次提问才暴露。
+          if (!hasToken) {
+            run.warn?.(
+              `${WHERE} 未设置 ${config.tokenEnv}（mode=http）：sidecar 的 /v1/* 一律要求 Bearer token；` +
+                'knowledge 工具将返回 knowledge-denied（fail-closed）。' +
+                '请用 scripts/rag.mjs / pnpm demo:rag 注入同一 token。',
+            )
+          }
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error)
           if (config.required) {

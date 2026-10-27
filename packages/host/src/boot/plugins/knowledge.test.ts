@@ -322,6 +322,118 @@ describe('bank:knowledge 失败策略', () => {  it('required=true 且 sidecar �
   })
 })
 
+describe('bank:knowledge http token（A3 启动冒烟）', () => {
+  const FIXTURE_RAW = JSON.parse(
+    readFileSync('packages/knowledge/fixtures/headless.json', 'utf8'),
+  ) as {
+    answers: { response: unknown }[]
+    health: unknown
+  }
+
+  function jsonResponse(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+
+  /** 只有带 `Bearer test-secret` 的 /v1/answer 才放行；/healthz 永远匿名 200。 */
+  function tokenAwareFetch(): ReturnType<typeof vi.fn> {
+    return vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/healthz')) return jsonResponse(FIXTURE_RAW.health)
+      if (url.endsWith('/v1/answer')) {
+        const headers = init.headers as Record<string, string>
+        if (headers['authorization'] !== 'Bearer test-secret') {
+          return jsonResponse({ detail: { code: 'UNAUTHORIZED' } }, 401)
+        }
+        return jsonResponse(FIXTURE_RAW.answers[0]!.response)
+      }
+      throw new Error(`unexpected url ${url}`)
+    })
+  }
+
+  it('有 token 时健康检查与工具调用都带 Bearer', async () => {
+    process.env.TEST_KNOWLEDGE_TOKEN = 'test-secret'
+    const fetchMock = tokenAwareFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const app = await bootWith(
+        rows({
+          knowledge: {
+            mode: 'http',
+            baseUrl: 'http://127.0.0.1:7801',
+            tokenEnv: 'TEST_KNOWLEDGE_TOKEN',
+            required: false,
+            claims: CLAIMS,
+          },
+        }),
+      )
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('稳盈90天赎回费率')
+      await agent.run()
+
+      const events = rawEvents(app.ctx.get(SESSION_SERVICE).events())
+      const result = events.find(
+        (event) =>
+          event.type === 'tool/result' &&
+          (event.data as { name?: string }).name === 'knowledge_answer',
+      ) as { data: { isError?: boolean } } | undefined
+      expect(result?.data.isError).toBe(false)
+
+      const answerCall = fetchMock.mock.calls.find((call) =>
+        String(call[0]).endsWith('/v1/answer'),
+      )
+      expect(answerCall).toBeDefined()
+      expect((answerCall![1] as RequestInit).headers).toMatchObject({
+        authorization: 'Bearer test-secret',
+      })
+    } finally {
+      delete process.env.TEST_KNOWLEDGE_TOKEN
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('无 token 时启动告警，工具以 knowledge-denied 明确拒绝', async () => {
+    delete process.env.TEST_KNOWLEDGE_TOKEN
+    const fetchMock = tokenAwareFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    const warnings: string[] = []
+    try {
+      const app = await bootWith(
+        rows({
+          knowledge: {
+            mode: 'http',
+            baseUrl: 'http://127.0.0.1:7801',
+            tokenEnv: 'TEST_KNOWLEDGE_TOKEN',
+            required: false,
+            claims: CLAIMS,
+          },
+        }),
+        (message) => warnings.push(message),
+      )
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('稳盈90天赎回费率')
+      await agent.run()
+
+      const events = rawEvents(app.ctx.get(SESSION_SERVICE).events())
+      const result = events.find(
+        (event) =>
+          event.type === 'tool/result' &&
+          (event.data as { name?: string }).name === 'knowledge_answer',
+      ) as { data: { isError?: boolean; code?: string } } | undefined
+      expect(result?.data.isError).toBe(true)
+      expect(result?.data.code).toBe('knowledge-denied')
+
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]).toContain('未设置 TEST_KNOWLEDGE_TOKEN')
+      expect(warnings[0]).toContain('knowledge-denied')
+    } finally {
+      delete process.env.TEST_KNOWLEDGE_TOKEN
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
 describe('W06 · 签名门启动校验', () => {
   it('TC-W06-01 fixture 正常答案逐字不变（签名门是透明装饰）', async () => {
     const app = await bootWith(rows())

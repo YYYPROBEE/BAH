@@ -68,6 +68,32 @@ const PLAN_OK: Plan = {
 }
 
 /**
+ * 场景 4（B3 跨场景联动）：一条计划串起四个场景的工具。
+ *
+ * 流水（txn_query）→ 账单（bill_analyze）；余额（account_balance）独立跑；
+ * 取消订阅（sub_cancel，黄级写）同时依赖账单与余额——模拟"月底复盘：
+ * 查账 → 汇总 → 看可用 → 处理识别出的自动续费"。
+ * **这是外部喂图的模拟联动**：计划由本脚本静态给出，不声称模型自主规划（B1 的
+ * plan_propose 才是模型入口）；sub_cancel 的订阅 ID 来自 demo 造数（`s-1`，云存储会员），
+ * 不接任何真实商户。
+ */
+const PLAN_CROSS: Plan = {
+  planId: 'demo-cross',
+  meta: { title: '跨场景联动：流水 → 账单 →（余额）→ 取消订阅' },
+  nodes: [
+    { id: 'txns', tool: 'txn_query', args: { limit: 5 }, deps: [] },
+    { id: 'bill', tool: 'bill_analyze', args: { period: 'month' }, deps: ['txns'] },
+    { id: 'funds', tool: 'account_balance', args: {}, deps: [] },
+    {
+      id: 'cancel-sub',
+      tool: 'sub_cancel',
+      args: { subscriptionId: 's-1' },
+      deps: ['bill', 'funds'],
+    },
+  ],
+}
+
+/**
  * 场景 2：菱形图 + 根节点失败。
  *
  * A 用负数金额：治理平面在 `tools/pre-execute` 就拒（不签发票据），所以它是**确定性失败**，
@@ -148,18 +174,18 @@ function printSummary(summary: PlanRunSummary): void {
 /**
  * 演示开关（只影响**打印节奏**与**跑哪几个场景**，不改任何断言、计数与落账）。
  *
- * 为什么需要：三场景一次跑完只要 0.8 s，录屏时在屏幕上一闪而过，评委根本看不清断言；
+ * 为什么需要：四场景一次跑完只要 1 s，录屏时在屏幕上一闪而过，评委根本看不清断言；
  * 而 CI 需要的是"立刻跑完"。所以节奏是**显式参数**、默认 0（CI 行为一字不变）。
  *
  * - `--pace=<ms>`：每打一行等 ms 再打下一行。
  * - `--only=<ok|diamond|dry>`：只跑一个场景。**没跑的场景连断言都不执行**，
  *   收尾结论会按实际跑过的条数收窄——绝不把没跑的算成通过。
  */
-const OPTION_USAGE = '用法：npx tsx scripts/demo-plan.ts [--pace=<ms>] [--only=ok|diamond|dry]'
+const OPTION_USAGE = '用法：npx tsx scripts/demo-plan.ts [--pace=<ms>] [--only=ok|diamond|dry|cross]'
 
 interface DemoOptions {
   readonly paceMs: number
-  readonly only?: 'ok' | 'diamond' | 'dry'
+  readonly only?: 'ok' | 'diamond' | 'dry' | 'cross'
 }
 
 function parseOptions(argv: readonly string[]): DemoOptions {
@@ -178,7 +204,7 @@ function parseOptions(argv: readonly string[]): DemoOptions {
     if (arg.startsWith('--only=')) {
       const raw = arg.slice('--only='.length)
       if (raw !== 'ok' && raw !== 'diamond' && raw !== 'dry') {
-        throw new Error(`--only 只接受 ok / diamond / dry（收到 ${raw}）\n${OPTION_USAGE}`)
+        throw new Error(`--only 只接受 ok / diamond / dry / cross（收到 ${raw}）\n${OPTION_USAGE}`)
       }
       only = raw
       continue
@@ -191,7 +217,7 @@ function parseOptions(argv: readonly string[]): DemoOptions {
 const options = parseOptions(process.argv.slice(2))
 
 /** 是否要跑某个场景（`--only` 缺省时全跑）。 */
-const wants = (name: 'ok' | 'diamond' | 'dry'): boolean =>
+const wants = (name: 'ok' | 'diamond' | 'dry' | 'cross'): boolean =>
   options.only === undefined || options.only === name
 
 /** 打印节奏（`--pace` 未给时是 no-op；声明在 printPlanEvents 之后会触发 TDZ）。 */
@@ -232,7 +258,7 @@ try {
 
   const scopeText =
     options.only === undefined
-      ? '三场景'
+      ? '四场景（含 B3 跨场景联动）'
       : `单场景 ${options.only}（其余场景本次未运行）`
   console.log(`== demo-plan：${scopeText}${options.paceMs > 0 ? ` · 打印节奏 ${String(options.paceMs)} ms/行` : ''} ==`)
 
@@ -290,6 +316,26 @@ try {
     check('dry-run 不留快照', api.snapshot(dryRunPlan.planId) === undefined, 'snapshot=undefined')
   }
 
+  if (wants('cross')) {
+    console.log('\n== 场景 4（B3）：跨场景联动 流水→账单→(余额)→取消订阅 ==')
+    const beforeCross = session.events().length
+    const cross = await api.run(PLAN_CROSS)
+    const crossEvents = since(beforeCross)
+    await printPlanEvents(crossEvents.filter((event) => PRINTED.test(event.type)))
+    printSummary(cross)
+    const crossCalls = countOf(crossEvents, 'tool/call')
+    const crossAsked = countOf(crossEvents, 'approval/asked')
+    const crossResults = countOf(crossEvents, 'tool/result')
+    check('四个节点全部进过管线（跨四个场景）', crossCalls === 4, `tool/call=${String(crossCalls)}`)
+    check('每个节点都有结果', crossResults === 4, `tool/result=${String(crossResults)}`)
+    check('只有黄级的取消订阅触发一次审批', crossAsked === 1, `approval/asked=${String(crossAsked)}`)
+    check('计划判成功', cross.status === 'succeeded', `status=${cross.status}`)
+    // 跨场景的审计证据：写节点的治理判决在 sentry/trace（sink: session）里，这里数审计族事件
+    const auditEvents = crossEvents.filter((event) => event.type.startsWith('sentry/')).length
+    check('sentry 审计事件已落会话（trace sink=session）', auditEvents > 0, `sentry/*=${String(auditEvents)}`)
+    await nap(options.paceMs * 6)
+  }
+
   console.log(`\n日志：${app.ctx.get(SESSION_FILES).fileOf(SESSION_ID as never)}`)
   if (failures > 0) {
     console.error(`\nFAIL：${String(failures)} 条断言未通过 —— plan:dag 的接线或语义已偏离方案`)
@@ -297,7 +343,7 @@ try {
   } else {
     const conclusion =
       options.only === undefined
-        ? '审批不绕过、blocked 传递闭包、dry-run 零假记录，三条都成立'
+        ? '审批不绕过、blocked 传递闭包、dry-run 零假记录、跨场景联动四节点全过，四条都成立'
         : `${options.only} 场景成立（其余场景本次未运行，不作结论）`
     console.log(`\nPASS：${String(asserted)} 条断言全过 —— ${conclusion}`)
   }

@@ -58,6 +58,6 @@
 {"seq":57,"at":1700000100000,"formatVersion":1,"type":"assistant/message","data":{"content":[{"type":"text","text":"已为你在模拟环境完成 800 元转账，审批与核销记录见上方工具卡。"}]}}
 {"seq":58,"at":1700000100000,"formatVersion":1,"type":"sentry/trace","data":{"ts":"2023-11-14T22:15:00.000Z","seq":19,"session":"s-snapshot-web-channel","kind":"assistant","length":33,"at":1700000100000},"ignorable":true}
 {"seq":59,"at":1700000100000,"formatVersion":1,"type":"step/end","data":{"turn":1,"step":3}}
-{"seq":60,"at":1700000100000,"formatVersion":1,"type":"usage/summary","data":{"turn":1,"input":300,"output":60,"calls":3}}
+{"seq":60,"at":1700000100000,"formatVersion":1,"type":"usage/summary","data":{"turn":1,"input":300,"output":60,"calls":3,"cachedInput":0,"costMicroYuan":0}}
 {"seq":61,"at":1700000100000,"formatVersion":1,"type":"turn/end","data":{"turn":1,"reason":{"kind":"completed"}}}
 {"seq":62,"at":1700000100000,"formatVersion":1,"type":"sentry/trace","data":{"ts":"2023-11-14T22:15:00.000Z","seq":61,"session":"s-snapshot-web-channel","kind":"turn-end","turn":1,"reason":"completed","at":1700000100000},"ignorable":true}

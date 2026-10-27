@@ -13,14 +13,20 @@
  * BAH_MODEL_KEY=<your-key>
  * ```
  *
- * 没有这个文件也能起：进程照常启动，第一次调模型时由适配器报"未配置密钥"。
- * 演示前请确认 `profiles/web/patch.yml` 的 `core:model.apiKeyEnv` 与这里同名。
+ * **主演示不需要这个文件**：`profiles/web/patch.yml` 默认 `provider: router`（离线、
+ * 确定性；只认查余额 / 转账）。`BAH_MODEL_KEY` 只在手动切 DeepSeek 时使用。
+ *
+ * 本脚本**不启动** RAG sidecar，也不生成知识 token：需要知识问答时用 `pnpm demo:rag`，
+ * 或先按 `docs/knowledge.md` 起 sidecar 并把同一 `BAH_KNOWLEDGE_TOKEN` 注入本进程。
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { generateKeyPairSync } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
+
+import { existingDemoToken } from './lib/demo-token.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const envFile = join(root, '.env.local')
@@ -59,20 +65,77 @@ if (env.BAH_KNOWLEDGE_KEY === undefined || env.BAH_KNOWLEDGE_KEY === '') {
 
 const keyName = 'BAH_MODEL_KEY'
 if (env[keyName] === undefined || env[keyName] === '') {
-  console.warn(
-    `[demo:web] 没有找到 ${keyName}（读的是 ${envFile}）。` +
-      '演示仍然能起来，但第一次调模型会报"未配置密钥"；' +
-      '断网演示请把 profiles/web/patch.yml 的 provider 换成 router。',
+  console.log('[demo:web] 未设置 BAH_MODEL_KEY：主路径为离线 router，不需要密钥。')
+} else {
+  console.log(
+    `[demo:web] 检测到 ${keyName}；当前 profile 走离线 router，密钥不会被使用` +
+      '（切 DeepSeek 时才需要，见 profiles/web/patch.yml 注释）。',
   )
+}
+
+if (env.BAH_KNOWLEDGE_TOKEN === undefined || env.BAH_KNOWLEDGE_TOKEN === '') {
+  console.log(
+    '[demo:web] 未设置 BAH_KNOWLEDGE_TOKEN：若 7801 sidecar 已启动，宿主会告警且知识工具 401；' +
+      '需要知识问答时用 pnpm demo:rag，或注入与 sidecar 相同的 token。',
+  )
+} else {
+  // 两个 token 变量都设但不一致时，sidecar 取 BAH_RAG_TOKEN、宿主取 BAH_KNOWLEDGE_TOKEN，
+  // 必然 401。这里只做冲突检测（本脚本不启动 sidecar，不生成 token）。
+  try {
+    existingDemoToken(env)
+  } catch (error) {
+    console.warn(`[demo:web] ${error.message}`)
+  }
+}
+
+// B5：给 saga 补偿链生成**一次性** Ed25519 私钥（写进本次 runDir/keys/，0600），
+// 并用 --patch 把 `bank:saga-audit.signingKeyPath` 指过去。
+// 为什么不提交 key、也不写死路径：sessions/ 与 keys/ 都被 .gitignore 挡住；
+// 一次性密钥只对本 run 的链负责，退出即随 runDir 留档（不打印、不上传）。
+// 生产必须换 KMS/HSM 托管密钥——这条在 docs/deploy.md §3.1 有明说。
+let sagaKeyPath
+try {
+  sagaKeyPath = join(runDir, 'keys', 'saga-ed25519.pem')
+  mkdirSync(dirname(sagaKeyPath), { recursive: true })
+  writeFileSync(
+    sagaKeyPath,
+    generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    { mode: 0o600 },
+  )
+  const patchPath = join(runDir, 'saga-key.patch.yml')
+  // patch 语义是整块替换：bank:saga-audit 基础装配无 config，这里只补 signingKeyPath 一个键
+  writeFileSync(
+    patchPath,
+    [
+      '# demo:web 生成的一次性补丁：让 saga 补偿链在本 run 有签名密钥（B5）。',
+      '# 密钥只对本 run 有效；不要把这两个路径写进任何对外材料。',
+      '- id: bank:saga-audit',
+      `  config:`,
+      `    signingKeyPath: ${sagaKeyPath.replaceAll('\\', '/')}`,
+      '',
+    ].join('\n'),
+    'utf8',
+  )
+  console.log(`[demo:web] 已生成一次性 saga 签名密钥：${sagaKeyPath}（0600，不打印内容）`)
+} catch (error) {
+  // 生成失败不挡演示：退回缺钥行为（补偿 commit-failed: signing-key-missing），但要说明
+  sagaKeyPath = undefined
+  console.warn(`[demo:web] saga 签名密钥生成失败（${error.message}）；补偿将走缺钥降级路径`)
 }
 
 console.log(`[demo:web] 本次会话目录：${runDir}`)
 console.log(
   `[demo:web] 审计（链连续性，无密钥）：pnpm bah audit --dir "${runDir}" --no-signature`,
 )
-console.log(
-  `[demo:web] 审计（完整验签，需 keys/saga-ed25519.pem）：pnpm bah audit --dir "${runDir}"`,
-)
+if (sagaKeyPath !== undefined) {
+  console.log(
+    `[demo:web] 审计（完整验签，用本次一次性密钥）：pnpm bah audit --dir "${runDir}" --key "${sagaKeyPath}"`,
+  )
+} else {
+  console.log(
+    `[demo:web] 审计（完整验签，需 keys/saga-ed25519.pem）：pnpm bah audit --dir "${runDir}"`,
+  )
+}
 
 const child = spawn(
   process.execPath,
@@ -84,6 +147,8 @@ const child = spawn(
     '--serve',
     '--jsonl',
     runDir,
+    // B5：签名密钥补丁（层序最外）；密钥生成失败时不传，保持缺钥行为
+    ...(sagaKeyPath === undefined ? [] : ['--patch', join(runDir, 'saga-key.patch.yml')]),
   ],
   { cwd: root, stdio: 'inherit', env },
 )
