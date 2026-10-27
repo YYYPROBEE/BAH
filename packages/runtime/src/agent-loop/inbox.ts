@@ -25,6 +25,16 @@ import type { UserMessageSource } from '../session/types.ts'
 /** 认领目标（= 车道）。 */
 export type InboxTarget = 'next-turn' | 'next-step'
 
+/**
+ * 待处理消息的默认上限（D1）。
+ *
+ * 为什么要有：两条车道都是无界数组，`agent.send` 是**同步入队**，
+ * HTTP 侧没有背压——一个循环脚本能在 driver 跑完上一轮之前把内存堆满。
+ * 64 条远大于"一个人打字"的正常量（演示里通常 1–3 条），
+ * 触到上限只可能是程序在刷，此时拒绝比排队更诚实。
+ */
+export const DEFAULT_MAX_PENDING = 64
+
 /** 入队选项。 */
 export interface SendOptions {
   /** 来源标记（默认 `user`；工具纠正文本用 `context`，运行时上下文用 `runtime-context`）。 */
@@ -57,6 +67,8 @@ export interface InboxClaim {
 export interface InboxOptions {
   /** 时间戳来源（默认 `Date.now`）。 */
   readonly now?: () => number
+  /** 待处理上限（默认 `DEFAULT_MAX_PENDING`；只对**新入队**生效，不影响已入队消息）。 */
+  readonly maxPending?: number
 }
 
 export class Inbox {
@@ -71,17 +83,21 @@ export class Inbox {
 
   private readonly now: () => number
 
+  private readonly maxPending: number
+
   private wakes = 0
 
   private closed = false
 
   constructor(options: InboxOptions = {}) {
     this.now = options.now ?? (() => Date.now())
+    this.maxPending = options.maxPending ?? DEFAULT_MAX_PENDING
   }
 
   /**
    * 入队一条消息。
    *
+   * @throws `BahError('inbox-full')` 待处理条数已达上限（调用方在刷；拒绝而不是无界排队）
    * @throws `BahError('inbox-closed')` 队列已关闭（宿主已 dispose）
    */
   send(text: string, options: SendOptions = {}): void {
@@ -90,6 +106,13 @@ export class Inbox {
     }
     const trimmed = text.trim()
     if (trimmed.length === 0) return
+    if (this.pending >= this.maxPending) {
+      throw new BahError(
+        'inbox-full',
+        `inbox: 待处理消息已达上限 ${String(this.maxPending)} 条，拒绝新的输入（队列没有背压，只能拒绝）`,
+        { pending: this.pending, maxPending: this.maxPending },
+      )
+    }
 
     const message: InboxMessage = {
       text: trimmed,

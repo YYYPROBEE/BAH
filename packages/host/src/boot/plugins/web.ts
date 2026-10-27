@@ -42,8 +42,9 @@ import { generateWebToken, readWebToken } from './web-auth.ts'
 import { DEFAULT_WEB, resolveWebSettings, type WebSettings } from './web/config.ts'
 import { tryService, type WebDeps } from './web/deps.ts'
 import { createDispatcher } from './web/dispatch.ts'
+import { createHandoff } from './web/handoff.ts'
 import { sendThrown } from './web/http.ts'
-import { listen } from './web/listen.ts'
+import { bindPort } from './web/listen.ts'
 import { createSseHub } from './web/sse.ts'
 
 /** 配置面再导出（调用方与测试只认 `web.ts`，不认内部文件布局）。 */
@@ -143,7 +144,8 @@ export const webPlugin: HostPlugin<WebSettings> = {
       const deps: WebDeps = {
         session,
         adapter,
-        hub,
+        hub, // C5 人工接管（装配细节见 web/handoff.ts）
+        handoff: createHandoff({ session, now: run.now, pendingTickets: () => adapter.pendingTickets().length }),
         webToken,
         csrfToken,
         rateLimiter: createRateLimiter(config.rateLimit),
@@ -165,11 +167,9 @@ export const webPlugin: HostPlugin<WebSettings> = {
         })
       })
 
-      await listen(server, config.host, config.port)
-
-      // ⑤ 把实际端口暴露成服务（测试用 0 取随机端口；桌面壳内嵌也要知道地址）
-      const address = server.address()
-      const boundPort = typeof address === 'object' && address !== null ? address.port : config.port
+      // ⑤ 把实际端口暴露成服务（测试用 0 取随机端口；桌面壳内嵌也要知道地址）。
+      // `--dump-config` 不监听（见 listen.ts 的 `bindPort`）：导出配置不该占端口
+      const boundPort = await bindPort(server, config.host, config.port, run.probe)
       ctx.effect(
         ctx.provide(WEB_SERVER, {
           port: boundPort,

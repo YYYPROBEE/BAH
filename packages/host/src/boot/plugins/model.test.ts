@@ -234,6 +234,61 @@ describe('core:model 的 modelSpec 形状校验（readModelSpec / flag）', () =
   })
 })
 
+describe('core:model 计价（D2：costMicroYuan 不许恒为 0）', () => {
+  /**
+   * 为什么要测：`costMicroYuan` 字段早就在 schema 里，但没有 profile 配 pricing，
+   * 所以成本恒为 0 —— 看板看不出东西，还容易被当成"免费"。这里钉住两件事：
+   * ① pricing 能透到**模型条目**（适配器从 `call.model.pricing` 读）；
+   * ② 写一半、写浮点、本地 provider 写 pricing 都必须 fail-loud。
+   */
+  it('内置模型 + pricing：模型条目带上计价（不给内置表也记价，不必编一份 modelSpec）', async () => {
+    const ctx = createContext()
+    await ctx.use(
+      modelPlugin.plugin,
+      modelPlugin.validate({
+        provider: 'deepseek',
+        model: 'deepseek-chat',
+        pricing: { inputPerMTok: 2_000_000, cachedInputPerMTok: 500_000, outputPerMTok: 8_000_000 },
+      }),
+    )
+    await ctx.start()
+
+    const model = ctx.get(LLM_ADAPTERS).resolve('deepseek:deepseek-chat').model
+    expect(model.pricing).toEqual({
+      inputPerMTok: 2_000_000,
+      cachedInputPerMTok: 500_000,
+      outputPerMTok: 8_000_000,
+    })
+    // 内置表里未声明 pricing 的其它模型不受影响
+    const reasoner = ctx.get(LLM_ADAPTERS).resolve('deepseek:deepseek-reasoner').model
+    expect(reasoner.pricing).toBeUndefined()
+    await ctx.dispose('test')
+  })
+
+  it('只写一半 / 浮点 / 负数 → invalid-config（半个价会算成半个账单）', () => {
+    const cases: readonly [string, Readonly<Record<string, unknown>>][] = [
+      ['缺 outputPerMTok', { inputPerMTok: 1 }],
+      ['浮点单价', { inputPerMTok: 1.5, outputPerMTok: 1 }],
+      ['负单价', { inputPerMTok: -1, outputPerMTok: 1 }],
+    ]
+    for (const [name, pricing] of cases) {
+      expect(
+        () => modelPlugin.validate({ provider: 'deepseek', model: 'deepseek-chat', pricing }),
+        name,
+      ).toThrow(/pricing/)
+    }
+  })
+
+  it('本地 provider（mock / router）写 pricing 直接拒：本地生成没有上游成本', () => {
+    expect(() =>
+      modelPlugin.validate({
+        provider: 'router',
+        pricing: { inputPerMTok: 1, outputPerMTok: 1 },
+      }),
+    ).toThrow(/pricing/)
+  })
+})
+
 describe('core:model 装配面：router 与自定义 deepseek 模型表', () => {
   /**
    * 为什么要测：`provider: router` 与 mock 共用 MockLlmAdapter 实现但走

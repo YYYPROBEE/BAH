@@ -25,6 +25,8 @@ import {
   handleTurn,
 } from './handlers/session.ts'
 import { handleStatic } from './handlers/static.ts'
+import { handleHandoff } from './handlers/handoff.ts'
+import { handleMetrics } from './handlers/metrics.ts'
 import { sendError } from './http.ts'
 import { METHOD_NOT_ALLOWED_CODE, METHOD_NOT_ALLOWED_STATUS, matchRoute, type RouteHandler } from './router.ts'
 import { tokenMatches } from '../web-admin.ts'
@@ -35,10 +37,12 @@ const HANDLERS: Readonly<Record<RouteHandler, WebHandler>> = {
   health: handleHealth,
   session: handleSession,
   events: handleEvents,
+  metrics: handleMetrics,
   turn: handleTurn,
   interrupt: handleInterrupt,
   approval: handleApproval,
   verify: handleVerify,
+  handoff: handleHandoff,
   admin: handleAdmin,
   static: handleStatic,
 }

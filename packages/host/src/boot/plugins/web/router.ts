@@ -20,10 +20,12 @@ export type RouteHandler =
   | 'health'
   | 'session'
   | 'events'
+  | 'metrics'
   | 'turn'
   | 'interrupt'
   | 'approval'
   | 'verify'
+  | 'handoff'
   | 'admin'
   | 'static'
 
@@ -148,9 +150,21 @@ export const ROUTES: readonly RouteSpec[] = [
     kind: 'exact',
     auth: 'web',
     csrf: false,
-    statuses: [200, 400, 401],
+    // 503 = SSE 连接数达到上限（D1：拒绝而不是"200 之后静默不推帧"）
+    statuses: [200, 400, 401, 503],
     handler: 'events',
-    note: 'SSE：先全量快照，再推 frame / delta / 心跳注释；凭证可用 `?token=`',
+    note: 'SSE：先全量快照，再推 frame / delta / 心跳注释；凭证可用 `?token=`；连接满 → 503',
+  },
+  {
+    methods: ['GET'],
+    path: '/api/metrics',
+    kind: 'exact',
+    auth: 'web',
+    csrf: false,
+    // D2：单机指标（从会话事件现算；不出原文，不是分布式监控）
+    statuses: [200, 401],
+    handler: 'metrics',
+    note: '单机指标：turn / 工具成功失败 / 审批分布 / token 与成本 / 工具耗时分位 / SSE 连接数',
   },
   {
     methods: ['POST'],
@@ -195,15 +209,48 @@ export const ROUTES: readonly RouteSpec[] = [
     display: '/api/verify/:ticketId',
   },
   {
+    methods: ['GET'],
+    path: '/api/handoff',
+    kind: 'exact',
+    auth: 'web',
+    csrf: false,
+    // C5：人工侧读取接管摘要（只读；持 Web 凭证即可，单用户部署）
+    statuses: [200, 401],
+    handler: 'handoff',
+    note: '人工接管摘要：`{ active, sessionId, lastSeq, turns, pendingTickets, messages[], reason?, at? }`',
+  },
+  {
+    methods: ['POST'],
+    path: '/api/handoff',
+    kind: 'exact',
+    auth: 'web',
+    csrf: true,
+    // 409 = 已经在接管中（重复请求不刷新 `at`，否则"等了多久"失真）
+    statuses: [200, 400, 401, 403, 409],
+    handler: 'handoff',
+    note: '请求人工接管 `{ reason? }`：之后 `/api/turn` 一律 409，模型不再自动驱动',
+  },
+  {
+    methods: ['POST'],
+    path: '/api/handoff/resume',
+    kind: 'exact',
+    auth: 'web',
+    csrf: true,
+    statuses: [200, 400, 401, 403, 409],
+    handler: 'handoff',
+    note: '交回会话 `{ operator? }`；未接管时 409——不做"幂等成功"，交回必须是真的一次状态转移',
+  },
+  {
     // 静态兜底：吃掉所有 GET/HEAD（含未知 `/api/*`，它们会被解析成 404 而不是 405）
     methods: ['GET', 'HEAD'],
     path: '/',
     kind: 'prefix',
     auth: 'static',
     csrf: false,
-    statuses: [200, 404],
+    // 400 = 路径不是合法百分号编码（D6：畸形 `%` 序列以前冒成 500）
+    statuses: [200, 400, 404],
     handler: 'static',
-    note: '静态资源（默认根目录见 §7.2；纯原生 ES 模块，无需构建）',
+    note: '静态资源（默认根目录见 §7.2；纯原生 ES 模块，无需构建）；畸形百分号编码 → 400',
     display: '/*',
   },
 ]

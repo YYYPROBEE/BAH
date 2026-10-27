@@ -41,7 +41,16 @@ export async function handleStatic(
   const pathname = request.path
   const headOnly = request.method === 'HEAD'
 
-  const decoded = pathname === '/' ? 'index.html' : decodeURIComponent(pathname)
+  // `decodeURIComponent` 对畸形百分号序列（如 `%E0%A4%A`）抛 `URIError`。
+  // 不接住的话异常冒到 dispatch 的兜底分支，畸形输入就变成 500——探测者能用它区分
+  // "服务崩了"和"路径不对"。这里一律 400，且**不回显**原始串以外的任何信息。
+  let decoded: string
+  try {
+    decoded = pathname === '/' ? 'index.html' : decodeURIComponent(pathname)
+  } catch {
+    sendError(res, 400, 'web-invalid-path', '请求路径不是合法的百分号编码')
+    return
+  }
   const relativePath = normalize(decoded.replace(/^[\\/]+/, ''))
   const escaped =
     relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)

@@ -229,7 +229,8 @@ describe('Saga 收敛 job 的生命周期', () => {
       await settle()
 
       // ① stderr 仍然有：审计是补充，不替代"立刻可见"
-      expect(logs.join('\n')).toContain('bah-saga: recovery-failed')
+      //    D2 起是单行 JSON，断言按 code 而不是拼接文案
+      expect(logs.join('\n')).toContain('saga-recovery-failed')
       // ② 链上有证：系统级事实落进独立链，且不入任何 saga 的链
       const rows = new ChainFile({ rootDir: chainRoot, fsync: false }).read('system-startup')
       expect(rows.map((row) => row.t)).toEqual(['saga/recovery-failed'])
@@ -276,7 +277,7 @@ describe('Saga 收敛 job 的生命周期', () => {
       gate.resolve()
       await settle()
 
-      expect(logs.join('\n')).toContain('bah-saga: recovery-failed')
+      expect(logs.join('\n')).toContain('saga-recovery-failed')
       // 兜底必须留痕：否则"记账失败"会静默变成"什么都没发生"
       expect(logs.join('\n')).toContain('bah-saga: recovery-audit-failed')
       expect(app.phase).toBe('idle')
