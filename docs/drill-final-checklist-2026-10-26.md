@@ -80,7 +80,7 @@ pnpm test:coverage:all
 ```
 
 ⚠ 报数规则：**两个口径必须一起说**。只说 84.49% 会被问分母；只说 14/16 会被问是哪个口径。
-两个未达标包（`memory-store` 72.71% / `eval` 40.73%）是显式放弃，理由在 `docs/testing.md` §3。
+未达标包只剩 `eval` 53.20%（`memory-store` 89.40% 已达标）；`eval` 是显式放弃，理由在 `docs/testing.md` §3。
 
 ### 6. 快照面
 

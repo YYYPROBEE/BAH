@@ -22,7 +22,7 @@
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
 | `pnpm test:snapshot` | 6 文件 / 23 用例（23/23 绿） | 录制回放；`pnpm snapshot:record` 重录 |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
-| `pnpm test:coverage:all` | **行口径 86.32%**（31191/36133）/ **包口径 14/16** | 两个口径必须一起说；未达标 `memory-store` 72.68%、`eval` 40.73% |
+| `pnpm test:coverage:all` | **行口径 91.13%**（31197/34234）/ **包口径 15/16**（**CI/Ubuntu 口径**） | 两个口径必须一起说；未达标只有 `eval` 53.20%（`memory-store` 89.40% 已达标） |
 
 评测平面（`pnpm eval`）：
 
