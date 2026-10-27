@@ -57,5 +57,10 @@
     "typescript-eslint": "^8.72.0",
     "vitest": "^3",
     "yaml": "^2"
+  },
+  "pnpm": {
+    "overrides": {
+      "tinypool": "^2.2.0"
+    }
   }
 }
