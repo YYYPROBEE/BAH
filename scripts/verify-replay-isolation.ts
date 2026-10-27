@@ -37,7 +37,9 @@ const gate: Gate = {
     const result = scanClosure(root, entry)
     return {
       ok: result.findings.length === 0,
-      findings: result.findings,
+      // `scanClosure` 返回 readonly 数组（闭包扫描结果不可回写）；
+      // `GateResult.findings` 是可变数组（run-gates 会汇总拼接），这里显式拷贝。
+      findings: [...result.findings],
       notes: [
         `入口 ${entry}：扫描 ${String(result.files.length)} 个文件；` +
           `允许 ${ALLOWED_PACKAGES.join(' / ')}（@bah/eval 只许子路径，根入口禁止） / ${NODE_PREFIX}*；value import 递归闭包`,

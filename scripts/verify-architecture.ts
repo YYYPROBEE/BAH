@@ -37,8 +37,8 @@ function sectionOf(text: string, from: string, to: string): string {
 }
 
 /** 数表格里"编号行"的条数，并返回每行的单元格数。 */
-function numberedRows(text: string): number[][] {
-  const rows: number[][] = []
+function numberedRows(text: string): string[][] {
+  const rows: string[][] = []
   for (const line of text.split('\n')) {
     if (!/^\|\s*\d+\s*\|/.test(line)) continue
     const cells = line

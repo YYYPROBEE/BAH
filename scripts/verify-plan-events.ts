@@ -237,8 +237,13 @@ function declaredKeys(root: string): {
       node.initializer !== undefined &&
       ts.isArrayLiteralExpression(unwrap(node.initializer))
     ) {
-      for (const element of unwrap(node.initializer).elements) {
-        if (ts.isStringLiteral(element)) arrayKeys.add(element.text)
+      // 先取出窄化后的表达式：`unwrap()` 在循环条件里调一次、在循环头再调一次，
+      // TS 不会跨两次调用保持窄化（报 `Property 'elements' does not exist on 'Expression'`）。
+      const literal = unwrap(node.initializer)
+      if (ts.isArrayLiteralExpression(literal)) {
+        for (const element of literal.elements) {
+          if (ts.isStringLiteral(element)) arrayKeys.add(element.text)
+        }
       }
     }
     if (ts.isInterfaceDeclaration(node) && node.name.text === 'PlanSessionEventMap') {

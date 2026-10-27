@@ -61,10 +61,6 @@ export default defineConfig({
       // 让"测试全绿但退出码 1"这种假红出现。目录在 .ci-artifacts 下、每次覆盖同名文件，
       // 残留不影响读数（summary 脚本只读 coverage-summary.json）。
       clean: false,
-      // 不清理报表目录：本机沙箱的 safe-delete 会拦 vitest 的 cleanAfterRun，
-      // 让"测试全绿但退出码 1"这种假红出现。目录在 .ci-artifacts 下、每次覆盖同名文件，
-      // 残留不影响读数（summary 脚本只读 coverage-summary.json）。
-      clean: false,
       // 阈值刻意**不写在这里**：包口径（≥14/16）vitest 表达不了，
       // 两处判会造成"一处过一处不过、到底听谁的"。统一由 coverage-summary.ts 判。
     },

@@ -38,11 +38,16 @@ jobs:
       - name: Audit production npm dependencies
         run: pnpm audit --prod --audit-level high
 
+      # D3：dev 依赖也进审计。dev 不进运行时，所以阈值只对 critical 阻断——
+      # 对 dev 也按 high 阻断会天天红，红的次数多了这条检查就等于不存在。
+      - name: Audit all dependencies (含 dev，critical 阻断)
+        run: pnpm audit --audit-level critical
+
   pip-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # 首次接入先收集基线；清零后删除 continue-on-error，让它成为阻断项。
-    continue-on-error: true
+    # D3：已改为**阻断**。原先 continue-on-error 是"先收集基线"，基线期结束；
+    # 现在红了就是真发现，修依赖而不是关检查。
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -57,3 +62,49 @@ jobs:
 
       - name: Audit Python dependencies
         run: pip-audit -r services/rag/requirements.txt --strict
+
+  # D3 新增：软件物料清单（SBOM）。为什么必须有：没有清单就说不清"镜像里到底装了什么"，
+  # 出事时无法反查受影响的依赖。CycloneDX JSON 是事实标准，能直接被 Dependency-Track 等消费。
+  #
+  # 说明：新加的两个 action 用**版本 tag** 而不是 commit SHA（本单不能凭空编 SHA）。
+  # 转正前用 `gh api repos/<owner>/<repo>/git/refs/tags/<tag>` 查到 SHA 后替换，
+  # 与仓库里其它 action 的锁法保持一致。
+  sbom:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Generate SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          artifact-name: bah-sbom.cdx.json
+          output-file: bah-sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: bah-sbom.cdx.json
+          retention-days: 30
+
+  # D3 新增：密钥扫描。用 --only-verified：只报"能连上去验证有效"的凭据，
+  # 避免把用例里的假 token（`demo-key-not-for-prod`）当成泄漏而天天红。
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout（完整历史：扫描的是提交历史，不只是当前树）
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog（仅报已验真的凭据）
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified

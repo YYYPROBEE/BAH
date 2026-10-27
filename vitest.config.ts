@@ -25,7 +25,10 @@ const allowlistedSources = COVERAGE_ALLOWLIST.map(({ package: pkg, scope }) =>
 export default defineConfig({
   resolve: { alias: bahSourceAlias },
   test: {
-    include: ['packages/*/src/**/*.test.ts'],
+    // `scripts/**/*.test.ts`：门禁与运维脚本的冒烟面（C2）。
+    // 这类用例**不覆盖**源码，只钉"安全网自身"的形状（35 个 gate 可导入、步骤表不重复、
+    // 用例地板是正整数），所以与 unit 面同跑、不单开 config。
+    include: ['packages/*/src/**/*.test.ts', 'scripts/**/*.test.ts'],
     exclude: ['packages/*/src/**/*.e2e.test.ts'],
     passWithNoTests: true,
     /**
