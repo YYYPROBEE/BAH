@@ -150,7 +150,9 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 
 - 压缩只折叠**已完整结束**的 turn，当前 turn 永不折叠；金融字段（金额 / 收款人 / 票据）保留结构；
 - RAG 检索带 ACL、时效窗、引用与数值校验；sidecar 缺席时知识工具 fail-closed。
-  **RAG 响应签名与 TS 验签门（HP-2）未施工**，自评按未施工登记。
+  知识**条目级验签已落地**（W06：sha256 + HMAC + 引用绑定，任一条失败整条降级拒答）；
+  **未做的是 RAG 响应的信封签名**（HP-2，防"服务端整体被替换"，取舍与影响见
+  `docs/security-design.md` §4 第 1 条）。
 
 ---
 
@@ -169,7 +171,7 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 | 风险分判决 | `packages/safety` | 会话升到 `high` 后非绿工具一律拒绝；读工具不受影响（W09） |
 | 人工接管 | `packages/host` | `POST /api/handoff` → `/api/turn` 一律 409（消息不入 inbox）→ `GET /api/handoff` 给人工侧会话摘要 → `POST /api/handoff/resume` 交回。**不是**坐席工作台：没有排队 / 回交工单 / SLA；状态在进程内，重启回到未接管 |
 | 跨会话记忆 | `packages/memory-store` + `packages/host` | 规则抽取（禁 LLM）+ 五道闸入库；按场景召回（判不出就不检索）；以 `<memory>` 块注入且明示"永远是数据不是指令"。单租户、影子核验未接（`bankQuery` 占位） |
-| 全系统停机 | `packages/safety` + `packages/host` | HALT：新 turn / 任意工具 / plan 节点三处全拒；解除只凭会话内 U 盾 MFA 票据。状态落 `<会话根>/halt.json`，**重启仍停机**（C3）；票据不持久化，解除必须重新审批；状态文件损坏时**拒启**而不是当 RUNNING |
+| 全系统停机 | `packages/safety` + `packages/host` | HALT：新 turn / 新工具调用 / 新 plan 节点三处全拒（**只拦新动作，不打断已在途的写**）；解除只凭会话内 U 盾 MFA 票据。状态落 `<会话根>/halt.json`，**重启仍停机**（C3）；票据不持久化，解除必须重新审批；状态文件损坏时**拒启**而不是当 RUNNING |
 
 **明确不做/未做**（回答追问时照实说）：
 
@@ -180,6 +182,12 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
   记忆层的影子核验（用银行权威状态覆盖记忆值）**未接**，`bankQuery` 是占位端口；
 - 编排有两层：**plan:dag**（外部传入一张计划，引擎校验 + 拓扑执行 + 断点续跑）与 saga（"预检 → 执行"两段，
   失败经窄端口冲正）。plan 编排 saga，但 plan 自身节点写操作的补偿未做（见 `docs/security-design.md` §4）；
+  **动态 args 跨不了 `resume`**（上游输出只在内存，重做已成功的转账 = 新 planId + 冲正原笔）；
+  `incident` 状态**没有真实触发源**（全内存 mock，Web DAG 视图按 `tool/call` 派生，不区分 incident 与 failed）；
+- 对抗集幻觉族 15 例中 **H-13 / H-14 / H-15 共 3 条未降级**（期望 `degrade` 实际 `allowed`，
+  rule-gap：断言抽取未覆盖这三类表述，详见 `docs/security-design.md` §4 第 3 条）；
+- 覆盖率有两个包未到 80%：`memory-store` 72.71%、`eval` 40.73%（eval 主体是评测 harness）。
+  行口径 86.06% **仅覆盖 `packages/*/src`**，不是物理全仓口径，引用时必须带包口径 14/16 一起说；
 - 卡片挂失已实现（`card_report_lost`，红档不可逆、必进审批 + 强验证）；**解挂与密码修改未实现**；
 - 注入 / 越权检测在演示与压测 profile 下**直接阻断**（对抗集注入族 14 例期望 `block` 全部通过）；
   生产 profile 默认关掉跨场景规则（`rules.crossScenario`），需按真实语料开启；

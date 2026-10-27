@@ -27,7 +27,7 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 ```
 
 其中 `test:coverage` 与 `test:coverage:all` **两步都要**：前者守「名单内逐文件 100%」，
-后者报「全仓行口径 80% / 包口径 14–16」。只跑前者会把分母当成全仓——那正是底座评审的红灯。
+后者报「行口径（仅 `packages/*/src`）/ 包口径 14–16」。只跑前者会把分母当成全仓——那正是底座评审的红灯。
 
 两种模式，**红绿口径不同，不可混用**：
 
@@ -240,6 +240,7 @@ snapshots/<case>/
 | `apps/web/src/*.test.js` 不在 `tsc -b` 覆盖内 | `tsconfig.client.json` 只含 `apps/web/src`（JS 经 `allowJs` 不检查） | 前端行为靠 jsdom 用例兜 |
 | `@bah/test-support` 不强制覆盖率 | 00 §11：每文件 100% 只对内核与治理平面强制 | 本阶段为它补了 47 条自测（harness / 录制回放 / 会话日志 / mock-ctx），但**不**纳入 100% 名单：测试脚手架的防御性分支不值得为覆盖率造用例 |
 | `fs.cpSync(..., { recursive: true })` 在本机（Node 22.17 / Windows / 非 ASCII 路径）会 abort 进程 | 快照负控用例改为逐个 `readFileSync`/`writeFileSync` 复制三份产物 | 测试代码禁用 `cpSync`；需要复制目录时用显式循环 |
+| CI 的 Windows 矩阵（`.github/workflows/ci-matrix.yml` 的 `windows` job）是 `continue-on-error: true` 的**信号位** | **尚未转正**：只观察通过率，不阻断合并；Linux 是唯一阻断面。本仓库从未在真实 Windows CI 上绿过完整矩阵 | Windows 绿了 N 轮之后再讨论转正；转正前不要对外说"Windows CI 已验证" |
 
 ## 11. 常见坑
 
