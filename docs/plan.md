@@ -24,7 +24,7 @@ Plan（外部构造的 JSON）
 | 不是 | 依据 |
 |---|---|
 | **不是 `@bah/saga` 的替代** | saga 是"一笔业务的前向步骤 + 补偿"，节点由配方硬编码；plan 是"外部传入的整张图"。saga 回答"失败了怎么退"，plan 回答"先做什么后做什么" |
-| **不是模型的规划能力** | 无模型可见工具（工具锁 14 个）。plan 由宿主 / 脚本 / 上层插件构造 |
+| **默认不是模型的规划能力** | 银行工具锁 16 个，**不含** `plan_propose` / `plan_execute`；这两件只在显式打开 `plan:dag.modelTools: true` 的 profile（`profiles/plan`、`profiles/web-plan`）暴露给模型（默认关闭）。默认装配下 plan 由宿主 / 脚本 / 上层插件构造 |
 | **不是工作流服务器** | 无独立进程、无 DB、无队列。状态全在会话日志与进程内快照里 |
 | **不是并行执行器** | 串行。并行会让"审批一次 = 扣款一次"的对应关系失效 |
 
@@ -148,7 +148,11 @@ V9 为什么是**闭包**而不是直接 `deps`：串行执行下只有"拓扑�
 
 ## 7. 六条已知限制（答辩时主动说）
 
-1. **无模型入口**。plan 由宿主 / 脚本构造，模型看不见也调不动。这是"不新增工具（锁 14 个）"的必然结果。
+1. **模型入口是受控的、非默认的**。默认装配下 plan 仍由宿主 / 脚本构造；B1 之后
+   `plan_propose`（只校验不执行，绿级）与 `plan_execute`（执行整图，黄级 + 一次人工批准）
+   只在显式 `modelTools: true` 的 profile（`profiles/plan`、`profiles/web-plan`）可见。
+   模型提交的节点只能取银行工具目录（`BANK_TOOL_NAME_SET`）、上限 `modelMaxNodes`（默认 8），
+   每个节点仍各走一次完整 ToolPipeline——模型能提出 DAG，绕不过任何审批 / Sentry / 审计。
 2. **plan 事件是 `ignorable`**。旧 reader 跳过它，**不能**用于会话完整性校验。
 3. **turn 取消不传播进 plan**。plan 拿不到 turn 的 `AbortSignal`（`tools/execute` 的包裹层只拿到 `call`），
    所以 turn 被取消后，已进入的节点仍会跑完。plan 自己的取消只在"下一个节点是否开始"这个决策点生效。
@@ -199,7 +203,7 @@ npx vitest run packages/host/src/boot/plugins/plan.test.ts
 npx tsx scripts/verify-plan-events.ts
 npx tsx scripts/verify-plan-determinism.ts
 
-# 演示（三个场景 + 10 条断言，退出码可直接进 CI）
+# 演示（四个场景 + 15 条断言，退出码可直接进 CI；场景 4 = B3 跨场景联动）
 npx tsx scripts/demo-plan.ts
 
 # 录屏/现场演示：把打印节奏放慢到能看清（默认 0 = 不等待，CI 行为不变）
@@ -209,15 +213,29 @@ npx tsx scripts/demo-plan.ts --pace=220
 npx tsx scripts/demo-plan.ts --only=dry --pace=400
 ```
 
-`scripts/demo-plan.ts` 是**答辩用的证据面**（plan 没有模型入口，对话里看不到 DAG）：
-它在一个进程里跑三段——全成功（3 条 `tool/call` / 1 条 `approval/asked`）、
-菱形失败传播（`A → {B,C} → D`，`D.blockedBy = ['B','C']`）、dry-run（`tool/call = 0`），
+### 10.1 跨场景联动样例（B3）
+
+场景 4 用**一条计划串起四个场景**：流水 `txn_query` → 账单 `bill_analyze`；
+余额 `account_balance` 独立并行；取消订阅 `sub_cancel`（黄级写，触发一次审批）
+同时依赖账单与余额（fan-in）。全部是**现有银行工具**，没有新增 mock 商户工具；
+订阅 ID 来自 demo 造数（`s-1`，云存储会员），不接任何真实外部服务。
+
+**诚实边界**：这条计划由 `scripts/demo-plan.ts` **外部喂图**（静态 `Plan` 对象），
+它演示的是"plan:dag 能跨场景编排、每个节点各走治理管线"，**不是模型自主拆解**；
+模型自主规划的入口是 B1 的 `plan_propose` / `plan_execute`（见 §7 第 1 条与
+`profiles/web-plan`）。
+
+`scripts/demo-plan.ts` 是**答辩用的证据面**（默认装配 plan 没有模型入口，对话里看不到 DAG；
+`web-plan` profile 是"模型可见"的那一面）：
+它在一个进程里跑四段——全成功（3 条 `tool/call` / 1 条 `approval/asked`）、
+菱形失败传播（`A → {B,C} → D`，`D.blockedBy = ['B','C']`）、dry-run（`tool/call = 0`）、
+跨场景联动（B3：四节点跨四个场景，见 §10.1），
 并把 `plan/*` 事件逐条打印出来。
 
 两个开关只影响**打印节奏**与**跑哪几个场景**，不改任何断言、计数与落账：
 
-- `--pace=<ms>`：每行之后等 ms。三场景实跑只要 0.8 s，不控速的话录屏一闪而过；
-- `--only=<ok|diamond|dry>`：没跑的场景**连断言都不执行**，收尾结论按实际跑过的条数收窄
+- `--pace=<ms>`：每行之后等 ms。四场景实跑只要 1 s，不控速的话录屏一闪而过；
+- `--only=<ok|diamond|dry|cross>`：没跑的场景**连断言都不执行**，收尾结论按实际跑过的条数收窄
   （`--only=dry` 时是"4 条断言全过 —— dry 场景成立（其余场景本次未运行，不作结论）"）；
 - 两个开关都 fail-loud：`--only=xx` / `--nope` 退出码 1 并打印用法。
 

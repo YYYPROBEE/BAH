@@ -20,7 +20,7 @@
 | 链 | 目录 | 写入方 | 条目 |
 |---|---|---|---|
 | saga 链 | `<root>/<sagaId>/audit.jsonl` | `bank:saga-audit` | `saga/*`（编排、补偿、恢复） |
-| 会话证据链 | `<root>/<sessionId>/audit.jsonl` | `audit:decisions` | `tool/call`（v1）、`sentry/decision`（v2）、`approval/decided`（v2） |
+| 会话证据链 | `<root>/<sessionId>/audit.jsonl` | `audit:decisions` | `tool/call`（v1）、`tool/result`（v1 **摘要**：`{callId,name,isError,code,durationMs}`，B4）、`sentry/decision`（v2）、`approval/decided`（v2） |
 
 `audit:decisions` 在 boot 期拒绝占用编排链命名空间的会话 ID：`saga-*` 与 `system-startup`
 是保留名（否则两类条目会写进同一个 `audit.jsonl`）。换一个会话 ID 即可，不是环境坏了。
@@ -215,6 +215,10 @@ npx tsx scripts/replay.ts --snapshots snapshots/headless-basic/session.jsonl
   任一不满足，退出码 1 并打印 `chain-broken:<序号>` / `seq-gap:<seq>` / `session-event:<行号>`。
 - 改/删 `audit.jsonl` 任意一行 → 链在**该行序号**处断裂（哈希链 `r = sha256(p | canonicalJson)`）。
 - `manifest.json` 给每个文件的 sha256 / 字节数 / 条数；改一个字节即失配。
+- **`tool/result` 摘要硬核验（B4）**：链上有 `tool/result` 行时，重放会从会话事件重算同一摘要
+  （只含 `callId/name/isError/code/durationMs`，这些字段不参与脱敏）并精确比对 `d`——
+  篡改会话侧的这几个字段或链侧任一行都会变红（`tool-result-digest:<序号>`）。
+  链上没有该行（B4 之前的存量会话）只记 warning，不把存量记录判死。
 - **已知边界（必须如实讲）**：
   1. `session.jsonl` 的普通 `user/message` 没有逐行哈希；改写成另一个合法 JSON 且 seq 不变时，
      单靠重放发现不了——需要证据包的 manifest 在外部锚定（发布到不可变存储/时间戳服务）。

@@ -19,7 +19,11 @@ python -m venv .venv
 cd web/evidence_panel && npm install && npm run build && cd ../..
 
 # 启动（无 DEEPSEEK_API_KEY 时自动降级为抽取式生成）
-DEEPSEEK_API_KEY=sk-... PYTHONPATH=src .venv/Scripts/python.exe -m uvicorn banking_rag.main:app --host 127.0.0.1 --port 7801
+# 认证是 fail-loud：没有 token 会直接拒启（RuntimeError: 认证未配置）。
+# 从仓库根 `pnpm rag:dev` 会自动生成一次性演示 token 并打印；
+# 手工启动必须显式注入同一个 token（host 侧也要用）：
+BAH_KNOWLEDGE_TOKEN=<token> DEEPSEEK_API_KEY=sk-... \
+  PYTHONPATH=src .venv/Scripts/python.exe -m uvicorn banking_rag.main:app --host 127.0.0.1 --port 7801
 ```
 
 - API 文档关闭；健康检查：`GET /healthz`
@@ -37,7 +41,8 @@ DEEPSEEK_API_KEY=sk-... PYTHONPATH=src .venv/Scripts/python.exe -m uvicorn banki
 | `BAH_RAG_EMBEDDING` | `on` | `off` = 退化 FTS5 单通道（R-2 降级路径） |
 | `BAH_RAG_MODEL_DIR` | `services/rag/models` | 嵌入模型缓存目录 |
 | `BAH_RAG_ENTAILMENT` | `on` | `off` = 只跑字面层 |
-| `BAH_KNOWLEDGE_TOKEN` | 空 | 设置后 `/v1/*` 需要 Bearer token |
+| `BAH_RAG_TOKEN_SECRET` | 空 | 签名模式密钥（HMAC-SHA256）；与下面的演示 token 至少配一个，否则**拒启** |
+| `BAH_RAG_TOKEN` / `BAH_KNOWLEDGE_TOKEN` | 空 | 演示模式静态 token；与 secret 至少配一个，否则**拒启**。`/healthz` 之外全部 `/v1/*` 都要 `Authorization: Bearer <token>` |
 
 ## 常用命令
 

@@ -103,12 +103,13 @@ NODE_EXTRA_CA_CERTS= npx tsx scripts/demo-plan.ts --only=diamond
 
 ### 8. Web 端到端
 
-起服务（7331 必须空闲；固定 token 便于脚本化）：
+起服务（7331 必须空闲；固定 token 便于脚本化）。2026-10-27 起 web profile **默认就是离线
+router**，不再需要 `.tmp-w20-web-router.yml` 兜底 overlay；`BAH_MODEL_KEY` 也非必需：
 
 ```bash
 BAH_KNOWLEDGE_KEY=demo-key-not-for-prod BAH_WEB_TOKEN=w20-demo-token \
   npx tsx packages/cli/src/main.ts --profile web --serve \
-  --patch .tmp-w20-web-router.yml --jsonl .tmp-w20-web --session s-w20-web
+  --jsonl .tmp-w20-web --session s-w20-web
 ```
 
 | 步骤 | 实测 |

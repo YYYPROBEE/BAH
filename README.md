@@ -24,23 +24,27 @@ pnpm install
 
 | 目的 | 命令 | 说明 |
 |---|---|---|
-| **起演示** | `pnpm demo:web` | 读 `.env.local` 的 `BAH_MODEL_KEY`，每次新建独立会话目录，打开 `http://127.0.0.1:7331` |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 198 文件 / 2019 用例 |
-| **门禁** | `pnpm gate` | 35 项静态与契约检查，任一红即失败 |
+| **起演示** | `pnpm demo:web` | 主路径为**离线 router**（不读密钥、不依赖外网），每次新建独立会话目录，打开 `http://127.0.0.1:7331` |
+| **容器演示** | `docker build -t bah:local . && docker run --rm -p 7331:7331 bah:local` | 单容器 Web，默认离线 router（不需要密钥）；RAG sidecar 不在镜像内，知识工具降级为 `knowledge-unavailable` |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 203 文件 / 2090 用例 |
+| **门禁** | `pnpm gate` | 36 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
-`.env.local`（不入库）：
+主演示**不需要密钥**：`profiles/web/patch.yml` 默认 `provider: router`（读消息做意图路由，
+只认查余额 / 转账；不是自然语言理解，认不出会追问）。DeepSeek 是**可替换 provider 的证据**：
+把 `core:model` 与 `core:agent.loop.model` 两处**成对**换成 profile 注释里的 DeepSeek 块，
+并在 `.env.local`（不入库）写：
 
 ```text
 BAH_MODEL_KEY=<你的模型密钥>
 ```
 
-没有密钥也能启动，但第一次调模型会报"未配置密钥"。**断网/离线演示**时，把
-`profiles/web/patch.yml` 里 `core:model` 的 `provider: deepseek` / `model: deepseek-v4.1-flash-1017`
-两行换成文件里已注释好的 `provider: router` / `model: router-chat`——这是**手动切换**，不是自动降级。
+这是**手动切换**，不是自动降级；只在需要 Web 内真实模型回答时使用。
 
-知识检索（可选）：另起 `pnpm rag:dev`（端口 7801）。不起也能跑转账主场景，
-知识工具会按 `knowledge-unavailable` fail-closed。
+知识检索：知识问答不在 router 的意图范围内，用 `pnpm demo:rag`（一条命令起停 sidecar，
+并把同一 token 注入 sidecar 与宿主）。需要手工起 sidecar 时用 `pnpm rag:dev`（端口 7801），
+它会在未配置 token 时生成一次性演示 token 并打印；宿主必须用同一 `BAH_KNOWLEDGE_TOKEN`。
+sidecar 认证是 fail-loud（无 token 拒启），工具在缺 token 时按 `knowledge-denied` fail-closed。
 
 ---
 
@@ -57,7 +61,7 @@ flowchart LR
   A --> P[七段工具管线]
   P --> G[治理判决<br/>规则 / 预算 / 断路器 / 三级权限]
   G --> T[票据 + 审批<br/>一次性核销]
-  T --> B[银行核心 + 14 工具<br/>内存账本]
+  T --> B[银行核心 + 16 工具<br/>内存账本]
   P --> SG[Saga 补偿 / 幂等]
   P --> SB[沙箱执行<br/>三档 + worker]
   A --> J[(append-only 会话日志)]
@@ -86,7 +90,7 @@ flowchart LR
 | 前端 | `apps/web` | 原生 ES 模块，无框架、无构建 |
 | 命令行 | `packages/cli` | profile bundle、`run` / `audit` / `sentry unfreeze` |
 | 评测 | `packages/eval` | M0 判定器、证据与轨迹录制（独立测试配置） |
-| 其他 | `packages/memory-store`、`packages/util`、`packages/test-support` | 记忆层内核、零依赖原语、测试夹具 |
+| 其他 | `packages/memory-store`、`packages/util`、`packages/test-support` | 跨会话记忆（`bah:memory-store` 已接线：turn 边界写入、本轮第一步召回、提示词段注入；profile 显式开启）、零依赖原语、测试夹具 |
 
 ### 2.2 一次工具调用的七段
 
@@ -163,14 +167,17 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 | 浏览器边界 | `packages/host` | CSP / XFO / XCTO / Referrer-Policy / Permissions-Policy；`/api/*` 每来源 60s/120 次限流 |
 | 审计诚实 | `packages/persistence` | 零签名报 `unsigned`；CLI 按"审计未完成"退出码 2；`--no-signature` 只验连续性 |
 | 风险分判决 | `packages/safety` | 会话升到 `high` 后非绿工具一律拒绝；读工具不受影响（W09） |
-| 全系统停机 | `packages/safety` | HALT 单例：新 turn / 任意工具 / plan 节点三处全拒；解除只凭会话内 U 盾 MFA 票据（进程内存，重启清零） |
+| 人工接管 | `packages/host` | `POST /api/handoff` → `/api/turn` 一律 409（消息不入 inbox）→ `GET /api/handoff` 给人工侧会话摘要 → `POST /api/handoff/resume` 交回。**不是**坐席工作台：没有排队 / 回交工单 / SLA；状态在进程内，重启回到未接管 |
+| 跨会话记忆 | `packages/memory-store` + `packages/host` | 规则抽取（禁 LLM）+ 五道闸入库；按场景召回（判不出就不检索）；以 `<memory>` 块注入且明示"永远是数据不是指令"。单租户、影子核验未接（`bankQuery` 占位） |
+| 全系统停机 | `packages/safety` + `packages/host` | HALT：新 turn / 任意工具 / plan 节点三处全拒；解除只凭会话内 U 盾 MFA 票据。状态落 `<会话根>/halt.json`，**重启仍停机**（C3）；票据不持久化，解除必须重新审批；状态文件损坏时**拒启**而不是当 RUNNING |
 
 **明确不做/未做**（回答追问时照实说）：
 
 - 没有真实登录、多租户、身份系统；Web 鉴权是最小 Bearer token，限流是单机级，不是网关；
 - 银行账本是内存仿真，进程重启回种子；强验证默认是测试网关适配器（未接真实短信/人脸/U 盾供应商），锁定状态在内存、重启丢失；
-- HALT 人工解除已落地，但解除状态只在进程内存、headless 无远程控制入口；知识库双层签名（W06）与
-  工具出参契约（W03）已落地，**未做**的是 RAG 响应的信封签名（跨语言验签）与出参的运行时动态校验；
+- HALT 人工解除已落地、状态已持久化（C3），但 headless 无远程控制入口；知识库双层签名（W06）与
+  工具出参契约（W03）已落地，**未做**的是 RAG 响应的**信封签名**（跨语言验签）；
+  记忆层的影子核验（用银行权威状态覆盖记忆值）**未接**，`bankQuery` 是占位端口；
 - 编排有两层：**plan:dag**（外部传入一张计划，引擎校验 + 拓扑执行 + 断点续跑）与 saga（"预检 → 执行"两段，
   失败经窄端口冲正）。plan 编排 saga，但 plan 自身节点写操作的补偿未做（见 `docs/security-design.md` §4）；
 - 卡片挂失已实现（`card_report_lost`，红档不可逆、必进审批 + 强验证）；**解挂与密码修改未实现**；
@@ -212,11 +219,11 @@ facts.md             演示材料唯一数字来源
 
 | 命令 | 范围 | 实测（2026-10-27） |
 |---|---|---|
-| `pnpm test` | 主仓 | 198 文件 / 2019 用例 |
+| `pnpm test` | 主仓 | 203 文件 / 2090 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
 | `pnpm test:web` | 前端 | 7 文件 / 55 用例 |
 | `pnpm test:snapshot` | 快照回放 | 6 文件 / 23 用例 |
-| `pnpm gate` | 门禁 | 35/35 |
+| `pnpm gate` | 门禁 | 36/36 |
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
 

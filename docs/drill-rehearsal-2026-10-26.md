@@ -3,6 +3,10 @@
 > **数字已过期**：本文是 2026-10-26 的排练留存（历史证据，不回改）。
 > 当前口径一律以 [facts.md](../facts.md) 为准：
 > 主仓 **198 文件 / 2019 例**、门禁 **35/35**、快照 **6 文件 / 23 例**、覆盖率 **85.84%**。
+>
+> **2026-10-27 模型口径更新（A4）**：Web 主演示已默认 `provider: router`（离线）；
+> 本文的 `.tmp-w20-web-router.yml` 兜底 overlay 与「正式演示建议用真实模型」不再适用，
+> DeepSeek 改为可替换 provider 的证据（见 `facts.md` §5）。其余排练记录保持原样。
 
 > 两轮。每轮记**时长、卡点、当场改了什么**。数字是墙钟实测（`date +%s%N` 夹逼），
 > 同一台机器上第二次跑会快一些，所以两轮都给。
@@ -134,6 +138,6 @@ POST /api/approval/ticket:8ed7f6f8-… {"decision":"allowed-once"} → 200 {"ok"
 
 1. **Web 兜底 overlay 不在仓库里**（`.tmp-w20-web-router.yml`，被 `.gitignore` 的 `.tmp-*` 覆盖）。
    它是"现场没密钥"时的救命文件，答辩前必须确认它还在；丢了按本文 §1.2 卡点 4 的两行重建。
-2. **正式演示建议用真实模型**（`profiles/web/patch.yml` 默认 deepseek + `.env.local` 的 `BAH_MODEL_KEY`）；
-   router 兜底只保证"能演完"，措辞不如真实模型自然。
+2. ~~正式演示建议用真实模型~~ → **2026-10-27 已反转**：主演示默认离线 router（`facts.md` §5），
+   DeepSeek 是可选替换项；router 只认查余额/转账，知识问答走 `pnpm demo:rag`。
 3. 本机 `pnpm check`（14 步，含 build）未在两轮里计时；它是 CI 口径，答辩现场不建议跑。

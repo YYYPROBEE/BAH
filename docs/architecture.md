@@ -44,8 +44,8 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **21 项 / 35 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
-| 覆盖率 | **85.84%（行口径，29958/34898 行，实测 2026-10-27）；14/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
+| 注册表 / 门禁 | **21 项 / 36 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
+| 覆盖率 | **86.06%（行口径，31093/36131 行，实测 2026-10-27）；14/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
 ## 3. 组件与依赖（20 个组件）
@@ -250,15 +250,16 @@ graph TB
 | channel:web | · 未装配 | · 未装配 | ● 生效 | ● 生效 |
 <!-- END GENERATED:matrix -->
 
-### 4.1 五处差异的**理由**（不是随手配的）
+### 4.1 六处差异的**理由**（不是随手配的）
 
 | 差异 | 为什么 |
 |---|---|
-| `channel:web` 只在 web | 渠道是入口，headless/plan 不需要 HTTP 端口；装上会白占 7331 并让 `main.smoke` 撞端口 |
-| `plan:dag` 只在 plan | 编排原语是**工具**能力（plan 里挂成 `plan` 工具）；装进 web 会让模型有机会自己画 DAG，与"确定性编排"的定位冲突 |
-| `bank:knowledge` 只在 web | 它要 `mode: http` 连 RAG sidecar；headless/plan 不联网、零依赖是硬约束 |
-| `bank:saga-bridge` 在 plan 关闭 | 否则 `transfer_create` 被再展开成一笔 saga，一条 `plan/node-result` 会对上两条 `tool/call`，plan 的计数断言全部失真 |
-| `interaction:approval.responder` | headless/plan 用自动应答者（无人值守），web 用 `none` + 真人点——**默认结论都是拒绝**，绝不默认放行 |
+| `channel:web` 只在 web / web-plan | 渠道是入口，headless/plan 不需要 HTTP 端口；装上会白占端口并让 `main.smoke` 撞端口 |
+| `plan:dag` 在 plan 与 web-plan | 默认 web **不装** plan——不让主演示路径的模型自己画 DAG；要演示"模型可见的规划 + DAG 节点图"用 `web-plan`（B1/B2）：`modelTools: true` 显式打开，且 saga-bridge 显式关闭 |
+| `bank:knowledge` 只在 web / web-plan | 它要 `mode: http` 连 RAG sidecar；headless/plan 不联网、零依赖是硬约束 |
+| `bank:saga-bridge` 在 plan / web-plan 关闭 | 否则 `transfer_create` 被再展开成一笔 saga，一条 `plan/node-result` 会对上两条 `tool/call`，plan 的计数断言全部失真 |
+| `interaction:approval.responder` | headless/plan 用自动应答者（无人值守），web/web-plan 用 `none` + 真人点——**默认结论都是拒绝**，绝不默认放行 |
+| `bah:memory-store` 只在 web | 记忆会改变模型输入，不做静默开启；由 web profile 显式写（单租户 demo，诚实边界见插件注释） |
 
 ## 5. 一次 Web 对话的路径（数据流）
 

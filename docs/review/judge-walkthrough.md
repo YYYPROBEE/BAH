@@ -40,8 +40,8 @@
 |---|---|---|---|---:|
 | 幻觉防护 | 出口断言核验门（`verified` 原文发 / 未核实加前缀）＋ 权威库签名门 | `packages/safety/src/verify/`；`scripts/sign-knowledge.ts --check` | 只约束"有出处的断言"，不对自由文本做事实校验 | 4 |
 | 注入防御 | 入口归一化 + 规则检测 + 工具白/黑名单 + PII 预算 | `packages/safety/src/sentry/{normalize,detect,tool-glob,pii,budget}.ts` | 规则式，不是模型判别；新攻击面靠补规则 | 4 |
-| 操作审计 | 会话哈希链 + `approval/decided` 入链 + 判决可解释 | `packages/persistence/src/chain/`；`scripts/verify-audit-chain.ts`；`docs/audit.md` | **链上不存理由明文**（只存判决数据哈希）；**未签名**（`signedTypes` 缺省 `[]`） | 4 |
-| 异常熔断 | HALT 全局停机（工具/审批/plan 三处全拒）＋ 失败预算 | `packages/safety/src/sentry/halt.ts`；`packages/host/src/boot/plugins/halt.test.ts` | HALT 在内存、重启即清零；不中止在途工具 | 4 |
+| 操作审计 | 会话哈希链 + `tool/call`/`tool/result` 摘要/`approval/decided` 入链 + 判决可解释 | `packages/persistence/src/chain/`；`scripts/verify-audit-chain.ts`；`docs/audit.md` | **链上不存理由明文与结果原文**（`tool/result` 只存 `{callId,name,isError,code,durationMs}` 摘要）；签名按密钥存在性启用，缺钥 unsigned | 4 |
+| 异常熔断 | HALT 全局停机（工具/审批/plan 三处全拒）＋ 失败预算 | `packages/safety/src/sentry/halt.ts`；`packages/host/src/boot/plugins/halt.test.ts` | HALT 落 `halt.json`、重启仍停机（C3）；不中止在途工具 | 4 |
 | 沙箱环境 | 受限算术语言（无网络/无文件/无循环）＋ 沙箱策略与运行时 | `packages/safety/src/sandbox-policy/`、`sandbox-runtime/`；`scripts/verify-sandbox.ts` | 沙箱只覆盖计算工具，不是任意代码执行环境 | 4 |
 
 ### 1.4 核心技术要求 3：意图理解与任务规划（赛题解析 §三.3）
@@ -66,10 +66,10 @@
 
 | # | 事实 | 可以怎么说 | 不许怎么说 |
 |---:|---|---|---|
-| 1 | 会话链默认 `signedTypes: []`，只做 SHA-256 前序链 | "链提供**顺序与完整性**；签名是可选层，当前未开" | "判决已签名" / "链不可伪造" |
+| 1 | 会话链签名按密钥存在性启用（B4）：`keys/saga-ed25519.pem` 存在 → `tool/call` / `tool/result` / `sentry/decision` / `approval/decided` 全签名；缺钥 → unsigned（stderr 明示） | "链提供顺序与完整性；私钥在位时四类证据行带 Ed25519 签名；演示缺钥时是 unsigned，哈希链仍连续" | "缺钥也算已签名" / "链不可伪造"（外部锚定仍缺） |
 | 2 | 链上只存 `decision` / `policyVersion` / `subject` / `prevHash` | "完整理由在 `sentry/tool-denied` 与 `sentry/trace` 事件里，链上存的是判决数据的哈希" | "链上能看到完整理由" |
 | 3 | 验链发生在**启动**与 `bah audit` 时 | "启动扫全链、离线审计可验；长跑进程里外部改中间行**不会立刻**被发现" | "运行中改链会被发现" / "实时检测篡改" |
-| 4 | HALT 状态在进程内存 | "`manual` 停机重启即清零；`chain-broken` 会在下次启动重新触发" | "HALT 能持久" / "重启仍停机" |
+| 4 | HALT 的持久化边界 | "停机状态落 `halt.json`，重启仍 HALTED；但**票据不持久化**，重启后必须重新走 U 盾审批；`halt.json` 损坏时拒启而不是当 RUNNING" | "重启后能自动解除" / "解除票据也存下来了" |
 | 5 | HALT 只拦新 turn / 新工具 / 新 plan 节点 | "正在执行的写操作不打断，是为了保住原子性" | "HALT 会立刻中止在途工具" |
 | 6 | 可运行 profile 只有 3 个（`headless` / `web` / `plan`），另 4 个是占位目录 | "演示只走三条 profile；其余是预留目录，没有配置" | "五个 profile 都接了" |
 
@@ -100,4 +100,4 @@
 
 1. **"最高的分数在哪？"** —— 权限分级与审计：三档都有代码、门禁与负例，拒绝路径能判红（见 §1.2 与 `web.test.ts` 的拒绝用例）。
 2. **"最难看的一条是什么？"** —— 卡片管理和订阅代扣只覆盖了部分动作；我们不把它说成"全场景覆盖"（见 §1.1 自评 2 分）。
-3. **"审计能不能防内部人改日志？"** —— 不能宣称能：当前只做哈希链与启动/离线验链，签名未开；内部人改中间行要等下次启动或离线审计才暴露（见 §3 第 1–3 条）。
+3. **"审计能不能防内部人改日志？"** —— 不能宣称能：哈希链 + 启动/离线验链 + `tool/result` 重放硬比对（B4）能让改行在下次启动或离线审计时暴露；无外部锚定，签名在缺钥演示环境是 unsigned（见 §3 第 1–3 条）。

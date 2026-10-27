@@ -25,7 +25,7 @@ cd bah-monorepo
 | Node.js | `^22.19 \|\| >=24` | `package.json` 的 `engines`；22.17 目前只告警不阻断，但不保证行为一致，建议按 `.nvmrc` 装 22.19 |
 | pnpm | `10.34.7` | `packageManager` 字段锁定；用 corepack 或手动装同版 |
 | 操作系统 | Windows / Linux / macOS | 脚本用 Node 原生 API，没有平台分支 |
-| 网络 | Web 演示需要外网；headless 不需要 | headless 默认走离线路由（`provider: router`） |
+| 网络 | Web 与 headless 主路径都不需要外网 | 默认走离线路由（`provider: router`）；只有切 DeepSeek 时才需要外网 |
 
 ```bash
 corepack enable
@@ -33,7 +33,7 @@ pnpm install          # 同时把 core.hooksPath 指到 .githooks
 ```
 
 `pnpm install` 的 `prepare` 会执行 `git config core.hooksPath .githooks`；
-之后提交跑 `pnpm gate`（27 项），推送跑 `pnpm check`（10 步）。钩子挡疏忽，不挡 `--no-verify`。
+之后提交跑 `pnpm gate`（36 项），推送跑 `pnpm check`（10 步）。钩子挡疏忽，不挡 `--no-verify`。
 
 ---
 
@@ -56,8 +56,8 @@ pnpm install          # 同时把 core.hooksPath 指到 .githooks
 
 | 变量 | 必需 | 作用 | 不设的后果 |
 |---|---|---|---|
-| `BAH_MODEL_KEY` | Web 演示必需 | `profiles/web/patch.yml` 的 `core:model.apiKeyEnv`；真实模型密钥 | 进程能起，第一次调模型报「未配置密钥」 |
-| `DEEPSEEK_API_KEY` | 其他 profile 用 deepseek 时必需 | 模型插件的缺省 `apiKeyEnv` | 同上 |
+| `BAH_MODEL_KEY` | 否（仅切 DeepSeek 时） | `profiles/web/patch.yml` 注释块里的 `core:model.apiKeyEnv`；真实模型密钥 | 主路径 router 不使用；切 DeepSeek 后缺它会在第一次调模型时报「未配置密钥」 |
+| `DEEPSEEK_API_KEY` | 否（仅其他 profile 用 deepseek 时） | 模型插件的缺省 `apiKeyEnv` | 同上 |
 | `BAH_KNOWLEDGE_KEY` | 装配 `bank:knowledge` 时必需（W06） | 知识库签名清单的 HMAC 密钥；演示/CI 用公开的 `demo-key-not-for-prod` | 知识插件启动期报 `invalid-config`（无默认密钥） |
 | `BAH_WEB_TOKEN` | 否 | `/api/*` 的 Bearer token | 每进程随机生成，注入 `index.html` 的 meta；页面能用，手打 API 需自己取 |
 | `BAH_ADMIN_TOKEN` | 否 | 管理路由 `POST /api/admin/sentry/unfreeze` 的唯一凭据 | **路由不存在（404）**，无法远程解冻断路器 |
@@ -72,13 +72,16 @@ Permissions-Policy；`/api/*` 每来源 60 秒 120 次限流，超限 429。限�
 `profiles/web/patch.yml` 的 `channel:web.config.rateLimit` 调整。
 
 密钥只从环境变量读，**没有 `--key` 参数**（会进进程列表与 shell history）。
-Web 演示用仓库根的 `.env.local`（被 `.gitignore` 的 `.env*` 挡住）：
+主路径 router **不需要密钥**；只有切 DeepSeek 时才用仓库根的 `.env.local`
+（被 `.gitignore` 的 `.env*` 挡住）：
 
 ```text
 BAH_MODEL_KEY=<your-key>
 ```
 
 `pnpm demo:web` 会读它；`pnpm web` 不读。两者启动的是同一个 profile。
+RAG 的 `BAH_KNOWLEDGE_TOKEN` 是另一回事（见 `docs/knowledge.md`）：sidecar 无 token 拒启，
+宿主与 sidecar 必须使用同一个值。
 
 **管理 token 的正确用法**（解冻断路器）：
 
@@ -103,11 +106,18 @@ BAH_ADMIN_TOKEN=<同一串> pnpm bah sentry unfreeze --by ops-1 --reason "客服
 `keys/saga-ed25519.pem` 不存在时，补偿会以 `commit-failed: signing-key-missing` 失败
 （正向交易不受影响，因为它不写签名事件）。
 
-开发 / 演示一次性生成：
+开发 / 演示两条路（B5，2026-10-27）：
 
 ```bash
-npx tsx scripts/gen-saga-key.ts          # 写 keys/saga-ed25519.pem（0600；keys/ 已被 .gitignore 忽略）
+pnpm demo:web                            # 自动：在本次 runDir/keys/ 生成一次性密钥（0600），
+                                         # 并用 --patch 把 bank:saga-audit.signingKeyPath 指过去；
+                                         # 验签用 demo:web 打印的 --key 路径
+npx tsx scripts/gen-saga-key.ts          # 手动：写 keys/saga-ed25519.pem（0600；keys/ 已被 .gitignore 忽略）
 ```
+
+`demo:web` 的一次性密钥只对本 run 的链负责，不进仓库、不打印内容；密钥生成失败时退回
+缺钥行为（补偿 `commit-failed: signing-key-missing`）并在启动日志说明，不会静默。
+`pnpm web`（非 demo）不做自动生成，按需走手动路径。
 
 - 自定义路径：`bank:saga-audit.config.signingKeyPath`（验签命令要用同一把私钥）；
 - 私钥**不得提交**；仓库当前没有 KMS/HSM，生产托管留待后续（如实写，不要声称已有）。
@@ -135,13 +145,17 @@ npx tsx scripts/sign-knowledge.ts        # 用这把密钥重新签名
 
 ## 4. 五条命令
 
-### 4.1 起 Web 演示（真实模型）
+### 4.1 起 Web 演示（离线 router）
 
 ```bash
 pnpm demo:web
 # [demo:web] 本次会话目录：.../sessions/demo-<stamp>-<随机>/
 # 打开 http://127.0.0.1:7331
 ```
+
+默认 `provider: router`：不读密钥、不依赖外网，只认查余额 / 转账。需要 Web 内真实模型
+（含知识问答）时，按 `profiles/web/patch.yml` 注释把 `core:model` 与 `core:agent.loop.model`
+**两处**换成 DeepSeek，并在 `.env.local` 写 `BAH_MODEL_KEY`。
 
 每次演示都会新建独立会话目录，日志、Saga 库与审计链都落在该目录；结束后按终端打印的
 `pnpm bah audit --dir "<目录>"` 复核，不会把上一场的钱记到这一场。预期：对话流两段气泡、
@@ -153,7 +167,7 @@ pnpm demo:web
 pnpm web
 ```
 
-CI 或临时注入密钥时用这条。
+CI 或需要从外部环境变量注入密钥时用这条（默认 router 不需要密钥）。
 
 ### 4.3 跑一段 headless 对话（离线、无密钥）
 
@@ -167,17 +181,71 @@ headless 走 `provider: router`（读消息现规划，不是固定磁带），�
 ### 4.4 一键自证（不需要密钥）
 
 ```bash
-pnpm test              # 198 文件 / 2019 用例（2026-10-27 实测；前端另有 55 例）
+pnpm test              # 203 文件 / 2090 用例（2026-10-27 实测；前端另有 55 例）
 pnpm test:snapshot     # 5 场景 / 6 文件 23 例，录制↔回放逐条全等
-pnpm gate              # 35/35
+pnpm gate              # 36/36
 pnpm demo:verifier-fail # 判决件异常 → 结果被挡在模型之外（20 条断言）
 ```
 
-### 4.5 只读核验证据链
+### 4.5 容器起 Web（Docker / Compose）
+
+```bash
+# 单容器（最小路径）
+docker build -t bah:local .
+docker run --rm -p 7331:7331 bah:local    # 默认离线 router，不需要 BAH_MODEL_KEY
+
+# 编排（D3）：web 默认起；RAG sidecar 在 `rag` profile 里，按需开
+docker compose up -d web
+docker compose --profile rag up -d
+docker compose logs -f web
+docker compose down
+```
+
+- `docker-compose.yml` 只做**单机演示编排**：没有多副本、没有负载均衡、没有 K8s。
+  `sessions/` 挂命名卷（会话与审计链是证据，容器重建不能丢）。
+- **两个容器必须用同一个 `BAH_KNOWLEDGE_TOKEN`**：sidecar 读 `BAH_RAG_TOKEN`，缺省回落到
+  `BAH_KNOWLEDGE_TOKEN`（`auth.py` 的 legacy 分支），所以演示只需设这一个；host 侧 `bank:knowledge`
+  读的也是它。不设 = sidecar 拒启（fail-loud），不是"演示时关掉认证"。
+- RAG 的 `services/rag/models/`（约 182MB）与 `data/` 用**只读绑定**挂进去，不进镜像也不进卷；
+  干净 clone 里没有 `models/` 时 rag 会启动失败——有意如此。
+- 镜像内把 `profiles/web/patch.yml` 的 `channel:web.config.host` 改为 `0.0.0.0`
+  （仓库默认 `127.0.0.1` 无法被 `-p 7331:7331` 访问到）。挂载宿主 profile 会覆盖这处改动。
+- 管理路由仍只接受回环来源：经端口映射进来的请求来自 docker 网桥，会 403。演示不需要管理路由。
+- 源码直跑（tsx），**不产出也不需要 `dist`**：`@bah/*` 由根 `tsconfig.json` 的 `paths` 解析到
+  `packages/*/src`（`dist/` 与 `dist-types/` 本就被 `.gitignore` 忽略，干净 clone 本来就没有）。
+  `--ignore-scripts` 只为跳过根 `prepare`（容器内无 `.git`），依赖树无原生模块。
+- 回滚：`docker tag bah-web:local bah-web:<日期>`；回滚 = `docker compose down` + 跑回上一个 tag，
+  并把 `sessions` 卷指回原目录（**不要**在回滚时清理卷：那会连带删掉审计证据）。
+
+**验证状态（必须照实说）**：本机**没有 Docker CLI**，`docker build` 一次都没跑过。
+只做了静态核对，逐条可复核：
+
+| 静态核对项 | 结论 |
+|---|---|
+| `docker-compose.yml` 能否解析 | ✅ `yaml` 解析通过；services = web / rag；rag 在 `rag` profile |
+| 挂载路径是否存在 | ✅ `services/rag/data`、`services/rag/models` 都在 |
+| Dockerfile 的 `sed` 目标行 | ✅ `profiles/web/patch.yml:127` 恰为 `    host: 127.0.0.1` |
+| RAG 健康检查路径 | ✅ `main.py` 有 `@app.get("/healthz")`（匿名） |
+| 凭据变量名 | ✅ `auth.py`：`BAH_RAG_TOKEN` → 回落 `BAH_KNOWLEDGE_TOKEN` |
+| 运行期是否需要 `dist` | ✅ 不需要（tsconfig `paths` 直指 `src`；`dist` 本就不入库） |
+| pnpm 版本 | ✅ `packageManager: pnpm@10.34.7` 与镜像内 `corepack prepare` 一致 |
+
+首次构建请在**有 Docker 的机器**上按顺序跑，并把输出补回本节：
+
+```bash
+docker build -t bah-web:local . && docker images bah-web:local --format '{{.Size}}'
+docker run --rm -d --name bah-smoke -p 7331:7331 bah-web:local
+sleep 15 && curl -s http://127.0.0.1:7331/api/health   # 期望 {"ok":true,...}
+docker rm -f bah-smoke
+```
+
+在拿到上面那次 `/api/health` 之前，**仓库不声称"镜像可起"**。
+
+### 4.6 只读核验证据链
 
 ```bash
 pnpm bah audit --dir "<demo:web 打印的会话目录>" --no-signature
-pnpm bah audit --dir "<demo:web 打印的会话目录>"   # 完整验签：需 keys/saga-ed25519.pem
+pnpm bah audit --dir "<demo:web 打印的会话目录>" --key "<demo:web 打印的一次性密钥路径>"   # 完整验签（B5）
 ```
 
 `--no-signature` 只验链连续性与投影（退出码 0，签名状态 `skipped-disabled`），**不等于验签通过**。
@@ -199,10 +267,10 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>"   # 完整验签：需 k
 | 管理路由 404 | `BAH_ADMIN_TOKEN` 没设 | 带上 env 重启 Web |
 | 管理路由 403 | 来源不是回环 | 只能从本机调；不要绑 `0.0.0.0` |
 | 管理路由 401 | token 不一致 | 两端用同一串；不要带引号/空格 |
-| 第一次对话报「未配置密钥」 | `BAH_MODEL_KEY` 为空 | 写 `.env.local`，或临时把 `provider` 换成 `router` 起离线演示 |
+| 第一次对话报「未配置密钥」 | 已切 DeepSeek 但 `BAH_MODEL_KEY` 为空 | 写 `.env.local`；或按 profile 注释把 `core:model` 与 `core:agent.loop.model` 成对换回 router |
 | 知识问答报 `knowledge-unavailable` | 7801 sidecar 没起 | `pnpm rag:dev`（或按 `services/rag` 的 README 起），再确认探活 |
 | 断路器冻结，解不掉 | 在用 headless | headless 只能重启；Web 用管理路由 |
-| 提交被 `pnpm gate` 拒绝 | 27 项里有红 | 看输出末段；`docs` 路径红最常见（引用了不存在的文件） |
+| 提交被 `pnpm gate` 拒绝 | 36 项里有红 | 看输出末段；`docs` 路径红最常见（引用了不存在的文件） |
 | 推送被 `pnpm check` 拒绝 | 14 步里有红 | 先 `pnpm test:snapshot`；快照红会卡在最后一步 |
 | 演示日志里全是历史转账 | 用 `pnpm web` 起在了共享 `sessions/`；`demo:web` 才会每次新建独立目录 | 改用 `pnpm demo:web`，按打印的目录审计；不要删别人的历史目录 |
 
@@ -211,8 +279,8 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>"   # 完整验签：需 k
 ## 6. 演示前 60 秒检查
 
 ```bash
-pnpm gate                 # 35/35（不需要 BAH_ALLOW_NO_SNAPSHOT）
-pnpm test:snapshot        # 18/18
+pnpm gate                 # 36/36（不需要 BAH_ALLOW_NO_SNAPSHOT）
+pnpm test:snapshot        # 6 文件 / 23 例（录制↔回放逐条全等）
 pnpm demo:verifier-fail   # 退出码 0
 pnpm demo:web             # 另开终端；记下打印的“本次会话目录”
 curl -s http://127.0.0.1:7331/api/health   # 返回 JSON，且不含票据 ID
@@ -229,6 +297,6 @@ node -v                       # 需要 ^22.19 || >=24
 
 八条都过再上台。任何一条红，先修再讲——现场不要靠「应该没事」。
 
-> 现场无模型密钥时的兜底：把 profile 的 `core:model` **和** `core:agent.loop.model`
-> 一起换成 `router:router-chat`。只换前者会报 `provider deepseek 未注册`
-> （主循环仍指向 deepseek）。
+> 模型路径只有一个默认答案：`provider: router`。要改用 DeepSeek，必须把 profile 的
+> `core:model` **和** `core:agent.loop.model` **两处一起换**；只换前者会报
+> `provider deepseek 未注册`（主循环仍指向旧 provider）。这是手动切换，不是自动降级。

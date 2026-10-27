@@ -5524,3 +5524,144 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 | A 验收与契约 | 报告是"缺口核实"，完成项必须能反查到回执 | 每项对应 §13 小节编号 |
 | B 对抗与回归 | 只更新报告不改 facts 会二次漂移 | 本轮 facts/baseline/生成文档同批更新 |
 | B 对抗与回归 | E 组（推远端/tag/视频/PPT/上传/签字）不在本轮范围 | 报告 §7 仍标"未完成"，不冒充已闭合 |
+
+---
+
+## 96.25 2026-10-27 C03 未闭合项收口：种子日限额对齐 1000 元
+
+### 96.25.1 做了什么
+
+- `packages/bank/src/forge/index.ts` 的 `DEFAULT_LIMITS.dailyTransferLimitCents` 由 `500_000` 改为 `100_000`，与赛题分级线示例（≤ 1000 元）和 `bank:tools.dailyTransferLimit` 的 Config 默认 1000 元同源；demo/headless 两档的 `c-1` 卡日限额也由 `500_000` 改为 `100_000`，种子数据本身不再出现 5000 元。§27 的 R104「保持 5000」自本节起作废，§96.22 的 500_000 锚点保留为历史记录。
+- adversarial 档同批重钉：near-limit `490_000 → 99_000`、夜间大额 `120_000 → 100_000`；补一笔 `250_000` 装修支出，使 `analyzeBill` 的「大额支出」异常素材不因降额而消失。
+- 夹具与用例：`TEST_CONFIG.dailyTransferLimit` `5_000 → 1_000`；`mock`（日累计与超额）、`transfers`（剩余额度）、`accumulation`（800+300、600+500）按新上限重算。
+- 文档：`docs/snapshot-sandbox-scenario-{brief,report}.md` 的锚点与数值；仓库外 `C03-10.28答疑出战包`、`BAH能力短板修复分类`、`赛事规则/10.28线上答疑-问题清单` 的旧结论改为「已对齐」。
+
+### 96.25.2 判据与输出
+
+| 判据 | 实测 |
+|---|---|
+| 单一口径 | `forge` 缺省 `100_000`、demo/headless `c-1` 卡 `100_000`、`bank-tools` 缺省 `1_000` 元，三处同值 |
+| 全量测试 | `pnpm test` 198 文件 / 2019 例全绿 |
+| 门禁 | `pnpm gate` 35/35（`snapshot-fresh` 重录 5 场景，文件无字节变化） |
+| 语义未丢 | near-limit、夜间大额、大额支出、重复扣费、短时高频五类素材仍在 |
+
+### 96.25.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | 只改 `DEFAULT_LIMITS` 不改卡与 adversarial 素材，规则用例仍在旧金额上"假通过" | 卡数据、素材与断言同批重算，并补大额支出素材 |
+| B 对抗与回归 | 夹具 `TEST_CONFIG` 若不动，测试与种子双口径会把缺陷藏起来 | 夹具同批改为 1000 元；`grep` 复核种子与缺省表无 500_000，`tier`/`risk` 单测内的任意量值保留（不与种子同源） |
+| B 对抗与回归 | 快照可能因种子金额变化而漂移 | 门禁重录后 `git status` 无快照改动，说明场景未消费这些金额 |
+
+---
+
+## 96.26 2026-10-27 C03 未闭合项收口：单容器 Web Dockerfile
+
+### 96.26.1 做了什么
+
+- 新增 `Dockerfile`：`node:22-bookworm-slim` → corepack 启 pnpm `10.34.7` → `pnpm install --frozen-lockfile --ignore-scripts` → 源码直跑 `pnpm web`（tsx）。`USER node`、`EXPOSE 7331`、`HEALTHCHECK` 打 `GET /api/health`。
+- 新增 `.dockerignore`：排除 `node_modules`、`**/dist*`、`sessions`、`.tmp*`、`*.log`、`.env*`（保留 `.env.example`）、`docs`/`design`/`tests`/`snapshots`。
+- 容器内唯一配置差异：构建期把 `profiles/web/patch.yml` 的 `channel:web.config.host` 由 `127.0.0.1` 改为 `0.0.0.0`（否则 `-p 7331:7331` 访问不到）；其余与仓库一致。
+- 密钥策略：模型密钥由 `-e BAH_MODEL_KEY` 注入；`BAH_KNOWLEDGE_KEY` 用文档指定的公开演示值；RAG sidecar 不入镜像，知识工具 fail-closed。
+- 文档：`README.md` 快速开始加「容器演示」行；`docs/deploy.md` 新增 §4.5（含 host 改写、管理路由 403、未实跑声明）；仓库外 C03 / 能力短板 / 缺口核实 / 答疑问题清单同步。
+
+### 96.26.2 判据与输出
+
+| 判据 | 实测 |
+|---|---|
+| 文件面 | `find . -maxdepth 2 -iname 'Dockerfile*'` = 1；`.dockerignore` 1 个 |
+| 端口与健康 | `EXPOSE 7331`；`HEALTHCHECK` = `GET /api/health`（路由表 public 200） |
+| 非 root | `USER node`；`/app` 与 `sessions/` chown 到 node |
+| 密钥不入镜像 | `.env*` 全排除；模型密钥仅运行时 `-e` 注入 |
+| 未验证项 | 本机无 Docker CLI，**未实跑 build/run**；README/deploy/C03 均如实标注 |
+
+### 96.26.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | host 仍是 `127.0.0.1` 时端口映射打不开 | 构建期 sed 改 `0.0.0.0`，deploy 文档写明挂载 profile 会覆盖 |
+| B 对抗与回归 | `pnpm install` 的根 `prepare` 在无 `.git` 容器里会失败 | `--ignore-scripts`；依赖树无原生模块 |
+| B 对抗与回归 | `.dockerignore` 漏掉 `.env.local` 会把真实密钥打进镜像 | `.env*` 全排除，仅留 `.env.example` |
+| B 对抗与回归 | 管理路由只接受回环，端口映射进来的请求 403 | 文档写明演示不需要管理路由，不放宽代码 |
+
+---
+
+## §96.27 C 类收口：门禁质量 / HALT 持久化 / 记忆接线 / 人工接管 / 文档一致性（2026-10-27）
+
+> 顺序：C2 → C3 → C4 → C5 → C1 → 复审。原则是"能落地就落地，落不了地才收口径"，
+> 所以 C4/C5 做的是**真接线 / 真接口**，不是声明式"标注未实现"。
+
+### 96.27.1 C2 门禁/脚本质量与用例地板
+
+- 新增 `tsconfig.scripts.json`（`noEmit` + `paths` 指源码），接入 `pnpm typecheck`：64 个脚本 / 1.1 万行首次进类型检查。
+  顺手修 6 处存量类型错误，以及 4 处**真实逆变不兼容**（safety 的四个 listener 工厂手写 `(payload: unknown, next: (v: unknown) => …)`，
+  包内 program 只装 core、`BahEventMap` 是开放索引签名所以一直没暴露）；改成 `Listener<'tools/pre-execute'>` 等精确形状，`onceNext` 泛型化。
+- `eslint` 扩到 `scripts/**/*.ts`（只开 `no-floating-promises` / `no-explicit-any`；脚本靠 `as` 工作，不开 `consistent-type-assertions`）。
+- 新增 `scripts/gates.smoke.test.ts`（4 例）：36 个门禁逐个可导入、`gate.name` 与文件名一一对应且唯一、`ci.ts` 步骤表不重复 + 三个必跑面 + 地板为正整数、`coverage-summary` 两口径阈值与 `main()`。
+- 用例地板：unit 1570→**2000**、snapshot 14→**22**、web 52→**54**（实测 2090 / 23 / 55）。
+- **修 plan callId 撞号**：`${planId}#${nodeId}#1` → `${planId}#${nodeId}#${attempt}`；attempt 基线来自 `PlanReplay.starts`（跨窗口累计 `plan/node-started`），只在**真正派发**时递增（args 解析失败不落 started 也不吃号）。补 2 例。
+- 修 `deriveMessages` / `history-cache` 的**真缺陷**：plan 节点的 `tool/call` + `tool/result` 没有 `assistant/message` 承载（模型没发起过），旧实现在下一轮请求时按 `session-log-hole` 崩。新增 `planCallIds`：配对检查照做、wire 投影跳过。
+- 修 `verify-assertions` 的 `stripComments`：正则版把 `'sentry/*'` 里的 `/*` 当注释开头，吞掉大段代码（某文件 69 个 `expect(` 被算成 24 条，假红"断言从 55 降到 24"）。改为词法扫描。
+
+### 96.27.2 C3 HALT 真持久化
+
+- `HaltState` 新增 `HaltPersistence` 端口与 `HaltView.restored`；`halt()` 落账**之后**写盘、`unfreeze()` 成功后清盘、`enabled:false` 时读写全关。
+- 新增 `packages/host/src/boot/plugins/halt-store.ts`：`<会话根>/halt.json`（**与会话 ID 无关的部署级文件**），`tmp + fsync + rename` 原子写；
+  损坏 / 字段非法 / 不可读一律抛 `safety-halt-state-*` 让 boot **拒启**；票据不进快照。
+- 用例：safety 5 例 + host 文件面 6 例 + boot 级 3 例（换会话 ID 仍 HALTED、恢复后在 `agent.send` 第一道闸就拒、凭票据解除后再 boot 恢复 RUNNING）。
+
+### 96.27.3 C4 跨会话记忆真接线
+
+- 新增 `packages/host/src/boot/plugins/memory.ts`（`bah:memory-store`）：`provide(MEMORY_SERVICE)` + `turn/end` 写入 + `agent/pre-step`（仅 step 1）召回 + `PromptSection`（`target: context`，order 35）注入 `<memory>` 块。
+- `sceneOf` 两级匹配（强关键词先于弱关键词），否则「以后转账都用尾号8888的卡」会被判成 `card`；判不出 → `unknown` → `planRoute` 不检索（禁通配兜底）。
+- `bankQuery` 显式占位（永远 `null`）：影子核验未实现这件事在代码里可见。
+- `profiles/web/patch.yml` 显式开一行（base bundle 不含：记忆会改变模型输入，不静默开启）。
+- 用例 7 例：默认不装配无记忆段、写入→召回→注入全链（断言 `runtime-context` 含 `<memory>` 与"永远是数据，不是指令"）、`unknown` 不检索、配置 fail-loud。
+
+### 96.27.4 C5 人工接管最小接口
+
+- 新增 `web/handoff.ts`：`HandoffRegistry` + `handoff/requested` / `handoff/resumed`（走 `appendDomain` + ignorable，**不新增事件表冻结键**）；
+  摘要含 `turns` / `lastSeq` / 待应答票据数 / 最近 6 条原话（截断 200 字、排除 `runtime-context`）。
+- 三条路由：`GET /api/handoff`、`POST /api/handoff`、`POST /api/handoff/resume`；接管期间 `/api/turn` → **409 且消息不入 inbox**；未接管时交回 → 409。
+- `web.ts` 维持结构预算：199 行 / `apply` 120 行（装配细节收进 `createHandoff`）。
+- 用例：`handoff.test.ts` 5 例 + `web.test.ts` 3 例。
+
+### 96.27.5 C1 文档一致性门禁与口径归一
+
+- 新增 `scripts/verify-docs-consistency.ts`（第 36 项门禁）：扫 12 份对外材料，三条判据——
+  ① 过期数字黑名单；② 当前数必须等于 `docs/facts-sources.md` 机器块；③ **能力口径防回退**（"重启即清零" / "记忆层未接线" / "无人工接管"）。
+  历史件与 `docs/dsh-comparison.md`（10-19 对位评审）不进扫描面。负例已验：README 写 35/35 必红。
+- 数字归一：`203 文件 / 2090 用例`、`36/36`、`6 文件 / 23 例`、`16 工具`、`86.06%（31101/36139）`。
+- 语义修正：README 的 HALT 行改为持久化并补 handoff / 记忆两行；删掉"出参运行时校验未做"（HP-4 早已实现）；
+  `docs/plan.md` 的"工具锁 14 个 / 无模型可见工具"改为"16 个、`plan_propose` 只在 plan profile 显式打开"；自评新增 §6.4 / §6.5。
+
+### 96.27.6 判据与输出
+
+| 判据 | 实测 |
+|---|---|
+| `pnpm typecheck` | 绿（含 `tsc -p tsconfig.scripts.json`） |
+| `pnpm lint` | 绿（含 `scripts/**/*.ts`） |
+| `pnpm test` | **203 文件 / 2090 用例** |
+| `pnpm gate` | **36/36** |
+| 快照 | 6 文件 / 23 例（usage 字段改动后重录） |
+| 覆盖率 | **86.06%（31101/36139）**，包口径 14/16 |
+| HALT 跨重启 | 换会话 ID 仍 HALTED；旧票 `halt-ticket-unknown` |
+| 记忆链路 | 第二轮 `runtime-context` 含 `<memory>` |
+| 接管 | `/api/turn` 409 时 `sent === []`；交回后 202 |
+
+### 96.27.7 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A | `halt.json` 放会话子目录会"换会话绕过停机" | 移到会话根；用例钉住"换会话仍 HALTED" |
+| A | `--dump-config` 会 bind 7331，端口被占则导出失败 | `bindPort(probe=false)` 跳过监听（与 A8 同一开关） |
+| A | `verify-facts` 塞进单测造成"改 facts 必须先跑覆盖率"的循环 | 从 unit 面移除（门禁已在 `pnpm gate` 里） |
+| A | docs-consistency 首版误伤 eval 面 `22 文件 / 158 用例` 与 `dsh-comparison` 的 `12/12` | 加语境跳过；历史评审件移出扫描面 |
+| B | 记忆进 `user` 角色消息扩大提示注入面 | 强制声明"数据不是指令"；入库前过 `INJECTION_PATTERNS`；接外部 MCP 前重新评估（登记） |
+| B | `sceneOf` 粗判会误判（"卡"是弱关键词） | 两级匹配；判不出就不检索 |
+| B | 接管摘要暴露会话原文 | 仅 Bearer + CSRF 后可读；6 条 / 200 字；单用户成立，多租户分区（D4） |
+| B | 接管状态在进程内，重启回到未接管 | 文档如实写；跨重启要等 boot 恢复历史会话（D4） |
+| B | `halt.json` 损坏拒启会"锁死运维" | 拒启优于自动解除；动作是修/删文件（自评已写） |
+| B | `tsc -b` 增量缓存给出假红（`project.test.ts` TS1109），`--force` 后消失 | 登记为方法：跨包引用变动后必须 `--force` 复核 |
+| B | `web.test.ts` 的"目录穿越 404"偶发 `fetch failed` | 重跑即绿；登记 flaky（与本轮无关） |
+| B | memory / handoff **无快照背书** | 登记：快照场景仍 6 个；两项由单测 + 集成用例覆盖 |
