@@ -183,6 +183,7 @@ graph TB
     p9_headless["bank:knowledge（未装配）"]
     p17_headless["bank:saga-bridge"]
     p18_headless["plan:dag（未装配）"]
+    p19_headless["bah:memory-store（未装配）"]
     p20_headless["channel:web（未装配）"]
   end
   subgraph P_plan["profiles/plan"]
@@ -190,6 +191,7 @@ graph TB
     p9_plan["bank:knowledge（未装配）"]
     p17_plan["bank:saga-bridge（enabled: false）"]
     p18_plan["plan:dag"]
+    p19_plan["bah:memory-store（未装配）"]
     p20_plan["channel:web（未装配）"]
   end
   subgraph P_web["profiles/web"]
@@ -197,6 +199,7 @@ graph TB
     p9_web["bank:knowledge"]
     p17_web["bank:saga-bridge"]
     p18_web["plan:dag（未装配）"]
+    p19_web["bah:memory-store"]
     p20_web["channel:web"]
   end
   subgraph P_web-plan["profiles/web-plan"]
@@ -204,11 +207,12 @@ graph TB
     p9_web-plan["bank:knowledge"]
     p17_web-plan["bank:saga-bridge（enabled: false）"]
     p18_web-plan["plan:dag"]
+    p19_web-plan["bah:memory-store（未装配）"]
     p20_web-plan["channel:web"]
   end
   classDef ghost stroke-dasharray: 5 5,stroke:#9aa4b2,color:#9aa4b2
   classDef off stroke-dasharray: 3 3,stroke:#c9822f,color:#c9822f
-  class p9_headless,p18_headless,p20_headless,p7_plan,p9_plan,p20_plan,p18_web ghost
+  class p9_headless,p18_headless,p19_headless,p20_headless,p7_plan,p9_plan,p19_plan,p20_plan,p18_web,p19_web-plan ghost
   class p17_plan,p17_web-plan off
 ```
 <!-- END GENERATED:assembly -->
@@ -242,7 +246,7 @@ graph TB
 | bank:saga-audit | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | bank:saga-bridge | ● 生效 | ○ 关闭 | ● 生效 | ○ 关闭 |
 | plan:dag | · 未装配 | ● 生效 | · 未装配 | ● 生效 |
-| bah:memory-store | · 未装配 | · 未装配 | · 未装配 | · 未装配 |
+| bah:memory-store | · 未装配 | · 未装配 | ● 生效 | · 未装配 |
 | channel:web | · 未装配 | · 未装配 | ● 生效 | ● 生效 |
 <!-- END GENERATED:matrix -->
 

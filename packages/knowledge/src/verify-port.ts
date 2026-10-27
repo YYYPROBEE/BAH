@@ -3,7 +3,8 @@
  *
  * 位置：`KnowledgePort` 的装饰器。检索命中后、工具组装 content 前逐条核对证据：
  * - `(docId, chunkId, text)` 的 sha256 必须等于签名清单里的 `textSha256`；
- * - 条目的 HMAC 必须用本地密钥重算一致。
+ * - 条目的 HMAC 必须用本地密钥重算一致；
+ * - 每条引用必须绑到**同一条已签名证据**（同 docId + 同 marker + 落在其字符区间内）。
  *
  * 失败语义：**该条视为未命中**；只要响应里有任何一条证据验签失败，整条答案降级为拒答
  * （`kind: 'refusal'` + `reasonCode: 'signature-invalid'`），因为答案文本可能引用了坏条目。
@@ -97,14 +98,33 @@ export function createVerifiedKnowledgePort(options: VerifiedKnowledgeOptions): 
     evidence: readonly KnowledgeEvidence[],
     citations: readonly KnowledgeCitation[],
   ): SignatureRejection | undefined => {
-    const valid = new Map<string, KnowledgeEvidence>()
+    const signed: KnowledgeEvidence[] = []
     for (const item of evidence) {
       const rejection = check(item)
       if (rejection !== undefined) return rejection
-      valid.set(evidenceKey(item), item)
+      signed.push(item)
     }
     for (const citation of citations) {
-      if (!valid.has(citationKey(citation))) {
+      /**
+       * 引用必须绑定到**同一条已签名证据**：同文档 + 同 marker + 落在该条字符区间内。
+       *
+       * 为什么不要求首尾完全相等：真实 sidecar 的 evidence 是整段 chunk
+       * （`retrieve.py` 固定 `char_start=0, char_end=len(text)`），citation 只是命中的那一句
+       * （例如 0–77 里的 20–36），要求相等会把所有真实答案误判为签名失败。
+       *
+       * 为什么还要比 marker：sidecar 用 `K1/K2…` 把引用绑到具体 chunk
+       * （`verify.py:335`）。只看"同文档 + 区间"会让一条引用被同文档的另一条已签名
+       * chunk 放行——条目本身没被篡改，但"引用指的是哪一条"就没人管了。
+       */
+      const covered = signed.some(
+        (item) =>
+          item.docId === citation.docId &&
+          item.marker === citation.marker &&
+          citation.charStart < citation.charEnd &&
+          citation.charStart >= item.charStart &&
+          citation.charEnd <= item.charEnd,
+      )
+      if (!covered) {
         const rejection: SignatureRejection = {
           reasonCode: SIGNATURE_INVALID_CODE,
           docId: citation.docId,
@@ -204,12 +224,4 @@ export function missingEntryFor(
 
 function indexKey(docId: string, chunkId: number): string {
   return `${docId}#${String(chunkId)}`
-}
-
-function evidenceKey(item: KnowledgeEvidence): string {
-  return `${item.docId}#${String(item.charStart)}#${String(item.charEnd)}`
-}
-
-function citationKey(item: KnowledgeCitation): string {
-  return `${item.docId}#${String(item.charStart)}#${String(item.charEnd)}`
 }

@@ -181,9 +181,10 @@ describe('W06 · 可验证端口', () => {
 
     const answerBase = fixture.answers[0]?.response
     if (answerBase === undefined) throw new Error('fixture 缺少答案')
+    // 越出证据区间（charEnd + 1）才算没有覆盖；子区间由下一条用例证明是合法的。
     const badCitation: KnowledgeAnswerResponse = {
       ...answerBase,
-      citations: answerBase.citations.map((item) => ({ ...item, charStart: item.charStart + 1 })),
+      citations: answerBase.citations.map((item) => ({ ...item, charEnd: item.charEnd + 1 })),
     }
     const citationPort = verified(
       createFixtureKnowledgePort({
@@ -218,6 +219,86 @@ describe('W06 · 可验证端口', () => {
       }),
     )
     expect((await emptyPort.answer(ANSWER_REQUEST)).kind).toBe('refusal')
+  })
+
+  it('引用是已签名证据的子区间 → 放行（真实 sidecar 的形状）', async () => {
+    const base = fixture.answers[0]?.response
+    const evidence = base?.evidence[0]
+    if (base === undefined || evidence === undefined) throw new Error('fixture 缺少答案证据')
+    // live sidecar：evidence 是整段 chunk（0–77），citation 只指费率那一句（20–36）。
+    const subSpan: KnowledgeAnswerResponse = {
+      ...base,
+      citations: base.citations.map((item) => ({
+        ...item,
+        charStart: evidence.charStart + 10,
+        charEnd: evidence.charEnd - 10,
+      })),
+    }
+    const port = verified(
+      createFixtureKnowledgePort({
+        answers: [{ match: '稳盈90天', response: subSpan }],
+        queries: [],
+      }),
+    )
+
+    const response = await port.answer(ANSWER_REQUEST)
+    expect(response.kind).toBe('answer')
+    expect(response.reasonCode).toBeNull()
+  })
+
+  it('引用 marker 与证据不一致 → 拒答（同文档另一条已签名 chunk 不能替它背书）', async () => {
+    const base = fixture.answers[0]?.response
+    const evidence = base?.evidence[0]
+    if (base === undefined || evidence === undefined) throw new Error('fixture 缺少答案证据')
+    // 区间合法（落在 evidence 内），但 marker 改了：sidecar 用 marker 把引用绑到具体 chunk。
+    const wrongMarker: KnowledgeAnswerResponse = {
+      ...base,
+      citations: base.citations.map((item) => ({
+        ...item,
+        marker: 'K9',
+        charStart: evidence.charStart + 10,
+        charEnd: evidence.charEnd - 10,
+      })),
+    }
+    const rejections: unknown[] = []
+    const port = createVerifiedKnowledgePort({
+      port: createFixtureKnowledgePort({
+        answers: [{ match: '稳盈90天', response: wrongMarker }],
+        queries: [],
+      }),
+      entries: fixtureEntries,
+      key: KEY,
+      onRejected: (info) => rejections.push(info),
+    })
+
+    const response = await port.answer(ANSWER_REQUEST)
+    expect(response.kind).toBe('refusal')
+    expect(response.reasonCode).toBe('signature-invalid')
+    expect((rejections[0] as { detail: string }).detail).toContain('引用')
+  })
+
+  it('零长度引用 → 拒答（引用必须覆盖至少一个字符）', async () => {
+    const base = fixture.answers[0]?.response
+    const evidence = base?.evidence[0]
+    if (base === undefined || evidence === undefined) throw new Error('fixture 缺少答案证据')
+    const emptySpan: KnowledgeAnswerResponse = {
+      ...base,
+      citations: base.citations.map((item) => ({
+        ...item,
+        charStart: evidence.charStart + 1,
+        charEnd: evidence.charStart + 1,
+      })),
+    }
+    const port = verified(
+      createFixtureKnowledgePort({
+        answers: [{ match: '稳盈90天', response: emptySpan }],
+        queries: [],
+      }),
+    )
+
+    const response = await port.answer(ANSWER_REQUEST)
+    expect(response.kind).toBe('refusal')
+    expect(response.reasonCode).toBe('signature-invalid')
   })
 
   it('跨来源不可混用：corpus 模式不认 fixture 的 chunkId', async () => {
