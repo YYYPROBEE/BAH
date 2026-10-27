@@ -15,14 +15,15 @@ turn/start（先开 turn：turn 号从日志续号，分叉/回放的会话不�
   │      └─ 粘性结束且认领为空  → 关闭
   │
   │    step/start
-  │      ⓪ 压缩判定（阈值触发，幂等：只折叠**已完整结束**的 turn；本 turn 永不折叠）
-  │      ① 装配（纯）：提示词 × 模型能力位 + 日志派生历史 + 认领消息 + 注入上下文
-  │      ② agent/request（waterfall：改路由 / 参数）
-  │      ③ prepareCall（冻结；失败/取消**都不提交** system/user）
-  │      ④ 提交：request/header → system/message → request/context → user/message
-  │      ⑤ llm/stream（waterfall 环绕）→ StreamAssembler
-  │      ⑥ 工具七段管线（逐个：tool/call → tool/result）
-  │      ⑦ assistant/message 收尾（带 toolCalls）
+  │      ⓪ 解析首选模型（压缩水位按它的能力位算工具 schema 开销）
+  │      ① 压缩判定（阈值触发，幂等：只折叠**已完整结束**的 turn；本 turn 永不折叠）
+  │      ② 装配（纯）：提示词 × 模型能力位 + 日志派生历史 + 认领消息 + 注入上下文
+  │      ③ agent/request（waterfall：改路由 / 参数）
+  │      ④ prepareCall（冻结；失败/取消**都不提交** system/user）
+  │      ⑤ 提交：request/header → system/message → request/context → user/message
+  │      ⑥ llm/stream（waterfall 环绕）→ StreamAssembler
+  │      ⑦ 工具七段管线（逐个：tool/call → tool/result）
+  │      ⑧ assistant/message 收尾（带 toolCalls）
   │    step/end（工具失败时先补记 tool/result，再落 assistant/message）
   │
   │    sticky(结束原因)

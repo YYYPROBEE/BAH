@@ -1,7 +1,7 @@
 {
   "measuredAt": "2026-10-27",
   "command": "NODE_EXTRA_CA_CERTS= pnpm test:coverage:all",
-  "line": { "covered": 29163, "total": 34517, "pct": 84.49 },
+  "line": { "covered": 29958, "total": 34898, "pct": 85.84 },
   "packages": { "atLeast80": 14, "total": 16 },
-  "note": "全仓口径（不是 vitest.config.ts 里「强制 100% 名单」那个口径）。测量时 198 文件 / 1995 例全绿。两个未达 80% 的包：memory-store 72.71%、eval 40.73%（eval 主体是评测 harness，行数多在场景数据装载上）。"
+  "note": "全仓口径（不是 vitest.config.ts 里「强制 100% 名单」那个口径）。测量时 198 文件 / 2019 例全绿。两个未达 80% 的包：memory-store 72.71%、eval 40.73%（eval 主体是评测 harness，行数多在场景数据装载上）。2026-10-27 本轮（B1–B3 / A3 / A7 / A8）重测：85.84%（29958/34898）；上一版 85.83%（29843/34771）是 §5.3 修复后、A8 探活开关落盘前的时点报表。"
 }

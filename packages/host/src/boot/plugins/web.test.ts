@@ -1003,6 +1003,95 @@ describe('channel:web 实时链路', () => {
     }
   })
 
+  it('C04 判据三：Web 点「拒绝」→ approval-closed(rejected) 帧 + 下游 deny + 转账不执行', async () => {
+    const harness = await boot({ heartbeatMs: 60_000 }, { challenges: passingChallenge })
+    const controller = new AbortController()
+    const approval = harness.ctx.get(APPROVAL_SERVICE)
+    const session = harness.ctx.get(SESSION_SERVICE)
+    const ticketId = 'ticket:web-reject' as TicketId
+    /** 真正执行工具的那一步；只有 allowed-once 才允许走到这里。 */
+    const executed: string[] = []
+    try {
+      const stream = await authedFetch(`${harness.url}api/events?since=0`, {
+        signal: controller.signal,
+      })
+      const reader = stream.body!.getReader()
+      const decoder = new TextDecoder()
+      await readUntil(reader, decoder, '"kind":"snapshot"')
+
+      // 下游复刻 `packages/runtime` 管线里 `approval/request` 的下游：只有当仲裁
+      // 给出 allowed-once 时才会真正执行工具。Web 端点的结论必须原样走到这一步。
+      const settled = approval.handle(approvalInput(ticketId), (value) => {
+        if (value.decision.decision === 'allowed-once') executed.push(ticketId)
+        return Promise.resolve(value)
+      })
+      await new Promise((resolve) => {
+        setImmediate(resolve)
+      })
+      expect(approval.pendingCount).toBe(1)
+
+      // 与前端按钮同一条路径：先验票，再下结论
+      expect(
+        (
+          await authedFetch(`${harness.url}api/verify/${encodeURIComponent(ticketId)}`, {
+            method: 'POST',
+          })
+        ).status,
+      ).toBe(200)
+
+      const decide = await authedFetch(`${harness.url}api/approval/${encodeURIComponent(ticketId)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ decision: 'rejected', reason: '本人不同意本次转账' }),
+      })
+      expect(decide.status).toBe(200)
+
+      const answered = await settled
+      // ① 仲裁归一化为 rejected（不是 unavailable，也不是默许），且理由原样带进判决
+      expect(answered.decision).toEqual({
+        decision: 'rejected',
+        reason: '本人不同意本次转账',
+      })
+      // ② 下游没拿到放行 ⇒ 转账工具一次都没执行
+      expect(executed).toEqual([])
+      // ③ 票据已消耗，不再挂在待应答上
+      expect(approval.pendingCount).toBe(0)
+
+      // 管线在 `handle` 返回后落账（pipeline.ts 同口径）；这里照抄同一份载荷
+      session.append('approval/decided', {
+        ticketId,
+        decision: answered.decision.decision,
+        reason: answered.decision.reason,
+        code:
+          answered.decision.decision === 'allowed-once'
+            ? undefined
+            : `approval-${answered.decision.decision}`,
+      })
+
+      // ④ 前端「红态」的唯一来源：approval-closed 帧
+      const seen = await readUntil(reader, decoder, '"kind":"approval-closed"')
+      expect(seen).toContain('"decision":"rejected"')
+      expect(seen).toContain('"label":"已拒绝"')
+      expect(seen).toContain('"code":"approval-rejected"')
+
+      // ⑤ 一次性：票据结算后即从待应答表摘除，补一次「批准」找不到票据（404），不得翻案
+      const replay = await authedFetch(
+        `${harness.url}api/approval/${encodeURIComponent(ticketId)}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ decision: 'allowed-once' }),
+        },
+      )
+      expect(replay.status).toBe(404)
+      expect(await replay.json()).toMatchObject({ error: { code: 'unknown-ticket' } })
+      expect(executed).toEqual([])
+    } finally {
+      controller.abort()
+      await shutdown(harness)
+    }
+  })
+
   it('TC-W04-01 无 Authorization → 401，且不触发审批状态迁移', async () => {
     const harness = await boot({}, { challenges: passingChallenge })
     const approval = harness.ctx.get(APPROVAL_SERVICE)

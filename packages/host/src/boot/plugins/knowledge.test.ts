@@ -14,9 +14,9 @@ import {
   SESSION_SERVICE,
   TOOLS_SERVICE,
 } from '@bah/runtime'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { boot, type BootOptions, type ProfileSummary } from '../boot.ts'
+import { boot, type BootOptions, type ProfileSummary, type RunContext } from '../boot.ts'
 import { createCatalog } from '../index.ts'
 import { parseKnowledgeSettings } from './knowledge.ts'
 
@@ -82,7 +82,11 @@ function rows(overrides: {
 
 let bootSequence = 0
 
-async function bootWith(pluginRows: readonly PluginRow[]): Promise<Awaited<ReturnType<typeof boot>>> {
+async function bootWith(
+  pluginRows: readonly PluginRow[],
+  warn?: (message: string) => void,
+  run?: Partial<RunContext>,
+): Promise<Awaited<ReturnType<typeof boot>>> {
   const bundle: Bundle = { name: 'fx', rows: pluginRows }
   const options: BootOptions = {
     profile: PROFILE,
@@ -93,7 +97,9 @@ async function bootWith(pluginRows: readonly PluginRow[]): Promise<Awaited<Retur
       sessionId: asSessionId(`s-knowledge-${bootSequence}`),
       now: () => 1_000,
       jsonlDir: mkdtempSync(join(tmpdir(), 'bah-knowledge-')),
+      ...run,
     },
+    ...(warn === undefined ? {} : { warn }),
   }
   bootSequence += 1
   return boot(options)
@@ -235,6 +241,7 @@ describe('bank:knowledge 端到端（fixture）', () => {
 })
 
 describe('bank:knowledge 失败策略', () => {  it('required=true 且 sidecar 不可达时拒绝启动', async () => {
+    const warnings: string[] = []
     const promise = bootWith(
       rows({
         knowledge: {
@@ -244,12 +251,16 @@ describe('bank:knowledge 失败策略', () => {  it('required=true 且 sidecar �
           claims: CLAIMS,
         },
       }),
+      (message) => warnings.push(message),
     )
     await expect(promise).rejects.toThrow(/健康检查失败/)
+    // 拒绝启动是异常路径，不走"告警后继续"
+    expect(warnings).toEqual([])
   })
 
-  it('required=false 且 sidecar 不可达时仍能启动（带 token）', async () => {
+  it('required=false 且 sidecar 不可达时仍能启动（带 token），并留下告警', async () => {
     process.env.TEST_KNOWLEDGE_TOKEN = 'secret'
+    const warnings: string[] = []
     try {
       const app = await bootWith(
         rows({
@@ -261,10 +272,42 @@ describe('bank:knowledge 失败策略', () => {  it('required=true 且 sidecar �
             claims: CLAIMS,
           },
         }),
+        (message) => warnings.push(message),
       )
       expect(app.ctx.get(TOOLS_SERVICE).has('knowledge_answer')).toBe(true)
+      // 告警必须可被 CLI 的 io.err 捕获（boot 把 options.warn 透传进 `bah:run`）
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]).toContain('bank:knowledge 健康检查失败')
+      expect(warnings[0]).toContain('http://127.0.0.1:1')
+      expect(warnings[0]).toContain('required=false')
+      expect(warnings[0]).toContain('knowledge-unavailable')
     } finally {
       delete process.env.TEST_KNOWLEDGE_TOKEN
+    }
+  })
+
+  it('probe=false（--dump-config）时不探活：零网络、零告警', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const warnings: string[] = []
+    try {
+      const app = await bootWith(
+        rows({
+          knowledge: {
+            mode: 'http',
+            baseUrl: 'http://127.0.0.1:1',
+            required: false,
+            claims: CLAIMS,
+          },
+        }),
+        (message) => warnings.push(message),
+        { probe: false },
+      )
+      // 工具照样注册（dump 要能看到生效树），但启动期完全不碰网络。
+      expect(app.ctx.get(TOOLS_SERVICE).has('knowledge_answer')).toBe(true)
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(warnings).toEqual([])
+    } finally {
+      fetchSpy.mockRestore()
     }
   })
 

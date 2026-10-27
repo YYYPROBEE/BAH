@@ -158,7 +158,7 @@ export function toolDescriptorsOf(registry: ToolRegistry): ToolDescriptor[] {
 }
 
 /** 工具定义 → 模型侧 schema（不带执行体与卡片）。 */
-function toolSpecsOf(registry: ToolRegistry): ToolSpec[] {
+export function toolSpecsOf(registry: ToolRegistry): ToolSpec[] {
   return registry.list().map((definition) => ({
     name: definition.name,
     description: definition.description,

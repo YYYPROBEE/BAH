@@ -2,9 +2,10 @@
  * CLI 入口的进程级冒烟（施工单 01 §5 的 unit 面 + 06 §0 出口标准 1/2）。
  *
  * 为什么放在 unit 面而不是 e2e 面：e2e 面的语义是「真实 DeepSeek API，无密钥整面 skip」，
- * 而这条用例**不需要密钥**、也不打网络——它只验证「入口进程起得来、能加载真实
+ * 而这条用例**不需要密钥**、也不打外网——它只验证「入口进程起得来、能加载真实
  * `profiles/headless`、退出码 0、stderr 干净」，即 tsx 运行、workspace 源码解析、
- * 动态 import bundle 三条通道都通。
+ * 动态 import bundle 三条通道都通。`required: false` 的 sidecar 缺席告警是唯一允许的
+ * stderr 行（见 `unexpectedStderr`），它证明告警通道真的接到了 CLI。
  */
 
 import { spawnSync } from 'node:child_process'
@@ -27,6 +28,21 @@ function run(args: readonly string[]): ReturnType<typeof spawnSync> {
     encoding: 'utf8',
     timeout: 60_000,
   })
+}
+
+/**
+ * `required: false` 的外部依赖告警是**预期**输出，不算噪声。
+ *
+ * RAG sidecar 不在时 `bank:knowledge` 会在**真实启动**告警（缺口报告 §5.3）；
+ * `--dump-config` 已由 `RunContext.probe=false` 关掉探活，dump 路径应零 stderr（A8）。
+ * 这里只过滤这一条，其它任何 stderr 仍判红——否则"stderr 干净"会变成"允许一切"。
+ */
+const KNOWN_WARNING = 'bank:knowledge 健康检查失败'
+
+function unexpectedStderr(text: string | Buffer | null | undefined): readonly string[] {
+  return String(text ?? '')
+    .split('\n')
+    .filter((line) => line.length > 0 && !line.includes(KNOWN_WARNING))
 }
 
 describe('CLI 入口（进程级冒烟）', () => {
@@ -65,6 +81,7 @@ describe('CLI 入口（进程级冒烟）', () => {
     expect(result.stdout).toContain('profile-patch:profiles/web/patch.yml')
     expect(result.stdout).toContain('channel:web')
     expect(result.stdout).toContain('bank:knowledge')
+    // A8：dump 是"只看不跑"，`probe=false` 后不再做启动期探活 → stderr 严格为空
     expect(result.stderr).toBe('')
   })
 
@@ -81,7 +98,7 @@ describe('CLI 入口（进程级冒烟）', () => {
       expect(result.status, profile).toBe(0)
       expect(result.stdout, profile).toContain(`interaction:approval`)
       expect(result.stdout, profile).toContain(config)
-      expect(result.stderr, profile).toBe('')
+      expect(unexpectedStderr(result.stderr), profile).toEqual([])
     }
   })
 
@@ -98,7 +115,7 @@ describe('CLI 入口（进程级冒烟）', () => {
     for (const file of variants) {
       const result = run(['--profile', 'headless', '--patch', `profiles/headless/${file}`, '--dump-config'])
       expect(result.status, file).toBe(0)
-      expect(result.stderr, file).toBe('')
+      expect(unexpectedStderr(result.stderr), file).toEqual([])
       expect(result.stdout, file).toContain('"sink":"session"')
     }
   })

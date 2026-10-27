@@ -103,6 +103,23 @@ const EXEMPT: readonly Exemption[] = [
       '所以任何快照场景都到不了这段代码',
     backing: 'packages/saga/src/compensation/compensation.test.ts',
   },
+  {
+    file: 'packages/llm/src/deepseek/adapter.ts',
+    kind: 'unreachable',
+    reason:
+      '快照场景一律装配 mock provider（确定性、零外呼）；deepseek 适配器的行为只能在真实网络下观察，' +
+      '录制阶段没有确定性路径能触发它。把 deepseek/ 挂进 coveredSources 属于假覆盖——会话根本没走到这里。' +
+      '背书面是 adapter.test.ts 的 21 条断言（429/5xx 退避、超时两相位、取消、计价、SSE 边界）',
+    backing: 'packages/llm/src/deepseek/adapter.test.ts',
+  },
+  {
+    file: 'packages/llm/src/deepseek/wire.ts',
+    kind: 'unreachable',
+    reason:
+      '同上：SSE/wire 编解码只被 deepseek 适配器在真实外呼里调用，快照装配走 mock provider 不经过它；' +
+      '背书面是 wire.test.ts 的逐分片映射断言（含缓存命中字段缺省语义）',
+    backing: 'packages/llm/src/deepseek/wire.test.ts',
+  },
 ]
 
 interface SnapshotCase {

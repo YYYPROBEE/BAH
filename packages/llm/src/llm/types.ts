@@ -1,4 +1,4 @@
-/**
+﻿/**
  * provider-neutral 模型词汇表（施工单 05 §1，**冻结面**）。
  *
  * 为什么单独冻一层：adapter 与主循环之间只认这套词汇，换 provider 不动主循环。
@@ -70,7 +70,15 @@ export type StreamChunk =
       readonly argsText?: string
     }
   | { readonly kind: 'block-end'; readonly index: number }
-  | { readonly kind: 'usage'; readonly input: number; readonly output: number }
+  | {
+      readonly kind: 'usage'
+      readonly input: number
+      readonly output: number
+      /** 缓存命中的输入 tokens（provider 未上报时缺省）。 */
+      readonly cachedInput?: number
+      /** 本片用量对应的费用（微元；计价表未配置时缺省）。 */
+      readonly costMicroYuan?: number
+    }
   | { readonly kind: 'finish'; readonly reason: FinishReason }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -123,6 +131,23 @@ export interface ModelInfo {
 export interface ModelSpec extends ModelInfo {
   readonly providerId: string
   readonly capabilities: ModelCapabilities
+  /**
+   * 计价表（可选；未配置 = 不报价，成本账本记 0）。
+   *
+   * 单位是**微元 / 百万 tokens**（1 ¥ = 1e6 微元）：整数运算，不引入浮点误差。
+   * 价格只从配置来，绝不在代码里硬编码厂商单价——改价不用改代码。
+   */
+  readonly pricing?: ModelPricing
+}
+
+/** 模型计价（每百万 tokens 的微元单价）。 */
+export interface ModelPricing {
+  /** 未命中缓存的输入。 */
+  readonly inputPerMTok: number
+  /** 命中缓存的输入（缺省时按未命中价计，即"不享受缓存折扣"）。 */
+  readonly cachedInputPerMTok?: number
+  /** 输出。 */
+  readonly outputPerMTok: number
 }
 
 /** 采样参数（可调项一律走这里，不许硬编码在 adapter 内部）。 */
@@ -186,6 +211,10 @@ export interface LlmAdapter {
 export interface CallUsage {
   readonly input: number
   readonly output: number
+  /** 缓存命中的输入 tokens（provider 未上报时缺省，不要用 0 冒充"未命中"）。 */
+  readonly cachedInput?: number
+  /** 本次调用的费用（微元；1 ¥ = 1e6 微元）。未配计价或缺省时表示"不报价"。 */
+  readonly costMicroYuan?: number
 }
 
 /**
@@ -198,6 +227,10 @@ export interface TurnUsage extends CallUsage {
   readonly turn: number
   /** 本 turn 的模型调用次数。 */
   readonly calls: number
+  /** 缓存命中的输入 tokens（本 turn 累计；缺省 0）。 */
+  readonly cachedInput: number
+  /** 本 turn 的费用（微元；缺省 0）。 */
+  readonly costMicroYuan: number
 }
 
 /** 模型侧的流式产出（`stream` 结束后的完整结果）。 */

@@ -76,6 +76,8 @@ const gate: Gate = {
 
     const declared = parseSources(sourcesMd, findings)
     const computed = computeFacts(root, findings, notes)
+    // 统一两位小数：85.8 与 85.80 是同一事实，但文档里统一写 85.80
+    const coveragePct = computed.coverage_pct.toFixed(2)
 
     // ① 代码/文件重算值 ↔ facts-sources
     compare(declared, computed, ['gates', 'tools', 'plan_lines', 'snapshot_files', 'snapshot_cases'], findings)
@@ -128,7 +130,7 @@ const gate: Gate = {
     expectContains(
       factsMd,
       'facts.md',
-      `**行口径 ${String(computed.coverage_pct)}%**（${String(computed.coverage_covered)}/${String(computed.coverage_total)}）`,
+      `**行口径 ${coveragePct}%**（${String(computed.coverage_covered)}/${String(computed.coverage_total)}）`,
       findings,
     )
     expectContains(
@@ -157,7 +159,7 @@ const gate: Gate = {
     if (security === undefined) findings.push('缺 docs/security-design.md')
     else {
       if (security.includes('84.48%')) findings.push('docs/security-design.md 仍含旧覆盖率 84.48%（只允许 84.49%）')
-      expectContains(security, 'docs/security-design.md', `${String(computed.coverage_pct)}%`, findings)
+      expectContains(security, 'docs/security-design.md', `${coveragePct}%`, findings)
     }
 
     const intro = readText(join(root, 'docs/简介-200字.md'))
@@ -167,7 +169,7 @@ const gate: Gate = {
     notes.push(
       `重算：门禁 ${String(computed.gates)} · 工具 ${String(computed.tools)} · plan ${String(computed.plan_lines)} 行 · ` +
         `快照 ${String(computed.snapshot_files)} 文件/${String(computed.snapshot_cases)} 例 · ` +
-        `覆盖率 ${String(computed.coverage_pct)}%（${String(computed.coverage_covered)}/${String(computed.coverage_total)}）`,
+        `覆盖率 ${coveragePct}%（${String(computed.coverage_covered)}/${String(computed.coverage_total)}）`,
     )
 
     return { ok: findings.length === 0, findings, notes }

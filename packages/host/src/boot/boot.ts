@@ -53,6 +53,21 @@ export interface RunContext {
    * 快照回放注入按 `callId` 派生的确定性 ID，才能断言"两次回放逐条全等"。
    */
   readonly mintTicketId?: (callId: string) => TicketId
+  /**
+   * 非致命告警出口（插件用）。
+   *
+   * 缺省由 `BootOptions.warn` 兜底（CLI 注入 `io.err`）；两者都没传时不告警。
+   * 典型场景：`required: false` 的外部依赖健康检查失败——启动继续，但必须留痕。
+   */
+  readonly warn?: (message: string) => void
+  /**
+   * 是否允许启动期做外部探活（缺省 `true`）。
+   *
+   * `--dump-config` 是"只看不跑"，必须零网络：CLI 传 `false` 后 `bank:knowledge`
+   * 跳过 `/healthz`，也不再产生"sidecar 缺席"告警。真实启动（`--serve` / `--prompt`）不传，
+   * 行为与改前一致。
+   */
+  readonly probe?: boolean
 }
 
 /** 服务键：`bah:run`（插件以 `inject: ['bah:run']` 声明依赖）。 */
@@ -119,8 +134,11 @@ export async function boot(options: BootOptions): Promise<BootedApp> {
   let rows = manager.validate(mergeLayers(options.bundles, options.layers))
 
   const ctx = createContext()
+  // 插件只能按键取 `bah:run`，所以告警出口必须随 run 上下文下发：
+  // 调用方（CLI）传的是 BootOptions.warn（→ io.err），插件侧不必再认识 CLI。
+  const notify = options.warn ?? options.run.warn
   try {
-    ctx.provide(RUN_SERVICE, options.run)
+    ctx.provide(RUN_SERVICE, notify === undefined ? options.run : { ...options.run, warn: notify })
     for (const row of rows) await ctx.useErased(row.plugin, row.settings)
     await ctx.start()
   } catch (error) {
@@ -136,7 +154,7 @@ export async function boot(options: BootOptions): Promise<BootedApp> {
     reload(layers) {
       const next = manager.validate(mergeLayers(options.bundles, layers))
       if (!sameStructure(rows, next)) {
-        options.warn?.('patch 里有插件行的增删（或 use 指向变了）；config-only HMR 不处理这些，需要重启进程')
+        notify?.('patch 里有插件行的增删（或 use 指向变了）；config-only HMR 不处理这些，需要重启进程')
         return { changed: [], requiresRestart: true, rows }
       }
       const changed = diffRows(rows, next)

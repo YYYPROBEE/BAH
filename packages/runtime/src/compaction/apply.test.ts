@@ -10,7 +10,7 @@ import { SESSION_SERVICE, provideSession, type SessionApi } from '../session/ser
 import { SessionStore } from '../session/store.ts'
 import { buildModelHistory } from '../system-prompt/reconcile.ts'
 import { appendCompactionSummary, runCompaction } from './apply.ts'
-import { planCompaction, resolveCompactionConfig } from './summarize.ts'
+import { analyzeSession, planCompaction, resolveCompactionConfig } from './summarize.ts'
 
 /** 在当前测试上下文里装好会话服务并跑一段用例。 */
 async function withSession(run: (session: SessionApi) => void): Promise<void> {
@@ -65,6 +65,24 @@ describe('runCompaction / appendCompactionSummary', () => {
       const run = runCompaction(session, thresholds)
       expect(run.event).toBeUndefined()
       expect(session.events().some((event) => event.type === 'compaction/summary')).toBe(false)
+    })
+  })
+
+  it('overheadTokens 透传到水位判定（工具 schema 不在事件里）', async () => {
+    await withSession((session) => {
+      seed(session, 2)
+      const base = planCompaction({
+        events: session.events(),
+        thresholds: resolveCompactionConfig({ maxTokens: 1, keepRecentTurns: 1 }),
+      })
+      expect(base.needed).toBe(true)
+      // 把阈值抬到"事件估算 + 100"后，只有补上工具 schema 开销才会触发
+      const events = session.events()
+      const tokens = analyzeSession(events).tokens
+      const thresholds = resolveCompactionConfig({ maxTokens: tokens + 100, keepRecentTurns: 1 })
+
+      expect(planCompaction({ events, thresholds }).needed).toBe(false)
+      expect(runCompaction(session, thresholds, 100).plan.needed).toBe(true)
     })
   })
 

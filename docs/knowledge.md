@@ -165,6 +165,10 @@ bah: 知识卡
 
 - `mode: fixture` 时必填 `fixturePath`，指向 `packages/knowledge/fixtures/*.json`；不启 Python，用于快照/单测。
 - `required: false`：sidecar 不可达时只告警，工具返回 `knowledge-unavailable`；`required: true`：启动即失败。
+  告警走宿主 `bah:run` 的 `warn` 出口（CLI 接到 `io.err`），内容含 `baseUrl`、失败原因与"继续启动"的后果。
+  `--dump-config` 是"只看不跑"：CLI 传 `RunContext.probe=false`，连健康检查都不发（零网络、零 stderr）；
+  要确认 sidecar 是否真的在，用真实启动（`--serve` / `--prompt`）看告警，或直接 `curl <baseUrl>/healthz`。
+  `required: true` 属异常路径，不告警、直接拒启。
 - `claims` 是演示档的权限映射；生产应由登录凭证绑定，插件只消费 `BANK_IDENTITY` 的 userId。
 
 ### 4.1 签名门（W06）

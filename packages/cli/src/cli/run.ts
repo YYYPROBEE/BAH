@@ -194,7 +194,13 @@ async function runProfile(
     bundles,
     layers,
     catalog: createCatalog(),
-    run: { sessionId, now, ...(args.jsonl === undefined ? {} : { jsonlDir: args.jsonl }) },
+    run: {
+      sessionId,
+      now,
+      // `--dump-config` 只看不跑：关掉启动期外部探活，保证零网络、不被 1s 超时拖慢。
+      probe: !args.dumpConfig,
+      ...(args.jsonl === undefined ? {} : { jsonlDir: args.jsonl }),
+    },
     warn: (message) => io.err(`bah: ${message}`),
   })
 

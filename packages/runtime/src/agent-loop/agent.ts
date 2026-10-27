@@ -43,6 +43,7 @@ import type {
 } from '@bah/llm'
 
 import { runCompaction } from '../compaction/apply.ts'
+import { estimateRequestTokens } from '../compaction/summarize.ts'
 import type { SessionApi } from '../session/service.ts'
 import { SessionEventBuffer, withSessionBuffer } from '../session/buffer.ts'
 import type { AnySessionEvent, ToolCallRecord, ToolResultData, TurnEndReason } from '../session/types.ts'
@@ -76,6 +77,7 @@ import {
   assembleRequest,
   commitAttempt,
   freezeRequest,
+  toolSpecsOf,
   toSessionBlocks,
 } from './request.ts'
 import { forkSession, type ForkInfo, type ForkRequest } from './rollback.ts'
@@ -171,6 +173,9 @@ export class AgentLoop implements Agent {
   private readonly mintTicketId: ((callId: string) => TicketId) | undefined
 
   private readonly ledger = new UsageLedger()
+
+  /** 本次请求恒定的工具 schema 开销（压缩水位用；当前 turn 还没有 step 时为 0）。 */
+  private requestOverhead = 0
 
   private readonly abort = new TurnAbort()
 
@@ -391,7 +396,9 @@ export class AgentLoop implements Agent {
     // 收尾段自身失败也不能吞掉 `turn/end`——否则日志出现未闭合 turn，回退边界丢失。
     let closingError: unknown
     try {
-      if (this.config.compaction !== undefined) runCompaction(this.session, this.config.compaction)
+      if (this.config.compaction !== undefined) {
+        runCompaction(this.session, this.config.compaction, this.requestOverhead)
+      }
       const usage = this.ledger.finishTurn(turn)
       if (usage !== undefined && usage.calls > 0) this.session.append('usage/summary', usage)
     } catch (error) {
@@ -450,21 +457,28 @@ export class AgentLoop implements Agent {
   private async step(input: StepInput): Promise<TurnEndReason | null> {
     const { turn, step, signal } = input
 
-    // ⓪ 压缩判定（阈值触发；幂等）
-    //
-    // 放在**每次请求装配前**而不是只在 turn 收尾：turn 收尾时本 turn 尚未落 `turn/end`，
-    // 折不到它；而请求前的这次判定能覆盖"进程恢复 / 上一次 turn 没收尾"等场景，
-    // 保证发出去的请求看到的是折叠后的历史。只折叠**已完整结束**的 turn——当前 turn 永不折叠，
-    // 否则会拆散 `tool/call ↔ tool/result` 配对并丢掉本轮用户问题。
-    if (this.config.compaction !== undefined) runCompaction(this.session, this.config.compaction)
-
-    // ① 装配（纯）：首选模型的能力位决定提示词裁剪与工具 schema 是否下发
+    // ⓪ 解析首选模型（能力位决定提示词裁剪与工具 schema 是否下发；压缩水位要用它算开销）
     let model: ModelSpec
     try {
       model = this.registry.resolve(this.config.model).model
     } catch (error) {
       return this.failed(turn, error, signal, '模型解析')
     }
+    // 未配置压缩时不需要序列化工具 schema（开销只服务于水位判定）
+    this.requestOverhead =
+      this.config.compaction === undefined ? 0 : requestOverheadTokens(model, this.tools)
+
+    // ① 压缩判定（阈值触发；幂等）
+    //
+    // 放在**每次请求装配前**而不是只在 turn 收尾：turn 收尾时本 turn 尚未落 `turn/end`，
+    // 折不到它；而请求前的这次判定能覆盖"进程恢复 / 上一次 turn 没收尾"等场景，
+    // 保证发出去的请求看到的是折叠后的历史。只折叠**已完整结束**的 turn——当前 turn 永不折叠，
+    // 否则会拆散 `tool/call ↔ tool/result` 配对并丢掉本轮用户问题。
+    if (this.config.compaction !== undefined) {
+      runCompaction(this.session, this.config.compaction, this.requestOverhead)
+    }
+
+    // ② 装配（纯）
     const runtime = this.runtimeContext?.()
     const assembly = assembleRequest({
       session: this.session,
@@ -478,7 +492,7 @@ export class AgentLoop implements Agent {
       ...(runtime === undefined ? {} : { runtime }),
     })
 
-    // ② agent/request（waterfall）：降级 / 成本控制在这里改写路由与参数
+    // ③ agent/request（waterfall）：降级 / 成本控制在这里改写路由与参数
     const asked = await dispatchRequest(this.ctx, {
       agent: this.ref,
       turn,
@@ -487,12 +501,12 @@ export class AgentLoop implements Agent {
     })
     if (signal.aborted) return this.cancelled(turn, 'agent/request 阶段取消（未提交 system/user）')
 
-    // ③ 冻结：prepareCall 成功即"请求真的发出去了"，此后不再派发 agent/request
+    // ④ 冻结：prepareCall 成功即"请求真的发出去了"，此后不再派发 agent/request
     const prepared = await this.prepareCall(asked.request)
     if (!prepared.ok) return this.failed(turn, prepared.error, signal, 'prepareCall')
     if (signal.aborted) return this.cancelled(turn, 'prepareCall 阶段取消（未提交 system/user）')
 
-    // ④ 提交：模型可见输入落账（此时才允许出现在日志里）
+    // ⑤ 提交：模型可见输入落账（此时才允许出现在日志里）
     commitAttempt({
       session: this.session,
       turn,
@@ -503,7 +517,7 @@ export class AgentLoop implements Agent {
       messages: input.messages,
     })
 
-    // ⑤ llm/stream（waterfall 环绕）→ 分片装配
+    // ⑥ llm/stream（waterfall 环绕）→ 分片装配
     const streamer = await this.llmStreamer(prepared.adapter)
     let assembled: AssembledStream
     try {
@@ -516,10 +530,10 @@ export class AgentLoop implements Agent {
       return this.cancelled(turn, '模型流以 aborted 结束')
     }
 
-    // ⑥ 记账
+    // ⑦ 记账
     this.ledger.record(turn, assembled.usage)
 
-    // ⑦ 工具调度 → assistant/message 收尾落账
+    // ⑧ 工具调度 → assistant/message 收尾落账
     //
     // 落账顺序按施工单 04 §7 T-LOOP-001：`tool/call → tool/result → assistant/message`
     // （工具跑完，assistant 消息才收尾）。wire 侧的「带 tool_calls 的 assistant 必须在
@@ -817,6 +831,18 @@ export class AgentLoop implements Agent {
 /* ────────────────────────────────────────────────────────────────────────────
  * 4. 纯函数（可单测的判定）
  * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 一次请求的恒定开销（token）：工具 schema。
+ *
+ * 会话事件里没有工具定义（每次由注册表现算），压缩水位只看事件会漏掉工具
+ * 的 name / description / JSON schema；模型不支持 function calling 时请求不下发
+ * 工具 schema，开销为 0。
+ */
+function requestOverheadTokens(model: ModelSpec, tools: ToolRegistry): number {
+  if (!model.capabilities.toolCall) return 0
+  return estimateRequestTokens({ modelId: model.id, messages: [], tools: toolSpecsOf(tools) })
+}
 
 /**
  * 粘性结束原因：已判定的原因不被后续 step 覆盖（施工单 04 §2.1 `sticky()`）。
