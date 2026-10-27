@@ -37,8 +37,16 @@ export interface CompactionRun {
  * 注意：**不改写历史**——压缩的可见效果由投影层（`collapseEvents`）产生，
  * 日志永远是 append-only 的（施工单 03 §1.1）。
  */
-export function runCompaction(session: SessionApi, thresholds: CompactionThresholds): CompactionRun {
-  const plan = planCompaction({ events: session.events(), thresholds })
+export function runCompaction(
+  session: SessionApi,
+  thresholds: CompactionThresholds,
+  overheadTokens?: number,
+): CompactionRun {
+  const plan = planCompaction({
+    events: session.events(),
+    thresholds,
+    ...(overheadTokens === undefined ? {} : { overheadTokens }),
+  })
   const event = appendCompactionSummary(session, plan)
   return event === undefined ? { plan } : { plan, event }
 }

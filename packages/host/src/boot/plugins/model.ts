@@ -96,6 +96,10 @@ export interface ModelSettings {
   }
   /** 单次请求硬上限（ms；默认 120s）——上游挂起时绝不无限等待。 */
   readonly requestTimeoutMs?: number
+  /** 429 / 5xx 的同模型重试次数（默认 2）。 */
+  readonly retryMax?: number
+  /** 首次退避基数（ms；默认 300）。 */
+  readonly retryBaseMs?: number
 }
 
 /** 各 provider 的默认模型（不猜能力位：默认值只选各自最通用的对话模型）。 */
@@ -144,6 +148,8 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
         'baseUrl',
         'apiKeyEnv',
         'requestTimeoutMs',
+        'retryMax',
+        'retryBaseMs',
         'modelSpec',
         ...LOCAL_KEYS,
         ...SCRIPT_ONLY_KEYS,
@@ -159,12 +165,19 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
     const script = readScript(config['script'], provider)
     const apiKeyEnv = readString(config, 'apiKeyEnv', 'core:model')
     const requestTimeoutMs = readPositiveInteger(config, 'requestTimeoutMs', 'core:model')
+    const retryMax = readPositiveInteger(config, 'retryMax', 'core:model')
+    const retryBaseMs = readPositiveInteger(config, 'retryBaseMs', 'core:model')
     const modelSpec = readModelSpec(config['modelSpec'])
 
     if (provider !== 'deepseek') {
-      const wrong = ['apiKeyEnv', 'requestTimeoutMs', 'baseUrl', 'modelSpec'].filter(
-        (key) => config[key] !== undefined,
-      )
+      const wrong = [
+        'apiKeyEnv',
+        'requestTimeoutMs',
+        'retryMax',
+        'retryBaseMs',
+        'baseUrl',
+        'modelSpec',
+      ].filter((key) => config[key] !== undefined)
       if (wrong.length > 0) {
         throw bootError(
           'mock-only-config',
@@ -200,6 +213,8 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
       ...(script === undefined ? {} : { script }),
       ...(apiKeyEnv === undefined ? {} : { apiKeyEnv }),
       ...(requestTimeoutMs === undefined ? {} : { requestTimeoutMs }),
+      ...(retryMax === undefined ? {} : { retryMax }),
+      ...(retryBaseMs === undefined ? {} : { retryBaseMs }),
       ...(modelSpec === undefined ? {} : { modelSpec }),
     }
   },
@@ -275,6 +290,13 @@ function createAdapter(
     ...(config.requestTimeoutMs === undefined
       ? {}
       : { requestTimeoutMs: config.requestTimeoutMs }),
+    ...(config.retryMax === undefined ? {} : { retryMax: config.retryMax }),
+    ...(config.retryBaseMs === undefined ? {} : { retryBaseMs: config.retryBaseMs }),
+    // 重试不能静默：一次 429 退避要能在演示现场 stderr 里看到
+    onRetry: (info) =>
+      console.warn(
+        `bah: core:model 上游 HTTP ${info.status}，第 ${info.attempt} 次退避 ${info.delayMs}ms 后重试`,
+      ),
     ...(models === undefined ? {} : { models }),
   })
 }

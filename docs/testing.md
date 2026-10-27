@@ -5,11 +5,11 @@
 
 ## 1. 四个测试面（一个都不能省）
 
-| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-26 实测） |
+| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-27 实测） |
 |---|---|---|---|---|
-| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 194 文件 / 1951 用例 |
+| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 198 文件 / 2019 用例 |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
-| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 5 文件 / 18 用例 |
+| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 6 文件 / 23 用例 |
 | web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 7 文件 / 55 用例 |
 
 一条命令跑全链（本地等价 CI，fail-fast）：
@@ -72,9 +72,8 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 - **第 4 批明确不做**：`memory-store/store`（当前包级 72.71%）与 `eval`（40.73%，主体是评测
   harness 的场景装载）**不进**本轮目标。这是**显式放弃的项目**，不是漏做——写在这里是为了
   让"80%/85%"这两个数可复现，而不是靠慢慢缩分母。
-- 现状（2026-10-26 实测，1951 例全绿）：**行口径 84.49%**（29163/34517）、
-  **包口径 14/16**、分母占源码物理行（60356 行）的 57.2%——
-  剩余 42.8% 是注释、空行与纯类型文件，按设计不计入。
+- 现状（2026-10-27 实测，2019 例全绿）：**行口径 85.84%**（29958/34898）、
+  **包口径 14/16**；分母只含参与统计的逻辑行，注释、空行与纯类型文件按设计不计入。
 - 产物：`coverage/lcov.info`、`coverage/lcov-report/`（名单口径）；
   `.ci-artifacts/cov-all/coverage-summary.json`（全仓口径）。两者都已进 `.gitignore`。
 

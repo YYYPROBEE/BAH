@@ -1,5 +1,8 @@
 # BAH · 银行智能体
 
+> 仓库：https://github.com/YYYPROBEE/bah-monorepo（访问需授权）
+> 许可：仅授权赛事评审查看与运行，见 [LICENSE](LICENSE)
+
 **一个把"模型能做什么"关进可审计边界里的银行智能体演示系统。**
 
 模型只负责理解和表达；能不能执行、执行到什么程度、出事后怎么解释，全部由确定性代码决定。
@@ -22,8 +25,8 @@ pnpm install
 | 目的 | 命令 | 说明 |
 |---|---|---|
 | **起演示** | `pnpm demo:web` | 读 `.env.local` 的 `BAH_MODEL_KEY`，每次新建独立会话目录，打开 `http://127.0.0.1:7331` |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 194 文件 / 1951 用例 |
-| **门禁** | `pnpm gate` | 27 项静态与契约检查，任一红即失败 |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 198 文件 / 2019 用例 |
+| **门禁** | `pnpm gate` | 35 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
 `.env.local`（不入库）：
@@ -207,13 +210,13 @@ facts.md             演示材料唯一数字来源
 
 ## 7. 测试与资料
 
-| 命令 | 范围 | 实测（2026-10-26） |
+| 命令 | 范围 | 实测（2026-10-27） |
 |---|---|---|
-| `pnpm test` | 主仓 | 194 文件 / 1951 用例 |
+| `pnpm test` | 主仓 | 198 文件 / 2019 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
 | `pnpm test:web` | 前端 | 7 文件 / 55 用例 |
-| `pnpm test:snapshot` | 快照回放 | 5 文件 / 18 用例 |
-| `pnpm gate` | 门禁 | 34/34 |
+| `pnpm test:snapshot` | 快照回放 | 6 文件 / 23 用例 |
+| `pnpm gate` | 门禁 | 35/35 |
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
 

@@ -47,6 +47,11 @@ export interface CompactionPlan {
 export interface PlanCompactionInput {
   readonly events: readonly AnySessionEvent[]
   readonly thresholds: CompactionThresholds
+  /**
+   * 请求恒定开销（token）：工具 schema 不在会话事件里，由调用方用
+   * `estimateRequestTokens` 现算后传入；缺省 0（只按事件估水位）。
+   */
+  readonly overheadTokens?: number
 }
 
 /** 摘要文本渲染的输入（拆开传，便于单测每一部分）。 */
@@ -55,6 +60,35 @@ export interface SummaryTextInput {
   readonly toTurn: number
   readonly turns: number
   readonly droppedMessages: number
+  /** 被折叠轮次的对话要点（可解析"刚才那个账户"这类指代）。 */
+  readonly highlights: readonly SummaryTurnHighlight[]
   readonly toolCalls: readonly { readonly name: string; readonly count: number }[]
   readonly financial: readonly FinancialSummaryEntry[]
+}
+
+/** 一条工具调用的摘要要点（参数与结果都截断，避免摘要反向膨胀）。 */
+export interface SummaryToolHighlight {
+  readonly name: string
+  /** 参数的单行 JSON（已截断；空串表示调用没有参数）。 */
+  readonly args: string
+  readonly status: SummaryToolStatus
+  /** 失败/拒绝的结构化理由码（成功时缺省）。 */
+  readonly code?: string
+  /** 结果首段文本（已截断；空串表示结果未落账）。 */
+  readonly result: string
+}
+
+/** 工具调用在摘要里的执行状态（审批拒绝记 `blocked`，不与执行失败混为一谈）。 */
+export type SummaryToolStatus = 'succeeded' | 'failed' | 'blocked' | 'pending'
+
+/** 一个被折叠轮次的摘要要点。 */
+export interface SummaryTurnHighlight {
+  readonly turn: number
+  /** 用户原话（多条以"；"连接；runtime-context 等派生消息不计）。 */
+  readonly user: string
+  /** 本轮最后一条非空助手文本。 */
+  readonly assistant: string
+  readonly tools: readonly SummaryToolHighlight[]
+  /** 因单轮工具过多而未逐条展示的调用数（计数仍进合计）。 */
+  readonly omittedTools: number
 }

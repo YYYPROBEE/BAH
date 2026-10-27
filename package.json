@@ -12,7 +12,7 @@
     "typecheck": "tsc -b tsconfig.host.json && tsc -b tsconfig.client.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:coverage:all": "vitest run --config vitest.coverage.config.ts && tsx scripts/coverage-summary.ts",
+    "test:coverage:all": "vitest run --coverage --config vitest.coverage.config.ts && tsx scripts/coverage-summary.ts",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:snapshot": "vitest run --config vitest.snapshot.config.ts",
     "snapshot:record": "node scripts/record-snapshot.mjs",

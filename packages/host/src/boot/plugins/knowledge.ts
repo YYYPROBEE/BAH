@@ -301,18 +301,26 @@ export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
           timeoutMs: config.timeouts,
         })
 
-      if (config.mode === 'http') {
+      // `probe: false`（`--dump-config`）时不打网络：dump 的语义是"只看配置"，
+      // 启动期探活会让一次纯静态检查卡在 1s 超时上。真实启动不传，走原路径。
+      if (config.mode === 'http' && run.probe !== false) {
         try {
           await port.health()
         } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
           if (config.required) {
-            const reason = error instanceof Error ? error.message : String(error)
             throw bootError(
               'knowledge-unavailable',
               `${WHERE} 健康检查失败（${config.baseUrl}）：${reason}`,
               { baseUrl: config.baseUrl },
             )
           }
+          // `required: false` 是"带病启动"，不是"没有这回事"：sidecar 缺席时检索增强会静默变壳，
+          // 必须留下可被演示前发现的痕（CLI 把这里接到 `io.err`）。
+          run.warn?.(
+            `${WHERE} 健康检查失败（${config.baseUrl}，required=false）：${reason}；` +
+              '继续启动，knowledge 工具将返回 knowledge-unavailable',
+          )
         }
       }
 

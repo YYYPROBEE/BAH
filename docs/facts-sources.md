@@ -11,15 +11,15 @@
 gates=35
 tools=16
 plan_lines=2208
-snapshot_files=5
-snapshot_cases=18
-coverage_covered=29163
-coverage_total=34517
-coverage_pct=84.49
+snapshot_files=6
+snapshot_cases=23
+coverage_covered=29958
+coverage_total=34898
+coverage_pct=85.84
 coverage_package_ok=14
 coverage_package_total=16
 tests_main_files=198
-tests_main_cases=1995
+tests_main_cases=2019
 <!-- facts:sources:end -->
 
 > `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。
@@ -33,17 +33,17 @@ tests_main_cases=1995
 | 门禁数 | **35** | `Get-ChildItem scripts -Filter "verify-*.ts" \| Measure-Object` | 34 → 加 `verify-facts.ts` 后 35；`run-gates` 输出 `35/35` |
 | 工具数 | **16** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 16（与 `result-schemas.ts` 16 个出参键一一对应） |
 | plan 非测试行数 | **2,208** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,208（2026-10-27 复核） |
-| 快照文件 / 用例 | **5 / 18** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 5 文件 / 18 例（`pnpm test:snapshot` 同值） |
-| 覆盖率（行） | **84.49%** | `NODE_EXTRA_CA_CERTS= pnpm test:coverage:all` | 覆盖 29163 行 / 参与统计 34517 行 |
+| 快照文件 / 用例 | **6 / 23** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 6 文件 / 23 例（`pnpm test:snapshot` 同值） |
+| 覆盖率（行） | **85.84%** | `NODE_EXTRA_CA_CERTS= pnpm test:coverage:all` | 覆盖 29958 行 / 参与统计 34898 行（2026-10-27 A8 探活开关落盘后重跑） |
 | 覆盖率（包） | **14/16** | 同上 | `memory-store` 72.71%、`eval` 40.73% 未达 80% |
-| 主仓测试 | **198 文件 / 1995 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 198 passed / 1995 passed |
+| 主仓测试 | **198 文件 / 2019 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 198 passed / 2019 passed（2026-10-27 B1–B3 / A3 / A7 / A8 全部落盘后跑批） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
 | web 测试 | **7 文件 / 55 例** | `pnpm test:web` | 7 passed / 55 passed |
-| 快照跑批 | **5 文件 / 18 例** | `pnpm test:snapshot` | 5 passed / 18 passed |
+| 快照跑批 | **6 文件 / 23 例** | `pnpm test:snapshot` | 6 passed / 23 passed |
 
 ## 3. 覆盖率为什么只有一个值
 
-`29163 / 34517 = 84.4897%`，四舍五入两位小数 = **84.49%**；`84.48%` 是截尾旧值，已在 2026-10-27 全部替换。
+`29958 / 34898 = 85.8422%`，四舍五入两位小数 = **85.84%**；`84.49%`（29163/34517）是 10-26 的过期报表值，已在 2026-10-27 双角度复审中更正；`85.83%`（29843/34771）是 A8 探活开关落盘前的 2026-10-27 时点值，已被本次重跑取代。
 `docs/coverage-baseline.json` 是机器产物：重跑覆盖率高时先更新它，再跑
 `npx tsx scripts/gen-architecture.ts` 重生成 `architecture.md` / `algorithms.md` / `security-design.md` 的事实块。
 **不许手改那三份文档的生成块。**

@@ -23,9 +23,21 @@
       reasoning: false
     # 收紧到 30s：演示现场上游挂起时不能无限等，宁可报错换兜底
     requestTimeoutMs: 30000
+    # C04：429 / 5xx 同模型退避（2 次，300ms 起指数递增）。
+    # 现场撞上上游限流时不至于立刻判死，也不会静默——每次退避都会打一行 stderr。
+    retryMax: 2
+    retryBaseMs: 300
     # 断网 / 无密钥时的兜底：把上面 4 行换成下面 2 行（意图路由，非磁带）
     # provider: router
     # model: router-chat
+
+# C04 演示确定性：Web 演示进程的单会话日志不需要逐条 fsync。
+# 关掉后每次 append 不再阻塞在磁盘同步上，避免现场"点批准后气泡卡住"。
+# 代价是进程被硬杀时可能丢最后几条事件——演示用重启可复现的种子数据兜底。
+- id: core:persistence
+  config:
+    root: sessions
+    fsync: false
 
 - id: bank:tools
   config:

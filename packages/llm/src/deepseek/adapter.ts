@@ -1,4 +1,4 @@
-/**
+﻿/**
  * DeepSeek provider（施工单 05 §2.1）。
  *
  * 只做 wire 交互，策略一律外置：
@@ -15,6 +15,7 @@ import type {
   LlmAdapter,
   LlmRequest,
   ModelInfo,
+  ModelPricing,
   ModelSpec,
   PreparedCall,
   ProviderInfo,
@@ -66,11 +67,40 @@ export interface DeepSeekAdapterOptions {
   readonly requestTimeoutMs?: number
   /** 两个分片之间的静默上限（默认 60s）。 */
   readonly idleTimeoutMs?: number
+  /**
+   * 429 / 5xx 的**同模型**重试次数（默认 2；每次失败后按指数退避）。
+   *
+   * 只重试"还没吐出任何分片"的 HTTP 失败：已经流给用户的半句话没法撤回。
+   * 401 / 400 等确定性失败不重试，直接抛给主循环落 `assistant/attempt(failed)`。
+   */
+  readonly retryMax?: number
+  /** 首次退避基数（ms；默认 300，按 2 的幂递增）。 */
+  readonly retryBaseMs?: number
+  /** 单次退避上限（ms；默认 3000）。 */
+  readonly retryMaxDelayMs?: number
+  /** 退避睡眠（可注入，单测用零点睡眠避免真等）。 */
+  readonly sleep?: (ms: number) => Promise<void>
+  /** 每次重试前的回执（生产接到 stderr，绝不静默）。 */
+  readonly onRetry?: (info: RetryInfo) => void
+}
+
+/** 一次同模型重试的可读回执。 */
+export interface RetryInfo {
+  /** 第几次重试（自 1 起）。 */
+  readonly attempt: number
+  /** 触发重试的 HTTP 状态码。 */
+  readonly status: number
+  /** 本次退避时长（ms）。 */
+  readonly delayMs: number
 }
 
 /** 缺省超时：上游挂起时绝不无限等待（审查 S2）。 */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 120_000
 export const DEFAULT_IDLE_TIMEOUT_MS = 60_000
+/** 缺省重试：两次退避 + 一次原请求；演示现场足以穿过一次限流抖动。 */
+export const DEFAULT_RETRY_MAX = 2
+export const DEFAULT_RETRY_BASE_MS = 300
+export const DEFAULT_RETRY_MAX_DELAY_MS = 3_000
 
 export class DeepSeekAdapter implements LlmAdapter {
   private readonly apiKey: string | undefined
@@ -79,6 +109,11 @@ export class DeepSeekAdapter implements LlmAdapter {
   private readonly models: readonly ModelSpec[]
   private readonly requestTimeoutMs: number
   private readonly idleTimeoutMs: number
+  private readonly retryMax: number
+  private readonly retryBaseMs: number
+  private readonly retryMaxDelayMs: number
+  private readonly sleep: (ms: number) => Promise<void>
+  private readonly onRetry: ((info: RetryInfo) => void) | undefined
 
   /** 调用序号（`prepareCall` 的 id 用）。 */
   private calls = 0
@@ -90,6 +125,11 @@ export class DeepSeekAdapter implements LlmAdapter {
     this.models = options.models ?? DEEPSEEK_MODELS
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS
+    this.retryMax = Math.max(0, Math.trunc(options.retryMax ?? DEFAULT_RETRY_MAX))
+    this.retryBaseMs = Math.max(0, options.retryBaseMs ?? DEFAULT_RETRY_BASE_MS)
+    this.retryMaxDelayMs = Math.max(0, options.retryMaxDelayMs ?? DEFAULT_RETRY_MAX_DELAY_MS)
+    this.sleep = options.sleep ?? sleepMs
+    this.onRetry = options.onRetry
   }
 
   providerInfo(): ProviderInfo {
@@ -189,22 +229,16 @@ export class DeepSeekAdapter implements LlmAdapter {
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
 
     try {
-      const response = await this.fetchImpl(joinUrl(this.baseUrl, CHAT_COMPLETIONS_PATH), {
-        method: 'POST',
-        headers: this.headers(),
-        body: JSON.stringify(toWireBody(call, true)),
-        signal: controller.signal,
-      })
-
-      if (!response.ok) {
-        const body = await response.text()
-        // 上游响应体可能含密钥/内部错误页：只进 detail，不进面向用户的 message
-        throw new BahError(
-          'llm-http-error',
-          `deepseek: POST /chat/completions 失败 HTTP ${response.status}`,
-          { status: response.status, body: truncate(body) },
-        )
-      }
+      const response = await this.openStream(
+        joinUrl(this.baseUrl, CHAT_COMPLETIONS_PATH),
+        {
+          method: 'POST',
+          headers: this.headers(),
+          body: JSON.stringify(toWireBody(call, true)),
+          signal: controller.signal,
+        },
+        controller.signal,
+      )
 
       if (response.body === null) {
         throw new BahError('llm-http-error', 'deepseek: 响应没有 body（该端点不支持流式）')
@@ -232,13 +266,17 @@ export class DeepSeekAdapter implements LlmAdapter {
         const parsed = parseSseRecords(buffer)
         buffer = parsed.rest
         for (const record of parsed.records) {
-          yield* chunksOfRecord(record)
+          for (const chunk of chunksOfRecord(record)) {
+            yield withCost(chunk, call.model.pricing)
+          }
         }
       }
 
       // 收尾：最后一条记录可能没有空行结尾（网络分片边界）
       if (buffer.trim() !== '') {
-        yield* chunksOfRecord(buffer)
+        for (const chunk of chunksOfRecord(buffer)) {
+          yield withCost(chunk, call.model.pricing)
+        }
       }
     } catch (error) {
       if (signal.aborted) {
@@ -267,6 +305,40 @@ export class DeepSeekAdapter implements LlmAdapter {
     }
   }
 
+  /**
+   * 建连，并对 429 / 5xx 做**同模型**指数退避重试。
+   *
+   * 只在这层重试：返回 2xx 后分片可能已经吐给用户，再重来等于撤回首句。
+   * 401 / 403 / 4xx 是确定性失败，立即抛出，由主循环落 `assistant/attempt(failed)`。
+   * `retry-after` 优先于本地指数退避（上游明确说了多久后再来）。
+   */
+  private async openStream(url: string, init: RequestInit, signal: AbortSignal): Promise<Response> {
+    let attempt = 0
+    while (true) {
+      if (signal.aborted) {
+        throw new BahError('llm-aborted', 'deepseek: 调用已取消（未发出请求）')
+      }
+
+      const response = await this.fetchImpl(url, init)
+      if (response.ok) return response
+
+      const body = await response.text()
+      if (!isTransientStatus(response.status) || attempt >= this.retryMax) {
+        // 上游响应体可能含密钥/内部错误页：只进 detail，不进面向用户的 message
+        throw new BahError(
+          'llm-http-error',
+          `deepseek: POST /chat/completions 失败 HTTP ${response.status}`,
+          { status: response.status, body: truncate(body) },
+        )
+      }
+
+      const delayMs = retryDelayMs(response, attempt, this.retryBaseMs, this.retryMaxDelayMs)
+      attempt += 1
+      this.onRetry?.({ attempt, status: response.status, delayMs })
+      await this.sleep(delayMs)
+    }
+  }
+
   /** 认证头（密钥只在这里出现，且不落日志）。 */
   private headers(): Record<string, string> {
     return {
@@ -288,4 +360,54 @@ export function createDeepSeekAdapter(
 /** 截断长文本（错误里塞整个响应体会把日志冲掉）。 */
 function truncate(text: string): string {
   return text.length > 500 ? `${text.slice(0, 500)}…` : text
+}
+
+/** 限流与上游故障才值得重试；4xx 其余都是确定性失败。 */
+function isTransientStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status <= 599)
+}
+
+/**
+ * 本次退避时长：`retry-after`（秒）优先，否则按基数指数递增，两者都受上限约束。
+ */
+function retryDelayMs(
+  response: Response,
+  attempt: number,
+  baseMs: number,
+  maxMs: number,
+): number {
+  const header = response.headers.get('retry-after')
+  if (header !== null) {
+    const seconds = Number(header)
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.min(maxMs, seconds * 1_000)
+  }
+  return Math.min(maxMs, baseMs * 2 ** attempt)
+}
+
+/** 缺省退避睡眠（不阻止进程退出）。 */
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    timer.unref?.()
+  })
+}
+
+/**
+ * 给 usage 分片补 `costMicroYuan`（计价表未配置时原样返回）。
+ *
+ * 缓存命中部分按 `cachedInputPerMTok` 计，未命中部分 = `input - cachedInput`；
+ * 全部整数运算（微分 / 百万 tokens），`Math.round` 只收尾一次。
+ */
+function withCost(
+  chunk: StreamChunk,
+  pricing: ModelPricing | undefined,
+): StreamChunk {
+  if (pricing === undefined || chunk.kind !== 'usage') return chunk
+  const cached = Math.min(chunk.cachedInput ?? 0, chunk.input)
+  const uncached = Math.max(0, chunk.input - cached)
+  const cachedRate = pricing.cachedInputPerMTok ?? pricing.inputPerMTok
+  const cost =
+    (uncached * pricing.inputPerMTok + cached * cachedRate + chunk.output * pricing.outputPerMTok) /
+    1_000_000
+  return { ...chunk, costMicroYuan: Math.round(cost) }
 }

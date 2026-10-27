@@ -1,5 +1,9 @@
 # BAH 施工进度
 
+> 2026-10-27 核实：门禁 **35/35**、主仓 **198 文件 / 2019 例**、快照 **6 文件 / 23 例**、
+> 覆盖率 **85.84%（29958/34898）**、`verify-facts` ✔；压缩摘要修复见 §96.10，核实见 §96.11，
+> token 水位口径修复见 §96.12；C04 见 §96.14–§96.16，A3/A7/A8 与 D1–D5 见 §96.17–§96.24。
+
 > 2026-10-24 更新：`bank:saga-bridge` 已接线；文中 R145/R172“生产链为空 / `saga.sqlite` 0 事务”是历史记录，
 > 已过时。当前口径以 `docs/audit.md`、`docs/security-self-assessment.md`、`facts.md` 为准。
 
@@ -19,7 +23,7 @@
 | 05 | 模型层与提示词装配 | 阶段 4 | [x] | 词汇表 + Adapter seam + 六段装配 + reconcile + 压缩；出口清单见 §11，偏差见 §12 |
 | 06 | 组合系统 profile | 阶段 6 | [x] | 三层概念（profile/bundle/patch）+ 四层层序 + config-only HMR + CLI 出口；出口清单见 §17，偏差见 §18 |
 | 07 | 仿真银行 bank | 插件线 | [x] | bank-core / bank-forge 实装：九实体、票据状态机与原子核销、三档造数、风控预检五规则；出口清单见 §26，偏差见 §27，待确认见 §28 |
-| 08 | 银行工具族 | 插件线 | [x] | 14 个 P0 工具 / 三级判决与票据桥接 / presenter 契约 / 目录门禁 / headless 实跑；出口清单见 §29，偏差见 §30，待确认见 §31 |
+| 08 | 银行工具族 | 插件线 | [x] | 14 个 P0 工具（W03 增 2，现 16 个）/ 三级判决与票据桥接 / presenter 契约 / 目录门禁 / headless 实跑；出口清单见 §29，偏差见 §30，待确认见 §31 |
 | 09 | 三级权限审批票据 | 插件线 | [x] | 判定矩阵 + 五条附加规则 / `@bah/interaction` 审批服务与票据账本 / 身份绑定渠道 / 红级挑战链 / headless 幕 3；出口清单见 §32，偏差见 §33，待确认见 §34 |
 | 10 | 安全防护层 sentry | 插件线 | [x] | **批次 A+B 已交付**：内核七件 + 89 用例（§38，偏差 R119–R126）；四接缝接线 / 注入矩阵五攻击面 / 幻觉防护四机制 / 熔断锁存与显式解冻 / 宿主行 `safety:sentry`（§40，偏差 R127–R135） |
 | 11 | 沙箱运行时 | 插件线 | [x] | `sandbox-policy` + `sandbox-runtime` 已落地（档位/硬杀/三态失败/门禁，见 §36）；宿主行 `safety:sandbox` 已接 `analysis_calc`（`BANK_COMPUTE` seam，2026-10-20） |
@@ -4972,3 +4976,551 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
    的旧数与 PROGRESS §96.2 的"留给 C07"记录均保留——时间线不改写。
 6. **新增门禁后计数会变**：以后再加任何 `scripts/verify-*.ts`，`gates=35` 要同步 +1，
    否则 `verify-facts` 当场红（这是设计，不是缺陷）。
+
+---
+
+## 96.10 2026-10-27 §5.1 压缩摘要修复 + 双角度复审
+
+### 96.10.1 做了什么
+
+- 按《BAH能力平面缺口核实-2026-10-27》§5.1 的五条修摘要语义（`runtime/src/compaction/summarize.ts`）：
+  1. `FinancialSummaryEntry` 新增 `execution`（`succeeded / failed / blocked / pending`），
+     只认同 `callId` 的 `tool/result`；审批拒绝与黄/红级前置拦截记 `blocked`，不记 `failed`；
+  2. 新增 `extractHighlights`：用户原话、最后一条助手结论、工具参数/结果首段进摘要；
+     单条截断 160/80/140 字符，highlights 段总预算 4000 字符；
+  3. `refs` 明确为审计回跳字段，摘要不再承诺“原文可取回（见 refs）”；
+  4. 删除“不要假设更早的对话原文仍在上下文中”，改为“先按摘要补全指代，未覆盖再向用户确认”；
+  5. `FinancialSummaryEntry.amount` 改为可选，未知金额渲染“金额未知”，不再补 `¥0.00`。
+- 复审追加：`FinancialSummaryEntry.tier`（来自 `tool/call.tier`）与 `decision=not-requested` 用于解释
+  “为什么没有票据”；黄/红级在审批前被 sentry/policy 拦截时不再误写成“无审批（绿色直通）”。
+- 新增 `snapshots/compaction` 场景（3 轮、`maxTurns:1/keepRecentTurns:1`），摘要正文与 `refs`
+  进入可回放快照；同步 `docs/model-layer.md`、facts 与三份生成文档。
+
+### 96.10.2 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | 5 条缺陷均有字段/文案/用例；旧 `compaction/summary` 只读 `summary` 文本，回放不因新增字段失败 | 无需再改 |
+| A 验收与契约 | 黄/红级审批前被 sentry/policy 拦截时无票据，原渲染会写“无审批（绿色直通）” | 加 `tier`，改渲染“未进入审批”，执行记 `blocked`，补用例 |
+| A 验收与契约 | **C07 覆盖率台账过期**：`test:coverage:all` 漏 `--coverage`，一直读 10-26 旧报表（84.49% / 29163/34517）；`verify-facts` 读同一文件，所以通过是自洽的假绿——§96.7.3 第 1 条“不是抄旧数”的判断不成立 | 修命令后重跑：**85.80%（29776/34703）**；同步 baseline / facts / facts-sources / 三份生成文档；`verify-facts` 的百分比统一两位小数 |
+| B 对抗与回归 | 摘要把工具结果首段从 tool 消息提升进 user 角色，理论增加提示注入面；当前 16 个内部仿真工具 + RAG 签名门，风险可接受 | 本轮不改；接外部 MCP/不可信工具前重评 |
+| B 对抗与回归 | highlights 有 4000 字符预算，`financial` 条目数与工具结果正文仍可能撑大摘要 | 登记后续项；当前 `maxTurns` 路径未触发 |
+| B 对抗与回归 | 新快照是纯文本 mock，未覆盖审批/执行分离的金融分支 | 由 `summarize.test.ts` 的 T-CMP-003 / 审批拒绝 / 审批通过但失败 / 前置拦截 4 组用例钉住；快照只背书对话要点与 refs |
+
+### 96.10.3 判据与输出
+
+| 判据 | 命令 | 实测 |
+|---|---|---|
+| 压缩单测 | `npx vitest run packages/runtime/src/compaction` | 2 文件 / **25 例**绿 |
+| 主仓 | `pnpm test` | 198 文件 / **2002 例**绿 |
+| 快照 | `pnpm test:snapshot` | 6 文件 / **23 例**绿 |
+| 压缩覆盖率 | `npx vitest run packages/runtime/src/compaction --coverage --coverage.include=packages/runtime/src/compaction/summarize.ts` | 行 100%、分支 95.29% |
+| 全仓覆盖率 | `pnpm test:coverage:all`（已补 `--coverage`） | 行 **85.80%（29776/34703）**、包 14/16 |
+| 事实门禁 | `npx tsx scripts/verify-facts.ts` | `✔ facts`（2002 / 6-23 / 85.80%） |
+| 门禁 | `pnpm gate` | **全部通过（35/35）** |
+| 类型 / lint | `pnpm typecheck`、`npx eslint`（3 个改动源文件） | 退出码 0 |
+
+### 96.10.4 偏差与未闭合
+
+1. **§96.7.3 第 1 条需按本节的复核更正**：旧报表 mtime 是 2026-10-26 11:08，不是 00:20:08；
+   当时的 `test:coverage:all` 没有 `--coverage`，因此“重跑同值”不成立。历史小节保留不改，
+   以 §96.10 为准。
+2. **历史件仍是旧数**：`docs/testing.md` 与 `docs/drill-*` 仍写 10-26 的 1951 例 / 84.49%，
+   按缺口报告 §8 留给 C11 前的数字归一；本轮只改 facts 与生成文档。
+3. **摘要的注入面与体量**：见 §96.10.2 的 B 类两条，未在本轮扩大改动。
+4. **新快照边界**：`snapshots/compaction` 用 `profiles/headless/patch-compaction.yml` 的 mock 脚本，
+   不触发银行工具，因此金融字段行为只有单测背书；快照背书的是摘要正文、`refs`、回放全等。
+
+---
+
+## 96.11 2026-10-27 PROGRESS 核实更新（不采信自述，按命令输出对账）
+
+### 96.11.1 做了什么
+
+- 核实对象是本文件最新五个小节（§96.1、§96.2、§96.7、§96.9、§96.10）的判据与数字，
+  外加顶部时点条与 §1 进度表的工具数。方法：重跑五条命令 + 读 `facts.md`
+  `docs/facts-sources.md` `docs/coverage-baseline.json`，不引用任何小节的结论当证据。
+- 本轮不改代码、快照、事实表与历史小节，只改本文件：
+  1. 顶部补 2026-10-27 核实条（原 10-24 条保留）；
+  2. §1 第 08 行“14 个 P0 工具”补注“W03 增 2，现 16 个”；
+  3. 追加本节。
+
+### 96.11.2 判据与输出
+
+| 判据 | 命令 | 实测 |
+|---|---|---|
+| 事实门禁 | `npx tsx scripts/verify-facts.ts` | `✔ facts`；重算 **门禁 35 · 工具 16 · plan 2208 行 · 快照 6 文件/23 例 · 覆盖率 85.80%（29776/34703）** |
+| 全量门禁 | `npx tsx scripts/run-gates.ts`（**不带** `BAH_ALLOW_NO_SNAPSHOT`） | **全部通过（35/35）**；`snapshot-fresh` 重录 5 个场景后工作树无新增差异 |
+| 主仓测试 | `NODE_EXTRA_CA_CERTS= npx vitest run` | **198 文件 / 2002 例**全绿（13.78s） |
+| 快照回放 | `pnpm test:snapshot` | **6 文件 / 23 例**全绿（含 `compaction` 5 例） |
+| 全仓覆盖率 | `NODE_EXTRA_CA_CERTS= pnpm test:coverage:all` | 行 **85.80%（29776/34703）**、包 **14/16**；与 `coverage-baseline.json`、`facts-sources.md` 一致 |
+| 提交面 | `git status --short`、`git rev-list --count origin/main..HEAD`、`git rev-list --count v1.0-submit..HEAD` | HEAD `dd8b14c`；§96.10 压缩包与文档已暂存未提交；C01 的 `README.md`/`docs/deploy.md` 修改 + `LICENSE`/`docs/release-baseline-2026-10-26.md` 未跟踪；**38 / 40** |
+
+结论：§96.10 的八条判据与事实表逐项相符，无需改数；§96.7 的 35/35、§96.9 的 34/34 与 1995 例
+分属各自时点，保留不改。
+
+### 96.11.3 偏差与未闭合
+
+1. **公开材料仍是旧数，与 facts 不一致**：`README.md`（194/1951、27 项、34 个 `verify-*`、5/18、34/34）、
+   `docs/deploy.md`（184/1811、34/34）、`docs/testing.md`（1951、84.49%）、
+   `docs/drill-{6-commands,final-checklist,rehearsal,qa-100}-2026-10-26.md`（1951、34、84.49%）均未归一。
+   这是缺口报告 §0.3 的 P1 “数字归一补漏”，按边界留给 C11；本轮只核本文件，不越界改。
+2. **仓库外缺口报告 §8 的覆盖率分母与实测不一致**：报告写 85.80%（**29760/34687**），
+   本轮实测 85.80%（**29776/34703**），两组数差 16 行；以 `docs/facts-sources.md` 的实测值为准，
+   下次归一时同步该报告。
+3. **§96.10 尚未提交**：压缩改动 + 本文件已暂存，HEAD 仍是 C07 的 `dd8b14c`；
+   `origin/main` 落后 38、`v1.0-submit` 落后 40，与 §96.1.2 记录相比未变化（推送仍卡 GitHub 凭证）。
+4. **门禁会写快照**：`snapshot-fresh` 每次重录 5 个场景是设计行为；本轮重录后 `git status` 与运行前一致，
+   说明快照与代码同源，不是“跑一次脏一次”。
+5. **未复测的项**：GitHub 远端（401）、两张截图、`.env.local` 密钥轮换仍属 C01 未闭合，
+   本轮按“不碰外部动作”边界未动。
+
+---
+
+## 96.12 2026-10-27 缺口 §5.2 修复（token 水位口径）
+
+### 96.12.1 做了什么
+
+对应仓库外缺口报告 `BAH能力平面缺口核实-2026-10-27.md` §5.2（系统头按 attempt 重复计入，
+切 `maxTokens` 会把水位高估约 step 数倍）：
+
+1. `analyzeSession` 的 `system/message` 改为“后一份覆盖前一份”：先加新值再减旧值，只计最后一次装配的系统头；
+2. 新增 `estimateRequestTokens(request)`：消息文本 / 工具调用（`name + args`）与 `tools` 的
+   `name / description / JSON schema` 都计入；`reasoning / image / file / tool-addition / tool-removal` 计 0；
+3. 请求恒定开销贯通水位：`PlanCompactionInput.overheadTokens?` → `planCompaction` / `shouldCompact`
+   → `runCompaction(…, overheadTokens?)` → agent 请求前与 turn 收尾两处；
+4. agent step 顺序改为“先解析首选模型 → 算 overhead（仅压缩启用时）→ 压缩判定”；
+   同步 `docs/agent-loop.md` 阶段号与 `docs/model-layer.md` 压缩口径；
+5. `facts.md` / `docs/facts-sources.md` 的主仓用例数由 2002 同步为 **2008**。
+
+### 96.12.2 判据与输出
+
+| 判据 | 命令 | 实测 |
+|---|---|---|
+| 压缩单测 | `npx vitest run packages/runtime/src/compaction` | 2 文件 / **31 例**绿 |
+| runtime 包 | `npx vitest run packages/runtime` | 29 文件 / **304 例**绿 |
+| 主仓 | `pnpm test` | 198 文件 / **2008 例**绿 |
+| 快照 | `pnpm test:snapshot` | 6 文件 / **23 例**绿（快照未变：compaction 场景走 `maxTurns:1`） |
+| 类型 / lint | `pnpm typecheck`、`npx eslint packages/runtime/src/compaction packages/runtime/src/agent-loop` | 退出码 0 |
+| 门禁 | `pnpm gate` | **全部通过（35/35，含 `verify-facts`）** |
+
+钉数判据：3 轮会话水位 **34**（旧口径 42）；同 turn 3 份系统头 **14**；请求估算 **19**（文本 2 + 工具 17）
+与 **8**（仅工具调用块）；阈值 = 事件水位 + 50 时 overhead **49 不触发 / 50 触发**；
+`runCompaction` 第三参透传另有用例。
+
+### 96.12.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | 三条要求均真正落地；新增字段/参数均可选，缺省 0 与改前一致 | 无需回滚 |
+| A 验收与契约 | 导出的 `shouldCompact` 未跟上 overhead | 已补可选第三参 |
+| A 验收与契约 | 未配置压缩时仍每 step 序列化工具 schema | 已加守卫，overhead=0 且不调 `toolSpecsOf` |
+| A 验收与契约 | 文档两参签名 / 阶段号漂移；overhead 用例未钉边界 | 已改文档，并补 49/50 与透传用例 |
+| B 对抗与回归 | 覆盖式增量不会算出负数：`seq` 单调、`restore` 拒空洞、fork 只取连续前缀 | 无需改 |
+| B 对抗与回归 | `agent/request` 若整体替换 `request.tools`，overhead 仍按首选模型 | 全仓无此监听器；接插件前复核 |
+| B 对抗与回归 | 钉数用例耦合 `CHARS_PER_TOKEN=4` 与 fixture 文案 | 保留（§5.2 明确要求钉数），另有关系 oracle 兜底 |
+
+### 96.12.4 偏差与未闭合
+
+1. **摘要正文未计入水位**：`snapshots/compaction` 折叠后水位 **1957**，真实请求约 **2058**
+   （`compaction/summary` 的 153 token 未计，已撤回的 `runtime-context` 仍计约 +52）。
+   切 `maxTokens` 前需把摘要 token 计入 metrics，并按 reconcile 剔除已撤回的 runtime-context。
+2. **`assistant/message.toolCalls` 的 `name/args` 未计**（`tool/call` 事件口径为 0），量级取决于参数；
+   与第 1 条同批修。
+3. **overhead 路径无集成 / 快照覆盖**：只有单测；切 `maxTokens` 时补一条走 token 阈值触发压缩的快照。
+4. **本轮未提交**：改动在工作树（与 §96.10 的压缩改动同批），HEAD 仍是 C07 的 `dd8b14c`。
+5. **公开材料仍是旧数**：`README.md` / `docs/deploy.md` / `docs/testing.md` / drill 系列未归一，
+   按缺口报告 §0.3 的 P1 留给 C11。
+
+## 96.13 2026-10-27 缺口 §5.3 修复（知识健康检查静默）
+
+### 96.13.1 做了什么
+
+1. `boot/plugins/knowledge.ts`：`required: false` + 健康检查失败时补 `run.warn`，消息含 `baseUrl`、
+   `required=false`、失败原因与"knowledge 工具将返回 `knowledge-unavailable`"。
+   `required: true` 仍 `throw bootError('knowledge-unavailable')`，且**不**告警（异常路径不走"告警后继续"）——
+   原先把 `reason` 取在 if 分支里，现提到 catch 顶部一次取出。
+2. `boot/boot.ts`：`RunContext` 新增可选 `warn`（插件唯一可见的告警出口），`boot()` 以
+   `options.warn ?? options.run.warn` 注入 `bah:run` 服务；插件不认识 CLI，CLI 的 `warn → io.err` 原样保留。
+   同一出口也接管了原来 HMR 的 `options.warn` 调用（语义不变，只是同源）。
+3. `boot/plugins/knowledge.test.ts`：`bootWith` 增加可选 `warn`；新增断言
+   `required:false` → **恰 1 条**告警（含 `bank:knowledge 健康检查失败`、`http://127.0.0.1:1`、`required=false`、
+   `knowledge-unavailable`），`required:true` → **0 条**且 `rejects.toThrow(/健康检查失败/)`。
+4. `packages/cli/src/main.smoke.test.ts`：新增 `unexpectedStderr()`，只放行 `bank:knowledge 健康检查失败`
+   这一条已知告警，其余任何 stderr 仍判红；web profile / `patch-knowledge-refusal` / 多 profile 三处
+   `stderr === ''` 断言改为该过滤器（否则"stderr 干净"等于"允许一切"）。
+5. 文档：`docs/knowledge.md` §4 写明告警出口与 `--dump-config` 自检；缺口报告 §5.3 追加修复回执与双角度复审，
+   §3 行 3 / §9.2 / §9.3 / §11 证据索引同步；覆盖率重跑值同步 `coverage-baseline.json`、`facts.md`、
+   `docs/facts-sources.md` 与三份生成文档。
+
+### 96.13.2 判据与输出
+
+| 判据 | 结果 |
+|---|---|
+| `packages/host/.../knowledge.test.ts` | 17/17 |
+| `packages/host` | 339/339 |
+| `pnpm test` | 198 文件 / 2008 例 |
+| `pnpm test:snapshot` | 6 文件 / 23 例 |
+| `pnpm typecheck` / `eslint` | 通过 |
+| `pnpm gate` | 35/35（含 `verify-facts`、快照回放、前端扫描 14 文件） |
+| 真实进程 | `BAH_KNOWLEDGE_KEY=demo-key-not-for-prod npx tsx packages/cli/src/main.ts --profile web --dump-config` → 退出码 **0**，stderr 恰一条：`bah: bank:knowledge 健康检查失败（http://127.0.0.1:7801，required=false）：知识服务不可达；继续启动，knowledge 工具将返回 knowledge-unavailable` |
+| `pnpm test:coverage:all` | 85.83%（29843/34771）；上次 85.80%（29776/34703）是 §5.2 落盘前的时点值 |
+
+### 96.13.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | §5.3 要的"catch 里 warn + 走 CLI `io.err`"真实落地，且没有把 CLI 依赖带进 host（插件只认 `bah:run.warn`） | 无需回滚 |
+| A 验收与契约 | `warn` 为可选：快照 / eval / 脚本不传时行为与改前一致，`options.warn` 优先、`run.warn` 次之 | 兼容 |
+| A 验收与契约 | `--dump-config` 仍会触发插件 `apply` 的 1s 健康探测，"dump 的 stderr 严格为空"不再成立 | 冒烟测试改为只过滤已知告警；`docs/knowledge.md` 把 dump 写成自检手段 |
+| B 对抗与回归 | token 不从告警泄露：`createHttpKnowledgePort` 的错误消息是固定串，token 只在 header | 无泄露 |
+| B 对抗与回归 | 不刷屏：告警仅在启动 `apply` 一次；运行中掉线由工具结果 `knowledge-unavailable` 表达 | 无需改 |
+| B 对抗与回归 | 顺序风险：健康告警先出、签名门失败随后拒启，可能被误读成"带病启动已成功" | 可接受（拒启错误紧随其后；`required:true` 不告警） |
+| B 对抗与回归 | 快照/回放不受影响：不传 `warn` 时 `bah:run` 服务不被多拷字段，事件面与 `session.jsonl` 不变 | 23 例全绿 |
+
+### 96.13.4 偏差与未闭合
+
+1. **只在启动探活**：运行中 sidecar 掉线不会二次告警；要常驻探活属另一条平面，本轮不扩。
+2. **`--dump-config` 仍打一次 1s 网络探测**：严格"只看不跑"需要给 `RunContext` 加 probe 开关，
+   牵动面大于 §5.3，赛前不做。
+3. **告警先于签名门失败**：`BAH_KNOWLEDGE_KEY` 缺失时会先看到知识告警再看到拒启错误；以错误行顺序解释，不改。
+4. **本轮未提交**：改动在工作树（与 §96.10 / §96.12 同批），HEAD 仍是 C07 的 `dd8b14c`。
+5. **公开材料仍是旧数**：同 §96.12 第 5 条，留给 C11。
+6. **未复现的一次抖动**：收尾时单独跑 `npx vitest run packages/host` 曾报 `1 failed | 338 passed`，
+   失败用例名未及留存；随后串行重跑 3 次、并发重跑 2 次、`pnpm test` 与 `pnpm gate` 均全绿，代码未再改动。
+   判为未复现抖动，C11 终检时留意同一命令。
+
+---
+
+## 96.14 2026-10-27 C04 判据一：Web 演示关闭逐条 fsync（B1）
+
+### 96.14.1 做了什么
+
+对应缺口报告 §0.3 C04 的“`profiles/web` 无 `fsync:false`”：
+
+1. `profiles/web/patch.yml` 新增 `core:persistence` 行：`root: sessions` + `fsync: false`；
+2. 注释写明代价（硬杀可能丢最后几条事件）与兜底（演示数据为可复现种子）。
+
+### 96.14.2 判据与输出
+
+| 判据 | 命令 | 实测 |
+|---|---|---|
+| 配置生效 | `BAH_KNOWLEDGE_KEY=… npx tsx packages/cli/src/main.ts --profile web --dump-config` | `core:persistence  profile-patch:profiles/web/patch.yml  {"root":"sessions","fsync":false}` |
+| 配置门禁 | `npx tsx scripts/verify-plugin-config.ts` | ✔（7 个 profile 目录、3 个 patch 文件） |
+
+### 96.14.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | patch 是整块替换，只写 `fsync` 会把 `root` 落回默认值 | 显式写回 `root: sessions`，与 base 同值 |
+| B 对抗与回归 | 关 fsync 后硬杀可能丢尾部事件 | 接受：演示数据可复现；快照/测试不读 web patch 的 fsync 值 |
+
+---
+
+## 96.15 2026-10-27 C04 判据二：429 / 5xx 同模型退避（B2）
+
+### 96.15.1 做了什么
+
+1. `packages/llm/src/deepseek/adapter.ts` 新增 `openStream`：HTTP 429 / 5xx 时按指数退避重试，
+   `retry-after`（秒）优先、单次上限 3s；只重试“尚未吐出任何分片”的失败，401/4xx/取消/超时都不重试；
+2. 适配器选项新增 `retryMax` / `retryBaseMs` / `retryMaxDelayMs` / `sleep` / `onRetry`；
+3. `core:model` 配置新增 `retryMax` / `retryBaseMs`（仅 deepseek 有意义），并接到 adapter；
+   每次退避打一行 stderr，不静默；
+4. `profiles/web/patch.yml` 显式写 `retryMax: 2`、`retryBaseMs: 300`。
+
+### 96.15.2 判据与输出
+
+| 判据 | 命令 | 实测 |
+|---|---|---|
+| 适配器单测 | `npx vitest run packages/llm/src/deepseek/adapter.test.ts` | **19 例**绿（新增 4） |
+| 模型配置单测 | `npx vitest run packages/host/src/boot/plugins/model.test.ts packages/host/src/boot/plugins.test.ts` | **27 例**绿 |
+| 类型 | `npx tsc -p packages/host/tsconfig.json --noEmit` | 退出码 0 |
+| 配置生效 | `--profile web --dump-config` | `retryMax:2,retryBaseMs:300` 在 `core:model` 行上 |
+
+钉数判据：429 + `retry-after: 1` → 退避 **1000ms**、调用 **2** 次；503 连续 → 退避 **10 / 15**（第二次 20 被上限截到 15）、
+调用 **3** 次后抛 `llm-http-error`；401 → 调用 **1** 次、零退避；`retryMax=0` → 调用 **1** 次。
+
+### 96.15.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | 只重试“未吐分片”的 HTTP 失败，取消/超时/4xx 不重试；次数与基数走 Config | 符合；无回滚 |
+| A 验收与契约 | `retry-after` 有 HTTP-date 形式，本轮只解析秒数 | 登记；date 形式回落指数退避 |
+| B 对抗与回归 | `fetch` 本身抛错（DNS / ECONNRESET）未重试 | 本轮只覆盖报告要求的 429/5xx，登记 |
+| B 对抗与回归 | 配置校验只收正整数，`retryMax=0` 只能走代码选项 | 登记；演示不需要关闭重试 |
+| B 对抗与回归 | 退避期间用户取消最多多等 3s | 接受：上限 3s，且外层超时仍是硬上限 |
+
+---
+
+## 96.16 2026-10-27 C04 判据三：Web 拒绝分支判红（B3）
+
+### 96.16.1 做了什么
+
+`packages/host/src/boot/plugins/web.test.ts` 新增一条全链路负例（`channel:web 实时链路`）：
+
+- 真实 `ApprovalService` + Web 应答者 + `/api/events` 常驻连接；
+- 前端同款两步：`POST /api/verify/:ticketId` → `POST /api/approval/:ticketId`，结论 `rejected`（带理由）；
+- 下游按 `packages/runtime` 管线口径：只有 `allowed-once` 才真正执行工具。
+
+### 96.16.2 判据与输出
+
+| 判据 | 实测 |
+|---|---|
+| 拒绝归一化 | `SettledApproval.decision` = `{ decision: 'rejected', reason: '本人不同意本次转账' }` |
+| 转账未执行 | 下游执行标记 `[]` |
+| 票据消耗 | `pendingCount` 1 → 0 |
+| 红态帧 | `{"kind":"approval-closed","decision":"rejected","label":"已拒绝","code":"approval-rejected"}` |
+| 不得翻案 | 结算后补 `allowed-once` → 404 `unknown-ticket`，执行标记仍为 `[]` |
+| 回归 | `web.test.ts` **56/56** 绿 |
+
+### 96.16.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | 拒绝必须填理由（适配器 `reason-required`），理由要原样进判决 | 用例已带理由并断言透传 |
+| A 验收与契约 | 管线在 `handle` 返回后才落 `approval/decided`，测试必须同序 | 先 `await settled` 再 append，载荷照抄 pipeline.ts |
+| B 对抗与回归 | 结算后票据已摘除，重放是 404 而非 409 | 断言改为实际语义；409 只属于 receipt 拒收路径 |
+| B 对抗与回归 | 测试下游是管线等价桩 | 真实工具链路已有 `packages/bank` 的 `approval-rejected` 用例，二者互补 |
+
+
+---
+
+## 96.17 2026-10-27 A3：usage 补缓存命中与成本（微元）
+
+### 96.17.1 做了什么
+
+- `packages/llm/src/llm/types.ts`：新增 `ModelPricing`；`CallUsage` 增 `cachedInput?` / `costMicroYuan?`；`TurnUsage` 两项改**必填**；`ModelSpec` 增 `pricing?`。
+- `packages/llm/src/llm/usage.ts`：`TurnSlot` 累加四字段，`record` 校验扩到四项，`get` / `totals()` 返回含零值的全量表。
+- `packages/llm/src/llm/assemble.ts`：`usage` 合并保留/取 max `cachedInput` 与 `costMicroYuan`。
+- `packages/llm/src/deepseek/wire.ts`：`prompt_cache_hit_tokens` → `cachedInput`，**缺省 ≠ 0 命中**。
+- `packages/llm/src/deepseek/adapter.ts`：`withCost()` 按 `ModelPricing` 计价，四舍五入到整数微元（1 元 = 1e6 微元）。
+- `packages/runtime/src/session/types.ts`：`UsageSummaryData` 与 `TurnUsage` 同形。
+- 测试同步：`usage.test.ts`、`wire.test.ts`、`agent.test.ts`、`model-turn.test.ts`、`summarize.test.ts`、`apply.test.ts`。
+
+### 96.17.2 判据与输出
+
+| 判据 | 实测 |
+|---|---|
+| 计价用例 | 100 万输入 ×1¥ + 40 万输出 ×0.1¥ = **640000 微元**；未配计价则不报价 |
+| 缓存字段 | 上游缺 `prompt_cache_hit_tokens` → `cachedInput` 保持未定义（下游按 0 计），不是"命中 0" |
+| 主仓跑批 | **198 文件 / 2019 例** 全绿（adapter 21 例、wire 18 例、usage 6 例） |
+| 门禁 / 覆盖率 | `pnpm gate` **35/35**；行口径 **85.84%**（29958/34898） |
+
+### 96.17.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | 单位曾在 `costMicrocents` / "微分" 与 `costMicroYuan` / "微元" 之间摇摆 | 全仓统一为 `costMicroYuan`，注释写死"1 元 = 1e6 微元" |
+| A 验收与契约 | `TurnUsage` 加必填字段会让所有汇总点编译失败（这是故意的） | 编译器逼出全部调用点，逐处补 `cachedInput/costMicroYuan` |
+| B 对抗与回归 | `core:model` 的 `modelSpec` 白名单**没有 pricing**，真实启动成本恒为 0 | 已登记：计价只在代码侧可注入，profile 尚未开口（要真报成本需再加一层配置，并同步本文与 facts） |
+| B 对抗与回归 | 没有内置 DeepSeek 价目表，价格变动不在代码里 | 已登记：价格属外部事实，硬编码会过期；由调用方注入 `ModelPricing` |
+| B 对抗与回归 | 单条成本四舍五入到微元，累计是"逐条四舍五入后相加" | 误差 <1 微元/条，演示口径可接受；不做"先累加后取整"的隐式口径切换 |
+
+---
+
+## 96.18 2026-10-27 A7：deepseek 网络路径的快照背书
+
+### 96.18.1 做了什么
+
+`scripts/verify-snapshot-fresh.ts` 的 `[unreachable]` 名单新增两条：
+
+- `packages/llm/src/deepseek/adapter.ts` ← 背书面 `adapter.test.ts`
+- `packages/llm/src/deepseek/wire.ts` ← 背书面 `wire.test.ts`
+
+理由写进脚本：快照一律装 mock provider，deepseek 的真实 SSE/HTTP 行为没有确定性录制路径；
+这两个文件**不可能**有快照覆盖，只能靠单测背书。
+
+### 96.18.2 判据与输出
+
+| 判据 | 实测 |
+|---|---|
+| 门禁 | `snapshot-fresh` ✔，豁免 **7 条**（原 5 条 + 本次 2 条），逐条带理由 |
+| 全量门禁 | `pnpm gate` **35/35** |
+| 背书强度 | `adapter.test.ts` 21 例（含退避 4 例 + 计价 2 例）、`wire.test.ts` 18 例 |
+
+### 96.18.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | 豁免是"显式登记"，不是静默跳过 | 每条必须写背书面与不可达原因，脚本内联可见 |
+| B 对抗与回归 | 这是**口径登记**，不是给 deepseek 补了快照覆盖 | 标题与回执都写"背书"，不写成"覆盖" |
+| B 对抗与回归 | 若以后给 deepseek 加录制能力，豁免会掩盖它 | 豁免条目绑定具体文件；新增录制路径时应删条目而不是留双份 |
+
+---
+
+## 96.19 2026-10-27 A8：`--dump-config` 零网络（探活开关）
+
+### 96.19.1 做了什么
+
+- `packages/host/src/boot/boot.ts`：`RunContext` 增 `probe?: boolean`，**缺省 true**（既有行为不变）。
+- `packages/host/src/boot/plugins/knowledge.ts`：`mode === 'http' && run.probe !== false` 才做健康检查。
+- `packages/cli/src/cli/run.ts`：`probe: !args.dumpConfig`——dump 只看不跑，真实启动不传。
+- 测试：`knowledge.test.ts` 新增 `probe=false` 用例（`fetch` spy 不被调用、零告警、工具照常注册）；
+  `main.smoke.test.ts` 的 dump 用例断言 **stderr 严格为空**（原本只过滤已知告警）。
+- `docs/knowledge.md`：删掉"跑一次 dump 就能看到 sidecar 在不在"的旧口径。
+
+### 96.19.2 判据与输出
+
+| 判据 | 实测 |
+|---|---|
+| dump 零网络 | `--profile headless --dump-config` 的 `fetch` 调用 0 次、stderr 空 |
+| 工具仍可见 | dump 树里 `knowledge_answer` 仍注册（关的是探活，不是插件） |
+| 回归 | `knowledge.test.ts` **18 例**、`boot.test.ts` 13 例、`main.smoke.test.ts` 5 例、`run.test.ts` 26 例全绿；`pnpm typecheck` 0 错 |
+| 全量 | `pnpm test` 198/2019；`pnpm gate` 35/35；覆盖率 85.84% |
+
+### 96.19.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | 开关缺省必须是 true，否则真实启动静默失去 sidecar 告警 | 只在 CLI `dumpConfig` 分支传 false，`boot()` 默认不动 |
+| B 对抗与回归 | 当前仓库只有 `bank:knowledge` 一处启动期联网探活 | 已在 `RunContext.probe` 注释里写"新增启动期探活必须读同一开关" |
+| B 对抗与回归 | dump 不再暴露"sidecar 是否可达"，演示前少了一个自检点 | `docs/knowledge.md` 改为"真实启动看告警，或直接 curl `/healthz`" |
+| B 对抗与回归 | 只关 knowledge，不关未来其它插件 | 登记为已知边界，不是"全局断网" |
+
+---
+
+## 96.20 2026-10-27 D1：公开材料数字归一
+
+### 96.20.1 做了什么
+
+- `docs/coverage-baseline.json`：本批改动后重跑覆盖率，`29958/34898 = 85.84%`（上一版 85.83%）。
+- `npx tsx scripts/gen-architecture.ts` 重新生成 `docs/architecture.md`、`docs/algorithms.md`、`docs/security-design.md` 的事实块（**不手改**）。
+- `docs/facts-sources.md` 机器块 + 实测表 + §3 口径说明同步；`facts.md` 主仓 **198/2019**、覆盖率 **85.84%（29958/34898）**。
+- `README.md`、`docs/deploy.md`、`docs/testing.md`、`docs/drill-final-checklist-2026-10-26.md`、`docs/drill-qa-100-2026-10-26.md` 同步。
+- 两份带具体命令输出的历史演练稿（`drill-6-commands` / `drill-rehearsal`）**不改正文**，顶部横幅指明"以 facts.md 为准"。
+- QA 面：C9 覆盖率、C12 断言 6318、C20 2019 例、C21 6318/216。
+
+### 96.20.2 判据与输出
+
+| 判据 | 实测 |
+|---|---|
+| `verify-facts` | ✔ 重算：门禁 35 · 工具 16 · plan 2208 行 · 快照 6/23 · 覆盖率 **85.84%（29958/34898）** |
+| 残留扫描 | `2018` / `85.83%` 仅存于历史演练正文与历史 PROGRESS 小节 |
+| 全量门禁 | `pnpm gate` **35/35** |
+| 主仓跑批 | 198 文件 / 2019 例 |
+
+### 96.20.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | 单一来源链是 `facts-sources` → `facts.md` → 生成文档 | 三份生成文档只跑生成器；手改会被 `--check` 打回 |
+| A 验收与契约 | `coverage-baseline.json` 的 note 还写着"2008 例" | 本轮一并改为 2019 例 |
+| B 对抗与回归 | 报表与 baseline 必须同源，否则 `verify-facts` 报"台账过期" | 本次 coverage 与 baseline 同批更新 |
+| B 对抗与回归 | 只在 A8 落盘时点有数，后续再改代码会再次漂移 | 登记：终检（C11）前必须重跑这一条链，不许抄旧数 |
+
+---
+
+## 96.21 2026-10-27 D2：评委走查表（C10）
+
+### 96.21.1 做了什么
+
+新建 `docs/review/judge-walkthrough.md`：
+
+- §0 一句话结论；§1.1 六场景打分（转账 4 / 账单 4 / 理财 3 / 卡片 2 / 订阅 2 / 跨场景 3），每行含证据、缺口、修复成本、"修不修 + 理由"；
+- §1.2 权限分级、§1.3 安全五项、§1.4 意图/规划；
+- §2 plan 三条硬约束（含一条**无门禁、靠人审**的如实写法）；
+- §3 六条"不许误读"、§4 危险表述扫描（禁"运行中可发现篡改"）、§5 缺口决策表、§6 三问标准答法。
+
+`docs/drill-qa-100-2026-10-26.md` 末尾追加附录表，与走查表 §3 同文。
+
+### 96.21.2 判据与输出
+
+| 判据 | 实测 |
+|---|---|
+| 无空格 | 六场景每行五列（证据/缺口/成本/修不修/理由）全部填满 |
+| 锚点可核 | `engine.ts:547`（dryRun 短路）、`verify-package-graph.ts:215`（plan 依赖方向）、`pipeline.ts` 七段 |
+| 文档门禁 | `docs-paths` ✔（58 份文档、1468 处路径引用） |
+
+### 96.21.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | "每条硬约束都有门禁"是过度宣称 | 改成"两条有门禁、一条靠人审"，并给出人审具体动作 |
+| B 对抗与回归 | `@bah/host` 在 plan 目录 2 处命中实为注释 | 走查表写明"命中是注释，不算越层" |
+| B 对抗与回归 | 打分容易被读成"官方评分" | 标题写"自评"，并注明判据来自本仓库证据 |
+
+---
+
+## 96.22 2026-10-27 D3：10-28 答疑出战包（C03）
+
+### 96.22.1 做了什么
+
+新建 `D:\项目集\微众杯银行ai智能体\C03-10.28答疑出战包-2026-10-27.md`（仓库外，避免污染提交面）：
+
+- §1 投递版三条；§2 A1–A9 九格（问法/现状/若答"是"/若答"否"/已备好/现场口径）+ B1–B6；
+- §3 端点与模型二选一结论；§4 现场红线；§5 答复记录表；§6 会后 24 小时；§7 未闭合三件事。
+
+### 96.22.2 判据与输出
+
+| 判据 | 实测 |
+|---|---|
+| 九格无空格 | A1–A9 每格六列全填；B1–B6 六行全填 |
+| 事实锚点 | `packages/bank/src/forge/index.ts:74` `dailyTransferLimitCents: 500_000`；全仓无 Dockerfile；`origin = github.com/YYYPROBEE/bah-monorepo.git` |
+| 未闭合登记 | 种子日限额 5000 vs 赛题示例 1000；无 Dockerfile；视频/PPT 均 0 |
+
+### 96.22.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | 问法必须问"是否硬性要求/以哪个口径为准" | 九格逐条按此改写，未出现"我们没做 X 行不行" |
+| B 对抗与回归 | 种子限额 5000 与示例 1000 不一致，改一处要重录快照 | 明确写"当日不动"，留给答疑后决策 |
+| B 对抗与回归 | 仓库无 Dockerfile，若官方要求一键运行会失分 | §7 记为未闭合项，不写成"已具备" |
+
+---
+
+## 96.23 2026-10-27 D4：施工文档集 44 份统一废弃横幅
+
+### 96.23.1 做了什么
+
+`文档归档/BAH施工文档集-2026-10-25`（v1）与 `-v2` 各 22 份 Markdown，首行统一插入"归档标记（2026-10-27）"横幅：
+
+- v1 措辞"**已废弃（v1）**"：22 份存在 9 处 P0 与 9 处 P1 事实错误；
+- v2 措辞"**已失效（v2）**"：W01–W20 落地结果已按 `PROGRESS.md` 记录；
+- 两者都指向现行三份材料：`BAH待办分类执行包-2026-10-26.md`、`BAH能力平面缺口核实-2026-10-27.md`、`PROGRESS.md`。
+
+### 96.23.2 判据与输出
+
+| 判据 | 实测 |
+|---|---|
+| 覆盖率 | v1 `22/22`、v2 `22/22`（脚本按首行匹配计数） |
+| 幂等 | 已有标记的文件跳过，重跑不重复插入 |
+| 编码 | 以 UTF-8 无 BOM 写回，换行跟随原文件 |
+
+### 96.23.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | 横幅必须指到"唯一生效源"，否则只是免责声明 | 三份现行材料逐一列名 |
+| B 对抗与回归 | 只加头不改正文，历史可追溯 | 正文一字未动 |
+| B 对抗与回归 | v1 与 v2 不能都写"废弃"，会被读成同一状态 | 区分"已废弃（有事实错误）"与"已失效（已被 PROGRESS 取代）" |
+
+---
+
+## 96.24 2026-10-27 D5：缺口报告自身基准更新
+
+### 96.24.1 做了什么
+
+`BAH能力平面缺口核实-2026-10-27.md`（仓库外）：
+
+- §5.3 的"`--dump-config` 仍打 1s 网络"条目改为**已修（A8）**并写落点；
+- §6 交付线状态：C03 / C04 / C07 / C10 / C13 改为完成或部分完成，附证据文件名；
+- §7 工作区：60 条改动（57 已跟踪 + 3 未跟踪），列明本轮落点；
+- §8 数字表：统一 **198/2019 · 35/35 · 6 文件/23 例 · 85.84%（29958/34898）**，并写明生成文档由生成器重算；
+- §9.2 覆盖率与测试面同步；
+- 新增 §13.4–§13.11 执行回执（A3 / A7 / A8 / D1 / D2 / D3 / D4 / D5）。
+
+### 96.24.2 判据与输出
+
+| 判据 | 实测 |
+|---|---|
+| 与 facts 一致 | 198/2019、35/35、85.84%（29958/34898）与 `facts.md`、门禁输出逐字相同 |
+| 状态与证据对应 | C03/C04/C10/C13 均指向具体文件；C05/C06 仍写 0 个成品 |
+| 残留 | 报告内不再有"待修"的 A8 条目 |
+
+### 96.24.3 双角度复审
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收与契约 | 报告是"缺口核实"，完成项必须能反查到回执 | 每项对应 §13 小节编号 |
+| B 对抗与回归 | 只更新报告不改 facts 会二次漂移 | 本轮 facts/baseline/生成文档同批更新 |
+| B 对抗与回归 | E 组（推远端/tag/视频/PPT/上传/签字）不在本轮范围 | 报告 §7 仍标"未完成"，不冒充已闭合 |

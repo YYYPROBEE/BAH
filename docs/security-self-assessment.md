@@ -336,7 +336,7 @@ pnpm vitest run packages/safety/src/sentry/pipeline/fail-closed.test.ts \
   packages/host/src/boot/plugins/web-admin.test.ts \
   packages/host/src/boot/plugins/web.test.ts \
   packages/cli/src/cli/sentry.test.ts       # HP-0 的 79 条
-pnpm gate                                   # 29 项
+pnpm gate                                   # 35 项
 pnpm demo:web                               # 打印本次独立会话目录
 pnpm demo:verifier-fail                     # fail-injection 演示
 pnpm bah audit --dir "<本次会话目录>" --no-signature  # 链连续/投影对账（非完整验签）

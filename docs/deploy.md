@@ -7,6 +7,17 @@
 
 ---
 
+## 0. 获取代码
+
+```bash
+git clone https://github.com/YYYPROBEE/bah-monorepo.git
+cd bah-monorepo
+```
+
+仓库访问需授权。不要把 token 写进 clone URL 或任何文件；`.env.local` 不入库。
+
+---
+
 ## 1. 环境要求
 
 | 项 | 要求 | 说明 |
@@ -156,9 +167,9 @@ headless 走 `provider: router`（读消息现规划，不是固定磁带），�
 ### 4.4 一键自证（不需要密钥）
 
 ```bash
-pnpm test              # 184 文件 / 1811 用例（W16 收口实测；前端另有 55 例）
-pnpm test:snapshot     # 4 场景 18 例，录制↔回放逐条全等
-pnpm gate              # 29 项
+pnpm test              # 198 文件 / 2019 用例（2026-10-27 实测；前端另有 55 例）
+pnpm test:snapshot     # 5 场景 / 6 文件 23 例，录制↔回放逐条全等
+pnpm gate              # 35/35
 pnpm demo:verifier-fail # 判决件异常 → 结果被挡在模型之外（20 条断言）
 ```
 
@@ -200,7 +211,7 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>"   # 完整验签：需 k
 ## 6. 演示前 60 秒检查
 
 ```bash
-pnpm gate                 # 34/34（不需要 BAH_ALLOW_NO_SNAPSHOT）
+pnpm gate                 # 35/35（不需要 BAH_ALLOW_NO_SNAPSHOT）
 pnpm test:snapshot        # 18/18
 pnpm demo:verifier-fail   # 退出码 0
 pnpm demo:web             # 另开终端；记下打印的“本次会话目录”

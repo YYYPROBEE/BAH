@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 主循环状态机（施工单 04 §2 / §7 的 T-LOOP-001~011、T-LOOP-013）。
  *
  * 说明两件"看起来可以更优雅、但不许改"的事：
@@ -200,7 +200,7 @@ describe('T-LOOP-001 完整 turn（mock provider）', () => {
         ])
         // 成本按 turn 汇总（mock 每步 100/20）
         expect(payloads(harness.events(), 'usage/summary')).toEqual([
-          { turn: 1, input: 200, output: 40, calls: 2 },
+          { turn: 1, input: 200, output: 40, calls: 2, cachedInput: 0, costMicroYuan: 0 },
         ])
         expect(payloads(harness.events(), 'turn/end')).toEqual([
           { turn: 1, reason: { kind: 'completed' } },
