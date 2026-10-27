@@ -10,7 +10,7 @@
 
 import { describeThrown } from '@bah/core'
 import { LlmAdapterRegistry, provideLlm } from '@bah/llm'
-import { DeepSeekAdapter } from '@bah/llm/deepseek'
+import { DeepSeekAdapter, DEEPSEEK_MODELS } from '@bah/llm/deepseek'
 import { createDemoRouter } from '@bah/llm/demo'
 import {
   MockLlmAdapter,
@@ -22,9 +22,10 @@ import {
 } from '@bah/llm/mock'
 
 import type { Context } from '@bah/core'
-import type { LlmAdapter } from '@bah/llm'
+import type { LlmAdapter, ModelPricing } from '@bah/llm'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
+import { logJson } from './log.ts'
 import {
   asRecord,
   bootError,
@@ -96,6 +97,13 @@ export interface ModelSettings {
   }
   /** 单次请求硬上限（ms；默认 120s）——上游挂起时绝不无限等待。 */
   readonly requestTimeoutMs?: number
+  /**
+   * 计价（D2）：每百万 token 的**微元**单价。
+   *
+   * 不写就等于"不记价"：`usage/summary.costMicroYuan` 恒为 0，成本看板看不出东西。
+   * 写了就必须是部署方自己核过的价——仓库里不硬编码任何官方报价（会过期，也会被当成账单）。
+   */
+  readonly pricing?: ModelPricing
   /** 429 / 5xx 的同模型重试次数（默认 2）。 */
   readonly retryMax?: number
   /** 首次退避基数（ms；默认 300）。 */
@@ -151,6 +159,7 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
         'retryMax',
         'retryBaseMs',
         'modelSpec',
+        'pricing',
         ...LOCAL_KEYS,
         ...SCRIPT_ONLY_KEYS,
       ],
@@ -168,6 +177,7 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
     const retryMax = readPositiveInteger(config, 'retryMax', 'core:model')
     const retryBaseMs = readPositiveInteger(config, 'retryBaseMs', 'core:model')
     const modelSpec = readModelSpec(config['modelSpec'])
+    const pricing = readPricing(config['pricing'])
 
     if (provider !== 'deepseek') {
       const wrong = [
@@ -177,6 +187,7 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
         'retryBaseMs',
         'baseUrl',
         'modelSpec',
+        'pricing',
       ].filter((key) => config[key] !== undefined)
       if (wrong.length > 0) {
         throw bootError(
@@ -216,8 +227,50 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
       ...(retryMax === undefined ? {} : { retryMax }),
       ...(retryBaseMs === undefined ? {} : { retryBaseMs }),
       ...(modelSpec === undefined ? {} : { modelSpec }),
+      ...(pricing === undefined ? {} : { pricing }),
     }
   },
+}
+
+/**
+ * 读计价（只对 deepseek 有意义）。
+ *
+ * 单价是**微元/百万 token**，用整数：金额一律不碰浮点（宪法 R-5 的同一条理由，
+ * 虽然单价不直接参与扣款，但乘出来的 `costMicroYuan` 会进审计）。
+ */
+function readPricing(value: unknown): ModelPricing | undefined {
+  if (value === undefined) return undefined
+  const record = asRecord(value, 'core:model.pricing')
+  rejectUnknownKeys(record, ['inputPerMTok', 'cachedInputPerMTok', 'outputPerMTok'], 'core:model.pricing')
+
+  const readRate = (key: string): number | undefined => {
+    const raw = record[key]
+    if (raw === undefined) return undefined
+    if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0) {
+      throw bootError(
+        'invalid-config',
+        `core:model.pricing.${key} 必须是非负整数（微元/百万 token，收到 ${describeValue(raw)}）`,
+        { key, value: raw },
+      )
+    }
+    return raw
+  }
+
+  const inputPerMTok = readRate('inputPerMTok')
+  const outputPerMTok = readRate('outputPerMTok')
+  const cachedInputPerMTok = readRate('cachedInputPerMTok')
+  if (inputPerMTok === undefined || outputPerMTok === undefined) {
+    throw bootError(
+      'invalid-config',
+      'core:model.pricing 必须同时写 inputPerMTok 与 outputPerMTok（只写一半会让成本算成半个数）',
+      { keys: Object.keys(record) },
+    )
+  }
+  return {
+    inputPerMTok,
+    outputPerMTok,
+    ...(cachedInputPerMTok === undefined ? {} : { cachedInputPerMTok }),
+  }
 }
 
 /** 读自定义模型规格（只对 deepseek 有意义；形状不对直接拒绝）。 */
@@ -268,7 +321,7 @@ function createAdapter(
   // 密钥来源名是配置项：换 vault / 网关注入时不需要改代码
   const apiKey = process.env[config.apiKeyEnv ?? 'DEEPSEEK_API_KEY']
   // 声明了 modelSpec 就只用它：指向非 DeepSeek 端点时，内置表里的 id 一定对不上
-  const models =
+  const declared =
     config.modelSpec === undefined
       ? undefined
       : [
@@ -284,6 +337,14 @@ function createAdapter(
             contextWindow: config.modelSpec.contextWindow ?? 32_000,
           },
         ]
+  // D2：计价挂在**模型条目**上（适配器从 `call.model.pricing` 读）。
+  // 没声明 modelSpec 时用内置表打补丁——这样内置模型也能记价，不必为了记价编一份 modelSpec。
+  const models =
+    config.pricing === undefined
+      ? declared
+      : (declared ?? DEEPSEEK_MODELS).map((model) =>
+          model.id === config.model ? { ...model, pricing: config.pricing } : model,
+        )
   return new DeepSeekAdapter({
     ...(apiKey === undefined ? {} : { apiKey }),
     ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
@@ -294,9 +355,11 @@ function createAdapter(
     ...(config.retryBaseMs === undefined ? {} : { retryBaseMs: config.retryBaseMs }),
     // 重试不能静默：一次 429 退避要能在演示现场 stderr 里看到
     onRetry: (info) =>
-      console.warn(
-        `bah: core:model 上游 HTTP ${info.status}，第 ${info.attempt} 次退避 ${info.delayMs}ms 后重试`,
-      ),
+      logJson('warn', 'model-retry', {
+        status: info.status,
+        attempt: info.attempt,
+        delayMs: info.delayMs,
+      }),
     ...(models === undefined ? {} : { models }),
   })
 }

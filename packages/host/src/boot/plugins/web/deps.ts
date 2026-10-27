@@ -16,6 +16,7 @@ import type { Context, ServiceKey } from '@bah/core'
 import type { Agent, SessionApi } from '@bah/runtime'
 import type { HaltHandle, SentryHandle } from '@bah/safety'
 
+import type { HandoffHandle } from './handoff.ts'
 import type { createRateLimiter } from '../web-rate-limit.ts'
 import type { SseHub } from './sse.ts'
 
@@ -46,6 +47,11 @@ export interface WebDeps {
   readonly trySentry: () => SentryHandle | undefined
   /** 惰性取 HALT（同上）。 */
   readonly tryHalt: () => HaltHandle | undefined
+  /**
+   * 人工接管状态机（C5）。进程内状态 + `handoff/*` 事件留痕；
+   * 重启后回到未接管（见 `handoff.ts` 的"诚实边界"）。
+   */
+  readonly handoff: HandoffHandle
   /** 已解析的静态根（绝对路径）。 */
   readonly staticRoot: string
   /** 静态根下的 index.html（token 与 CSRF cookie 的唯一载体）。 */

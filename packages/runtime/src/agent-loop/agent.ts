@@ -95,6 +95,14 @@ export {
  * 2. 构造选项
  * ──────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * 单次并行批的上限（D1）。
+ *
+ * 不做成配置键：这是"防打爆"的工程底线，不是产品语义；默认 8 已经比正常演示
+ * （1–3 个只读调用）宽 3 倍以上。要调先补一个压测数字。
+ */
+const MAX_PARALLEL_READS = 8
+
 /** `AgentLoop` 的装配依赖（全部显式注入，便于单测替换时钟 / 注册表）。 */
 export interface AgentLoopOptions {
   readonly ctx: Context
@@ -659,6 +667,9 @@ export class AgentLoop implements Agent {
           while (index < calls.length) {
             const next = calls[index]
             if (next === undefined || !dispatcher.canRunConcurrently(next)) break
+            // D1：一次并行批最多 MAX_PARALLEL_READS 个。模型一口气要 20 个只读调用时，
+            // 全部同时打出去会把 CPU/句柄/上游配额瞬间吃光；超出的部分留给下一批（顺序不变）。
+            if (batch.length >= MAX_PARALLEL_READS) break
             batch.push(next)
             index += 1
           }

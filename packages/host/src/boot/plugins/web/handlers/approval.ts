@@ -12,7 +12,15 @@ import { TICKET_PATTERN, readJson, sendError, sendJson } from '../http.ts'
 
 /** 从尾段取票据 ID（先解码再白名单校验：会进日志与查询键，禁止任意字符）。 */
 function readTicketId(res: ServerResponse, rest: string): string | undefined {
-  const ticketId = decodeURIComponent(rest)
+  // 畸形百分号编码（`%E0%A4%A`）会让 `decodeURIComponent` 抛 `URIError`；
+  // 不接住就是 500，等于把"输入错"报成"服务错"。票据 ID 本身也不可能含 `%`。
+  let ticketId: string
+  try {
+    ticketId = decodeURIComponent(rest)
+  } catch {
+    sendError(res, 400, 'web-invalid-ticket', '票据 ID 不是合法的百分号编码')
+    return undefined
+  }
   if (!TICKET_PATTERN.test(ticketId)) {
     sendError(res, 400, 'web-invalid-ticket', `票据 ID 非法：${ticketId}`)
     return undefined

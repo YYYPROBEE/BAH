@@ -133,4 +133,28 @@ describe('Inbox · 唤醒与关闭', () => {
     inbox.close()
     expect(inbox.wakeCount).toBe(wakes)
   })
+
+  it('D1：待处理到上限即拒绝（inbox-full），不放任无界排队', () => {
+    const inbox = new Inbox({ maxPending: 2 })
+    inbox.send('第一条')
+    inbox.send('第二条')
+    const thrown = captureThrown(() => inbox.send('第三条'))
+    expect(thrown.code).toBe('inbox-full')
+    // 拒绝的是**新**消息：已入队的两条不动，队列状态可解释
+    expect(inbox.pending).toBe(2)
+    expect(inbox.claim('next-turn', 1).messages.map((message) => message.text)).toEqual([
+      '第一条',
+      '第二条',
+    ])
+    // 认领后腾出名额，可以继续入队
+    inbox.send('第三条')
+    expect(inbox.pending).toBe(1)
+  })
+
+  it('D1：两条车道合计计数（转向消息同样占名额）', () => {
+    const inbox = new Inbox({ maxPending: 2 })
+    inbox.send('turn')
+    inbox.send('step', { target: 'next-step' })
+    expect(captureThrown(() => inbox.send('again')).code).toBe('inbox-full')
+  })
 })

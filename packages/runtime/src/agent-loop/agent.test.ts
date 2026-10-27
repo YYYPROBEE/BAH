@@ -1315,6 +1315,61 @@ describe('T-LOOP-015 只读工具并行（P-P4）', () => {
     )
   })
 
+  it('D1：单批最多 8 个——9 个只读调用分两批，第 9 个不与前 8 个同时跑', async () => {
+    // 为什么钉这个：`MAX_PARALLEL_READS` 是"防打爆"的工程底线（模型一口气要 20 个只读调用时
+    // 全部同时打出去会吃光 CPU/句柄/上游配额）。它原本只有常量与注释、没有任何断言，
+    // 改坏了不会被任何用例拦住。这里的判据是"同时在跑的最大数"。
+    let active = 0
+    let maxActive = 0
+    const CALLS = 9
+    await withHarness(
+      {
+        steps: [
+          {
+            content: Array.from({ length: CALLS }, (_unused, index) => ({
+              kind: 'tool-call' as const,
+              id: `call-${String(index)}`,
+              name: 'probe_tool',
+              args: { index },
+            })),
+            finishReason: 'tool-calls',
+          },
+        ],
+        prepare: (harness) => {
+          harness.tools.register({
+            name: 'probe_tool',
+            description: '只读探针（记录并发度）',
+            schema: { type: 'object' },
+            tier: { level: 'green' },
+            sideEffect: 'read',
+            execute: async () => {
+              harness.session.appendDomain('read/probe', {}, { ignorable: true })
+              active += 1
+              maxActive = Math.max(maxActive, active)
+              // 让出一次事件循环：不 await 的话 9 个调用会顺序跑完，测不出并发
+              await new Promise((resolve) => setTimeout(resolve, 5))
+              active -= 1
+              return 'ok'
+            },
+          })
+        },
+      },
+      async (harness) => {
+        harness.loop.send('九个只读调用')
+        await harness.loop.run()
+
+        // 上限是 8：第 9 个必须等第一批收尾
+        expect(maxActive).toBe(8)
+        // 全部 9 个都执行了（上限不是丢弃），且结果按调用顺序落账
+        const results = payloads(harness.events(), 'tool/result')
+        expect(results).toHaveLength(CALLS)
+        expect(results.map((result) => result.callId)).toEqual(
+          Array.from({ length: CALLS }, (_unused, index) => `call-${String(index)}`),
+        )
+      },
+    )
+  })
+
   it('并行批次 flush 失败隔离：后续缓冲继续 flush，结果广播失败落审计，最终聚合报错', async () => {
     let active = 0
     let maxActive = 0

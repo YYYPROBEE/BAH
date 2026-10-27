@@ -29,12 +29,27 @@ describe('Web 固定窗口限流', () => {
     expect(limiter.check('a', 50).ok).toBe(true)
   })
 
-  it('桶表超过上限时清理过期桶，不无限增长', () => {
-    const limiter = createRateLimiter({ windowMs: 1000, maxRequests: 1 })
-    for (let index = 0; index < 1025; index += 1) {
+  it('桶表到硬上限后拒绝新 key，而不是继续增长（D6）', () => {
+    const limiter = createRateLimiter({ windowMs: 1000, maxRequests: 2 })
+    // 窗口内 1024 个不同 key 全部放行，桶表正好打满
+    for (let index = 0; index < 1024; index += 1) {
       expect(limiter.check(`k${String(index)}`, 0).ok).toBe(true)
     }
-    // 新窗口触发 prune：过期桶被删，新 key 正常放行
+    // 第 1025 个 key：窗口内没有可回收的桶 → 拒绝，且给出一个窗口的等待时间
+    const denied = limiter.check('overflow', 0)
+    expect(denied.ok).toBe(false)
+    expect(denied.retryAfterSec).toBe(1)
+    // 已有的 key 不受影响（拒绝的是"新面孔"，不是把整站关掉）
+    expect(limiter.check('k0', 0).ok).toBe(true)
+  })
+
+  it('窗口过期后腾出名额，新 key 恢复放行', () => {
+    const limiter = createRateLimiter({ windowMs: 1000, maxRequests: 1 })
+    for (let index = 0; index < 1024; index += 1) {
+      expect(limiter.check(`k${String(index)}`, 0).ok).toBe(true)
+    }
+    expect(limiter.check('overflow', 0).ok).toBe(false)
+    // 过了一个窗口：1024 个旧桶全部过期，prune 之后新 key 正常
     expect(limiter.check('fresh', 2000).ok).toBe(true)
   })
 })

@@ -41,3 +41,23 @@ export async function listen(server: Server, host: string, port: number): Promis
     server.listen(port, host)
   })
 }
+
+/**
+ * 装配期绑定端口，返回**实际**端口。
+ *
+ * `probe === false` 是 CLI 的 `--dump-config`：它装配全部插件只为打印生效树，
+ * 所以既不该占端口，也不该因为"演示服务正开着 7331"而导出失败（A8 的同一纪律：
+ * 只有 `bank:knowledge` 一处曾读过这个开关，新插件必须一起认）。
+ * 此时返回配置端口：`WEB_SERVER` 仍可被打印，只是没有真实监听。
+ */
+export async function bindPort(
+  server: Server,
+  host: string,
+  port: number,
+  probe: boolean | undefined,
+): Promise<number> {
+  if (probe === false) return port
+  await listen(server, host, port)
+  const address = server.address()
+  return typeof address === 'object' && address !== null ? address.port : port
+}

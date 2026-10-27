@@ -72,6 +72,12 @@ export async function handleTurn(
     sendError(res, 503, 'agent-absent', '没有活体 agent：profile 缺少 core:agent 行')
     return
   }
+  // C5：人工接管期间不再自动驱动模型。放在 HALT 之前判：HALT 是"系统停机"（423），
+  // handoff 是"这个会话交给人工了"（409）——两者语义不同，不能被前者的分支吃掉。
+  if (deps.handoff.active) {
+    sendError(res, 409, 'handoff-active', '会话已交人工接管，自动回复暂停；交回后才能继续（POST /api/handoff/resume）')
+    return
+  }
   const body = await readJson(req)
   const text = readBodyString(body, 'text') ?? ''
   let inbound
@@ -81,7 +87,18 @@ export async function handleTurn(
     sendError(res, 400, 'web-empty-message', describeThrown(error))
     return
   }
-  agent.send(inbound.text)
+  // D1：inbox 有硬上限（默认 64 条）。触到上限说明调用方在刷——拒绝比无界排队诚实，
+  // 且必须是**明确的** 503，不能让异常冒到分派兜底变成 500。
+  try {
+    agent.send(inbound.text)
+  } catch (error) {
+    const code = (error as { code?: string }).code
+    if (code === 'inbox-full') {
+      sendError(res, 503, 'web-inbox-full', describeThrown(error))
+      return
+    }
+    throw error
+  }
   deps.ensureDriver(agent)
   sendJson(res, 202, { ok: true })
 }

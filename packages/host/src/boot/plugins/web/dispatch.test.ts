@@ -91,6 +91,7 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
     publish: () => undefined,
     publishFault: () => undefined,
     attach: () => undefined,
+    size: () => 0,
     dispose: () => undefined,
   }
   const adapter = {
@@ -111,6 +112,20 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
     session: session as unknown as SessionApi,
     adapter: adapter as unknown as WebChannelAdapter,
     hub,
+    // C5：矩阵测试只关心闸的顺序，接管状态给一个"永不接管"的桩
+    handoff: {
+      active: false,
+      enter: () => ({ ok: false, code: 'handoff-already-active' }),
+      resume: () => ({ ok: false, code: 'handoff-not-active' }),
+      summary: () => ({
+        active: false,
+        sessionId: 's-matrix',
+        lastSeq: 0,
+        turns: 0,
+        pendingTickets: 0,
+        messages: [],
+      }),
+    },
     webToken: WEB_TOKEN,
     csrfToken: CSRF_TOKEN,
     rateLimiter,
@@ -276,6 +291,63 @@ describe('W16 分派矩阵 · 有 Web 凭证', () => {
     expect(codeOf(probe)).toBe('bad-request')
   })
 
+  it('D1：inbox 满 → 503 web-inbox-full（明确拒绝，不是 500）', async () => {
+    const full = {
+      send: () => {
+        throw Object.assign(new Error('inbox: 待处理消息已达上限 64 条'), { code: 'inbox-full' })
+      },
+    }
+    const probe = await call('POST', '/api/turn', {
+      headers: AUTHED,
+      body: '{"text":"再来一条"}',
+      deps: makeDeps({ firstAgent: () => full as never }),
+    })
+    expect(probe.status).toBe(503)
+    expect(codeOf(probe)).toBe('web-inbox-full')
+  })
+
+  it('D2 指标端点：与业务路由同闸（401），有凭证时从事件现算、不出原文', async () => {
+    // 无凭证 → 401：指标里有成本与审批分布，不能公开
+    expect((await call('GET', '/api/metrics')).status).toBe(401)
+
+    const events = [
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'tool/call', data: { callId: 'c-1', name: 'account_balance', tier: { level: 'green' } } },
+      { type: 'tool/result', data: { callId: 'c-1', isError: false, durationMs: 10 } },
+      { type: 'tool/result', data: { callId: 'c-2', isError: true, durationMs: 30 } },
+      { type: 'approval/asked', data: { ticketId: 't-1', callId: 'c-1', name: 'transfer_create' } },
+      { type: 'approval/decided', data: { ticketId: 't-1', decision: 'rejected' } },
+      {
+        type: 'usage/summary',
+        data: { turn: 1, input: 100, output: 20, calls: 1, cachedInput: 5, costMicroYuan: 42 },
+      },
+    ]
+    const session = {
+      sessionId: 's-metrics',
+      lastSeq: () => 7,
+      events: () => events,
+    }
+    const probe = await call('GET', '/api/metrics', {
+      headers: AUTHED,
+      deps: makeDeps({ session: session as never }),
+    })
+    expect(probe.status).toBe(200)
+    const body = JSON.parse(probe.body) as Record<string, unknown>
+    expect(body).toMatchObject({
+      sessionId: 's-metrics',
+      lastSeq: 7,
+      turns: 1,
+      tools: { calls: 1, errors: 1 },
+      approvals: { asked: 1, approved: 0, rejected: 1, other: 0 },
+      usage: { input: 100, output: 20, cachedInput: 5, costMicroYuan: 42 },
+      // 本桩没有 halt 服务 → null（"没装" 与 "未停机" 必须能分开）
+      halt: null,
+      sseClients: 0,
+    })
+    // 只出数字：事件里的工具名/内容不会原样进指标
+    expect(probe.body).not.toContain('account_balance')
+  })
+
   it('管理面 default 分支：路由表外的路径 → 404（将来新增路径不会静默成功）', async () => {
     const { res, probe } = makeRes()
     const request = { method: 'POST', path: '/api/admin/not-in-table', rest: '' } as WebRequest
@@ -352,5 +424,29 @@ describe('channel:web 配置面', () => {
     expect(() => resolveWebSettings({ csrf: null })).toThrow(/csrf 必须是对象/)
     expect(() => resolveWebSettings({ csrf: [] })).toThrow(/csrf 必须是对象/)
     expect(() => resolveWebSettings({ csrf: { enabled: 'yes' } })).toThrow(/布尔/)
+  })
+})
+
+describe('D6 畸形百分号编码：输入错不许报成服务错', () => {
+  // `decodeURIComponent('%E0%A4%A')` 抛 URIError；不接住就冒成 500。
+  // 两条入口都要覆盖：静态兜底（GET 任意路径）与票据前缀路由。
+  const MALFORMED = '/%E0%A4%A'
+
+  it('静态兜底：畸形路径 → 400 web-invalid-path（不是 500，也不是 404）', async () => {
+    const probe = await call('GET', MALFORMED, { headers: AUTHED })
+    expect(probe.status).toBe(400)
+    expect(codeOf(probe)).toBe('web-invalid-path')
+  })
+
+  it('票据入口：批准与强验证都 → 400 web-invalid-ticket', async () => {
+    for (const path of [`/api/approval${MALFORMED}`, `/api/verify${MALFORMED}`]) {
+      const probe = await call('POST', path, { headers: AUTHED, body: '{}' })
+      expect(probe.status, path).toBe(400)
+      expect(codeOf(probe), path).toBe('web-invalid-ticket')
+    }
+  })
+
+  it('闸顺序没被绕过：畸形路径仍然先吃凭证（401 而不是 400）', async () => {
+    expect((await call('POST', `/api/approval${MALFORMED}`, { body: '{}' })).status).toBe(401)
   })
 })

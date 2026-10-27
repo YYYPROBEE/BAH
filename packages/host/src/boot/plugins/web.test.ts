@@ -1662,3 +1662,134 @@ describe('channel:web HALT 管理路由（W07 边界）', () => {
 
 
 })
+
+describe('C5 人工接管（handoff）', () => {
+  it('POST 接管 → GET 摘要 → POST 交回：状态与 `handoff/*` 事件都对得上', async () => {
+    const harness = await boot()
+    try {
+      const entered = await authedFetch(`${harness.url}api/handoff`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reason: '客户要求人工' }),
+      })
+      expect(entered.status).toBe(200)
+      const summary = (await entered.json()) as { active: boolean; reason?: string }
+      expect(summary.active).toBe(true)
+      expect(summary.reason).toBe('客户要求人工')
+
+      // 人工侧读取：摘要含会话现状
+      const read = await authedFetch(`${harness.url}api/handoff`)
+      expect(read.status).toBe(200)
+      const detail = (await read.json()) as { active: boolean; sessionId: string; messages: unknown[] }
+      expect(detail.active).toBe(true)
+      expect(detail.sessionId).toBe('s-web-test')
+      expect(Array.isArray(detail.messages)).toBe(true)
+
+      // 重复接管 → 409（不刷新进入时间）
+      const again = await authedFetch(`${harness.url}api/handoff`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      expect(again.status).toBe(409)
+      expect(((await again.json()) as { error: { code: string } }).error.code).toBe(
+        'handoff-already-active',
+      )
+
+      const resumed = await authedFetch(`${harness.url}api/handoff/resume`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operator: '坐席-A' }),
+      })
+      expect(resumed.status).toBe(200)
+      const after = (await resumed.json()) as { active: boolean; operator?: string }
+      expect(after.active).toBe(false)
+      expect(after.operator).toBe('坐席-A')
+
+      // 未接管时再交回 → 409 handoff-not-active（不做幂等成功）
+      const twice = await authedFetch(`${harness.url}api/handoff/resume`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      expect(twice.status).toBe(409)
+      expect(((await twice.json()) as { error: { code: string } }).error.code).toBe(
+        'handoff-not-active',
+      )
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('接管期间 `/api/turn` → 409 handoff-active，且一句话都不进 inbox', async () => {
+    const harness = await boot()
+    try {
+      await authedFetch(`${harness.url}api/handoff`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+
+      const response = await authedFetch(`${harness.url}api/turn`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '给王建国转 800 元' }),
+      })
+      expect(response.status).toBe(409)
+      expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+        'handoff-active',
+      )
+      // 关键：不是"回了 409 但仍然入队"——那种 409 只是给人看的
+      expect(harness.sent).toEqual([])
+
+      // 交回后立刻恢复可用
+      await authedFetch(`${harness.url}api/handoff/resume`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const ok = await authedFetch(`${harness.url}api/turn`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '在吗' }),
+      })
+      expect(ok.status).toBe(202)
+      expect(harness.sent).toEqual(['在吗'])
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('接管端点也要过 CSRF 与凭证（不是免鉴权后门）', async () => {
+    const harness = await boot()
+    try {
+      // 无 Bearer → 401
+      const unauthenticated = await nativeFetch(`${harness.url}api/handoff`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      expect(unauthenticated.status).toBe(401)
+
+      // 有 Bearer 但缺 CSRF（无 Origin 也无令牌）→ 403
+      const noCsrf = await nativeFetch(`${harness.url}api/handoff`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${WEB_TOKEN}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      })
+      expect(noCsrf.status).toBe(403)
+      expect(((await noCsrf.json()) as { error: { code: string } }).error.code).toBe(
+        'web-csrf-required',
+      )
+
+      // 状态没被这两个失败请求改动
+      const read = await authedFetch(`${harness.url}api/handoff`)
+      expect(((await read.json()) as { active: boolean }).active).toBe(false)
+    } finally {
+      await shutdown(harness)
+    }
+  })
+})
