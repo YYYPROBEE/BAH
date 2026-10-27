@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 
 import { asSessionId } from '@bah/test-support'
 import {
+  AGENTS_SERVICE,
   PLAN_INCIDENT_CODE,
   SESSION_SERVICE,
   TOOLS_SERVICE,
@@ -150,6 +151,15 @@ describe('plan:dag 配置校验', () => {
     expect(settings.ticketTtlMs).toBe(120_000)
     // 3 = 1 次原始运行 + 2 次 resume 重试；第 4 次失败后只能换新 planId
     expect(settings.maxNodeAttempts).toBe(3)
+    // B1：模型入口默认关闭（不因为多了能力就放宽默认 profile）
+    expect(settings.modelTools).toBe(false)
+    expect(settings.modelMaxNodes).toBe(8)
+  })
+
+  it('B1 模型计划上限：modelMaxNodes 不得大于 maxNodes', () => {
+    expect(planPlugin.validate({ modelTools: true, modelMaxNodes: 8 }).modelMaxNodes).toBe(8)
+    expect(() => planPlugin.validate({ modelMaxNodes: 33 })).toThrowError(/modelMaxNodes/)
+    expect(() => planPlugin.validate({ modelMaxNodes: 0 })).toThrowError(/modelMaxNodes/)
   })
 
   it('重试上限必须为正整数（0 会让"首次失败"就被判超限）', () => {
@@ -211,6 +221,116 @@ describe('plan:dag 集成（真实依赖清单 + profile plan）', () => {
       'p-ok#preview#1',
       'p-ok#pay#1',
     ])
+  })
+
+  it('B1 模型闭环：plan_propose → plan_execute，3 节点各走一次管线、两次审批', async () => {
+    const plan = transferPlan('p-model')
+    booted = await bootPlan([
+      overlay([
+        {
+          id: 'core:model',
+          config: {
+            provider: 'mock',
+            model: 'mock-chat',
+            script: [
+              { tool: { id: 'call-propose', name: 'plan_propose', args: plan } },
+              { tool: { id: 'call-execute', name: 'plan_execute', args: plan } },
+              { text: '已按计划执行完毕。' },
+            ],
+          },
+        },
+        {
+          id: 'core:agent',
+          config: { channel: 'headless', loop: { model: 'mock:mock-chat', maxSteps: 8 } },
+        },
+      ]),
+    ])
+    const registry = booted.app.ctx.get(TOOLS_SERVICE)
+    expect(registry.names()).toEqual(expect.arrayContaining(['plan_propose', 'plan_execute']))
+
+    const agent = booted.app.ctx.get(AGENTS_SERVICE).list()[0]!
+    agent.send('帮我分步：查余额、试算、给王建国转 800 元')
+    await agent.run()
+
+    const events = eventsOf(booted.app)
+    const calls = events
+      .filter((event) => event.type === 'tool/call')
+      .map((event) => event.data)
+    expect(calls.map((call) => call['name'])).toEqual([
+      'plan_propose',
+      'plan_execute',
+      'account_balance',
+      'transfer_preview',
+      'transfer_create',
+    ])
+    // 外层 plan_execute 一次 + transfer_create 一次；查询/试算不审批
+    expect(countOf(events, 'approval/asked')).toBe(2)
+    expect(countOf(events, 'plan/created')).toBe(1)
+    expect(countOf(events, 'plan/node-result')).toBe(3)
+    expect(events.find((event) => event.type === 'plan/completed')?.data).toMatchObject({
+      planId: 'p-model',
+      status: 'succeeded',
+      succeeded: 3,
+    })
+
+    // propose 只校验不执行：模型先拿到"尚未执行"，plan/created 在它之后才出现
+    const proposeIndex = events.findIndex(
+      (event) => event.type === 'tool/result' && event.data['name'] === 'plan_propose',
+    )
+    const createdIndex = events.findIndex((event) => event.type === 'plan/created')
+    expect(proposeIndex).toBeGreaterThanOrEqual(0)
+    expect(createdIndex).toBeGreaterThan(proposeIndex)
+    expect(JSON.stringify(events[proposeIndex]?.data['content'])).toContain('尚未执行')
+  })
+
+  it('B1 非法 DAG：环 / 非银行工具 / 超节点数 / 空计划 全部 plan-invalid', async () => {
+    booted = await bootPlan()
+    const tool = booted.app.ctx.get(TOOLS_SERVICE).get('plan_propose')
+    const toolCtx = {
+      sessionId: asSessionId('s-plan'),
+      callId: 'call-b1-invalid',
+      signal: new AbortController().signal,
+    }
+    const issueCodesOf = async (args: unknown): Promise<readonly string[]> => {
+      try {
+        await tool.execute(args, toolCtx)
+      } catch (error) {
+        const detail = (error as BahError).detail as { issues?: readonly { code: string }[] }
+        return (detail.issues ?? []).map((issue) => issue.code)
+      }
+      throw new Error('期望 plan-invalid，实际执行成功')
+    }
+
+    expect(
+      await issueCodesOf({
+        planId: 'p-cycle',
+        nodes: [
+          { id: 'a', tool: 'account_balance', args: {}, deps: ['b'] },
+          { id: 'b', tool: 'account_balance', args: {}, deps: ['a'] },
+        ],
+      }),
+    ).toContain('plan-cycle')
+    expect(
+      await issueCodesOf({
+        planId: 'p-foreign',
+        nodes: [{ id: 'x', tool: 'echo', args: {}, deps: [] }],
+      }),
+    ).toContain('plan-tool-not-allowed')
+    expect(
+      await issueCodesOf({
+        planId: 'p-big',
+        nodes: Array.from({ length: 9 }, (_, index) => ({
+          id: `n-${String(index)}`,
+          tool: 'account_balance',
+          args: {},
+          deps: [],
+        })),
+      }),
+    ).toContain('plan-too-large')
+    expect(await issueCodesOf({ planId: 'p-empty', nodes: [] })).toContain('plan-empty')
+
+    // 四个都被拒：没有留下任何"计划跑过"的痕迹
+    expect(countOf(eventsOf(booted.app), 'plan/created')).toBe(0)
   })
 
   it('第 2 节点失败：第 3 节点没有 tool/call，落 node-blocked，completed 判 failed', async () => {

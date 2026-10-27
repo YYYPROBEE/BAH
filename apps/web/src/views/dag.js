@@ -20,12 +20,18 @@ const PAD = 16
 const NODE_W = 128
 const NODE_H = 36
 
-/** 状态 → 视觉（描边/填充/文案）。 */
+/** 状态 → 视觉（描边/填充/文案）。B2：plan 节点状态与 `PLAN_NODE_STATES` 对齐。 */
 const STATE = {
   ok: { label: '完成', stroke: 'var(--border-neutral-l2)', fill: 'var(--bg-base-secondary)', text: 'var(--text-default)' },
   pending: { label: '待执行', stroke: 'var(--status-warning-default)', fill: 'var(--bg-base-default)', text: 'var(--text-default)' },
   denied: { label: '已拦截', stroke: 'var(--status-error-default)', fill: 'var(--status-error-surface-l1)', text: 'var(--status-error-default)' },
   blocked: { label: '已阻断', stroke: 'var(--border-neutral-l1)', fill: 'var(--bg-base-default)', text: 'var(--text-disabled)' },
+  running: { label: '执行中', stroke: 'var(--status-warning-default)', fill: 'var(--bg-base-default)', text: 'var(--text-default)' },
+  failed: { label: '失败', stroke: 'var(--status-error-default)', fill: 'var(--status-error-surface-l1)', text: 'var(--status-error-default)' },
+  // incident（外部不可用）与 failed 必须可区分：用警示色 + 独立文案
+  incident: { label: '外部故障', stroke: 'var(--status-warning-default)', fill: 'var(--status-warning-surface-l1, var(--bg-base-default))', text: 'var(--status-warning-default)' },
+  skipped: { label: '已跳过', stroke: 'var(--border-neutral-l1)', fill: 'var(--bg-base-default)', text: 'var(--text-disabled)' },
+  cancelled: { label: '已取消', stroke: 'var(--border-neutral-l1)', fill: 'var(--bg-base-default)', text: 'var(--text-disabled)' },
 }
 
 /** 权限级别 → 短标签。 */

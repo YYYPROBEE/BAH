@@ -163,6 +163,9 @@ importers:
       '@bah/llm':
         specifier: workspace:*
         version: link:../llm
+      '@bah/memory-store':
+        specifier: workspace:*
+        version: link:../memory-store
       '@bah/persistence':
         specifier: workspace:*
         version: link:../persistence

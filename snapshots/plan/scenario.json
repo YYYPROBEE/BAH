@@ -123,7 +123,9 @@
         "maxNodes": 32,
         "maxEdges": 128,
         "planTimeoutMs": 30000,
-        "dryRunDefault": false
+        "dryRunDefault": false,
+        "modelTools": true,
+        "modelMaxNodes": 8
       }
     }
   ],

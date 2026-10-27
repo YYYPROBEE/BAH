@@ -1,0 +1,104 @@
+# web-plan profile（B2）：plan DAG 编排 + Web 可视化在同一个可运行 profile 里。
+#
+# 组成 = profiles/web 的全部行 + plan:dag 装配（modelTools 打开）。
+# 没有	include 机制（patch 文件不支持引用），这里是**有意的复制**：
+# 改 web/patch.yml 时要同步本文件；`verify-plugin-config` 门禁会兜底装配合法性。
+#
+# 与 web 的差别只有一处：
+# - 多一行 `plan:dag`（modelTools: true）：模型看得见 plan_propose / plan_execute，
+#   Web DAG 视图能显示 plan/* 节点图（`packages/channels/src/web/dag.ts` 的 B2 数据源）。
+#
+# 与 plan 的差别：
+# - 渠道是 web（审批走弹窗，人点才放行），不是 headless 自动应答；
+# - saga-bridge 同样**显式关闭**：避免 `transfer_create` 被"计划节点 + saga 两跳"双层展开
+#   （方案 §3.6 方案 B；代价与 plan profile 相同——计划里的转账失去自动补偿）。
+#
+# 启动：`pnpm bah --profile web-plan --serve`（或 `pnpm web-plan`）。
+
+- id: core:model
+  config:
+    provider: router
+    model: router-chat
+    chunkSize: 4
+    # ── 可替换真实模型（DeepSeek V4.1 Flash / DashScope 兼容端点）──
+    # 切换时必须**同时**改这里与 core:agent.loop.model（两处成对，见 docs/deploy.md）。
+    # provider: deepseek
+    # model: deepseek-v4.1-flash-1017
+    # baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
+    # apiKeyEnv: BAH_MODEL_KEY
+    # ...
+
+- id: core:persistence
+  config:
+    root: sessions
+    fsync: false
+
+- id: bank:tools
+  config:
+    demoUserId: u-1
+    seed: 7
+    datasetTier: demo
+
+# 知识平面：与 web 同配置（sidecar 缺席时降级 knowledge-unavailable，不挡主路径）
+- id: bank:knowledge
+  use: bank:knowledge
+  config:
+    mode: http
+    baseUrl: http://127.0.0.1:7801
+    channel: web
+    required: false
+
+- id: interaction:approval
+  config:
+    # Web 有弹窗：plan_execute 这一层要人确认，每个写节点还要各自再批一次
+    responder: none
+
+- id: safety:sentry
+  config:
+    trace:
+      sink: session
+    rules:
+      crossScenario: true
+
+- id: core:agent
+  config:
+    channel: web
+    loop:
+      model: router:router-chat
+      maxSteps: 8
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }
+      notes:
+        - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。
+
+# ★ 关掉 saga-bridge（与 plan profile 同款理由）：避免 transfer_create 双层展开
+- id: bank:saga-bridge
+  config:
+    enabled: false
+
+# ★ B2 的核心增量：plan:dag + modelTools（模型可见的规划入口）
+- id: plan:dag
+  use: plan:dag
+  config:
+    enabled: true
+    maxNodes: 32
+    maxEdges: 128
+    # 必须 < 票据 TTL（bank:tools.ticketTtlSeconds=120 → 120000ms）：validate 里 fail-loud
+    planTimeoutMs: 30000
+    dryRunDefault: false
+    modelTools: true
+    modelMaxNodes: 8
+
+- id: demo:echo
+  use: demo:echo
+  config: { prefix: '[web-plan] ' }
+
+# 渠道行：必须放在 interaction:approval 之后（inject 审批服务，注册 Web 应答者）
+- id: channel:web
+  use: channel:web
+  config:
+    port: 7332
+    host: 127.0.0.1
+    staticRoot: apps/web
+    heartbeatMs: 15000

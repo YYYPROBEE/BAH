@@ -740,6 +740,55 @@ describe('PlanEngine · resume（TC-W10）', () => {
     expect(summary.succeeded).toBe(1)
   })
 
+  it('C2：resume(from) 重跑同一节点，callId 的 attempt 段递增（票据不撞号）', async () => {
+    const plan: Plan = { planId: 'p-attempt', nodes: [node('only')] }
+    const seen: string[] = []
+    const { engine, events } = harness({
+      invoker: async (target, context) => {
+        seen.push(context.callId)
+        return seen.length === 1
+          ? { isError: true, code: 'tool-failed', summary: 'boom' }
+          : { isError: false, summary: `sha:${target.id}` }
+      },
+    })
+
+    const first = await engine.run(plan, { initiator: 's-1' })
+    expect(first.status).toBe('failed')
+
+    const second = await engine.resume(plan, { initiator: 's-1', from: ['only'] })
+    expect(second.status).toBe('succeeded')
+
+    // 票据 ID 由 callId 派生（`boot.ts` 的 `ticket:` 前缀）：两次执行若都是 `#1`，
+    // 第二次就复用了第一张票据的账本行，审批与审计都会指向错误的执行。
+    expect(seen).toEqual(['p-attempt#only#1', 'p-attempt#only#2'])
+
+    // 事件面同口径：两条 node-started 的 callId 互不相同（审计可分辨）
+    const started = events.filter((event) => event.type === 'plan/node-started')
+    expect(started.map((event) => event.data['callId'])).toEqual([
+      'p-attempt#only#1',
+      'p-attempt#only#2',
+    ])
+  })
+
+  it('C2：dry-run 不消耗 attempt 序号（之后的真跑仍是 #1）', async () => {
+    const plan: Plan = { planId: 'p-dry', nodes: [node('only')] }
+    const seen: string[] = []
+    const { engine, events } = harness({
+      invoker: async (target, context) => {
+        seen.push(context.callId)
+        return { isError: false, summary: `sha:${target.id}` }
+      },
+    })
+
+    const dry = await engine.run(plan, { initiator: 's-1', dryRun: true })
+    expect(dry.failed + dry.blocked).toBe(0)
+    // dry-run 走 `pending → skipped`，**不落 node-started**，因此没有 attempt 可言
+    expect(events.filter((event) => event.type === 'plan/node-started')).toEqual([])
+
+    await engine.run(plan, { initiator: 's-1' })
+    expect(seen).toEqual(['p-dry#only#1'])
+  })
+
   it('从未跑过 / 上次没收尾 → plan-replay-incomplete（都一条事件都不落）', async () => {
     const plan = linear()
 
