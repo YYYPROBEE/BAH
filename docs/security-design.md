@@ -17,7 +17,7 @@
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
 | 注册表 / 门禁 | **21 项 / 36 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
-| 覆盖率 | **86.32%（行口径，31191/36133 行，实测 2026-10-27）；14/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
+| 覆盖率 | **91.13%（行口径，31197/34234 行，实测 2026-10-27）；15/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
 ## 1. 资产、对手与"最坏的一天"
@@ -104,8 +104,7 @@
 
 补充（不算"未实现"，但要主动说）：
 
-- **覆盖率有两个包没到 80%**：`memory-store` 72.68%、`eval` 40.73%（行口径 86.32%
-  （31191/36133，仅 `packages/*/src`）、包口径 14/16，见事实表）。`eval` 的行数多在场景数据装载，属于评测 harness 而非产品路径。
+- **覆盖率还剩一个包没到 80%**：`eval` 53.20%（行口径 91.13%＝31197/34234，仅 `packages/*/src`；包口径 15/16，见事实表）。`memory-store` 89.40% 已达标。`eval` 的行数多在场景数据装载，属于评测 harness 而非产品路径。
 - **`security-self-assessment.md` 里的"14 个工具"是旧数**（现为 16）：本轮已顺手改正，
   该文档的评分与状态不受影响。
 

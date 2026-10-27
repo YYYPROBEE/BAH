@@ -69,11 +69,11 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
   低于目标即退出码 1。报表在 `.ci-artifacts/cov-all/coverage-summary.json`。
 - **既有阈值不许下调**：已在 allowlist 里的文件维持逐文件 100%；新增进名单的首期允许 ≥90%，
   但必须在 `coverage-allowlist.ts` 的 `why` 里写明提升期限。下调阈值属于宪法变更。
-- **第 4 批明确不做**：`memory-store/store`（当前包级 72.71%）与 `eval`（40.73%，主体是评测
-  harness 的场景装载）**不进**本轮目标。这是**显式放弃的项目**，不是漏做——写在这里是为了
+- **第 4 批明确不做**：`eval`（53.20%，主体是评测 harness 的场景装载）**不进**本轮目标；
+  `memory-store` 已随补测升到 89.40%，不再属于放弃项。这是**显式放弃的项目**，不是漏做——写在这里是为了
   让"80%/85%"这两个数可复现，而不是靠慢慢缩分母。
 - 现状（2026-10-27 深夜实测，2112 例全绿）：覆盖率数字以 `facts.md` 为准（本文不重复记具体百分比，避免二次漂移）
-  **包口径 14/16**；分母只含参与统计的逻辑行，注释、空行与纯类型文件按设计不计入。
+  **包口径 15/16**（CI/Ubuntu 口径；Windows 检出为 CRLF 时 v8 行映射会退化，分母虚高，别拿本机数对账）；分母只含参与统计的逻辑行，注释、空行与纯类型文件按设计不计入。
 - 产物：`coverage/lcov.info`、`coverage/lcov-report/`（名单口径）；
   `.ci-artifacts/cov-all/coverage-summary.json`（全仓口径）。两者都已进 `.gitignore`。
 
