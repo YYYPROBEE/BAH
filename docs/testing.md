@@ -7,7 +7,7 @@
 
 | 面 | 命令 | 配置 | 装什么 | 现状（2026-10-27 实测） |
 |---|---|---|---|---|
-| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 198 文件 / 2019 用例 |
+| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 203 文件 / 2090 用例 |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
 | snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 6 文件 / 23 用例 |
 | web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 7 文件 / 55 用例 |
@@ -72,7 +72,7 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 - **第 4 批明确不做**：`memory-store/store`（当前包级 72.71%）与 `eval`（40.73%，主体是评测
   harness 的场景装载）**不进**本轮目标。这是**显式放弃的项目**，不是漏做——写在这里是为了
   让"80%/85%"这两个数可复现，而不是靠慢慢缩分母。
-- 现状（2026-10-27 实测，2019 例全绿）：**行口径 85.84%**（29958/34898）、
+- 现状（2026-10-27 实测，2090 例全绿）：覆盖率数字以 `facts.md` 为准（本文不重复记具体百分比，避免二次漂移）
   **包口径 14/16**；分母只含参与统计的逻辑行，注释、空行与纯类型文件按设计不计入。
 - 产物：`coverage/lcov.info`、`coverage/lcov-report/`（名单口径）；
   `.ci-artifacts/cov-all/coverage-summary.json`（全仓口径）。两者都已进 `.gitignore`。
@@ -145,7 +145,14 @@ workspace 解析 + exit code 三条通道）。
 
 ### 7.1 端点与模型不锁死厂商
 
-现有用例（`packages/llm/src/deepseek/adapter.e2e.test.ts`）不写死端点与模型，由三个环境变量决定：
+e2e 面现有两条用例（B6，2026-10-27）：
+
+| 用例 | 证明什么 |
+|---|---|
+| `packages/llm/src/deepseek/adapter.e2e.test.ts` | DeepSeek 适配器流式文本（wire 层） |
+| `packages/host/src/boot/plugins/agent.e2e.test.ts` | **主演示链路端到端**：真实模型 → 工具调用 → 审批 → `tool/result` → `turn/end` 事件链完整 |
+
+两条用例都不写死端点与模型，由三个环境变量决定：
 
 | 环境变量 | 缺省 | 说明 |
 |---|---|---|
@@ -163,6 +170,21 @@ pnpm test:e2e
 ```
 
 > 密钥只走环境变量 / CI secret，**永不入库**。`--offline` 演示与快照回放都不需要它。
+
+### 7.2 浏览器 smoke（人工留证，未自动化）
+
+**当前状态：未做自动化浏览器测试，也不引入 Playwright**（CI 不加新依赖）。
+"真实浏览器打开 Web → 批准/拒绝 → SSE 更新"的证明由**人工执行并留证**（录屏/截图），
+与 A2 演示视频一并完成。留证判据（缺一不算过）：
+
+1. `pnpm web`（或 `pnpm demo:web`）启动后，真实浏览器打开 `http://127.0.0.1:7331`；
+2. 发一句"查余额"，SSE 实时出现工具卡（待执行 → 完成）——**不刷新页面**；
+3. 发一句"给王建国转 800 元"，审批弹窗出现：点**批准**一次（转账完成）；
+4. 再发起一笔，点**拒绝**（必填拒绝理由），工具卡呈已拦截态；
+5. 截图 / 录屏覆盖 2–4 全程，地址栏与页面内容同框。
+
+网页面 handler/SSE/审批 API 的逻辑面由 `packages/channels` 与 `web.test.ts`（53 例）
+在无浏览器环境覆盖；上面 5 条是它们的**人工端到端补证**，不要把单测说成"浏览器已验证"。
 
 ## 8. 确定性纪律（上快照回放的前提）
 

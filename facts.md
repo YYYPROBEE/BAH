@@ -10,7 +10,7 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **198 文件 / 2019 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **203 文件 / 2090 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗） | **7 文件 / 55 用例** |
 
@@ -18,11 +18,11 @@
 
 | 命令 | 结果 | 说明 |
 |---|---|---|
-| `pnpm gate` | **35/35** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
+| `pnpm gate` | **36/36** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
 | `pnpm test:snapshot` | 6 文件 / 23 用例（23/23 绿） | 录制回放；`pnpm snapshot:record` 重录 |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
-| `pnpm test:coverage:all` | **行口径 85.84%**（29958/34898）/ **包口径 14/16** | 两个口径必须一起说；未达标 `memory-store` 72.71%、`eval` 40.73% |
+| `pnpm test:coverage:all` | **行口径 86.06%**（31093/36131）/ **包口径 14/16** | 两个口径必须一起说；未达标 `memory-store` 72.71%、`eval` 40.73% |
 
 评测平面（`pnpm eval`）：
 
@@ -88,9 +88,9 @@
 
 | 项 | 值 |
 |---|---|
-| 主路径 | `provider: deepseek`，`model: deepseek-v4.1-flash-1017`，`baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| 密钥 | `apiKeyEnv: BAH_MODEL_KEY`（`.env.local`，被 `.gitignore` 挡住，不入库） |
-| 断网兜底 | `provider: router`（`router-chat`）：读消息做意图路由，不读固定脚本；**手动改 profile，不是自动降级** |
+| 主路径 | `provider: router`，`model: router-chat`：离线、确定性，读消息做意图路由（只认查余额 / 转账；认不出会追问） |
+| 可替换模型 | `provider: deepseek` + `baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1` + `apiKeyEnv: BAH_MODEL_KEY`（`.env.local`，不入库）；切 `core:model` 与 `core:agent.loop.model` **两处**，手动切换，不是自动降级 |
+| 知识问答 | Web 的 router **不规划**知识意图；用 `pnpm demo:rag`（headless）演示，sidecar 与宿主共用 `BAH_KNOWLEDGE_TOKEN`（无 token 拒启） |
 | 审批 | 黄级 `transfer_create` → 票据 → Web 弹窗；红级另加强验证 |
 | 会话作用域 | 单用户、单会话、单进程；无多租户；Web `/api/*` 有 60s/120 次每来源限流 |
 

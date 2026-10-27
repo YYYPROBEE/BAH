@@ -13,7 +13,7 @@
 | 维度 | 结论 | 一句话 |
 |---|---|---|
 | **底座完成度** | **76%**（含 12 项 P0 缺口） | 骨架、事件流、模型层、治理面已闭环；但**门禁基线当前是红的**，且有 20 处纯占位模块未实装 |
-| **对 dsh 的复刻度** | **核心骨架 74% / 全量机制 62% / 能力面 33%** | dsh 52 个顶层能力域（331 个实际包）vs BAH 14 包，但 BAH 在**银行域纵深**上反超（票据 / 沙箱档位 / saga 补偿 / 工具目录 14 工具） |
+| **对 dsh 的复刻度** | **核心骨架 74% / 全量机制 62% / 能力面 33%** | dsh 52 个顶层能力域（331 个实际包）vs BAH 14 包，但 BAH 在**银行域纵深**上反超（票据 / 沙箱档位 / saga 补偿 / 工具目录 16 工具） |
 | **优化点** | **P0 6 项 / P1 8 项 / P2 6 项** | 最优先不是"补功能"，而是**把红基线修绿 + 把已承诺的 12 项 P0 缺口填实** |
 
 **关键判断**：BAH 不是"dsh 的复刻"，而是**"dsh 内核的银行域重实现 + 自有治理面"**。因此"复刻度"这个指标本身要拆成两问：
@@ -37,7 +37,7 @@
 | `persistence` | 23 | 3,305 | 5 | 1,185 | JSONL / chain / saga-store |
 | `host` | 26 | 2,746 | 12 | 2,829 | 装配层 / 插件管理 |
 | `llm` | 14 | 2,043 | 9 | 1,396 | 模型层（seam / registry / 降级 / 修复） |
-| `bank` | 34 | 6,322 | 19 | 3,219 | 仿真银行 + 14 工具族 |
+| `bank` | 34 | 6,322 | 19 | 3,219 | 仿真银行 + 16 工具族 |
 | `core` | 9 | 1,509 | 5 | 996 | 内核（事件 / 插件 / 服务 / scope） |
 | `interaction` | 8 | 1,141 | 4 | 929 | 审批 / 票据账本 |
 | `cli` | 7 | 919 | 4 | 913 | 启动 / profile / dump-config |
@@ -137,7 +137,7 @@ done
 | T-10 | `TOOL_RUNTIME_SCHEDULER` 调度器 | 无 | **未复刻** | dsh 允许 pre/execute/post 三段异步调度，BAH 是固定同步七段 |
 | T-11 | PTC 工具（`ptc.ts` 775 行，代码执行型工具） | `sandbox-runtime/handlers/compute.ts` | **部分复刻** | BAH 走 `BANK_COMPUTE` 接缝，单一 handler |
 | T-12 | 工具执行 token（防重入） | `guard.ts` 单调 guard | **部分复刻** | `pipeline.ts:221` 只做"已判 deny 维持 deny" |
-| T-13 | 工具目录门禁 | 有，且更严 | **已复刻（超集）** | `verify-tiers` 校验 14 工具 tier + amountPath；`verify-tool-catalog` 校验落账事件 17 个 |
+| T-13 | 工具目录门禁 | 有，且更严 | **已复刻（超集）** | `verify-tiers` 校验 16 工具 tier + amountPath；`verify-tool-catalog` 校验落账事件 17 个 |
 
 ### 2.4 会话与持久化（dsh `core/session` + `session-persistence-jsonl` ↔ BAH `runtime/session` + `persistence`）
 
@@ -294,7 +294,7 @@ done
 
 | # | 能力 | BAH 实现 | dsh 对应 | 说明 |
 |---|---|---|---|---|
-| A-1 | 银行资金工具族 | 14 个 P0 工具 + 三级判决 + 票据桥接（`bank/tools/`） | 无（dsh 无业务域） | `docs/bank-tools.md` 261 行 |
+| A-1 | 银行资金工具族 | 16 个 P0 工具 + 三级判决 + 票据桥接（`bank/tools/`） | 无（dsh 无业务域） | `docs/bank-tools.md` 261 行 |
 | A-2 | 三级权限票据 | green/yellow/red + 五条附加规则 + 原子核销 | `permission-presets` 仅静态预设 | `interaction/approval/ticket-ledger.ts` |
 | A-3 | PII 脱敏落盘 | `persistence/jsonl/redact.ts` | 无 | dsh 无此包 |
 | A-4 | Saga 补偿与冲正 | `saga/` 5,423 行（11 事务态 × 10 步骤态 × 7 补偿态） | 无 | dsh 无事务补偿层 |
