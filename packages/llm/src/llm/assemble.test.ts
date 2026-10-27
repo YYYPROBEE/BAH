@@ -116,6 +116,26 @@ describe('StreamAssembler（施工单 05 §1 / §2.1）', () => {
     expect(assembler.finish().usage).toEqual({ input: 40, output: 5 })
   })
 
+  /**
+   * 为什么补：缓存命中与计价是非必报字段（provider 可以只报 input/output）。
+   * 缺省时**不写占位**、报了之后同样取最大值——否则成本看板会把
+   * "第二次上报更小的值"当成减价，或者把缺省写成 0（0 元与"未上报"无法区分）。
+   */
+  it('usage 的 cachedInput / costMicroYuan：缺省不占位，上报后同样取最大值', () => {
+    const assembler = new StreamAssembler()
+    assembler.push({ kind: 'usage', input: 10, output: 2 })
+    assembler.push({ kind: 'usage', input: 40, output: 5, cachedInput: 7, costMicroYuan: 120 })
+    assembler.push({ kind: 'usage', input: 40, output: 5, cachedInput: 3, costMicroYuan: 80 })
+    assembler.push({ kind: 'finish', reason: 'stop' })
+
+    expect(assembler.finish().usage).toEqual({
+      input: 40,
+      output: 5,
+      cachedInput: 7,
+      costMicroYuan: 120,
+    })
+  })
+
   it('空参数文本视为无参（args 为 {}），不判成坏 JSON', () => {
     expect(parseArgumentsText('  ')).toEqual({ args: {} })
     const assembler = new StreamAssembler()

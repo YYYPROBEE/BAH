@@ -21,7 +21,7 @@ import { join } from 'node:path'
 
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
 import { asSessionId } from '@bah/test-support'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import type { AnySessionEvent } from '@bah/runtime'
 
@@ -75,6 +75,7 @@ function rows(script: readonly unknown[], withMemory: boolean): readonly PluginR
 async function bootWith(
   script: readonly unknown[],
   withMemory = true,
+  warn?: (message: string) => void,
 ): Promise<BootedApp> {
   seq += 1
   return boot({
@@ -82,6 +83,7 @@ async function bootWith(
     bundles: [{ name: 'fx-memory', rows: rows(script, withMemory) }],
     layers: [],
     catalog: createCatalog(),
+    ...(warn === undefined ? {} : { warn }),
     run: {
       sessionId: asSessionId(`s-memory-${String(seq)}`),
       now: () => 1_792_000_000_000,
@@ -125,15 +127,20 @@ describe('C4 记忆接线（写入 → 召回 → 注入）', () => {
     }
   })
 
-  it('第一轮写入、第二轮同场景召回并注入 `<memory>` 上下文', async () => {
+  it('第一轮自动写入（不显式调用）、第二轮同场景召回并注入 `<memory>` 上下文', async () => {
     const app = await bootWith([{ text: '记住了。' }, { text: '好的，用尾号 8888 那张。' }])
     try {
+      const memory = app.ctx.get(MEMORY_SERVICE)
+      // 观察真实端口：不替换实现，只记调用（证明是接线在写，不是用例自己调）
+      const ingest = vi.spyOn(memory.layer, 'ingestTurn')
+
       await say(app, '以后转账都用尾号8888的卡')
 
-      // ① 写入：服务面能查到（`turn/end` 之后异步写，这里直接触发一次同步写入做判定）
-      const memory = app.ctx.get(MEMORY_SERVICE)
-      const ingested = await memory.ingestTurn(1)
-      expect(ingested?.written).toBeGreaterThanOrEqual(1)
+      // ① 写入：`session/event` 的 turn/end 之后异步写；本用例一次显式调用都没有
+      await vi.waitFor(() => {
+        expect(ingest).toHaveBeenCalled()
+      })
+      expect(ingest.mock.calls[0]?.[0]).toMatchObject({ turn_id: 1, speaker: 'user' })
 
       // ② 召回：第二轮的第一 step 之前检索（scene=transfer）
       await say(app, '帮我把上个月的话费转账到那张卡')
@@ -167,6 +174,61 @@ describe('C4 记忆接线（写入 → 召回 → 注入）', () => {
       await app.dispose()
     }
   })
+
+  /**
+   * 为什么补：记忆是**旁路**，不是对话的前置条件。召回与写入失败都必须
+   * ① 告警（不能变成静默的 unhandled rejection）、② 清空缓存（下一轮重试，不沿用旧值）、
+   * ③ 放行本轮对话。这层 fail-open 此前没有任何用例——一旦回归成 throw，
+   * 记忆库一坏整机就答不出话。
+   *
+   * 用 spy 让端口确定性失败，避免依赖磁盘损坏/权限（那类夹具在不同平台不稳定）。
+   */
+  it('召回与写入失败时 fail-open：告警、清缓存、对话照常回复', async () => {
+    const warnings: string[] = []
+    const app = await bootWith([{ text: '记住了。' }], true, (message) => warnings.push(message))
+    try {
+      const memory = app.ctx.get(MEMORY_SERVICE)
+      vi.spyOn(memory.layer, 'retrieveMemory').mockRejectedValue(new Error('disk gone'))
+      vi.spyOn(memory.layer, 'ingestTurn').mockRejectedValue(new Error('disk gone'))
+
+      await say(app, '以后转账都用尾号8888的卡')
+
+      // 读失败：缓存清空 + 路由码是失败态（下一轮还会再试），而不是沿用旧记忆
+      expect(memory.recall()).toBeUndefined()
+      expect(memory.routeCode()).toBe('RECALL_FAILED')
+      expect(warnings.some((message) => message.includes('召回失败'))).toBe(true)
+
+      // 写失败：turn/end 是 emit 监听，不能 await，只能靠告警浮出（不许静默吞掉）
+      await vi.waitFor(() => {
+        expect(warnings.some((message) => message.includes('写入失败'))).toBe(true)
+      })
+
+      // 对话本身没有被打断：助手仍然产出了回复
+      expect(
+        app.ctx.get(SESSION_SERVICE).events().some((event) => event.type === 'assistant/message'),
+      ).toBe(true)
+    } finally {
+      await app.dispose()
+    }
+  })
+
+  /**
+   * 显式写入（`ingestTurn`）是演示与回填的入口，失败必须**原样抛出**：
+   * 吞掉它会让"这一轮没写进去"变成静默的数据丢失。
+   * （自动写入那条路由 `turn/end` 的 emit 监听兜住，见上面的 fail-open 用例。）
+   */
+  it('显式写入失败原样抛给调用方（不静默吞掉）', async () => {
+    const app = await bootWith([{ text: '记住了。' }])
+    try {
+      const memory = app.ctx.get(MEMORY_SERVICE)
+      await say(app, '以后转账都用尾号8888的卡')
+      vi.spyOn(memory.layer, 'ingestTurn').mockRejectedValue(new Error('disk gone'))
+
+      await expect(memory.ingestTurn(1)).rejects.toThrowError(/disk gone/)
+    } finally {
+      await app.dispose()
+    }
+  })
 })
 
 describe('配置 fail-loud', () => {
@@ -190,6 +252,24 @@ describe('配置 fail-loud', () => {
       dbPath: 'm.db',
       tenant: 'demo',
       userId: 'u-1',
+    })
+    // 可选正整数的成功侧：写多少回多少（此前只验了拒绝侧，成功分支从未执行）
+    expect(
+      memoryPlugin.validate({
+        dbPath: 'm.db',
+        tenant: 'demo',
+        userId: 'u-1',
+        sensitivityCeiling: 2,
+        maxK: 4,
+        sectionOrder: 36,
+      }),
+    ).toEqual({
+      dbPath: 'm.db',
+      tenant: 'demo',
+      userId: 'u-1',
+      sensitivityCeiling: 2,
+      maxK: 4,
+      sectionOrder: 36,
     })
   })
 })

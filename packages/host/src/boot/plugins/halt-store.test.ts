@@ -109,6 +109,46 @@ describe('halt.json 落盘与恢复', () => {
     )
   })
 
+  /**
+   * 为什么补：字段校验此前只覆盖了 `reason` / `at`，而 `readSnapshot` 对
+   * 顶层形态与 `detail` 类型也各有一道拒绝。这两道不是"更严格一点"的装饰——
+   * 顶层是数组时 `'reason' in value` 恒为假，`detail: 123` 会被原样带进
+   * `HaltSnapshot`，下游把数字当字符串渲染。
+   */
+  it('顶层不是对象 / detail 非字符串 → 同样拒读（不许降级成 RUNNING）', () => {
+    const root = tempRoot()
+    const file = haltStateFileOf(root)
+
+    writeRaw(file, 'null')
+    expect(captureThrown(() => createHaltStore({ root }).load()).code).toBe(
+      'safety-halt-state-invalid',
+    )
+
+    writeRaw(file, JSON.stringify({ reason: 'manual', at: 1, detail: 123 }))
+    expect(captureThrown(() => createHaltStore({ root }).load()).code).toBe(
+      'safety-halt-state-invalid',
+    )
+  })
+
+  /**
+   * 为什么补：只有 `ENOENT` / `ENOTDIR` 是"从未停过机"的正常路径。
+   * 权限/IO 错误必须冒泡——读不到停机证据却当作 RUNNING，等于文件坏了就自动解除停机。
+   * 用"目录占住文件名"稳定造出非 ENOENT 错误（不依赖平台特定的权限位）。
+   */
+  it('非 ENOENT 的 IO 错误不是"没停过"：不可读 / 不可删都抛 BahError', () => {
+    const unreadableRoot = tempRoot()
+    mkdirSync(haltStateFileOf(unreadableRoot))
+    expect(captureThrown(() => createHaltStore({ root: unreadableRoot }).load()).code).toBe(
+      'safety-halt-state-unreadable',
+    )
+
+    const undeletableRoot = tempRoot()
+    mkdirSync(haltStateFileOf(undeletableRoot))
+    expect(captureThrown(() => createHaltStore({ root: undeletableRoot }).clear()).code).toBe(
+      'safety-halt-state-unwritable',
+    )
+  })
+
   it('状态文件与会话 ID 无关（换会话不能绕过停机）', () => {
     const root = tempRoot()
     // 同一 root 下只有一个 halt.json：它表达"这台机器停了"，不是"某个会话停了"

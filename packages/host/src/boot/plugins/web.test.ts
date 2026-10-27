@@ -1721,6 +1721,34 @@ describe('C5 人工接管（handoff）', () => {
     }
   })
 
+  it('接管/交回的请求体不是 JSON 对象 → 400 web-invalid-body，状态机不动', async () => {
+    const harness = await boot()
+    try {
+      // 两条 POST 路由各自都有 `readJson` 失败分支：坏 JSON 与"合法 JSON 但不是对象"
+      for (const [path, body] of [
+        ['/api/handoff', '不是 JSON'],
+        ['/api/handoff/resume', '[]'],
+      ] as const) {
+        const response = await authedFetch(`${harness.url}${path.slice(1)}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body,
+        })
+        expect(response.status).toBe(400)
+        expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+          'web-invalid-body',
+        )
+      }
+
+      // 关键：400 之后既没进入接管、也没交回
+      const read = await authedFetch(`${harness.url}api/handoff`)
+      const summary = (await read.json()) as { active: boolean }
+      expect(summary.active).toBe(false)
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
   it('接管期间 `/api/turn` → 409 handoff-active，且一句话都不进 inbox', async () => {
     const harness = await boot()
     try {

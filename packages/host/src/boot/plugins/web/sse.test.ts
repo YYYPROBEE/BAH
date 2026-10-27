@@ -178,6 +178,33 @@ describe('D1 SSE 连接上限与慢客户端', () => {
     expect(afterClose.probe.status).toBe(200)
   })
 
+  /**
+   * 为什么补：`size()` 是 `/api/metrics` 的唯一连接数来源，此前没有任何断言。
+   * 顺手钉住"注销"的两条路径都真的把计数减掉——计数只增不减会让
+   * 指标把"早已断开的标签页"算成在线，也会在下一次 attach 时误触上限。
+   */
+  it('size() 与在线连接一一对应：close / 已销毁的 res 都会被摘掉', () => {
+    const hub = makeHub()
+    expect(hub.size()).toBe(0)
+
+    const closing = makeReq()
+    const destroyed = makeRes()
+    hub.attach(closing.req, makeRes().res, 0)
+    hub.attach(makeReq().req, destroyed.res, 0)
+    expect(hub.size()).toBe(2)
+
+    // ① 浏览器关闭 EventSource
+    closing.close()
+    expect(hub.size()).toBe(1)
+
+    // ② socket 已被上层销毁：下一帧发现后摘掉，不向已关闭的连接写
+    destroyed.probe.destroyed = true
+    const before = destroyed.probe.chunks.length
+    hub.publish(FRAME)
+    expect(hub.size()).toBe(0)
+    expect(destroyed.probe.chunks.length).toBe(before)
+  })
+
   it('dispose 结束所有连接', () => {
     const hub = makeHub()
     const client = makeRes()

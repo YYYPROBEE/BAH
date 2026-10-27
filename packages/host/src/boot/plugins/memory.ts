@@ -12,28 +12,27 @@
  *
  * | 方向 | 挂点 | 为什么是这个挂点 |
  * |---|---|---|
- * | 写入 | `turn/end`（emit） | turn 边界是"这一轮说完了"的唯一确定信号；`assistant/message` 逐条写会把同一轮切碎 |
+ * | 写入 | `session/event` 的 `turn/end`（emit） | turn 边界是"这一轮说完了"的唯一确定信号；`assistant/message` 逐条写会把同一轮切碎。运行时只广播 `session/event`，没有独立的 `turn/end` 主题 |
  * | 读取 | `agent/pre-step`（waterfall，`step === 1`） | 只在**本轮第一步**检索：多步里同一段记忆会重复注入，而且 step 中途的用户意图还没成型 |
  * | 注入 | `PromptSection`（`target: 'context'`，order 35） | 记忆是**运行时上下文**，按施工单 05 §4.1 不许拼进 system 头；35 落在 `runtime.context`(30) 与 `policy.approval`(40) 之间 |
  *
  * ## 诚实边界（写进文档，也写进这里）
  *
  * - **单租户**：`tenant` 是配置项，默认 `demo`。没有租户隔离，多租户是 D4。
- * - **影子核验未实现**：`bankQuery` 端口传的是"永远返回 null"的占位实现（`layer.ts`
- *   里 `void bankQuery`），所以记忆**不会**被银行权威状态覆盖。这正是要显式声明的：
- *   不覆盖意味着"记忆说什么就是什么"，`state`/`valid_to`/保留期三道过滤仍在。
+ * - **影子核验未实现**：检索时传的是 `@bah/memory-store` 的 `NULL_BANK_QUERY`
+ *   （永远返回 null；`layer.ts` 里 `void bankQuery`），所以记忆**不会**被银行权威状态覆盖。
+ *   这正是要显式声明的：不覆盖意味着"记忆说什么就是什么"，`state`/`valid_to`/保留期三道过滤仍在。
  * - **场景判不出来就不检索**（`unknown` → `planRoute` 返回空域）：记忆层刻意禁止
  *   "匹配不上就全查"，接线不替它放宽。
  */
 
 import { defineService } from '@bah/core'
-import { MEMORY_CONTEXT_DECLARATION, createMemoryLayer } from '@bah/memory-store'
+import { MEMORY_CONTEXT_DECLARATION, NULL_BANK_QUERY, createMemoryLayer } from '@bah/memory-store'
 import { SESSION_SERVICE, SYSTEM_PROMPT_SERVICE } from '@bah/runtime'
 import { reasonOf } from '@bah/util'
 
 import type { Listener, ServiceKey } from '@bah/core'
 import type {
-  BankQuery,
   IngestResult,
   MemoryLayer,
   Scene,
@@ -145,14 +144,8 @@ export const memoryPlugin: HostPlugin<MemoryPluginSettings> = {
       let cached: string | undefined
       let cachedRoute: string | undefined
 
-      /**
-       * 影子核验端口：**未实现**，永远返回 `null`。
-       *
-       * `layer.ts` 现在是 `void bankQuery`，这个实现不会影响任何判决；写在这里是为了
-       * 让"端口在、实现没在"这件事在代码里可见，而不是靠读注释才知道。
-       * 接真实账本时替换这一个函数即可（`EntityState.status` 用权威状态覆盖记忆值）。
-       */
-      const bankQuery: BankQuery = () => Promise.resolve(null)
+      // 影子核验端口：**未实现**，用包里共享的"永远 null"实现显式声明
+      // "端口在、实现没在"（M3 接真实账本时换成 `createBankQuery`，本文件签名不变）。
 
       const handle: MemoryHandle = {
         recall: () => cached,
@@ -203,10 +196,14 @@ export const memoryPlugin: HostPlugin<MemoryPluginSettings> = {
       }
 
       // ── 写入：turn 边界 ─────────────────────────────────────────────
+      // 运行时只广播 `session/event`（`session/service.ts`），没有独立的 `turn/end` 主题；
+      // 订错主题会让自动写入静默失效（只剩显式 `ingestTurn` 在写）。
       ctx.effect(
-        ctx.events.on('turn/end', (envelope) => {
-          const turn = (envelope as { turn?: number }).turn
-          if (turn === undefined) return
+        ctx.events.on('session/event', (envelope) => {
+          // 总线是全进程的：别的会话的 turn 号在这里没有意义（`session.events()` 只看本会话）
+          if (String(envelope.session) !== String(session.sessionId)) return
+          if (envelope.event.type !== 'turn/end') return
+          const turn = envelope.event.data.turn
           // emit 监听器不能 await：失败必须落一条告警，不能变成静默的 unhandled rejection
           void ingestTurnOf(turn).catch((error: unknown) => {
             run.warn?.(`bah-memory: 第 ${String(turn)} 轮写入失败：${reasonOf(error)}`)
@@ -236,7 +233,7 @@ export const memoryPlugin: HostPlugin<MemoryPluginSettings> = {
         }
 
         try {
-          const result = await layer.retrieveMemory(bankQuery, { ...query, scene, maxK })
+          const result = await layer.retrieveMemory(NULL_BANK_QUERY, { ...query, scene, maxK })
           cachedRoute = result.routeCode
           // 每行自带模板渲染（`renderedText`）+ 场景标签：模型看到的是"这条记忆属于哪个域"，
           // 而不是一坨没有出处的句子。

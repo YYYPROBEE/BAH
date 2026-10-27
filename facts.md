@@ -10,7 +10,7 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **203 文件 / 2090 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **205 文件 / 2112 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗） | **7 文件 / 55 用例** |
 
@@ -22,7 +22,7 @@
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
 | `pnpm test:snapshot` | 6 文件 / 23 用例（23/23 绿） | 录制回放；`pnpm snapshot:record` 重录 |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
-| `pnpm test:coverage:all` | **行口径 86.06%**（31093/36131）/ **包口径 14/16** | 两个口径必须一起说；未达标 `memory-store` 72.71%、`eval` 40.73% |
+| `pnpm test:coverage:all` | **行口径 86.32%**（31191/36133）/ **包口径 14/16** | 两个口径必须一起说；未达标 `memory-store` 72.68%、`eval` 40.73% |
 
 评测平面（`pnpm eval`）：
 

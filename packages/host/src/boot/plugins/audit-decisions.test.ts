@@ -25,7 +25,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { boot, createCatalog, HOST_PLUGINS, type BootOptions, type BootedApp, type HostPlugin } from '@bah/host'
 
-import { DECISION_AUDIT } from './audit-decisions.ts'
+import { DECISION_AUDIT, auditDecisionsPlugin } from './audit-decisions.ts'
 import type { Context } from '@bah/core'
 
 import type { PluginRow } from '../profile-plugins.ts'
@@ -364,5 +364,26 @@ describe('W08 · 会话级证据链', () => {
     } finally {
       await app.dispose('test')
     }
+  })
+})
+
+describe('audit:decisions 配置（签名私钥路径）', () => {
+  /**
+   * 为什么补：`signingKeyPath` 是唯一能改变"哪些条目会被签名"的配置。
+   * 传空串/数字此前没有任何用例，而空串会让链上的签名集合与"未配置"看起来一样，
+   * 排障时无法区分"忘了配"与"配错了"。这里钉住：非法值必须在 boot 期拒，
+   * 未配置才落到默认路径。
+   */
+  it('非法 signingKeyPath（空串 / 非字符串）→ invalid-config；未写则落默认', () => {
+    expect(() => auditDecisionsPlugin.validate({ signingKeyPath: '' })).toThrowError(
+      /signingKeyPath/,
+    )
+    expect(() => auditDecisionsPlugin.validate({ signingKeyPath: 123 })).toThrowError(
+      /signingKeyPath/,
+    )
+    expect(auditDecisionsPlugin.validate({}).signingKeyPath).toBe('keys/saga-ed25519.pem')
+    expect(auditDecisionsPlugin.validate({ signingKeyPath: 'keys/a.pem' }).signingKeyPath).toBe(
+      'keys/a.pem',
+    )
   })
 })

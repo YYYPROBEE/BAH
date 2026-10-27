@@ -316,7 +316,14 @@ describe('W16 分派矩阵 · 有 Web 凭证', () => {
       { type: 'tool/result', data: { callId: 'c-1', isError: false, durationMs: 10 } },
       { type: 'tool/result', data: { callId: 'c-2', isError: true, durationMs: 30 } },
       { type: 'approval/asked', data: { ticketId: 't-1', callId: 'c-1', name: 'transfer_create' } },
-      { type: 'approval/decided', data: { ticketId: 't-1', decision: 'rejected' } },
+      { type: 'approval/decided', data: { ticketId: 't-1', decision: 'approved' } },
+      { type: 'approval/decided', data: { ticketId: 't-2', decision: 'rejected' } },
+      // 无人值守默认拒绝 / 超时等一律记"其它"：不能并进 rejected（"没人点" ≠ "人点了拒绝"）
+      { type: 'approval/decided', data: { ticketId: 't-3', decision: 'unavailable' } },
+      // 耗时分位只吃数字：脏值不能被 push 进样本（否则分位数出现 NaN）
+      { type: 'tool/result', data: { callId: 'c-3', isError: false, durationMs: '12' } },
+      // 不认识的会话事件必须被跳过，而不是让指标端点 500
+      { type: 'unknown/event', data: { anything: true } },
       {
         type: 'usage/summary',
         data: { turn: 1, input: 100, output: 20, calls: 1, cachedInput: 5, costMicroYuan: 42 },
@@ -329,7 +336,17 @@ describe('W16 分派矩阵 · 有 Web 凭证', () => {
     }
     const probe = await call('GET', '/api/metrics', {
       headers: AUTHED,
-      deps: makeDeps({ session: session as never }),
+      deps: makeDeps({
+        session: session as never,
+        // HALT 装了且处于停机态：`reason` 必须透出（null 只表示"没装 HALT"）
+        tryHalt: () =>
+          ({
+            enabled: true,
+            status: 'HALTED',
+            halted: true,
+            reason: 'manual',
+          }) as never,
+      }),
     })
     expect(probe.status).toBe(200)
     const body = JSON.parse(probe.body) as Record<string, unknown>
@@ -337,15 +354,39 @@ describe('W16 分派矩阵 · 有 Web 凭证', () => {
       sessionId: 's-metrics',
       lastSeq: 7,
       turns: 1,
-      tools: { calls: 1, errors: 1 },
-      approvals: { asked: 1, approved: 0, rejected: 1, other: 0 },
+      tools: { calls: 1, errors: 1, durationMs: { p50: 10, p95: 30 } },
+      approvals: { asked: 1, approved: 1, rejected: 1, other: 1 },
       usage: { input: 100, output: 20, cachedInput: 5, costMicroYuan: 42 },
-      // 本桩没有 halt 服务 → null（"没装" 与 "未停机" 必须能分开）
-      halt: null,
+      halt: { status: 'HALTED', halted: true, reason: 'manual' },
       sseClients: 0,
     })
     // 只出数字：事件里的工具名/内容不会原样进指标
     expect(probe.body).not.toContain('account_balance')
+
+    /**
+     * 两种"空"必须能分开，且都不能伪装成数字 0：
+     * - 没有样本 → 分位数 null（"没有样本" ≠ "很快"）
+     * - 没装 HALT → halt null（"没装" ≠ "未停机"）；装了但没写理由 → reason null
+     */
+    const empty = await call('GET', '/api/metrics', { headers: AUTHED })
+    const emptyBody = JSON.parse(empty.body) as {
+      tools: { durationMs: { p50: unknown; p95: unknown } }
+      halt: unknown
+    }
+    expect(emptyBody.tools.durationMs).toEqual({ p50: null, p95: null })
+    expect(emptyBody.halt).toBeNull()
+
+    const haltedNoReason = await call('GET', '/api/metrics', {
+      headers: AUTHED,
+      deps: makeDeps({
+        tryHalt: () => ({ enabled: true, status: 'RUNNING', halted: false }) as never,
+      }),
+    })
+    expect((JSON.parse(haltedNoReason.body) as { halt: unknown }).halt).toEqual({
+      status: 'RUNNING',
+      halted: false,
+      reason: null,
+    })
   })
 
   it('管理面 default 分支：路由表外的路径 → 404（将来新增路径不会静默成功）', async () => {
