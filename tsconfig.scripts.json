@@ -1,0 +1,50 @@
+{
+  // 门禁与运维脚本的类型检查面（C2）。
+  //
+  // 为什么需要独立 tsconfig：
+  // 1. `tsconfig.host.json` 只 references `packages/*`，scripts/ 的 60+ 个
+  //    `verify-*.ts` 从未进过任何 typecheck——35 项门禁的"安全网"自身没有安全网
+  //    （审查项 C2：64 个脚本 / 11,094 行零类型检查）。
+  // 2. scripts 同时用两种 import：包名（`@bah/runtime`）与源码相对路径
+  //    （`../packages/cli/src/profile.ts`，配置面必须读源码真相）。包名在这里
+  //    一律走 `paths` 映射到 `packages/*/src/index.ts`——与 vitest 的 alias 同口径，
+  //    避免"改了 src 但 dist-types 陈旧 → 类型检查静默跑旧声明"（阶段 2 踩过）。
+  //
+  // 纪律：`noEmit`（不产生产物，也不改 `pnpm build` 的产物面）。
+  // base 里的 `composite` / `declaration` / `emitDeclarationOnly` 必须显式关掉——
+  // 它们与 `noEmit` 互斥（TS6304 / TS5069）。
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "emitDeclarationOnly": false,
+    // `noEmit` 与增量可以共存（TS 4.0+）：`.tsbuildinfo` 只记"上次类型检查的结论"，
+    // 不产生产物。没有它，11k 行脚本 + 被 paths 拉进来的 packages 源码每次全量重查，
+    // 会让 `pnpm typecheck` 从秒级变成分钟级。
+    "incremental": true,
+    "noEmit": true,
+    "tsBuildInfoFile": ".tmp-tsc/scripts.tsbuildinfo",
+    "types": ["node"],
+    "paths": {
+      "@bah/core": ["./packages/core/src/index.ts"],
+      "@bah/runtime": ["./packages/runtime/src/index.ts"],
+      "@bah/llm": ["./packages/llm/src/index.ts"],
+      "@bah/llm/mock": ["./packages/llm/src/mock/index.ts"],
+      "@bah/llm/demo": ["./packages/llm/src/demo/index.ts"],
+      "@bah/llm/deepseek": ["./packages/llm/src/deepseek/index.ts"],
+      "@bah/interaction": ["./packages/interaction/src/index.ts"],
+      "@bah/safety": ["./packages/safety/src/index.ts"],
+      "@bah/bank": ["./packages/bank/src/index.ts"],
+      "@bah/knowledge": ["./packages/knowledge/src/index.ts"],
+      "@bah/persistence": ["./packages/persistence/src/index.ts"],
+      "@bah/memory-store": ["./packages/memory-store/src/index.ts"],
+      "@bah/saga": ["./packages/saga/src/index.ts"],
+      "@bah/host": ["./packages/host/src/index.ts"],
+      "@bah/channels": ["./packages/channels/src/index.ts"],
+      "@bah/cli": ["./packages/cli/src/index.ts"],
+      "@bah/test-support": ["./packages/test-support/src/index.ts"],
+      "@bah/util": ["./packages/util/src/index.ts"]
+    }
+  },
+  "include": ["scripts/**/*.ts"]
+}

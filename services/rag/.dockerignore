@@ -1,0 +1,9 @@
+# 构建上下文瘦身：模型（182MB）与语料用只读绑定挂载，不进镜像
+.venv
+**/__pycache__
+**/*.pyc
+models
+data
+tests
+.pytest_cache
+.ruff_cache

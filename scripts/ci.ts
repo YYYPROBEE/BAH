@@ -58,13 +58,22 @@ interface RagStep {
 
 type Step = CommandStep | VitestStep | E2eStep | RagStep
 
-/** 用例地板：取 2026-10-24 实测值（不是估值），任何一条被删即红。 */
+/**
+ * 用例地板：取实测值**减少量余量**，任何一条被删即红。
+ *
+ * 2026-10-27 C2 抬地板：旧值（unit 1570 / snapshot 14 / web 52）是 10-24 的实测，
+ * 此后 W17–W20 与 §5.1/§5.2 修复加了两百多例，地板却没跟上——**删掉一整个测试文件
+ * 仍会绿**，那条"删测试即红"的判据实际上早已失效。
+ *
+ * 现值：unit 实测 2048（地板 2000）、snapshot 实测 23（地板 22）、web 实测 55（地板 54）。
+ * 余量刻意留小：地板的作用是钉住"没有大批丢失"，不是允许慢慢删。
+ */
 const STEPS: readonly Step[] = [
   { kind: 'command', name: 'typecheck', command: 'pnpm typecheck' },
   { kind: 'command', name: 'lint', command: 'pnpm lint' },
   { kind: 'command', name: 'build', command: 'pnpm build' },
-  { kind: 'vitest', name: 'test (unit)', minCases: 1570 },
-  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 1570 },
+  { kind: 'vitest', name: 'test (unit)', minCases: 2000 },
+  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 2000 },
   // W17：全仓覆盖率口径（分母 = packages/*/src 全量，不是 allowlist 名单）。
   // 上一步的 `test:coverage` 守"名单内逐文件 100%"，这一步报"全仓行口径 ≥80% / 包口径 ≥14/16"。
   // 两步都要：只有前者会"分母只算一半"，只有后者会丢掉"确定性组件必须 100%"的硬约束。
@@ -75,8 +84,8 @@ const STEPS: readonly Step[] = [
   { kind: 'command', name: 'eval:smoke', command: 'pnpm eval:smoke' },
   { kind: 'command', name: 'eval:baseline', command: 'pnpm eval:baseline' },
   { kind: 'e2e', name: 'test:e2e' },
-  { kind: 'vitest', name: 'test:snapshot', config: 'vitest.snapshot.config.ts', minCases: 14 },
-  { kind: 'vitest', name: 'test:web', config: 'vitest.web.config.ts', minCases: 52 },
+  { kind: 'vitest', name: 'test:snapshot', config: 'vitest.snapshot.config.ts', minCases: 22 },
+  { kind: 'vitest', name: 'test:web', config: 'vitest.web.config.ts', minCases: 54 },
   { kind: 'rag', name: 'rag:check', minCases: 75 },
 ]
 

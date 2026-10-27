@@ -41,16 +41,61 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', 'dist-types', '.git', 'covera
 /** 只扫测试文件。 */
 const TEST_FILE = /\.test\.tsx?$/
 
-/** 剥掉注释（保留换行，行号不漂）。 */
+/**
+ * 剥掉注释（保留换行，行号不漂）。
+ *
+ * **必须是词法扫描，不能用正则**：测试名里经常出现 `'sentry/…'`、`'plan/…'`
+ * 这类字面量，正则版会把字符串里的 `斜杠星` 当注释开头，一路吞到**下一个** `星斜杠`——
+ * 于是"这个文件有多少条断言"完全取决于注释排版。实测：某文件 69 个 `expect(`
+ * 被算成 24 条，触发"断言从 55 降到 24"的假红。
+ *
+ * 只剥行注释与块注释，字符串 / 模板串整体跳过（含转义）。
+ */
 function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, ' '))
-    .split('\n')
-    .map((line) => {
-      const at = line.indexOf('//')
-      return at < 0 ? line : line.slice(0, at)
-    })
-    .join('\n')
+  let out = ''
+  let index = 0
+  while (index < source.length) {
+    const ch = source[index]
+    const next = source[index + 1]
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      const quote = ch
+      out += ch
+      index += 1
+      while (index < source.length) {
+        const inner = source[index] ?? ''
+        out += inner
+        if (inner === '\\') {
+          index += 1
+          out += source[index] ?? ''
+          index += 1
+          continue
+        }
+        index += 1
+        if (inner === quote) break
+      }
+      continue
+    }
+
+    if (ch === '/' && next === '/') {
+      while (index < source.length && source[index] !== '\n') index += 1
+      continue
+    }
+
+    if (ch === '/' && next === '*') {
+      index += 2
+      while (index < source.length && !(source[index] === '*' && source[index + 1] === '/')) {
+        if (source[index] === '\n') out += '\n'
+        index += 1
+      }
+      index += 2
+      continue
+    }
+
+    out += ch ?? ''
+    index += 1
+  }
+  return out
 }
 
 /**

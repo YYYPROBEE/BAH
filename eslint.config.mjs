@@ -34,4 +34,24 @@ export default [
       '@typescript-eslint/no-explicit-any': 'error',
     },
   },
+  // C2：脚本面（64 个 `verify-*.ts` / `ci.ts` / `coverage-summary.ts` 等）。
+  //
+  // 只开两条，且**不开** `consistent-type-assertions`：脚本的职责就是"从源码文本里
+  // 抠出结构"，`as` 是它们的正常工作方式（`packages/*/src` 的禁令不适用于这里）。
+  // 关掉的那条写在这里，不是漏配——门禁自身可 lint，但不假装它是产品代码。
+  {
+    files: ['scripts/**/*.ts'],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: {
+        project: ['./tsconfig.scripts.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    plugins: { '@typescript-eslint': tseslint.plugin },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-explicit-any': 'error',
+    },
+  },
 ]
