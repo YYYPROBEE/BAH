@@ -62,6 +62,14 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # 必须先 build：`pnpm test` 里有相当一部分用例断言的是 **bundle 产物**
+      # （CLI 冒烟里的 `bundle:base`、profile 加载的生效树等），它们读的是
+      # `packages/*/dist`，不是源码。干净 clone 上没有 dist ⇒ 这些用例必然红。
+      # 2026-10-27 首次跑矩阵时漏了这一步，Ubuntu 三个档位整片红；
+      # 本地之所以看不出来，是因为工作树里一直留着上次 build 的产物。
+      - name: Build
+        run: pnpm build
+
       - name: Unit tests
         run: pnpm test
 
