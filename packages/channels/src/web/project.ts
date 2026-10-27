@@ -182,6 +182,11 @@ export class WebProjector {
 
   /** 事件本体的投影（不含审计条目）。 */
   private project(event: AnySessionEvent): WebFrame[] {
+    // plan/* 域事件（B2）：不在 `AnySessionEvent` 联合里（appendDomain 不受事件表约束），
+    // 按 derive.ts 同款纪律用结构化读取，在类型化 switch 之前分流
+    if (String(event.type).startsWith('plan/')) {
+      return this.projectPlan(String(event.type), event)
+    }
     switch (event.type) {
       case 'turn/start': {
         this.turn = event.data.turn
@@ -374,6 +379,48 @@ export class WebProjector {
   /** 轮次帧。 */
   private turnFrame(seq: number, at: number, turn: number, phase: 'start' | 'end'): TurnFrame {
     return { kind: 'turn', seq, at, turn, phase }
+  }
+
+  /**
+   * plan/* 域事件 → plan 节点图（B2）。
+   *
+   * 只消费能改变节点状态/图的五个键：`node-started` / `node-result` / `node-blocked` /
+   * `aborted` / `completed`。`plan/created` / `plan/resumed` 不产帧——它们没有节点态，
+   * 节点要等 `node-started` 才有 tool 与 ordinal；提前画空框只会制造噪音。
+   */
+  private projectPlan(type: string, event: AnySessionEvent): WebFrame[] {
+    const data = event.data as Readonly<Record<string, unknown>>
+    const planId = typeof data['planId'] === 'string' ? data['planId'] : ''
+    if (planId === '') return []
+    const nodeId = typeof data['nodeId'] === 'string' ? data['nodeId'] : ''
+    switch (type) {
+      case 'plan/node-started': {
+        const tool = typeof data['tool'] === 'string' ? data['tool'] : 'unknown'
+        const ordinal = typeof data['ordinal'] === 'number' ? data['ordinal'] : 0
+        this.dag.planNode(this.turn, planId, nodeId, tool, ordinal)
+        break
+      }
+      case 'plan/node-result': {
+        const status = typeof data['status'] === 'string' ? data['status'] : ''
+        const code = typeof data['code'] === 'string' ? data['code'] : undefined
+        this.dag.planSettle(this.turn, planId, nodeId, status, code)
+        break
+      }
+      case 'plan/node-blocked': {
+        const raw = data['blockedBy']
+        const blockedBy = Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []
+        this.dag.planSettle(this.turn, planId, nodeId, 'blocked', undefined, blockedBy)
+        break
+      }
+      case 'plan/aborted': {
+        this.dag.planAbort(this.turn, planId)
+        break
+      }
+      // plan/completed：收尾帧（summary 里带上成功/失败/阻断计数）
+      default:
+        break
+    }
+    return [this.dagFrame(this.turn, event.at, event.seq)]
   }
 
   /** DAG 帧（无节点时返回一个空帧？不——返回 `undefined` 由调用方过滤）。 */

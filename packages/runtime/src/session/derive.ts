@@ -60,10 +60,33 @@ export function deriveMessages(
   const openCalls = new Map<string, string>()
   /** callId → 承载它的 assistant 消息（日志顺序可能晚于 tool/result） */
   const owners = new Map<string, AssistantOwner>()
+  /**
+   * `plan/*` 节点执行产生的 callId（**系统编排，不是模型发起**）。
+   *
+   * 为什么需要这张表：`plan_execute` 在会话内驱动节点时，每个节点仍走完整 `ToolPipeline`，
+   * 于是日志里出现 `tool/call` + `tool/result`，但**没有也不该有**承载它们的
+   * `assistant/message`——模型从未发起这些调用，节点结论是由 `plan_execute` 那一条
+   * 工具结果汇总回模型的。
+   *
+   * 两种错误处置都要避免：
+   * - 按空洞抛错：任何用过 plan 的会话在**下一轮请求**时崩（`session-log-hole`），
+   *   而日志本身是完整的；
+   * - 塞进 wire：模型会看到自己"发起过"一个它没发起的调用，还会看到节点级中间结果，
+   *   与 `plan_execute` 的汇总重复。
+   *
+   * 所以规则 2 只对**模型发起**的调用成立；plan 节点仍受规则 1（call/result 必须配对）约束。
+   */
+  const planCallIds = new Set<string>()
 
   // 第一遍：未知事件判定 + 索引带 toolCalls 的 assistant 消息
   for (const event of events) {
     if (!known.has(event.type)) {
+      // `plan/*` 是 runtime 自己的域事件、不在 `AnySessionEvent` 联合里（见 plan/events.ts
+      // 的说明：模块增强不能新增导出），只能按结构读 callId。
+      if (String(event.type) === 'plan/node-started') {
+        const callId = planCallIdOf(event.data)
+        if (callId !== undefined) planCallIds.add(callId)
+      }
       if (event.ignorable === true) continue
       throw new BahError(
         'session-unknown-event',
@@ -98,6 +121,12 @@ export function deriveMessages(
     }
 
     if (event.type === 'tool/result') {
+      // plan 节点：配对检查照做（`openCalls` 必须清），但结果**不进 wire**
+      // ——它没有承载消息，且结论已由 `plan_execute` 的汇总结果回给模型。
+      if (planCallIds.has(event.data.callId)) {
+        openCalls.delete(event.data.callId)
+        continue
+      }
       const owner = owners.get(event.data.callId)
       if (owner === undefined) {
         throw new BahError(
@@ -128,6 +157,18 @@ export function deriveMessages(
   }
 
   return messages
+}
+
+/**
+ * 从 `plan/node-started` 的载荷里取 `callId`（该事件不在 `AnySessionEvent` 联合里，按结构读）。
+ *
+ * 导出给 `system-prompt/history-cache.ts` 的增量投影共用：两个投影必须用**同一套判据**
+ * 认定"哪些 tool/result 属于系统编排"，否则全量 oracle 与增量缓存会给出不同的 wire。
+ */
+export function planCallIdOf(data: unknown): string | undefined {
+  if (typeof data !== 'object' || data === null) return undefined
+  if (!('callId' in data)) return undefined
+  return typeof data.callId === 'string' ? data.callId : undefined
 }
 
 /** `assistant/message` → 模型消息（工具调用一并带上，wire 侧靠它配对）。 */

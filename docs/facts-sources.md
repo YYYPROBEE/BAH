@@ -10,7 +10,7 @@
 <!-- facts:sources:start -->
 gates=35
 tools=16
-plan_lines=2208
+plan_lines=2246
 snapshot_files=6
 snapshot_cases=23
 coverage_covered=29958

@@ -19,6 +19,7 @@
     "@bah/safety": "workspace:*",
     "@bah/bank": "workspace:*",
     "@bah/knowledge": "workspace:*",
+    "@bah/memory-store": "workspace:*",
     "@bah/persistence": "workspace:*",
     "@bah/saga": "workspace:*",
     "@bah/util": "workspace:*",

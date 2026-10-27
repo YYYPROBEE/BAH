@@ -195,14 +195,33 @@ export interface AuditFrame {
   readonly toolName?: string
 }
 
-/** DAG 节点。 */
+/**
+ * DAG 节点。
+ *
+ * B2（2026-10-27）：新增 `plan` 节点与 plan 执行状态——`running` / `failed` /
+ * `skipped` / `incident` / `cancelled` 与 `PLAN_NODE_STATES` 对齐；
+ * `incident` 与 `failed` 在视图上**必须可区分**（security-design §4 第 6 条的自认缺口）。
+ */
 export interface DagNode {
   readonly id: string
   readonly label: string
-  readonly kind: 'step' | 'call'
+  readonly kind: 'step' | 'call' | 'plan'
   readonly step: number
   readonly tier: FrameTier
-  readonly state: 'pending' | 'ok' | 'denied' | 'blocked'
+  readonly state:
+    | 'pending'
+    | 'ok'
+    | 'denied'
+    | 'blocked'
+    | 'running'
+    | 'failed'
+    | 'skipped'
+    | 'incident'
+    | 'cancelled'
+  /** plan 节点的计划 ID（kind='plan' 时存在）。 */
+  readonly planId?: string
+  /** plan 节点的失败/跳过理由码（与 `plan/node-result.code` 同源）。 */
+  readonly code?: string
 }
 
 /** DAG 边（有向：先 → 后）。 */

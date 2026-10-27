@@ -44,7 +44,7 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **20 项 / 35 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
+| 注册表 / 门禁 | **21 项 / 35 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
 | 覆盖率 | **85.84%（行口径，29958/34898 行，实测 2026-10-27）；14/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
@@ -67,7 +67,7 @@
 | ⑥ 编排原语（plan） | `plan:dag` | 1 |
 | ⑦ 渠道（channel） | `channel:web` | 1 |
 | ⑧ 演示件（demo） | `demo:echo` | 1 |
-| **合计** | — | **20** |
+| **合计** | — | **21** |
 <!-- END GENERATED:layers -->
 
 ### 3.1 依赖图（谁向谁要服务）
@@ -94,7 +94,8 @@ graph LR
   p16["bank:saga-audit"]
   p17["bank:saga-bridge"]
   p18["plan:dag"]
-  p19["channel:web"]
+  p19["bah:memory-store"]
+  p20["channel:web"]
   p0 --> host["宿主运行时 boot()"]
   p10 --> host["宿主运行时 boot()"]
   p10 --> p0
@@ -113,8 +114,11 @@ graph LR
   p16 --> p5
   p19 --> host["宿主运行时 boot()"]
   p19 --> p0
-  p19 --> p10
-  p19 --> p4
+  p19 --> p2
+  p20 --> host["宿主运行时 boot()"]
+  p20 --> p0
+  p20 --> p10
+  p20 --> p4
   p4 --> host["宿主运行时 boot()"]
   p4 --> p0
   p4 --> p3
@@ -162,6 +166,7 @@ graph LR
 | bank:saga-audit | `bah:saga-clock`、`bah:session-files` | `bank:saga`、`core:persistence` |
 | bank:saga-bridge | —（无依赖） | — |
 | plan:dag | —（无依赖） | — |
+| bah:memory-store | `bah:run`、`runtime:session`、`runtime:system-prompt` | 宿主运行时 boot()、`core:session`、`core:prompt` |
 | channel:web | `bah:run`、`runtime:session`、`runtime:agents`、`interaction:approval` | 宿主运行时 boot()、`core:session`、`core:agent`、`interaction:approval` |
 <!-- END GENERATED:dependencies -->
 
@@ -178,26 +183,33 @@ graph TB
     p9_headless["bank:knowledge（未装配）"]
     p17_headless["bank:saga-bridge"]
     p18_headless["plan:dag（未装配）"]
-    p19_headless["channel:web（未装配）"]
+    p20_headless["channel:web（未装配）"]
   end
   subgraph P_plan["profiles/plan"]
     p7_plan["demo:echo（未装配）"]
     p9_plan["bank:knowledge（未装配）"]
     p17_plan["bank:saga-bridge（enabled: false）"]
     p18_plan["plan:dag"]
-    p19_plan["channel:web（未装配）"]
+    p20_plan["channel:web（未装配）"]
   end
   subgraph P_web["profiles/web"]
     p7_web["demo:echo"]
     p9_web["bank:knowledge"]
     p17_web["bank:saga-bridge"]
     p18_web["plan:dag（未装配）"]
-    p19_web["channel:web"]
+    p20_web["channel:web"]
+  end
+  subgraph P_web-plan["profiles/web-plan"]
+    p7_web-plan["demo:echo"]
+    p9_web-plan["bank:knowledge"]
+    p17_web-plan["bank:saga-bridge（enabled: false）"]
+    p18_web-plan["plan:dag"]
+    p20_web-plan["channel:web"]
   end
   classDef ghost stroke-dasharray: 5 5,stroke:#9aa4b2,color:#9aa4b2
   classDef off stroke-dasharray: 3 3,stroke:#c9822f,color:#c9822f
-  class p9_headless,p18_headless,p19_headless,p7_plan,p9_plan,p19_plan,p18_web ghost
-  class p17_plan off
+  class p9_headless,p18_headless,p20_headless,p7_plan,p9_plan,p20_plan,p18_web ghost
+  class p17_plan,p17_web-plan off
 ```
 <!-- END GENERATED:assembly -->
 
@@ -209,28 +221,29 @@ graph TB
 同一份数据的表格视图（答辩时按行念更清楚）：
 
 <!-- BEGIN GENERATED:matrix -->
-| 组件 | profiles/headless | profiles/plan | profiles/web |
-|---|---|---|---|
-| core:session | ● 生效 | ● 生效 | ● 生效 |
-| core:tools | ● 生效 | ● 生效 | ● 生效 |
-| core:prompt | ● 生效 | ● 生效 | ● 生效 |
-| core:model | ● 生效 | ● 生效 | ● 生效 |
-| core:agent | ● 生效 | ● 生效 | ● 生效 |
-| core:persistence | ● 生效 | ● 生效 | ● 生效 |
-| audit:decisions | ● 生效 | ● 生效 | ● 生效 |
-| demo:echo | ● 生效 | · 未装配 | ● 生效 |
-| bank:tools | ● 生效 | ● 生效 | ● 生效 |
-| bank:knowledge | · 未装配 | · 未装配 | ● 生效 |
-| interaction:approval | ● 生效 | ● 生效 | ● 生效 |
-| safety:sentry | ● 生效 | ● 生效 | ● 生效 |
-| safety:verify | ● 生效 | ● 生效 | ● 生效 |
-| safety:sandbox | ● 生效 | ● 生效 | ● 生效 |
-| bank:saga-store | ● 生效 | ● 生效 | ● 生效 |
-| bank:saga | ● 生效 | ● 生效 | ● 生效 |
-| bank:saga-audit | ● 生效 | ● 生效 | ● 生效 |
-| bank:saga-bridge | ● 生效 | ○ 关闭 | ● 生效 |
-| plan:dag | · 未装配 | ● 生效 | · 未装配 |
-| channel:web | · 未装配 | · 未装配 | ● 生效 |
+| 组件 | profiles/headless | profiles/plan | profiles/web | profiles/web-plan |
+|---|---|---|---|---|
+| core:session | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| core:tools | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| core:prompt | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| core:model | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| core:agent | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| core:persistence | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| audit:decisions | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| demo:echo | ● 生效 | · 未装配 | ● 生效 | ● 生效 |
+| bank:tools | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| bank:knowledge | · 未装配 | · 未装配 | ● 生效 | ● 生效 |
+| interaction:approval | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| safety:sentry | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| safety:verify | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| safety:sandbox | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| bank:saga-store | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| bank:saga | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| bank:saga-audit | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| bank:saga-bridge | ● 生效 | ○ 关闭 | ● 生效 | ○ 关闭 |
+| plan:dag | · 未装配 | ● 生效 | · 未装配 | ● 生效 |
+| bah:memory-store | · 未装配 | · 未装配 | · 未装配 | · 未装配 |
+| channel:web | · 未装配 | · 未装配 | ● 生效 | ● 生效 |
 <!-- END GENERATED:matrix -->
 
 ### 4.1 五处差异的**理由**（不是随手配的）

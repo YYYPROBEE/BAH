@@ -99,6 +99,13 @@ interface RunRecord {
   readonly startedAt: number
   readonly states: Map<string, PlanNodeState>
   /**
+   * 节点 → 本进程内已派发次数（跨窗口基线来自 `PlanReplay.starts`）。
+   *
+   * 只服务于 `callId` 的第 3 段：`resume(from: X)` 重跑 X 时必须换一个 callId，
+   * 否则票据 ID（按 callId 派生）会与首次执行撞号。
+   */
+  readonly attempts: Map<string, number>
+  /**
    * 节点 id → 工具返回值（**只在内存**，进不了任何事件）。
    *
    * 动态 args 的唯一数据源。之所以只能放内存：output 里有金额与收款人，
@@ -141,6 +148,8 @@ type Entry =
       readonly skipped: number
       /** 本次显式授权重跑的节点。 */
       readonly resumedFrom: readonly string[]
+      /** 重放得到的每节点 `plan/node-started` 历史次数（callId 的 attempt 基线）。 */
+      readonly attempts: ReadonlyMap<string, number>
     }
 
 /** 引擎（无状态之外的一切都在实例上：`inflight` 是进程内单写者）。 */
@@ -366,7 +375,7 @@ export class PlanEngine {
         ...(options.signal === undefined ? {} : { signal: options.signal }),
         initiator: options.initiator,
       },
-      { kind: 'resume', seed, skipped, resumedFrom: from },
+      { kind: 'resume', seed, skipped, resumedFrom: from, attempts: replay.starts },
     )
   }
 
@@ -406,7 +415,12 @@ export class PlanEngine {
     options: PlanRunOptions,
     entry: Entry,
   ): Promise<PlanRunSummary> {
-    const run = this.createRun(plan, options, entry.kind === 'resume' ? entry.seed : undefined)
+    const run = this.createRun(
+      plan,
+      options,
+      entry.kind === 'resume' ? entry.seed : undefined,
+      entry.kind === 'resume' ? entry.attempts : undefined,
+    )
     this.active.set(plan.planId, run)
 
     const external = options.signal
@@ -501,6 +515,7 @@ export class PlanEngine {
     plan: Plan,
     options: PlanRunOptions,
     seed?: ReadonlyMap<string, PlanNodeState>,
+    attempts?: ReadonlyMap<string, number>,
   ): RunRecord {
     const { order } = kahnSort(plan.nodes)
     const nodes = new Map<string, PlanNode>()
@@ -535,6 +550,8 @@ export class PlanEngine {
       controller: new AbortController(),
       startedAt: this.now(),
       states,
+      // attempt 基线：首次运行是空表（每个节点从 1 开始），续跑带上次的重放计数
+      attempts: new Map<string, number>(attempts ?? []),
       outputs: new Map<string, unknown>(),
       codes: new Map<string, string>(),
       durations: new Map<string, number>(),
@@ -564,7 +581,6 @@ export class PlanEngine {
     }
 
     const ordinal = run.ordinal.get(node.id) ?? 0
-    const callId = `${run.planId}#${node.id}#1`
 
     this.move(run, node.id, 'ready')
     this.move(run, node.id, 'running')
@@ -590,6 +606,14 @@ export class PlanEngine {
       return
     }
     const effective: PlanNode = resolution.args === node.args ? node : { ...node, args: resolution.args }
+
+    // ★ attempt 只在**真正派发**时才递增：上面的 args 解析失败分支没有落 `plan/node-started`，
+    //   在那里递增会让 callId 跳号（`PlanReplay.starts` 从 node-started 数，数不出那个号）。
+    //   递增的必要性是票据层面的：票据 ID 按 callId 派生，`resume(from: X)` 重跑 X 若沿用
+    //   `#1`，第二次执行就会复用第一张票据的账本行。
+    const attempt = (run.attempts.get(node.id) ?? 0) + 1
+    run.attempts.set(node.id, attempt)
+    const callId = `${run.planId}#${node.id}#${String(attempt)}`
 
     this.emitEvent('plan/node-started', {
       planId: run.planId,
@@ -927,6 +951,15 @@ export interface PlanReplay {
   /** 最后那个 `plan/completed` 声明的终态节点数（`total - cancelled`）；aborted 收尾时缺省。 */
   readonly expectedTerminals: number | undefined
   /**
+   * 节点 → 历史 `plan/node-started` 次数（**跨窗口累计**，含首次运行）。
+   *
+   * 用途只有一个：给 `callId` 的第 3 段（attempt）提供跨窗口的自增基线。
+   * 不数它的话，`resume(from: X)` 重跑 X 会生成与首次**完全相同**的 callId
+   * （`${planId}#X#1`），而票据 ID 按 callId 派生 —— 撞号意味着第二次执行
+   * 复用第一张票据的账本行，审批与审计都会指向错误的执行。
+   */
+  readonly starts: ReadonlyMap<string, number>
+  /**
    * 节点 → 历史 `failed` 次数（**跨窗口累计**，含首次运行）。
    *
    * 与 `states` 的区别：`states` 是"现在是什么状态"（后写覆盖），这里是"失败过几次"（只增不减）。
@@ -957,6 +990,7 @@ export function replayPlan(
 ): PlanReplay {
   const states = new Map<string, PlanNodeState>()
   const failures = new Map<string, number>()
+  const starts = new Map<string, number>()
   let sawCreated = false
   let digest: string | undefined
   let closed = false
@@ -983,7 +1017,11 @@ export function replayPlan(
         break
       case 'plan/node-started': {
         const nodeId = stringOf(data, 'nodeId')
-        if (nodeId !== undefined) states.set(nodeId, 'running')
+        if (nodeId !== undefined) {
+          states.set(nodeId, 'running')
+          // 只增不减：这是 callId 里 attempt 段的跨窗口基线（见 `PlanReplay.starts`）
+          starts.set(nodeId, (starts.get(nodeId) ?? 0) + 1)
+        }
         break
       }
       case 'plan/node-result': {
@@ -1033,7 +1071,7 @@ export function replayPlan(
     }
   }
 
-  return { sawCreated, digest, states, closed, expectedTerminals, failures }
+  return { sawCreated, digest, states, closed, expectedTerminals, failures, starts }
 }
 
 /** 终态节点数（`plan/completed` 的 `total - cancelled` 就是它）。 */

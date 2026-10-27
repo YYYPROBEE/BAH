@@ -129,6 +129,8 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       'bank:saga-bridge',
       // 编排原语（plan:dag）：登记 = 可被 patch 的 `use` 引用，不等于默认装配
       'plan:dag',
+      // C4 跨会话记忆：同样只登记不默认装配（记忆会改变模型输入，由 profile 显式开）
+      'bah:memory-store',
       // 渠道（施工单 13）：不在 base bundle 里，由 profiles/web 的 patch 加行
       'channel:web',
     ])

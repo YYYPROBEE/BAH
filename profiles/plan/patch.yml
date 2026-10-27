@@ -63,3 +63,7 @@
     # validate 里 fail-loud 校验这一条，v1 没有 lease 可以兜住它。
     planTimeoutMs: 30000
     dryRunDefault: false
+    # B1：把 plan_propose / plan_execute 暴露给模型。只有本 profile 打开；
+    # 默认 web / headless 的工具面不变（生产 profile 不因为多了个能力就放宽）。
+    modelTools: true
+    modelMaxNodes: 8

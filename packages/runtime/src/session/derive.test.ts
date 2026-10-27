@@ -235,4 +235,61 @@ describe('deriveMessages 的 wire 顺序恢复（R44）', () => {
     expect(error.code).toBe('session-log-hole')
     expect(error.message).toContain('找不到承载它的 assistant/message')
   })
+
+  it('plan 节点（系统编排）的 tool/result 不进 wire，也不按空洞抛错', () => {
+    const store = new SessionStore()
+    // 模型发起 plan_execute：这条有承载消息，必须进 wire
+    store.append('assistant/message', {
+      content: [{ type: 'text', text: '按计划执行' }],
+      toolCalls: [{ callId: 'c-plan', name: 'plan_execute', args: {} }],
+    })
+    store.append('tool/call', {
+      callId: 'c-plan',
+      name: 'plan_execute',
+      args: {},
+      fingerprint: 'c-plan',
+      tier: { level: 'yellow' },
+      at: 1,
+    })
+    // plan 节点执行：`plan/node-started` 声明了 callId，随后是**裸** tool/call + tool/result
+    // （模型从未发起它，因此不可能有承载消息）
+    store.appendDomain('plan/node-started', {
+      planId: 'p-1',
+      nodeId: 'n1',
+      tool: 'account_balance',
+      ordinal: 1,
+      callId: 'p-1#n1#1',
+      at: 1,
+    })
+    store.append('tool/call', {
+      callId: 'p-1#n1#1',
+      name: 'account_balance',
+      args: {},
+      fingerprint: 'p-1#n1#1',
+      tier: { level: 'green' },
+      at: 1,
+    })
+    store.append('tool/result', {
+      callId: 'p-1#n1#1',
+      name: 'account_balance',
+      isError: false,
+      content: [{ type: 'text', text: '余额 100' }],
+    })
+    store.append('tool/result', {
+      callId: 'c-plan',
+      name: 'plan_execute',
+      isError: false,
+      content: [{ type: 'text', text: '已执行 1 个节点' }],
+    })
+
+    const messages = deriveMessages(store.events())
+
+    // ① 不抛 `session-log-hole`：日志是完整的，只是节点结果不属于模型发起的调用
+    // ② 节点级结果不进 wire：模型看到的是 plan_execute 的汇总，不是节点中间值
+    expect(messages.filter((message) => message.role === 'tool').map((message) => message.callId)).toEqual([
+      'c-plan',
+    ])
+    // ③ 配对仍然生效：plan 节点的 tool/call 也必须有 tool/result（规则 1 不放宽）
+    expect(messages.some((message) => message.role === 'assistant')).toBe(true)
+  })
 })

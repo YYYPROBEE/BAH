@@ -29,6 +29,8 @@ import { sessionPlugin } from './session.ts'
 import { toolsPlugin } from './tools.ts'
 // W05：断言核验门（监听 `agent/reply`）
 import { verifyPlugin } from './verify.ts'
+// C4：跨会话记忆（`turn/end` 写入、`agent/pre-step` 召回、提示词段注入）
+import { memoryPlugin } from './memory.ts'
 import { webPlugin } from './web.ts'
 
 /** base bundle 的插件集（施工单 06 §3：内核 + 主循环 + 模型层 + 工具管线 + 持久化）。 */
@@ -57,6 +59,9 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   // 编排原语（plan:dag）：只在新 profile `plan` 里被 patch 显式启用。
   // 登记在这里 = "可以被 use 引用"，**不等于**会被装配（`enabled: true` 必须写在 patch 里）
   planPlugin,
+  // C4：跨会话记忆。登记 = 可被 use 引用；真正装配由 profile 的 patch 决定
+  // （默认不装：记忆会改变模型输入，不做静默开启）
+  memoryPlugin,
   // 渠道（施工单 13）：前端作为插件模块接入；不写进 base bundle，由 web profile 的 patch 加行
   webPlugin,
 ].map(toAnyHostPlugin)
@@ -68,6 +73,7 @@ export {
   bankToolsPlugin,
   echoPlugin,
   knowledgePlugin,
+  memoryPlugin,
   modelPlugin,
   persistencePlugin,
   planPlugin,

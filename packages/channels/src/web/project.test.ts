@@ -438,3 +438,102 @@ describe('WebProjector · 消息与流式', () => {
     expect(frame?.kind === 'message' ? frame.source : '').toBe('context')
   })
 })
+
+describe('WebProjector · plan 节点图（B2）', () => {
+  /** 一张两节点计划的事件：n1 成功、n2 失败（非 incident）。 */
+  function planEvents(): AnySessionEvent[] {
+    reset()
+    return [
+      ev('turn/start', { turn: 1 }),
+      ev('plan/created', { planId: 'p-1', nodes: 2, edges: 1, dryRun: false, digest: 'd1' }),
+      ev('plan/node-started', { planId: 'p-1', nodeId: 'n1', tool: 'account_balance', ordinal: 1, callId: 'pc-1' }),
+      ev('plan/node-result', { planId: 'p-1', nodeId: 'n1', status: 'succeeded', durationMs: 5 }),
+      ev('plan/node-started', { planId: 'p-1', nodeId: 'n2', tool: 'transfer_create', ordinal: 2, callId: 'pc-2' }),
+      ev('plan/node-result', { planId: 'p-1', nodeId: 'n2', status: 'failed', code: 'insufficient-funds', durationMs: 3 }),
+      ev('plan/completed', { planId: 'p-1', status: 'failed', total: 2, succeeded: 1, failed: 1, blocked: 0, skipped: 0, cancelled: 0, durationMs: 8 }),
+    ]
+  }
+
+  it('plan 节点入图：状态与 plan/* 事件一致，按 ordinal 串联', () => {
+    const frames = projectSession(planEvents()).frames
+    const dag = frames.filter((frame) => frame.kind === 'dag').pop() as DagFrame
+    const planNodes = dag.nodes.filter((node) => node.kind === 'plan')
+    expect(planNodes).toHaveLength(2)
+    const byNode = new Map(planNodes.map((node) => [node.planId === undefined ? '' : node.id, node]))
+    const n1 = [...byNode.values()].find((node) => node.label.includes('n1'))
+    const n2 = [...byNode.values()].find((node) => node.label.includes('n2'))
+    expect(n1?.state).toBe('ok')
+    expect(n2?.state).toBe('failed')
+    expect(n2?.code).toBe('insufficient-funds')
+    // 按 ordinal 串联成边（执行序，如实登记不是 deps 边）
+    expect(dag.edges).toEqual([
+      { from: expect.stringContaining('plan:p-1:n1'), to: expect.stringContaining('plan:p-1:n2') },
+    ])
+    expect(dag.summary).toContain('计划节点 2 个')
+    expect(dag.summary).toContain('1 个失败')
+  })
+
+  it('incident（status=failed + PLAN_INCIDENT_CODE）与 failed 在视图上可区分', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('plan/node-started', { planId: 'p-1', nodeId: 'nX', tool: 'pay', ordinal: 1, callId: 'pc-9' }))
+    projector.apply(ev('plan/node-result', { planId: 'p-1', nodeId: 'nX', status: 'failed', code: 'upstream-unavailable', durationMs: 1 }))
+    const dag = projector.frames().filter((frame) => frame.kind === 'dag').pop() as DagFrame
+    const node = dag.nodes.find((candidate) => candidate.kind === 'plan')
+    expect(node?.state).toBe('incident')
+    expect(dag.summary).toContain('incident')
+  })
+
+  it('blocked 只落 node-blocked：无 result 也置 blocked，blockedBy 进 code', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('plan/node-started', { planId: 'p-1', nodeId: 'nB', tool: 'pay', ordinal: 2, callId: 'pc-3' }))
+    projector.apply(ev('plan/node-blocked', { planId: 'p-1', nodeId: 'nB', blockedBy: ['n1'], reason: 'upstream-failed' }))
+    const dag = projector.frames().filter((frame) => frame.kind === 'dag').pop() as DagFrame
+    const node = dag.nodes.find((candidate) => candidate.kind === 'plan')
+    expect(node?.state).toBe('blocked')
+    expect(node?.code).toBe('blocked-by:n1')
+  })
+
+  it('skipped 与 cancelled 与 failed 三态互不混淆', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('plan/node-started', { planId: 'p-1', nodeId: 'a', tool: 'pay', ordinal: 1, callId: 'c1' }))
+    projector.apply(ev('plan/node-result', { planId: 'p-1', nodeId: 'a', status: 'skipped', code: 'plan-dry-run' }))
+    projector.apply(ev('plan/node-started', { planId: 'p-1', nodeId: 'b', tool: 'pay', ordinal: 2, callId: 'c2' }))
+    projector.apply(ev('plan/node-result', { planId: 'p-1', nodeId: 'b', status: 'cancelled' }))
+    const dag = projector.frames().filter((frame) => frame.kind === 'dag').pop() as DagFrame
+    const states = dag.nodes.filter((node) => node.kind === 'plan').map((node) => node.state)
+    expect(states).toEqual(['skipped', 'cancelled'])
+  })
+
+  it('plan/aborted 把还在 running 的节点置为 cancelled', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('plan/node-started', { planId: 'p-1', nodeId: 'n1', tool: 'pay', ordinal: 1, callId: 'c1' }))
+    projector.apply(ev('plan/aborted', { planId: 'p-1', reason: 'halted' }))
+    const dag = projector.frames().filter((frame) => frame.kind === 'dag').pop() as DagFrame
+    const node = dag.nodes.find((candidate) => candidate.kind === 'plan')
+    expect(node?.state).toBe('cancelled')
+    expect(node?.code).toBe('plan-aborted')
+  })
+
+  it('plan/created 与 plan/resumed 不产空帧（节点要等 node-started）', () => {
+    reset()
+    const projector = new WebProjector()
+    const a = projector.apply(ev('turn/start', { turn: 1 }))
+    const before = projector.frames().length
+    const created = projector.apply(ev('plan/created', { planId: 'p-1', nodes: 0, edges: 0, digest: 'd' }))
+    const resumed = projector.apply(ev('plan/resumed', { planId: 'p-1', digest: 'd' }))
+    // created/resumed 各产一帧收尾 DAG（同一帧 upsert），但不新增空 plan 节点
+    expect(projector.frames().filter((frame) => frame.kind === 'dag').every(
+      (frame) => frame.kind === 'dag' && frame.nodes.every((node) => node.kind !== 'plan'),
+    )).toBe(true)
+    expect(a.length + created.length + resumed.length).toBeGreaterThan(0)
+    expect(projector.frames().length).toBeGreaterThanOrEqual(before)
+  })
+})
