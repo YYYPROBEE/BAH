@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { BANK_TICKET_GUARD } from '@bah/bank'
-import { SENTRY_SERVICE, DEFAULT_SENTRY_SETTINGS } from '@bah/safety'
+import { HALT_SERVICE, SENTRY_SERVICE, DEFAULT_SENTRY_SETTINGS } from '@bah/safety'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
 import { asSessionId, captureThrown } from '@bah/test-support'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -471,6 +471,95 @@ describe('装配细节（覆盖率与可观察性）', () => {
       expect(denied?.ignorable).toBe(true)
     } finally {
       await app.dispose('test')
+    }
+  })
+})
+
+describe('C3 HALT 跨重启（部署级停机）', () => {
+  /** 本组用独立部署目录：停机文件在 root 下，会污染同文件其它用例的 boot。 */
+  let dir = ''
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'bah-halt-boot-'))
+  })
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  /** 用同一个部署目录起应用（每次新会话 ID：证明停机不随会话走）。 */
+  async function bootIn(dirPath: string, script: readonly unknown[]): Promise<BootedApp> {
+    bootSeq += 1
+    return boot({
+      profile: { name: 'fx-halt', bundles: ['fx-halt'], hmr: false },
+      bundles: [{ name: 'fx-halt', rows: rows({ script }) }],
+      layers: [],
+      catalog: createCatalog(),
+      run: {
+        sessionId: asSessionId(`s-halt-${String(bootSeq)}`),
+        now: () => 1_792_000_000_000,
+        jsonlDir: dirPath,
+      },
+    })
+  }
+
+  it('第一次 boot 停机 → 第二次 boot（新会话 ID、同部署目录）仍是 HALTED', async () => {
+    const first = await bootIn(dir, [{ text: '在' }])
+    const halt = first.ctx.get(HALT_SERVICE)
+    expect(halt.status).toBe('RUNNING')
+    expect(halt.view().restored).toBe(false)
+    expect(halt.halt('manual', '值班主管按下停机')).toBe(true)
+    await first.dispose()
+
+    const second = await bootIn(dir, [{ text: '在' }])
+    try {
+      const restored = second.ctx.get(HALT_SERVICE)
+      expect(restored.status).toBe('HALTED')
+      expect(restored.reason).toBe('manual')
+      // `restored=true`：这是"上一轮停机没人解除"，不是"刚刚又触发了一次"
+      expect(restored.view()).toMatchObject({ halted: true, restored: true, p0Hits: 0 })
+    } finally {
+      await second.dispose()
+    }
+  })
+
+  it('重启后的 HALTED 在第一道闸就拒新 turn（工具层根本到不了）', async () => {
+    const app = await bootIn(dir, [
+      { tool: { id: 'call-halted', name: 'account_balance', args: {} } },
+      { text: '余额查询完成。' },
+    ])
+    try {
+      expect(app.ctx.get(HALT_SERVICE).status).toBe('HALTED')
+
+      // HALT 有三道闸（新 turn / 新工具 / 新 plan 节点）：恢复后的状态在**第一道**就拦住，
+      // 所以这里断言的是 `send()` 抛 `safety-halted`，而不是走到工具层看 deny。
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      const error = captureThrown(() => agent.send('查一下余额'))
+      expect(error.code).toBe('safety-halted')
+
+      // 会话里连一条 tool/call 都没有：模型根本没被调用
+      expect(payloads(app.ctx.get(SESSION_SERVICE).events(), 'tool/call')).toEqual([])
+    } finally {
+      await app.dispose()
+    }
+  })
+
+  it('凭票据解除后落盘被清除：再 boot 恢复 RUNNING', async () => {
+    const app = await bootIn(dir, [{ text: '在' }])
+    const halt = app.ctx.get(HALT_SERVICE)
+    expect(halt.status).toBe('HALTED')
+
+    // 解除必须走审批（本夹具 responder=headless + autoDecision=allow + autoVerify）
+    const requested = await halt.requestUnfreeze()
+    expect(requested.ok).toBe(true)
+    if (!requested.ok) return
+    expect(halt.unfreeze(requested.ticketId)).toEqual({ ok: true })
+    await app.dispose()
+
+    const next = await bootIn(dir, [{ text: '在' }])
+    try {
+      expect(next.ctx.get(HALT_SERVICE).status).toBe('RUNNING')
+      expect(next.ctx.get(HALT_SERVICE).view().restored).toBe(false)
+    } finally {
+      await next.dispose()
     }
   })
 })

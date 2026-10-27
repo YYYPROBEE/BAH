@@ -21,7 +21,7 @@ import { defineService } from '@bah/core'
 import type { Context, Disposer, ServiceKey, SessionId, ToolTierLevel } from '@bah/core'
 
 import { HaltState } from '../halt.ts'
-import type { HaltEvent, HaltHandle, HaltTicket } from '../halt.ts'
+import type { HaltEvent, HaltHandle, HaltPersistence, HaltTicket } from '../halt.ts'
 import { BudgetLedger, TraceLog } from '../kernel/index.ts'
 import type { TraceSink } from '../kernel/index.ts'
 
@@ -90,6 +90,12 @@ export interface SentryPorts {
    * 缺省 = 本进程没有审批面，`requestUnfreeze()` 返回 `halt-approval-absent`。
    */
   readonly requestHaltTicket?: () => Promise<HaltTicket | undefined>
+  /**
+   * HALT 的跨重启持久化（宿主实现：会话根 `halt.json`）。
+   *
+   * 缺省 = 进程级停机（重启即解除）。生产装配必须注入，否则"停机"只是本进程的假象。
+   */
+  readonly haltPersistence?: HaltPersistence
 }
 
 /** 对外观察视图（审计面板 / 用例断言 / 人工接管前置检查）。 */
@@ -148,6 +154,7 @@ export function provideSentry(
     recordHalt: ports.recordHalt ?? (() => undefined),
     enabled: settings.halt.enabled,
     ...(ports.requestHaltTicket === undefined ? {} : { requestTicket: ports.requestHaltTicket }),
+    ...(ports.haltPersistence === undefined ? {} : { persistence: ports.haltPersistence }),
   })
   const budget = new BudgetLedger({
     total_calls: settings.budget.totalCalls,

@@ -35,6 +35,8 @@ import { BahError, assertNever, reasonOf } from '@bah/util'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { DECISION_AUDIT } from './audit-decisions.ts'
+import { createHaltStore } from './halt-store.ts'
+import { DEFAULT_ROOT } from './persistence.ts'
 import { RUN_SERVICE } from '../boot.ts'
 
 /** `safety:sentry` 的配置就是 sentry 模块的 `SentrySettings`（校验已内聚在安全包）。 */
@@ -169,6 +171,10 @@ export const sentryPlugin: HostPlugin<SentryPluginSettings> = {
       const handle = provideSentry(ctx, config, {
         sessionId: run.sessionId,
         now: run.now,
+        // HALT 跨重启（C3）：`<root>/halt.json` 与会话 ID 无关——停机是部署级事实，
+        // 换个会话 ID 不该绕过它。固定 `fsync: true`：停机写入不在审批热路径上
+        // （一次停机只写一次），没有理由为了演示省这一次 fsync。
+        haltPersistence: createHaltStore({ root: run.jsonlDir ?? DEFAULT_ROOT }),
         record: (type, data) => {
           session.appendDomain(type, data, { ignorable: true })
         },

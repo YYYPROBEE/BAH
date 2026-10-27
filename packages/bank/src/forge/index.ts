@@ -69,9 +69,15 @@ export interface BankDataset {
 /** 默认演示基准时刻：2026-10-19 10:00（东八区）。 */
 export const DEMO_NOW = Date.UTC(2026, 9, 19, 2, 0, 0)
 
-/** 默认风控阈值（施工单 07 §4.3；部署时可整体替换）。 */
+/**
+ * 默认风控阈值（施工单 07 §4.3；部署时可整体替换）。
+ *
+ * 日累计转账限额与赛题分级线的示例值对齐：**1000 元（100,000 分）**。
+ * 旧值 5000 元（500,000 分）与 `bank:tools.dailyTransferLimit` 的默认 1000 元并存，
+ * 造成「种子数据说 5000、生效口径说 1000」的双口径，2026-10-27 对齐。
+ */
 export const DEFAULT_LIMITS: BankLimits = {
-  dailyTransferLimitCents: 500_000,
+  dailyTransferLimitCents: 100_000,
   nightStartHour: 22,
   nightEndHour: 6,
   nightLargeCents: 100_000,
@@ -127,7 +133,7 @@ function buildDemo(now: number): DatasetParts {
   ]
 
   const cards: Card[] = [
-    card(bankIds.card('c-1'), current, '1234', 'physical', 500_000, 2_000_000),
+    card(bankIds.card('c-1'), current, '1234', 'physical', 100_000, 2_000_000),
     card(bankIds.card('c-2'), current, '5678', 'virtual', 200_000, 800_000),
   ]
 
@@ -289,7 +295,7 @@ function buildAdversarial(now: number): DatasetParts {
   }
   const accountId = bankIds.account('a-1')
   const accounts: Account[] = [account(accountId, user.id, '6222 0202 0000 3333', 'current', 2_000_000, 2_000_000)]
-  const cards: Card[] = [card(bankIds.card('c-1'), accountId, '3333', 'physical', 500_000, 2_000_000)]
+  const cards: Card[] = [card(bankIds.card('c-1'), accountId, '3333', 'physical', 100_000, 2_000_000)]
 
   const payee: Payee = {
     id: bankIds.payee('p-1'),
@@ -302,13 +308,14 @@ function buildAdversarial(now: number): DatasetParts {
   }
 
   // 对抗素材：
-  // 1) 490,000 / 500,000：几乎触发日限额（差 10,000 分）
-  // 2) 夜间 120,000：夜间大额（analyzeBill 的 late-night 素材）
+  // 1) 99,000 / 100,000：几乎触发日限额（差 1,000 分）
+  // 2) 夜间 100,000：夜间大额（阈值 nightLargeCents = 100,000 分）
   // 3) 10 分钟窗口内 5 笔：短时高频（velocityWindowMs = 10min、velocityMaxCount = 5）
   // 4) 订阅同额重复扣费两次：账单"重复扣费"异常
+  // 5) 装修 250,000：账单"大额支出"异常（阈值 billLargeCents = 200,000 分）
   const transactions: Transaction[] = [
-    txn('t-1', accountId, now - 2 * 60 * 60 * 1000, 490_000, 'out', '租房', 'transfer', 'app'),
-    txn('t-2', accountId, now - 10 * 60 * 60 * 1000, 120_000, 'out', '夜间商户', 'consumption', 'app'),
+    txn('t-1', accountId, now - 2 * 60 * 60 * 1000, 99_000, 'out', '租房', 'transfer', 'app'),
+    txn('t-2', accountId, now - 10 * 60 * 60 * 1000, 100_000, 'out', '夜间商户', 'consumption', 'app'),
     txn('t-3', accountId, now - 9 * 60 * 1000, 10_000, 'out', '高频 1', 'transfer', 'app'),
     txn('t-4', accountId, now - 8 * 60 * 1000, 10_000, 'out', '高频 2', 'transfer', 'app'),
     txn('t-5', accountId, now - 7 * 60 * 1000, 10_000, 'out', '高频 3', 'transfer', 'app'),
@@ -316,6 +323,7 @@ function buildAdversarial(now: number): DatasetParts {
     txn('t-7', accountId, now - 5 * 60 * 1000, 10_000, 'out', '高频 5', 'transfer', 'app'),
     txn('t-8', accountId, now - 3 * DAY_MS, 3_000, 'out', '云音乐', 'subscription', 'app'),
     txn('t-9', accountId, now - 3 * DAY_MS + 60_000, 3_000, 'out', '云音乐', 'subscription', 'app'),
+    txn('t-10', accountId, now - 5 * DAY_MS, 250_000, 'out', '装修', 'consumption', 'app'),
   ]
 
   return {

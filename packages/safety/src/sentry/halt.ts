@@ -129,6 +129,43 @@ export interface HaltView {
   readonly detail?: string
   /** 本 HALT 周期内累计的 P0 命中数（解除后清零）。 */
   readonly p0Hits: number
+  /**
+   * 本次 HALT 是否来自**重启恢复**（磁盘上的停机快照），而不是本进程内触发。
+   *
+   * 运维看板上这两个要分开：`restored=true` 意味着"上一轮停机没人解除"，
+   * 与"刚刚又触发了一次" 是完全不同的处置。
+   */
+  readonly restored: boolean
+}
+
+/**
+ * 跨重启的 HALT 快照。
+ *
+ * **刻意不含票据**：解除 HALT 必须重新走一次 U 盾 MFA 审批（`requestUnfreeze()`）。
+ * 把票据写进磁盘等于把"解除凭据"变成可离线复制的文件，一次性票据也就失去意义。
+ */
+export interface HaltSnapshot {
+  readonly reason: HaltReason
+  readonly detail?: string
+  /** 进入 HALT 的时刻（epoch ms，由注入钟给出）。 */
+  readonly at: number
+}
+
+/**
+ * HALT 状态的持久化端口（宿主实现；safety 包不碰 `node:fs`）。
+ *
+ * 三条纪律：
+ *
+ * 1. `load()` 抛错 = **停机证据不可读**，必须让宿主拒启。静默当作 `RUNNING`
+ *    等于"文件坏了就自动解除停机"，这是最坏的一种降级。
+ * 2. `save()` 在 `safety/halt` 落账**之后**调用。宁可少一份磁盘副本（进程恰好在此崩溃），
+ *    也不要出现"磁盘说停了、会话日志说没停"的两份互相矛盾的证据。
+ * 3. 只有 `HALTED → RUNNING` 的**票据解除**才 `clear()`。重启本身不清。
+ */
+export interface HaltPersistence {
+  load(): HaltSnapshot | undefined
+  save(snapshot: HaltSnapshot): void
+  clear(): void
 }
 
 /** `safety:halt` 服务面。 */
@@ -165,6 +202,13 @@ export interface HaltOptions {
    * `halt-approval-absent`，**绝不**自己造一张票。
    */
   readonly requestTicket?: () => Promise<HaltTicket | undefined>
+  /**
+   * 跨重启持久化（宿主实现：会话根下的 `halt.json`）。
+   *
+   * 缺省 = 进程级停机（重启即解除）——这是**降级**，不是默认：生产装配必须注入。
+   * 单测与最小装配不注入，语义与 W07 原状逐字一致。
+   */
+  readonly persistence?: HaltPersistence
 }
 
 /** 服务键：`safety:halt`（宿主 / 审计面板 / 管理路由按它取用）。 */
@@ -180,19 +224,34 @@ export class HaltState implements HaltHandle {
   private readonly now: () => number
   private readonly recordHalt: (event: HaltEvent) => void
   private readonly requestTicket: (() => Promise<HaltTicket | undefined>) | undefined
+  private readonly persistence: HaltPersistence | undefined
   private readonly enabledFlag: boolean
 
   private current: HaltStatus = 'RUNNING'
   private currentReason: HaltReason | undefined
   private currentDetail: string | undefined
   private p0Hits = 0
+  private restored = false
   private readonly tickets = new Map<string, HaltTicket>()
 
   constructor(options: HaltOptions) {
     this.now = options.now
     this.recordHalt = options.recordHalt
     this.requestTicket = options.requestTicket
+    this.persistence = options.persistence
     this.enabledFlag = options.enabled ?? true
+
+    // 重启恢复：`load()` 抛错（文件损坏 / 不可读）直接冒泡——停机证据读不出来时
+    // 拒绝启动是唯一安全答案，静默当 RUNNING 等于"文件坏了就自动解除停机"。
+    if (this.persistence !== undefined && this.enabledFlag) {
+      const snapshot = this.persistence.load()
+      if (snapshot !== undefined) {
+        this.current = 'HALTED'
+        this.currentReason = snapshot.reason
+        this.currentDetail = snapshot.detail
+        this.restored = true
+      }
+    }
   }
 
   get enabled(): boolean {
@@ -219,10 +278,13 @@ export class HaltState implements HaltHandle {
     this.current = 'HALTED'
     this.currentReason = reason
     this.currentDetail = detail
+    this.restored = false
     this.recordHalt({
       type: 'safety/halt',
       data: { reason, ...(detail === undefined ? {} : { detail }), at },
     })
+    // 落账**之后**才写盘：宁可少一份副本，也不要"磁盘说停了、日志说没停"
+    this.persistence?.save({ reason, ...(detail === undefined ? {} : { detail }), at })
     return true
   }
 
@@ -274,7 +336,10 @@ export class HaltState implements HaltHandle {
     this.currentReason = undefined
     this.currentDetail = undefined
     this.p0Hits = 0
+    this.restored = false
     this.recordHalt({ type: 'safety/unfreeze', data: { ticketId, mfa: true, at } })
+    // 只有凭票据解除才清盘；`halt()` 之外的任何路径都不得清除停机证据
+    this.persistence?.clear()
     return { ok: true }
   }
 
@@ -295,6 +360,7 @@ export class HaltState implements HaltHandle {
       status: this.current,
       halted: this.halted,
       p0Hits: this.p0Hits,
+      restored: this.restored,
       ...(this.currentReason === undefined ? {} : { reason: this.currentReason }),
       ...(this.currentDetail === undefined ? {} : { detail: this.currentDetail }),
     }

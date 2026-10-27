@@ -11,6 +11,7 @@
 import { detect, normalize } from '../kernel/index.ts'
 import type { TraceLog } from '../kernel/index.ts'
 
+import type { Listener } from '@bah/core'
 import type { SentrySettings } from './config.ts'
 import type { SentrySessionEventType } from './events.ts'
 import { parseUntrustedMark } from './im.ts'
@@ -40,7 +41,7 @@ interface PreStepLike {
  */
 export function createIngressListener(
   options: SentryIngressOptions,
-): (payload: unknown, next: (value: unknown) => Promise<unknown>) => Promise<unknown> {
+): Listener<'agent/pre-step'> {
   const { sessionId, settings, state, trace, record, now } = options
 
   return async (payload, next) => {

@@ -35,14 +35,22 @@ export type {
   ChainRecord,
 } from './chain-file.ts'
 export * from './vault.ts'
+// B4 摘要投影单列一个文件：replay 从它取符号，避免把 `vault.ts`（value import core）拉进重放闭包
+export * from './tool-result-summary.ts'
 
 /** 创世前序哈希（空串，等价于"无前驱"）。 */
 export const GENESIS_HASH = ''
 
-/** 签名类型白名单（SA-07 §3.3；`signedTypes` 只能取其子集）。 */
+/**
+ * 签名类型白名单（SA-07 §3.3；`signedTypes` 只能取其子集）。
+ *
+ * B4（2026-10-27）：`sentry/decision` 加入白名单——它与会话链上的 `approval/decided`
+ * 同为治理判决，高风险程度一致；白名单只放行、不强制，宿主侧缺钥时仍可选空集。
+ */
 export const SIGNED_TYPES = [
   'tool/call',
   'tool/result',
+  'sentry/decision',
   'saga/comp-issued',
   'saga/comp-result',
   'saga/residual-recorded',

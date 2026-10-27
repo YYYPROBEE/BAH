@@ -31,7 +31,6 @@ import {
   createBankTools,
   createGatewayVerifyProvider,
   createMockVerifyProvider,
-  defaultCompute,
   provideBankGovernance,
   restoreSessionIdentity,
   yuanToCents,
@@ -251,15 +250,22 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
           riskyCallThreshold: config.riskyCallThreshold,
         },
         now: run.now,
-        // `safety:sandbox` 在场时走 worker 硬隔离；未装该行（单测 / 最小装配）退回进程内求值。
-        // 按调用取服务：base bundle 的行序不参与判决，插件后装也能生效。
+        // `safety:sandbox` 在场时走 worker 硬隔离。
+        //
+        // D5①（fail-closed）：**缺这行不再回退进程内求值**。以前 service-missing 就退到
+        // `defaultCompute`——那等于"漏装一行装配 = 模型生成的表达式直接在宿主进程里跑"，
+        // 是典型的 fail-open。现在返回 `compute-sandbox-unavailable`，工具面表现为结构化失败，
+        // 装配漏行会立刻暴露，而不是悄悄降级。
         compute: async (request) => {
           let seam
           try {
             seam = ctx.get(BANK_COMPUTE)
           } catch (error) {
             if ((error as { code?: string }).code !== 'service-missing') throw error
-            seam = defaultCompute
+            throw new BahError(
+              'compute-sandbox-unavailable',
+              'bank-tools: 未装配 safety:sandbox，受限计算拒绝执行（fail-closed）',
+            )
           }
           return seam(request)
         },

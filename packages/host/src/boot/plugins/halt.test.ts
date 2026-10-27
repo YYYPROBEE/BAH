@@ -111,6 +111,10 @@ interface Booted {
 
 async function bootWith(options: BootWithOptions = {}): Promise<Booted> {
   bootSeq += 1
+  // C3 起 `safety:sentry` 会把停机状态落到 `jsonlDir/halt.json`；本文件的用例共用同一个
+  // 临时目录，所以**每次 boot 前必须清掉它**，否则"上一个用例停过机"会变成下一个用例的
+  // 初始状态（跨重启恢复的语义由 `sentry.test.ts` 的 C3 组专门覆盖）。
+  rmSync(join(sessionDir, 'halt.json'), { force: true })
   let now = 1_792_000_000_000
   const bootOptions: BootOptions = {
     profile: { name: 'fx-halt', bundles: ['fx-halt'], hmr: false },

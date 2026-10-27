@@ -18,6 +18,8 @@ import {
   P0_HALT_AFTER_HITS,
   SAFETY_SESSION_EVENT_TYPES,
   type HaltEvent,
+  type HaltPersistence,
+  type HaltSnapshot,
   type HaltTicket,
 } from './halt.ts'
 
@@ -36,6 +38,7 @@ function clock(start = 1_792_000_000_000): { now: () => number; set: (value: num
 function harness(options: {
   readonly enabled?: boolean
   readonly requestTicket?: () => Promise<HaltTicket | undefined>
+  readonly persistence?: HaltPersistence
 } = {}): {
   readonly halt: HaltState
   readonly events: HaltEvent[]
@@ -48,8 +51,37 @@ function harness(options: {
     recordHalt: (event) => events.push(event),
     ...(options.enabled === undefined ? {} : { enabled: options.enabled }),
     ...(options.requestTicket === undefined ? {} : { requestTicket: options.requestTicket }),
+    ...(options.persistence === undefined ? {} : { persistence: options.persistence }),
   })
   return { halt, events, clock: time }
+}
+
+/** 内存版持久化（模拟"磁盘在进程重启后仍在"）。 */
+function memoryStore(initial?: HaltSnapshot): {
+  readonly persistence: HaltPersistence
+  readonly calls: { load: number; save: number; clear: number }
+  readonly current: () => HaltSnapshot | undefined
+} {
+  let snapshot = initial
+  const calls = { load: 0, save: 0, clear: 0 }
+  return {
+    persistence: {
+      load: () => {
+        calls.load += 1
+        return snapshot
+      },
+      save: (next) => {
+        calls.save += 1
+        snapshot = next
+      },
+      clear: () => {
+        calls.clear += 1
+        snapshot = undefined
+      },
+    },
+    calls,
+    current: () => snapshot,
+  }
 }
 
 /** 一张合法的 MFA 票据（默认 approved + mfa + 未过期）。 */
@@ -70,7 +102,13 @@ describe('TC-W07-07 HALT 状态与幂等', () => {
     expect(halt.status).toBe('RUNNING')
     expect(halt.halted).toBe(false)
     expect(halt.reason).toBeUndefined()
-    expect(halt.view()).toEqual({ enabled: true, status: 'RUNNING', halted: false, p0Hits: 0 })
+    expect(halt.view()).toEqual({
+      enabled: true,
+      status: 'RUNNING',
+      halted: false,
+      p0Hits: 0,
+      restored: false,
+    })
   })
 
   it('manual HALT：落一条 safety/halt（载荷逐字冻结），重复 HALT 不落第二条', () => {
@@ -108,7 +146,13 @@ describe('TC-W07-07 HALT 状态与幂等', () => {
     expect(halt.halt('manual')).toBe(false)
     expect(halt.halted).toBe(false)
     expect(events).toHaveLength(0)
-    expect(halt.view()).toEqual({ enabled: false, status: 'RUNNING', halted: false, p0Hits: 0 })
+    expect(halt.view()).toEqual({
+      enabled: false,
+      status: 'RUNNING',
+      halted: false,
+      p0Hits: 0,
+      restored: false,
+    })
   })
 })
 
@@ -301,5 +345,85 @@ describe('票据登记表的内存边界（长跑宿主）', () => {
     expect(halt.unfreeze('t-expired')).toEqual({ ok: false, code: 'halt-ticket-expired' })
     expect(halt.unfreeze('t-expired')).toEqual({ ok: false, code: 'halt-ticket-unknown' })
     expect(halt.halted).toBe(true)
+  })
+})
+
+describe('C3 HALT 跨重启持久化', () => {
+  it('halt 落盘：快照只含 reason/detail/at，重复 halt 不重复写', () => {
+    const store = memoryStore()
+    const { halt } = harness({ persistence: store.persistence })
+
+    expect(halt.halt('manual', '值班主管按下停机')).toBe(true)
+    expect(store.current()).toEqual({ reason: 'manual', detail: '值班主管按下停机', at: 1_792_000_000_000 })
+    expect(store.calls.save).toBe(1)
+
+    // 幂等：第二次 halt 返回 false，磁盘不写第二遍
+    expect(halt.halt('manual')).toBe(false)
+    expect(store.calls.save).toBe(1)
+  })
+
+  it('重启恢复：新实例读到快照 → HALTED + restored=true，且不重落 safety/halt', () => {
+    const store = memoryStore()
+    harness({ persistence: store.persistence }).halt.halt('chain-broken', '审计链断裂')
+    expect(store.current()?.reason).toBe('chain-broken')
+
+    // 同一份"磁盘"上新建状态机 = 进程重启
+    const restarted = harness({ persistence: store.persistence })
+    expect(restarted.halt.status).toBe('HALTED')
+    expect(restarted.halt.reason).toBe('chain-broken')
+    expect(restarted.halt.view()).toMatchObject({
+      halted: true,
+      restored: true,
+      detail: '审计链断裂',
+    })
+    // 恢复不是"又停了一次"：不落第二条 safety/halt
+    expect(restarted.events).toHaveLength(0)
+  })
+
+  it('重启不解除：旧票据失效，必须重新申请（票据不持久化）', async () => {
+    const store = memoryStore()
+    const first = harness({ persistence: store.persistence })
+    first.halt.halt('p0-threshold', 'P0 累计 3 次')
+    const old = ticket({ ticketId: 't-before-restart' })
+
+    const restarted = harness({
+      persistence: store.persistence,
+      requestTicket: () => Promise.resolve(ticket({ ticketId: 't-after-restart' })),
+    })
+    // 重启后票据表是空的：把旧票塞进去也没用（它从未在新进程签发）
+    expect(restarted.halt.unfreeze(old.ticketId)).toEqual({ ok: false, code: 'halt-ticket-unknown' })
+    expect(restarted.halt.halted).toBe(true)
+
+    // 唯一解除路径：重新走一次审批拿新票
+    const requested = await restarted.halt.requestUnfreeze()
+    expect(requested).toEqual({ ok: true, ticketId: 't-after-restart', expiresAt: expect.any(Number) })
+    expect(restarted.halt.unfreeze('t-after-restart')).toEqual({ ok: true })
+    expect(store.calls.clear).toBe(1)
+    expect(store.current()).toBeUndefined()
+
+    // 再重启一次：RUNNING
+    expect(harness({ persistence: store.persistence }).halt.status).toBe('RUNNING')
+  })
+
+  it('load 抛错 → 构造直接抛（停机证据不可读时不许以 RUNNING 启动）', () => {
+    const broken: HaltPersistence = {
+      load: () => {
+        throw new Error('halt.json 被截断')
+      },
+      save: () => undefined,
+      clear: () => undefined,
+    }
+    expect(() => new HaltState({ now: clock().now, recordHalt: () => undefined, persistence: broken }))
+      .toThrowError('halt.json 被截断')
+  })
+
+  it('关掉开关时不读不写盘（回滚开关的行为本身也要被钉住）', () => {
+    const store = memoryStore({ reason: 'manual', at: 1 })
+    const { halt } = harness({ enabled: false, persistence: store.persistence })
+
+    expect(store.calls.load).toBe(0)
+    expect(halt.status).toBe('RUNNING')
+    expect(halt.halt('manual')).toBe(false)
+    expect(store.calls.save).toBe(0)
   })
 })

@@ -6,9 +6,16 @@
  * 2. 启动时发现断链 → `audit/chain-broken` 平台事件 + stderr + HALT（无开关）。
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { generateKeyPairSync } from 'node:crypto'
+import { dirname, join } from 'node:path'
 
 import { createSagaAudit } from '@bah/persistence'
 import { HALT_SERVICE } from '@bah/safety'
@@ -64,6 +71,7 @@ function rows(options: {
   readonly script: readonly unknown[]
   readonly sessionId: string
   readonly spyThrows?: boolean
+  readonly auditConfig?: Record<string, unknown>
 }): readonly PluginRow[] {
   return [
     { id: 'core:session' },
@@ -78,7 +86,7 @@ function rows(options: {
       config: { channel: 'headless', loop: { model: 'mock:mock-chat', maxSteps: 8 } },
     },
     { id: 'core:persistence', config: { root: 'sessions', fsync: false } },
-    { id: 'audit:decisions' },
+    { id: 'audit:decisions', ...(options.auditConfig === undefined ? {} : { config: options.auditConfig }) },
     { id: 'bank:tools', config: { demoUserId: 'u-1', seed: 7, datasetTier: 'demo' } },
     {
       id: 'interaction:approval',
@@ -96,6 +104,7 @@ async function bootWith(input: {
   readonly script: readonly unknown[]
   readonly seen: unknown[]
   readonly spyThrows?: boolean
+  readonly auditConfig?: Record<string, unknown>
 }): Promise<BootedApp> {
   const bootOptions: BootOptions = {
     profile: { name: 'fx-audit-decisions', bundles: ['fx-audit-decisions'], hmr: false },
@@ -122,7 +131,7 @@ function chainOf(dir: string, sessionId: string): Record<string, unknown>[] {
 }
 
 describe('W08 · 会话级证据链', () => {
-  it('TC-W08-01：一次转账后链中有 tool/call、sentry/decision、approval/decided', async () => {
+  it('TC-W08-01：一次转账后链中有 tool/call、tool/result、sentry/decision、approval/decided', async () => {
     const dir = root()
     const seen: unknown[] = []
     const app = await bootWith({
@@ -148,6 +157,8 @@ describe('W08 · 会话级证据链', () => {
       const rows = chainOf(dir, 's-w08-chain')
       const types = rows.map((row) => row['t'])
       expect(types).toContain('tool/call')
+      // B4：结果以摘要形式上链（与调用一一对应）
+      expect(types).toContain('tool/result')
       expect(types).toContain('sentry/decision')
       expect(types).toContain('approval/decided')
 
@@ -155,7 +166,17 @@ describe('W08 · 会话级证据链', () => {
       expect(toolCall['version']).toBeUndefined()
       expect(toolCall['sub']).toBe('call-1')
 
-      for (const row of rows.filter((candidate) => candidate['t'] !== 'tool/call')) {
+      // B4：tool/result 摘要行——sub 仍是 callId，v1 形状，摘要数与调用数一致
+      const resultRows = rows.filter((row) => row['t'] === 'tool/result')
+      expect(resultRows).toHaveLength(rows.filter((row) => row['t'] === 'tool/call').length)
+      expect(resultRows[0]!['sub']).toBe('call-1')
+      expect(resultRows[0]!['version']).toBeUndefined()
+      // 摘要不含 content/reason：链行本来就不存 data，这里钉住"不上原文"的纪律
+      expect(JSON.stringify(resultRows[0])).not.toContain('content')
+
+      for (const row of rows.filter(
+        (candidate) => candidate['t'] !== 'tool/call' && candidate['t'] !== 'tool/result',
+      )) {
         expect(row['version']).toBe(2)
         expect(row['subject']).toBe('session:s-w08-chain')
         expect(row['prevHash']).toBe(row['p'])
@@ -172,6 +193,88 @@ describe('W08 · 会话级证据链', () => {
       const audit = createSagaAudit({ now: () => 1, rootDir: dir, fsync: false })
       expect(audit.verifyContinuity('s-w08-chain')).toEqual({ ok: true })
       expect(seen).toEqual([])
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('B4：缺钥 → unsigned 启动不失败，且显式提示（不静默）', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const dir = root()
+      const app = await bootWith({
+        dir,
+        sessionId: 's-w08-unsigned',
+        seen: [],
+        script: [{ tool: { id: 'call-1', name: 'account_balance', args: {} } }, { text: '查询完成。' }],
+      })
+      try {
+        const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+        agent.send('查余额')
+        await agent.run()
+
+        const rows = chainOf(dir, 's-w08-unsigned')
+        expect(rows.length).toBeGreaterThan(0)
+        // unsigned：链行不带签名
+        for (const row of rows) expect(row['sig']).toBeUndefined()
+        // 提示必须说出来（B4：不能静默降级）
+        const notices = warn.mock.calls.map((call) => String(call[0])).join('\n')
+        expect(notices).toContain('unsigned')
+      } finally {
+        await app.dispose('test')
+      }
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('B4：有钥 → tool/call、tool/result、sentry/decision、approval/decided 全部签名且可验', async () => {
+    const dir = root()
+    const keyPath = join(dir, 'keys', 'test-ed25519.pem')
+    mkdirSync(dirname(keyPath), { recursive: true })
+    writeFileSync(
+      keyPath,
+      generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }),
+      { mode: 0o600 },
+    )
+    const seen: unknown[] = []
+    const app = await bootWith({
+      dir,
+      sessionId: 's-w08-signed',
+      seen,
+      script: [
+        {
+          tool: {
+            id: 'call-1',
+            name: 'transfer_create',
+            args: { amount: 800, payee: { name: '王建国' } },
+          },
+        },
+        { text: '已完成 800 元转账。' },
+      ],
+      auditConfig: { signingKeyPath: keyPath },
+    })
+    try {
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('给王建国转 800 元')
+      await agent.run()
+
+      const rows = chainOf(dir, 's-w08-signed')
+      const signedTypes = new Set(
+        rows.filter((row) => row['sig'] !== undefined).map((row) => row['t']),
+      )
+      for (const type of ['tool/call', 'tool/result', 'sentry/decision', 'approval/decided']) {
+        expect(signedTypes.has(type)).toBe(true)
+      }
+      // 验签由同一密钥通过（不是只看 sig 存在）
+      const audit = createSagaAudit({
+        now: () => 1,
+        rootDir: dir,
+        fsync: false,
+        signingKeyPath: keyPath,
+      })
+      expect(audit.verifySignatures('s-w08-signed')).toMatchObject({ ok: true })
+      expect(audit.verifyContinuity('s-w08-signed')).toEqual({ ok: true })
     } finally {
       await app.dispose('test')
     }

@@ -62,7 +62,7 @@ describe('T-BANK-010 adversarial 档', () => {
     expect(data.payees.some((item) => item.binding === 'new')).toBe(true)
 
     // 深夜大额与重复扣费订阅也在素材里
-    const night = data.transactions.find((item) => item.amountCents === 120_000)
+    const night = data.transactions.find((item) => item.amountCents === 100_000)
     expect(night).toBeDefined()
     const subscriptions = data.transactions.filter((item) => item.category === 'subscription')
     expect(subscriptions).toHaveLength(2)

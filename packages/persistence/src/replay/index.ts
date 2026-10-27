@@ -8,7 +8,10 @@
  * 能证明什么：
  * - 链连续性（改/删 `audit.jsonl` 任意一行 → `brokenAt`）；
  * - 链上摘要与会话数据的差异**只作 warning**（会话落盘会脱敏，不能反推原始摘要）；
- * - 会话事件的 `seq` 连续性（删一条会话事件会留下序号空洞）。
+ * - 会话事件的 `seq` 连续性（删一条会话事件会留下序号空洞）；
+ * - `tool/result` 摘要（B4）：链上**有**该类型行时，从会话事件重算摘要并**硬比对**
+ *   `d` 字段——篡改会话侧的 callId/isError/code/durationMs 或篡改链侧任一行都会变红；
+ *   链上无该类型行（旧会话，B4 之前录制）只降级为 warning，不把存量记录判死。
  *
  * 不能证明什么（如实登记）：普通 `user/message` 被改写成另一个合法 JSON 且序号不变时，
  * 会话日志本身没有逐行哈希，单靠本模块无法发现；需要 EvidencePack 的 manifest 外部锚定。
@@ -23,6 +26,7 @@ import { canonicalJson, sha256Hex } from '@bah/util'
 import { ChainFile } from '../chain/chain-file.ts'
 import { verifyChainRows } from '../chain/hash.ts'
 import { loadSigningKeys, verifyRecord } from '../chain/sign.ts'
+import { toolResultSummaryOf } from '../chain/tool-result-summary.ts'
 import { JsonlPersistence } from '../jsonl/index.ts'
 
 /** 判决表的一行（来自链上 v2 信封）。 */
@@ -158,7 +162,12 @@ export function replaySession(options: ReplayOptions): ReplayResult {
   }
 
   // 有链覆盖事件但链为空 → 证据链缺失（不能当作"没有判决"）。
-  const covered = events.filter((event) => event.type === 'tool/call' || event.type === 'approval/decided')
+  const covered = events.filter(
+    (event) =>
+      event.type === 'tool/call' ||
+      event.type === 'tool/result' ||
+      event.type === 'approval/decided',
+  )
   if (covered.length > 0 && chainRows.length === 0) {
     diffs.push('audit-chain-missing')
   }
@@ -180,6 +189,30 @@ export function replaySession(options: ReplayOptions): ReplayResult {
         warnings.push(`cross-check:${type}:${String(index + 1)}（会话脱敏后不可比，仅提示）`)
       }
     }
+  }
+
+  // `tool/result`（B4）硬核验：链上**有**该类型行才比（旧会话没有，不判死）。
+  // 摘要只含 callId/name/isError/code/durationMs，这些字段不参与脱敏，两侧可精确相等；
+  // 摘要不可投影（载荷畸形）也变红——不能让"算不出摘要"变成"当它不存在"。
+  const sessionResults = events.filter((event) => event.type === 'tool/result')
+  const resultRows = chainRows.filter((row) => row.t === 'tool/result')
+  if (resultRows.length > 0) {
+    if (sessionResults.length !== resultRows.length) {
+      diffs.push(`tool-result:count=${String(sessionResults.length)}/${String(resultRows.length)}`)
+    } else {
+      for (const [index, row] of resultRows.entries()) {
+        const source = sessionResults[index]
+        try {
+          if (source === undefined) throw new Error('session-event-missing')
+          const expected = sha256Hex(canonicalJson(toolResultSummaryOf(source.data)))
+          if (row.d !== expected) diffs.push(`tool-result-digest:${String(row.q)}`)
+        } catch (error) {
+          diffs.push(`tool-result-unprojectable:${String(row.q)}:${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+    }
+  } else if (sessionResults.length > 0 && chainRows.length > 0) {
+    warnings.push(`cross-check:tool/result:chain-rows=0（B4 之前的存量会话，未上链结果摘要）`)
   }
 
   return {
