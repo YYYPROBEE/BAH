@@ -73,6 +73,20 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # 干净 clone 上 `merge-base(origin/main, HEAD)` 就是 HEAD ⇒ 改动 0 个文件 ⇒
+      # snapshot-fresh 判"无法证明快照与当前代码一致"而红。这是**设计好的失败**
+      # （门禁不肯在无差分的情况下宣称快照可信），不是误报，所以不能靠放行开关绕。
+      # 严格档 ci.yml 早就按 PR base / push before 取基线；矩阵漏了这一步，
+      # 2026-10-27 首次跑矩阵时三个档位的 Gates 就整片红在这一项上。
+      - name: Resolve snapshot base
+        shell: bash
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then
+            BASE="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+          fi
+          echo "BAH_SNAPSHOT_BASE=$BASE" >> "$GITHUB_ENV"
+
       - name: Gates
         run: pnpm gate
 
@@ -108,6 +122,16 @@ jobs:
       # 是"能不能在这台机器上站住"的最小判据。测试面等这步稳定后再加。
       - name: Typecheck
         run: pnpm typecheck
+
+      # 同 Ubuntu 档：干净 clone 上没有差分，snapshot-fresh 会按设计判红。
+      - name: Resolve snapshot base
+        shell: bash
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then
+            BASE="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+          fi
+          echo "BAH_SNAPSHOT_BASE=$BASE" >> "$GITHUB_ENV"
 
       - name: Gates
         run: pnpm gate
