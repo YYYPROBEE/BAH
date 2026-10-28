@@ -4,8 +4,8 @@
  * ## 为什么需要这一层
  *
  * 40 个 `verify-*.ts` 是其他所有断言的"安全网"，但它们自己此前既不在 `typecheck`
- * 里（C2 已补 `tsconfig.scripts.json`）、也没有任何用例覆盖。两个具体失效模式： *
- * 1. **静默少跑**：`verify-foo.ts` 被改名成 `check-foo.ts`（或删掉），`run-gates`
+ * 里（C2 已补 `tsconfig.scripts.json`）、也没有任何用例覆盖。两个具体失效模式：
+ * * 1. **静默少跑**：`verify-foo.ts` 被改名成 `check-foo.ts`（或删掉），`run-gates`
  *    照样打印"全部通过（34/34）"——分母跟着变小，红事变绿。所以这里钉住"数量下限"
  *    与"文件名 ↔ gate.name 一一对应"。
  * 2. **同名覆盖**：两个门禁都 `name: 'web'` 时，人眼在输出里看到两行同名结果，

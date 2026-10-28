@@ -5,16 +5,20 @@
  * 1. `policies/registry.json` schema 合法；每个条目目录存在、摘要与现场一致；
  * 2. `active` / `canary` / `history` 指向的版本都在 registry 里；
  * 3. `runtime-state.json` 若存在：schema、percent 0–10000、epoch 正整数；
+ *    且 active / canary / history 不得指向 demo bundle；
  * 4. rollout 链 `policies/policy-rollout/audit.jsonl` 连续（存在才查；gitignore 是预期）；
  * 5. semver：handle 必须是 `name/semver`，目录与 manifest 一致（编译器已查）；
- * 6. `fixtures/` 不得进入 registry；`runtime-state.json` 不得被 git 跟踪。
+ * 6. `fixtures/` 不得进入 registry；`runtime-state.json` 不得被 git 跟踪；
+ * 7. 生产 profile 的 `policy:rules.active` 不得指向 demo（YAML 解析，内联/block 两种写法都查）。
  *
- * 负控：把坏 registry / 坏 state 喂给同一组纯函数，必须报错。
+ * 负控：把坏 registry / 坏 state / demo 激活样本喂给同一组纯函数，必须报错。
  */
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
+
+import { parse } from 'yaml'
 
 import { BANK_TOOL_NAME_SET } from '../packages/bank/src/tools/specs.ts'
 import { loadBundle } from '../packages/policy/src/load.ts'
@@ -99,12 +103,21 @@ const gate: Gate = {
     }
     notes.push(`registry ${String(registry.size)} 个版本：目录/摘要/engine/handle 逐条核对`)
 
+    // demo bundle 只允许通过快照 overlay 或本地演练 state 使用；生产 profile / runtime-state 都不许激活。
+    const demoHandles = new Set(
+      [...registry.entries()]
+        .filter(([, entry]) => entry.demo === true)
+        .map(([handle]) => handle),
+    )
+
     const statePath = join(root, 'policies/runtime-state.json')
     if (existsSync(statePath)) {
       const state = readState(statePath, findings)
       if (state !== undefined) {
-        for (const finding of stateFindings(state, new Set(registry.keys()))) findings.push(finding)
-        notes.push('runtime-state：active/canary/history 指向的版本均在 registry 内')
+        for (const finding of stateFindings(state, new Set(registry.keys()), demoHandles)) {
+          findings.push(finding)
+        }
+        notes.push('runtime-state：active/canary/history 指向的版本均在 registry 内且不是 demo')
       }
     } else {
       notes.push('runtime-state.json 不存在（预期：用部署默认 active）')
@@ -131,19 +144,10 @@ const gate: Gate = {
     }
 
     // 生产 profile 不得把 `policy:rules.active` 指向 demo bundle（demo 只能通过快照 overlay/本地 state 演练）。
-    const demoHandles = new Set(
-      [...registry.entries()]
-        .filter(([, entry]) => entry.demo === true)
-        .map(([handle]) => handle),
-    )
     for (const file of walk(root, ['profiles'], (name) => name === 'patch.yml')) {
-      const text = readFileSync(file, 'utf8')
-      const active = /active:\s*\{\s*bank\.tier:\s*([^}\s]+)\s*\}/.exec(text)
-      const handle = active?.[1]
-      if (handle !== undefined && demoHandles.has(handle)) {
-        findings.push(
-          `${relative(root, file).replace(/\\/g, '/')}: 生产 profile 的 active 指向 demo bundle ${handle}（demo 不是生产真相源）`,
-        )
+      const rel = relative(root, file).replace(/\\/g, '/')
+      for (const finding of demoProfileFindings(rel, readFileSync(file, 'utf8'), demoHandles)) {
+        findings.push(finding)
       }
     }
     const tracked = isTracked(root, 'policies/runtime-state.json')
@@ -160,16 +164,38 @@ const gate: Gate = {
       findings.push(`${dir}: bundle 未登记 registry（先 policy:install；否则一致性/等价门禁看不到它）`)
     }
 
-    // 负控：坏 registry / 坏 state 必须被同一组纯函数抓住。
+    // 负控：坏 registry / 坏 state / demo 激活必须被同一组纯函数抓住。
+    // 特别覆盖 block 风格的 YAML——旧实现只认内联 `active: { bank.tier: ... }`，
+    // 把 active 写成多行就能绕过"生产 profile 不得指向 demo"。
+    const syntheticDemo = new Set(['bank-tier-demo/1.1.0'])
     const negatives = [
       registryShapeFindings({ apiVersion: 'wrong' }),
       stateFindings(
         { apiVersion: STATE_API, assignments: { 'bank.tier': { active: 'missing/9.9.9', canary: { version: 'missing/9.9.9', percent: 20_000, epoch: 0 } } } },
         new Set(registry.keys()),
+        new Set(),
+      ),
+      demoProfileFindings(
+        'profiles/synthetic/patch.yml',
+        '- id: policy:rules\n  config:\n    active:\n      bank.tier: bank-tier-demo/1.1.0\n',
+        syntheticDemo,
+      ),
+      stateFindings(
+        {
+          apiVersion: STATE_API,
+          assignments: {
+            'bank.tier': {
+              active: 'bank-tier/1.0.0',
+              canary: { version: 'bank-tier-demo/1.1.0', percent: 500, epoch: 1 },
+            },
+          },
+        },
+        new Set([...registry.keys(), 'bank-tier-demo/1.1.0']),
+        syntheticDemo,
       ),
     ]
     if (negatives.some((hits) => hits.length === 0)) {
-      findings.push('负控失败：坏 registry / 坏 state 至少有一项没有被识别')
+      findings.push('负控失败：坏 registry / 坏 state / demo 激活至少有一项没有被识别')
     }
 
     return { ok: findings.length === 0, findings, notes }
@@ -290,7 +316,11 @@ function readState(path: string, findings: string[]): Record<string, unknown> | 
 }
 
 /** state 的语义检查（纯函数；负控复用）。 */
-function stateFindings(state: Record<string, unknown>, handles: ReadonlySet<string>): string[] {
+function stateFindings(
+  state: Record<string, unknown>,
+  handles: ReadonlySet<string>,
+  demoHandles: ReadonlySet<string>,
+): string[] {
   const findings: string[] = []
   if (state['apiVersion'] !== STATE_API) findings.push(`runtime-state: apiVersion 必须是 ${STATE_API}`)
   const assignments = state['assignments']
@@ -306,8 +336,12 @@ function stateFindings(state: Record<string, unknown>, handles: ReadonlySet<stri
     const assignment = raw as Record<string, unknown>
     if (typeof assignment['active'] !== 'string') {
       findings.push(`runtime-state ${kind}: active 必须是字符串`)
-    } else if (!handles.has(assignment['active'])) {
-      findings.push(`runtime-state ${kind}: active ${assignment['active']} 不在 registry`)
+    } else {
+      if (!handles.has(assignment['active'])) {
+        findings.push(`runtime-state ${kind}: active ${assignment['active']} 不在 registry`)
+      } else if (demoHandles.has(assignment['active'])) {
+        findings.push(`runtime-state ${kind}: active ${assignment['active']} 是 demo bundle（demo 不是生产真相源）`)
+      }
     }
     if (assignment['canary'] === undefined) continue
     if (typeof assignment['canary'] !== 'object' || assignment['canary'] === null) {
@@ -317,6 +351,8 @@ function stateFindings(state: Record<string, unknown>, handles: ReadonlySet<stri
     const canary = assignment['canary'] as Record<string, unknown>
     if (typeof canary['version'] !== 'string' || !handles.has(canary['version'])) {
       findings.push(`runtime-state ${kind}: canary.version 不在 registry`)
+    } else if (demoHandles.has(canary['version'])) {
+      findings.push(`runtime-state ${kind}: canary.version ${canary['version']} 是 demo bundle（demo 不是生产真相源）`)
     }
     if (
       typeof canary['percent'] !== 'number' ||
@@ -356,6 +392,10 @@ function stateFindings(state: Record<string, unknown>, handles: ReadonlySet<stri
         for (const key of ['from', 'to'] as const) {
           if (typeof item[key] !== 'string' || !handles.has(item[key])) {
             findings.push(`runtime-state history[${String(index)}]: ${key} 不在 registry`)
+          } else if (demoHandles.has(item[key])) {
+            findings.push(
+              `runtime-state history[${String(index)}]: ${key} ${item[key]} 是 demo bundle（demo 不是生产真相源）`,
+            )
           }
         }
         if (item['action'] !== 'promote' && item['action'] !== 'rollback') {
@@ -380,6 +420,45 @@ function stateFindings(state: Record<string, unknown>, handles: ReadonlySet<stri
     }
   }
   return findings
+}
+
+/**
+ * `patch.yml` 的 `policy:rules.active` 是否指向 demo bundle。
+ *
+ * 为什么用 YAML 解析而不是正则：`active: { bank.tier: x }` 与
+ * `active:\n  bank.tier: x` 是同一份配置；只认内联写法会被 block 风格绕过。
+ */
+function demoProfileFindings(
+  rel: string,
+  text: string,
+  demoHandles: ReadonlySet<string>,
+): string[] {
+  let rows: unknown
+  try {
+    rows = parse(text) as unknown
+  } catch (error) {
+    return [`${rel}: 不是合法 YAML（${error instanceof Error ? error.message : String(error)}）`]
+  }
+  if (!Array.isArray(rows)) return [`${rel}: patch 必须是数组`]
+  const findings: string[] = []
+  for (const [index, raw] of rows.entries()) {
+    if (!isRecord(raw) || raw['id'] !== 'policy:rules') continue
+    const config = isRecord(raw['config']) ? raw['config'] : undefined
+    const active = config?.['active']
+    if (!isRecord(active)) continue
+    for (const [kind, handle] of Object.entries(active)) {
+      if (typeof handle !== 'string' || !demoHandles.has(handle)) continue
+      findings.push(
+        `${rel}（第 ${String(index + 1)} 行）: 生产 profile 的 policy:rules.active.${kind} 指向 demo bundle ${handle}（demo 不是生产真相源）`,
+      )
+    }
+  }
+  return findings
+}
+
+/** 对象判定（YAML 解析结果是 unknown）。 */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /** 路径是否在 root 的某个前缀目录内（防 `..` 与绝对路径逃逸）。 */
