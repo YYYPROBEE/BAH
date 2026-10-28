@@ -298,17 +298,37 @@ npx tsx scripts/verify-policy-registry.ts
 ## 9. 签名（生产）
 
 - 算法 Ed25519；`bundle.sig` 覆盖 `semanticDigest` 与 `sourceDigest`；
-- 公钥路径与允许的密钥版本在 `policy:rules.signature`；私钥**不进仓**；
-- 演示 profile `requireSignature: false`，链上 `policy/decision` 是 `unsigned`；
-- 生产强制签名需要密钥托管、分发与轮换流程；S4 只提供可选验签，**不能**据此宣称
-  "策略文件防篡改"（本地链没有外部锚定）。
+- 公钥路径与允许的密钥版本在 `policy:rules.signature`；私钥**不进仓**（默认
+  `$BAH_POLICY_KEY_DIR` 或 `~/.bah/keys`，`policy:keygen` 拒绝写进仓库）；
+- 演示 profile 仍 `requireSignature: false`（链上 `policy/decision` 是 unsigned）；
+- 生产签名 overlay：`profiles/web/patch-signed.example.yml`（`--patch` 显式加载）。
+
+### 9.1 生成 / 签名 / 轮换 / 吊销
+
+```bash
+pnpm policy:keygen --dir ~/.bah/keys --version 1     # 私钥 + 公钥（私钥不进仓）
+pnpm policy:sign policies/sentry-rules/1.0.0 --key ~/.bah/keys/policy-ed25519-1.key --key-version 1
+```
+
+- 签名前强制 `lock.json` 一致（过期 lock 直接拒绝，避免"旧内容 + 新文件"混合签名）；
+- **轮换**：`policy:keygen --version 2` → 用新钥重签全部 bundle →
+  生产配置 `allowedKeyVersions: [1, 2]` 过渡 → 再收窄到 `[2]`（旧钥即吊销）；
+- **吊销**：把旧版本从 `allowedKeyVersions` 移除；旧签名立即
+  `policy-signature-invalid`（`签名密钥版本 N 不在允许列表`）。
+- 演练证据：`docs/evidence/2026-10-28-policy-externalization/s5-key-lifecycle.log`
+  （签→验→轮换→吊销→错误密钥→unsigned 拒绝，8 步全过）。
+
+**口径**：密钥流程已落地并可演练，但**生产尚未启用**（profile 仍 unsigned）。
+在"生产 profile 开 `requireSignature` 且公钥已分发"之前，不得宣称"策略文件防篡改"；
+本地链也没有外部锚定（D5③）。
 
 ---
 
 ## 10. 已知边界
 
 - `transfer_preview` 的 `effectiveTier` 仍是 legacy 展示口径；权威判决只来自治理平面；
-- `sentry.rules` 是 S5 可选的第二类 bundle，**当前未做**；13 条正则仍硬编码；
+- `sentry.rules` 已可外置/灰度/回滚（S5），但**生产 profile 仍走 legacy**；
+  切 bundle 要等 S6 影子/FP 证据（R10）；
 - 管理面只有 CLI + 本地 state 文件，没有 HTTP 管理面；
 - 无多租户策略隔离；`tenant` 只是预留 scope；
 - 回放只保证本地链连续，没有第三方时间戳/存证；

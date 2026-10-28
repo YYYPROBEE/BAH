@@ -5901,3 +5901,13 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 - 语料/等价：52 例全绿；13 条规则与旧内核"正则/flags/族/说明/命中序列"全等；
 - 实测：unit **221 文件 / 2481 例**；`pnpm check` 13 步绿 + e2e SKIP；`gate 40/40`；
 - **未切 profile**：按 R10，S6 影子/FP 证据通过后再切；当前生产仍是 legacy。
+
+## 96.33 生产 Ed25519 密钥流程落地（2026-10-28 21:5x）
+
+- 新增 `scripts/policy-keygen.ts` / `scripts/policy-sign.ts`（`policy:keygen` / `policy:sign`）；
+  私钥默认 `$BAH_POLICY_KEY_DIR` / `~/.bah/keys`，仓内路径默认拒绝；
+- 签名前强制 lock 一致；支持覆盖旧 `bundle.sig`（重签/轮换）；bank.tier 与 sentry.rules 按 kind 分派；
+- 演练 10 步全过：v1 签→验→v2 轮换→`[1,2]` 过渡→吊销→错误公钥→unsigned 拒绝→仓内拒绝
+  （`docs/evidence/2026-10-28-policy-externalization/s5-key-lifecycle.log`）；
+- 生产 overlay：`profiles/web/patch-signed.example.yml`（requireSignature + allowedKeyVersions）；
+- 口径：未启用生产签名前，不得宣称"策略文件防篡改"。

@@ -1,0 +1,66 @@
+# S5 · 生产 Ed25519 密钥流程演练（2026-10-28）
+
+执行者：Qoder（主线程串行）
+HEAD：`ed891f1` + 本批未提交工作区（2026-10-28 21:5x +0800）
+目的：PE「生产签名」——生成 / 签名 / 轮换 / 吊销 / 错误密钥 / unsigned 拒绝，
+全部在临时目录演练；私钥不落仓库。
+
+## 演练步骤与输出
+
+```text
+# 1) 生成 v1 密钥（仓外目录）
+$ pnpm policy:keygen --dir <tmp>/keys --version 1
+✔ 已生成策略签名密钥（keyVersion=1）
+  私钥（不进仓）：<tmp>/keys/policy-ed25519-1.key
+  公钥（分发）：  <tmp>/keys/policy-ed25519-1.pub.pem
+
+# 2) 用 v1 签名 sentry bundle（lock 必须一致）
+$ pnpm policy:sign <tmp>/policies/sentry-rules/1.0.0 --key <tmp>/keys/policy-ed25519-1.key --key-version 1
+✔ 已签名 sentry-rules/1.0.0+sha256:a9f0206cec2548e5（keyVersion=1）
+
+# 3) 验签（allowedKeyVersions=[1]）
+OK sentry-rules/1.0.0+sha256:a9f0206cec2548e5
+
+# 4) 轮换：生成 v2 并用新钥重签
+$ pnpm policy:keygen --dir <tmp>/keys --version 2
+✔ 已生成策略签名密钥（keyVersion=2）
+$ pnpm policy:sign <tmp>/policies/sentry-rules/1.0.0 --key <tmp>/keys/policy-ed25519-2.key --key-version 2
+✔ 已签名 sentry-rules/1.0.0+sha256:a9f0206cec2548e5（keyVersion=2）
+
+# 5) 过渡期 allowedKeyVersions=[1,2]
+OK sentry-rules/1.0.0+sha256:a9f0206cec2548e5
+
+# 6) 旧钥无法验证新签（allowed=[1] 时 keyVersion=2 被拒）
+ERR policy-signature-invalid bundle.sig: 签名密钥版本 2 不在允许列表 [1]
+
+# 7) 吊销：旧签名 v1 在 allowed=[2] 下被拒
+ERR policy-signature-invalid bundle.sig: 签名密钥版本 1 不在允许列表 [2]
+
+# 8) 错误公钥（v2 签名 + v1 公钥，allowed=[1,2]）
+ERR policy-signature-invalid bundle.sig: 签名验证失败（内容或密钥不匹配）
+
+# 9) unsigned + requireSignature
+ERR policy-signature-invalid bundle.sig: requireSignature 已开启，但 bundle 没有 bundle.sig
+
+# 10) keygen 拒绝写进仓库
+$ pnpm policy:keygen --dir ./keys --version 3
+✘ 拒绝把私钥写进仓库（.../BAH/MonoRepo/keys）；请用 --dir 指向仓外目录，或演练时显式 --allow-repo
+exit=2
+```
+
+## 交付内容
+
+- `scripts/policy-keygen.ts`：Ed25519 密钥对生成；默认 `$BAH_POLICY_KEY_DIR` / `~/.bah/keys`；
+  仓内路径默认拒绝；
+- `scripts/policy-sign.ts`：先校验 lock 再签名；支持覆盖旧 `bundle.sig`（重签/轮换）；
+  bank.tier 与 sentry.rules 按 kind 分派；
+- `package.json`：`policy:keygen` / `policy:sign`；
+- `profiles/web/patch-signed.example.yml`：生产强制签名 overlay（`--patch` 显式加载，
+  含 `requireSignature: true` + `allowedKeyVersions`）；
+- 文档：`docs/policy.md` §9.1（生成/签名/轮换/吊销/口径）。
+
+## 口径
+
+- 密钥流程已落地并演练通过；**生产尚未启用**（profile 仍 unsigned）；
+- 在"生产 profile 开 `requireSignature` 且公钥已分发"之前，不得宣称"策略文件防篡改"；
+- 本地链没有外部锚定（D5③），签名只证明"谁签了这份内容"，不证明"何时存在"。
