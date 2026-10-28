@@ -5834,6 +5834,7 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 | `policy:explain`（快照 call-create） | ✔ `reproduced yes`；篡改 → `input-digest-mismatch`；`--require-chain` → 1；归档缺失 → `policy-archive-missing` |
 | `pnpm bench:policy` | ✔ compile 1.700 ms、eval p99 3.700 µs、reload 1.679 ms（均低于预算） |
 | 坏 bundle 演练 | ✔ 就地改一字节 → `policy-digest-mismatch`；`raise: purple` → `policy-schema-invalid` |
+| `pnpm check`（14 步） | **✘ 第 5 步 `test:coverage` 红**：6 个 host/runtime 文件未达逐文件 100%；1–4 步绿，6–14 未执行 |
 
 ### 96.30.2 对抗式发现（P1 已闭合）
 
@@ -5852,10 +5853,12 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
   `transfer_preview.effectiveTier` 仍是 legacy 展示口径（P2，已声明，不是执行判决）；
 - 证据可复现（explain 按记录 digest 复算；篡改/缺链/缺归档显式失败）；
 - 门禁数量不等于防线（27 负例 + 4 条自带负控 + 下限 40/27）；
-- 文档没有比实现说得大（三条 grep 断言通过）。
+- 文档没有比实现说得大（三条 grep 断言通过）；
+- **但"全绿"不成立**：`pnpm check` 第 5 步覆盖率红（6 个文件，其中 policy.ts 19 行来自 S3），
+  交付面 P1=1；对外只能说 typecheck/test/gate/snapshot 绿，不能说 `pnpm check` 绿。
 
 ### 96.30.4 口径与待办
 
-- **可以说**：S4 完成、40/40、`policy-externalized` 快照、27 负例、第二轮复审 P0/P1 = 0。
-- **不能说**：S5/S6 完成、覆盖率台账已更新、策略文件防篡改、多租户策略隔离。
-- **待办**：`docs/coverage-baseline.json`（CI）、生产 Ed25519 密钥流程、semver major 门禁、S5 `sentry.rules`。
+- **可以说**：S4 完成、40/40、`policy-externalized` 快照、27 负例、第二轮复审行为面 P0/P1 = 0。
+- **不能说**：`pnpm check` 全绿、S5/S6 完成、覆盖率台账已更新、策略文件防篡改、多租户策略隔离。
+- **待办**：覆盖率门禁（6 文件）、`docs/coverage-baseline.json`（CI）、生产 Ed25519 密钥流程、semver major 门禁、S5 `sentry.rules`。

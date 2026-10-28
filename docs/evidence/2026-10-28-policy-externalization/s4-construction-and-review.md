@@ -103,6 +103,7 @@
 | 归档缺失（registry 指向不存在的目录） | ✔ 退出码 1，`policy-archive-missing` |
 | `bench:policy` | ✔ compile 1.700 ms、eval p99 3.700 µs、reload 1.679 ms（均低于预算） |
 | 坏 bundle 演练 | ✔ 就地改一字节 → `policy-digest-mismatch`；`raise: purple` → `policy-schema-invalid` |
+| `pnpm check`（14 步） | **✘ 第 5 步 `test:coverage` 红**：6 个 host/runtime 文件未达逐文件 100%（详见 §6.4）；1–4 步绿，6–14 步未执行 |
 
 ### 6.2 对抗式审查（本轮新增发现）
 
@@ -126,13 +127,20 @@
 | F-04 | 门禁数量是否等于防线？ | **否，先证明"应红即红"** | 27 个负例逐条绑定错误码；4 条门禁各有合成负控；下限钉 40/27 | 门禁不重跑测试；覆盖率台账仍待 CI |
 | F-05 | demo 会不会变成生产？ | **不会（门禁层）** | `demo: true` 必须在 `policies/demo/`；profile active 与 runtime-state 的 demo 激活均拒绝 | 本地手工改 state 仍是运维自由度（演练需要），不是提交面 |
 | F-06 | 文档是否比实现说得大？ | **没有** | `策略外置.*✅`、`多租户策略`、`tier.ts.*唯一` 三条 grep 断言通过；`docs/policy.md` 明确列出五条不能说 | 对外口径仍需按 §5 的残余风险表述 |
+| F-07 | "全量绿"是否名副其实？ | **否（交付判据未闭合）** | `pnpm check` 1–4 步绿、第 5 步 `test:coverage` 红：6 个 host/runtime 文件 97–99%；6–14 步未执行 | 覆盖率债：`policy.ts` 19 行来自 S3，其余为既有；PE-46 仍待 CI |
 
 **结论**：S4 交付的是"文档范围内的策略外置"——业务升级规则文件化、内容寻址、逐判决可解释、
-demo 证明判决来自文件；P0/P1 为 0。P2 残余（试算展示、引擎版本回放、semver major 门禁、
+demo 证明判决来自文件。**行为面 P0/P1 = 0**；**交付面 P1 = 1**（`pnpm check` 的覆盖率门禁未闭合），
+不修、不把它说成全绿。P2 残余（试算展示、引擎版本回放、semver major 门禁、
 覆盖率台账、生产密钥流程）原样保留，不得据此扩大口径。
 
 ### 6.4 未闭合（P2 及以后）
 
+- **P1（交付面）**：`pnpm check` 第 5 步覆盖率红，6 个文件未达逐文件 100%：
+  `host/boot/plugins/agent.ts`（120-121）、`audit-decisions.ts`（220-223）、
+  `bank-tools.ts`（269-270、592-597）、`policy.ts`（252-253、272-285、583-588、873、994-995）、
+  `host/boot/runtime-context.ts`（149）、`runtime/agent-loop/agent.ts`（526-527）。
+  其中 `policy.ts` 的 19 行来自 S3 新增分支；其余为既有债。PE-46 仍待 CI，未修。
 - `transfer_preview.effectiveTier` 的 legacy 展示口径（见 F-02）；
 - 引擎实现变更与归档回放的一致性（见 F-03）；
 - `docs/coverage-baseline.json` 仍待 CI 跑批；
