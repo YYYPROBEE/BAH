@@ -33,6 +33,8 @@
     "policy:audit-verify": "tsx scripts/policy-admin.ts audit-verify",
     "policy:explain": "tsx scripts/policy-explain.ts",
     "policy:shadow": "tsx scripts/policy-shadow.ts",
+    "policy:keygen": "tsx scripts/policy-keygen.ts",
+    "policy:sign": "tsx scripts/policy-sign.ts",
     "bench:policy": "tsx scripts/bench-policy.ts",
     "bah": "tsx packages/cli/src/main.ts",
     "audit:selftest": "tsx scripts/audit-selftest.ts",
