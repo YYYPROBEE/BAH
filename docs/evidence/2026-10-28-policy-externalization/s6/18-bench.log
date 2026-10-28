@@ -1,0 +1,7 @@
+# 18 策略基准
+# 2026-10-28T22:01:45+08:00 · HEAD b6e9a63
+
+✔ compile avg 2.156 ms（预算 < 5 ms）
+✔ eval p99 6.000 µs（预算 < 20 µs）
+✔ reload 1.672 ms（预算 < 20 ms）
+  eval p50 2.900 µs / 100000 次；bundle bank-tier/1.0.0+sha256:97764bc1298834d6

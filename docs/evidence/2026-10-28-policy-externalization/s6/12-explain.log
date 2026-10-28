@@ -1,0 +1,29 @@
+# 12 policy:explain（快照真实判决）
+# 2026-10-28T22:04:35+08:00 · HEAD b6e9a63
+
+policy        bank-tier-demo/1.1.0+sha256:dee8183a04ef9750
+engine        1.0.0
+paramsDigest  sha256:57c7dbda9e570fcc913048403584a9a0c36bdb499170034a9228e38b1f55e9c5
+inputDigest   sha256:b29fe66980e4633d288d5e20cd34f72420d1e998feb380e3c83806cd5d95021d
+decision      red / daily-limit
+rules         TR-004-single-large (rules.yml:26)
+rules         RC-002-default (rules.yml:42)
+reproduced    yes
+chain         policy/decision missing
+evidence      present
+# exit=0
+
+## 负控：--require-chain（快照无链）
+policy        bank-tier-demo/1.1.0+sha256:dee8183a04ef9750
+engine        1.0.0
+paramsDigest  sha256:57c7dbda9e570fcc913048403584a9a0c36bdb499170034a9228e38b1f55e9c5
+inputDigest   sha256:b29fe66980e4633d288d5e20cd34f72420d1e998feb380e3c83806cd5d95021d
+decision      red / daily-limit
+rules         TR-004-single-large (rules.yml:26)
+rules         RC-002-default (rules.yml:42)
+reproduced    yes
+chain         policy/decision missing
+evidence      present
+# exit=1
+
+结论：正常复现 reproduced yes；缺链显式失败

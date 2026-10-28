@@ -1,0 +1,12 @@
+# 16 坏 bundle：就地篡改
+# 2026-10-28T22:01:45+08:00 · HEAD b6e9a63
+
+## 直接编译篡改后的 bundle
+policy-digest-mismatch: lock.json: 源摘要不符：bundle 被就地改动（lock c5093f5be4cf585c090715516a5a5d16b78e7a0d3fd28eaf4759ee22d7c54a5f，实际 feb9071c07f774a56996971d1cdf9344ffb91fbba79c754fca69420314504a00）
+# exit=1
+
+## 宿主启动
+BAD_BUNDLE_DIRECT policy-digest-mismatch
+BAD_BUNDLE policy-digest-mismatch
+
+结论：篡改后 lock 摘要不符，编译与启动均显式失败（policy-digest-mismatch）

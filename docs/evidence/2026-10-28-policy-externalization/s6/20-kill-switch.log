@@ -1,0 +1,13 @@
+# 20 kill switch：engine=legacy
+# 2026-10-28T22:05:55+08:00 · HEAD b6e9a63
+
+KILL_SWITCH {"engine":"legacy","toolResult":true,"toolDenied":false}
+
+## 默认值（源码）
+151:  policy: { engine: 'legacy' },
+
+## headless 生效树（对照：演示 profile 现在是 bundle）
+policy:rules          bundle:base                                {"root":"policies","active":{"bank.tier":"bank-tier/1.0.0"},"statePath":"policies\\runtime-state.json","hotReload":false,"requireSignature":false,"signatur
+bank:tools            profile-patch:profiles/headless/patch.yml  {"demoUserId":"u-1","seed":7,"datasetTier":"demo","disclaimerId":"wealth-risk-v1","ticketTtlSeconds":120,"computeTimeoutMs":5000,"redChallenge":"sms","dail
+
+结论：KILL_SWITCH 演练用的 boot 没装 policy:rules，bank:tools 走默认 legacy，turn 正常完成（tool/result 有、sentry 未拒）；回退开关不依赖策略文件。

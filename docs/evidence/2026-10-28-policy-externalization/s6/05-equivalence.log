@@ -1,0 +1,12 @@
+# 05 等价性：bank legacy 960 组 + sentry 旧内核逐条
+# 2026-10-28T22:01:45+08:00 · HEAD b6e9a63
+
+✔ policy-conformance
+    ℹ bank-tier/1.0.0: 20 例、规则 5、理由 4
+    ℹ 等价 bank-tier/1.0.0 vs legacy：480 组逐字段相等、480 组未绑定边界（共 960 组）
+    ℹ bank-tier-demo/1.0.0: 5 例、规则 5、理由 4（demo：只验用例）
+    ℹ bank-tier-demo/1.1.0: 11 例、规则 6、理由 4（demo：只验用例）
+    ℹ bundle：生产 1 个（覆盖/变异/等价全查）、演示 2 个（只验用例）、sentry 规则集 1 个（语料 + 旧内核等价）
+# exit=0
+
+结论：bank 480 已绑定逐字段 + 480 未绑定边界；sentry 13 条/52 例命中序列全等

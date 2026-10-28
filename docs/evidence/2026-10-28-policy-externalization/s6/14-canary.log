@@ -1,0 +1,7 @@
+# 14 灰度：两个会话落在不同版本
+# 2026-10-28T22:01:45+08:00 · HEAD b6e9a63
+
+CANARY {"canary":"bank-tier/1.1.0+sha256:a454c72044089913","other":"bank-tier/1.0.0+sha256:97764bc1298834d6"}
+SENTRY_RULES sentry-rules/1.0.0 13
+
+结论：显式名单会话命中 canary，其他会话留在 active；sentry 规则集 13 条可用

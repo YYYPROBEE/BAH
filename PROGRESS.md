@@ -5911,3 +5911,15 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
   （`docs/evidence/2026-10-28-policy-externalization/s5-key-lifecycle.log`）；
 - 生产 overlay：`profiles/web/patch-signed.example.yml`（requireSignature + allowedKeyVersions）；
 - 口径：未启用生产签名前，不得宣称"策略文件防篡改"。
+
+## 96.34 S6：A/B 复审与证据包（2026-10-28 22:0x）
+
+- 证据包：`docs/evidence/2026-10-28-policy-externalization/s6/`（20 份 §11 文件 + SHA256SUMS + 35 条负控 + A/B 复审）；
+- 演练：canary（两会话不同版本）、rollback（1.0.0→1.1.0→1.0.0 + rollout 链连续）、
+  bad bundle（篡改→启动失败）、concurrency（100 判决 × 10 重载，1 种结果）、
+  kill switch（legacy turn 正常）、explain（快照 call-create reproduced yes）、
+  audit-verify（会话链 + rollout 链连续）、bench（compile 2.156ms / eval p99 6µs）；
+- 负控：27 个 bundle 夹具 + 8 条运行时负控，逐条命令/退出码/错误码，0 条应红未红；
+- A/B：A1–A10、B1–B15 全部 ✔（A6 真实样本 1 条列 P2）；**0 P0/P1**；
+- 残余 P2：explain 真实样本、sentry 未激活（R10）、覆盖台账待 CI、semver major 门禁；
+- 口径：S0–S5 完成，S6 复审通过（P2 已登记）；生产 sentry 仍 legacy、生产签名未启用。

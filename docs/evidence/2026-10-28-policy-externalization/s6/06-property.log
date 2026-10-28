@@ -1,0 +1,15 @@
+# 06 属性测试（policy 包）
+# 2026-10-28T22:01:45+08:00 · HEAD b6e9a63
+
+
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mD:/项目集/微众杯银行ai智能体/BAH/MonoRepo[39m
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m2 passed[39m[22m[90m (2)[39m
+[2m   Start at [22m 22:02:00
+[2m   Duration [22m 4.20s[2m (transform 357ms, setup 0ms, collect 760ms, tests 2.49s, environment 0ms, prepare 461ms)[22m
+
+
+结论：单调/确定/总函数/输入不被修改全部通过（见 conformance 的 checkProperties）

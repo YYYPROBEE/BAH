@@ -1,0 +1,50 @@
+# S6 负控矩阵（35 条，应红即红）
+
+执行：2026-10-28 22:0x +0800 · HEAD b6e9a63 + 未提交证据
+取证方式：`F`=bundle 负例夹具（`policies/fixtures/invalid/expected.json`，`verify-policy-bundle` 逐条断言错误码）；
+`T`=单测（命令与用例名见括号）；`E`=证据包内命令日志。
+
+| # | 负控 | 取证 | 结果 |
+|---:|---|---|---|
+| 1 | 降级规则 | F `downgrade/1.0.0` | `policy-lower-tier` |
+| 2 | 重复规则 | F `duplicate-rule/1.0.0` | `policy-duplicate-rule` |
+| 3 | 缺默认行 | F `missing-default/1.0.0` | `policy-missing-default` |
+| 4 | 不可达 | F `unreachable-row/1.0.0` | `policy-unreachable-row` |
+| 5 | 不可满足 | F `unsatisfiable-row/1.0.0` | `policy-unsatisfiable-row` |
+| 6 | 未知字段 | F `unknown-field/1.0.0` | `policy-unknown-field` |
+| 7 | 未知工具 | F `unknown-tool/1.0.0` | `policy-unknown-tool` |
+| 8 | 未知参数 | F `unknown-param/1.0.0` | `policy-unknown-param` |
+| 9 | 参数未用 | F `param-unused/1.0.0` | `policy-param-unused` |
+| 10 | 浮点 | F `float-amount/1.0.0` | `policy-parse-error` |
+| 11 | 正则 / 时钟 | F `regex-access/1.0.0` / `clock-access/1.0.0` | `policy-parse-error` / `policy-unknown-operator` |
+| 12 | 非法理由 | F `bad-reason/1.0.0` | `policy-bad-reason` |
+| 13 | 非法拒绝码 | F `bad-deny-code/1.0.0` | `policy-bad-deny-code` |
+| 14 | 版本/目录不一致 | F `version-mismatch/1.0.0` | `policy-version-mismatch` |
+| 15 | lock 不符 | F `digest-tamper/1.0.0` | `policy-digest-mismatch` |
+| 16 | 就地改 bundle | E `16-bad-bundle.log`：`policy:compile --check` + 宿主启动 | `policy-digest-mismatch`（exit=1） |
+| 17 | 坏签名 | E `s5-key-lifecycle.log` 第 8 步（v2 签名 + v1 公钥） | `policy-signature-invalid`（exit=1） |
+| 18 | 缺签名但要求 | E `s5-key-lifecycle.log` 第 9 步 | `policy-signature-invalid: requireSignature...`（exit=1） |
+| 19 | 引擎不兼容 | F `engine-incompatible/1.0.0` | `policy-engine-incompatible` |
+| 20 | 参数不匹配 | T（`policy.test.ts` 参数集不一致/越界；`bank-tools.test.ts` 两类启动失败） | `policy-param-mismatch` |
+| 21 | state 坏 | T（`policy.test.ts` state 坏 JSON / apiVersion 错） | `policy-state-invalid` |
+| 22 | state 指向缺失版本 | T（`policy.test.ts` 有 registry 时指向未登记版本） | `policy-version-missing` |
+| 23 | 行序错误 | T（`policy.test.ts` policy 行在 bank 后） | `policy-row-order` |
+| 24 | 缺服务 | T（`policy.test.ts` engine=bundle 缺 policy:rules） | `policy-service-missing` |
+| 25 | 引擎抛错 | T（`governance-policy.test.ts` 假引擎抛错） | deny `policy-engine-error` |
+| 26 | 运行期缺服务 | T（S3 卸载/缺服务用例） | deny `policy-unavailable` |
+| 27 | 绿级 deny | T（`governance` TC-W04-06） | 仍执行（不被误伤） |
+| 28 | 策略 allow 降级 | T（`governance` TC-W04-07） | 仍 ask（不降级） |
+| 29 | 断链 | 命令：篡改 rollout 链第 1 行 `q`；`policy:audit-verify --root <tmp>` | `✘ rollout 链 断裂@7（2 条）`，exit=1 |
+| 30 | 缺归档 | E `s4-explain-round2.log` §4（registry 指向不存在目录） | `policy-archive-missing`，exit=1 |
+| 31 | 回放未知版本 | E `s4-explain-round2.log` §2/§3（篡改 evidence / `--require-chain`） | `input-digest-mismatch` / 缺链，exit=1 |
+| 32 | shadow 自指 | T（`policy.test.ts` shadow=active；sentry 同版本→state 触发） | `policy-shadow-self` |
+| 33 | percent 越界 | T（`policy.test.ts` canary.percent 10001） | `policy-state-invalid` |
+| 34 | 回滚目标缺失 | 命令：`policy-admin rollback --to bank-tier/9.9.9 --root <tmp>` | `policy-version-missing`，exit=1；state 未改 |
+| 35 | 静默回退 | T（同 #24；bundle 模式缺行必须启动失败） | `policy-service-missing`（不是静默 legacy） |
+
+## 结论
+
+- 27 个 bundle 负例逐条绑定错误码（`verify-policy-bundle`），运行时负控 8 条有命令/单测/证据；
+- 每条均有"命令或夹具 + 退出码/错误码 + 一行摘要"；
+- **0 条应红未红**。唯一需要说明的是 #26/#27/#28 由治理单测覆盖（不是门禁命令），
+  已在 04 §8 标注取证方式。
