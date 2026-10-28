@@ -18,6 +18,7 @@ import {
   normalizeSourceText,
   sourceDigestOf,
   type PolicyDescriptor,
+  type PolicyKind,
   type SourceFile,
 } from './canonical.ts'
 import { readCorpus, type CorpusCase } from './corpus.ts'
@@ -68,7 +69,7 @@ export interface LockedFile {
 /** `lock.json`。 */
 export interface PolicyLock {
   readonly apiVersion: 'bah.policy.lock/v1'
-  readonly kind: 'bank.tier'
+  readonly kind: PolicyKind
   readonly name: string
   readonly version: string
   readonly engineVersion: string

@@ -18,7 +18,15 @@ import {
   type PolicyLock,
 } from './compile.ts'
 import { policyError } from './errors.ts'
+import {
+  compileRuleBundle,
+  serializeRuleLock,
+  type SentryCompileResult,
+  type SentryRulesLock,
+} from './sentry-rules.ts'
 import { assertSigned, parseBundleSignature } from './signature.ts'
+import { isRecord } from './schema.ts'
+import { parseYaml, toPlain } from './yaml.ts'
 
 /** 载入选项。 */
 export interface LoadOptions extends CompileOptions {
@@ -84,4 +92,55 @@ export function readBundleFiles(dir: string): BundleFiles {
 /** 写 `lock.json`（`policy:compile --write` 的唯一副作用）。 */
 export function writeLockFile(dir: string, lock: PolicyLock): void {
   writeFileSync(join(dir, 'lock.json'), serializeLock(lock), 'utf8')
+}
+
+/** 写 sentry 规则集的 `lock.json`。 */
+export function writeRuleLockFile(dir: string, lock: SentryRulesLock): void {
+  writeFileSync(join(dir, 'lock.json'), serializeRuleLock(lock), 'utf8')
+}
+
+/**
+ * 载入并编译一个 `sentry.rules` bundle（签名与 bank.tier 同一套）。
+ */
+export function loadRuleBundle(options: LoadOptions): SentryCompileResult {
+  const bundle = readBundleFiles(options.dir)
+  const result = compileRuleBundle(bundle, options)
+
+  const signatureText = bundle.files['bundle.sig']
+  if (signatureText !== undefined) {
+    if (options.publicKeyPem === undefined) {
+      throw policyError('policy-signature-invalid', 'bundle 带签名但没有提供验签公钥', {
+        file: 'bundle.sig',
+      })
+    }
+    assertSigned(
+      result.compiled.ir,
+      result.compiled.descriptor,
+      parseBundleSignature(signatureText),
+      options.publicKeyPem,
+      options.allowedKeyVersions ?? [],
+    )
+    return result
+  }
+
+  if (options.requireSignature === true) {
+    throw policyError('policy-signature-invalid', 'requireSignature 已开启，但 bundle 没有 bundle.sig', {
+      file: 'bundle.sig',
+    })
+  }
+  return result
+}
+
+/** 读 bundle.yml 的 `kind`（门禁按 kind 分派编译器用）。 */
+export function peekBundleKind(dir: string): string {
+  const files = readBundleFiles(dir)
+  const text = files.files['bundle.yml']
+  if (text === undefined) {
+    throw policyError('policy-parse-error', '缺少文件 `bundle.yml`', { file: 'bundle.yml' })
+  }
+  const plain = toPlain(parseYaml(text, 'bundle.yml'))
+  if (!isRecord(plain)) {
+    throw policyError('policy-schema-invalid', 'bundle.yml 根节点必须是对象', { file: 'bundle.yml' })
+  }
+  return String(plain['kind'])
 }

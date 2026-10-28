@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 
 import { HOST_PLUGINS, boot, createCatalog, type BootedApp, type HostPlugin } from '@bah/host'
 import { BANK_TOOL_NAME_SET } from '@bah/bank'
-import { loadBundle, writeLockFile } from '@bah/policy'
+import { loadBundle, loadRuleBundle, writeLockFile, writeRuleLockFile } from '@bah/policy'
 import {
   AGENTS_SERVICE,
   SESSION_SERVICE,
@@ -33,10 +33,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AnySessionEvent } from '@bah/runtime'
 
 import type { ValidatedRow } from '../../plugin-manager/index.ts'
-import { policyInternals, policyRulesPlugin, reloadPolicyNow, resetPolicyReloadHandle } from './policy.ts'
+import {
+  findSentryRules,
+  policyInternals,
+  policyRulesPlugin,
+  reloadPolicyNow,
+  resetPolicyReloadHandle,
+} from './policy.ts'
 
 const repoRoot = fileURLToPath(new URL('../../../../../', import.meta.url))
 const realBundle = join(repoRoot, 'policies', 'bank-tier', '1.0.0')
+const realSentryBundle = join(repoRoot, 'policies', 'sentry-rules', '1.0.0')
 const demoBundle = join(repoRoot, 'policies', 'demo', 'bank-tier-demo', '1.0.0')
 const FIXED_NOW = 1_700_000_000_000
 
@@ -122,10 +129,14 @@ function entryOf(handle: string, dir: string): Record<string, unknown> {
   }
 }
 
-function writeRegistry(root: string, versions: Readonly<Record<string, Record<string, unknown>>>): void {
+function writeRegistry(
+  root: string,
+  versions: Readonly<Record<string, Record<string, unknown>>>,
+  kind = 'bank.tier',
+): void {
   writeFileSync(
     join(root, 'registry.json'),
-    JSON.stringify({ apiVersion: 'bah.policy.registry/v1', kinds: { 'bank.tier': { versions } } }, null, 2),
+    JSON.stringify({ apiVersion: 'bah.policy.registry/v1', kinds: { [kind]: { versions } } }, null, 2),
     'utf8',
   )
 }
@@ -222,7 +233,7 @@ describe('policy:rules · validate', () => {
     }
     expect(code({ nope: 1 })).toBe('unknown-config-key')
     expect(code({ root: '../etc' })).toBe('invalid-config')
-    expect(code({ active: { 'sentry.rules': 'x/1.0.0' } })).toBe('invalid-config')
+    expect(code({ active: { 'other.rules': 'x/1.0.0' } })).toBe('invalid-config')
     expect(code({ active: { 'bank.tier': '' } })).toBe('invalid-config')
     expect(code({ active: { 'bank.tier': 'a/1' }, shadow: { 'sentry.rules': 'b/1' } })).toBe(
       'invalid-config',
@@ -1325,5 +1336,207 @@ describe('policy:rules · 影子隔离（S3）', () => {
     } finally {
       await app.dispose('test')
     }
+  })
+})
+
+describe('policy:rules · sentry.rules 第二类 bundle（S5）', () => {
+  /** 把真实 sentry 规则集装进临时策略根。 */
+  function installSentry(root: string, handle = 'sentry-rules/1.0.0'): string {
+    const dir = join(root, ...handle.split('/'))
+    copyTree(realSentryBundle, dir)
+    return dir
+  }
+
+  /** 造一个"版本更高、规则相同"的候选（只改 manifest version 再重算 lock）。 */
+  function installSentryVariant(root: string, handle: string, version: string): string {
+    const dir = installSentry(root, handle)
+    const manifest = join(dir, 'bundle.yml')
+    writeFileSync(
+      manifest,
+      readFileSync(manifest, 'utf8').replace('version: 1.0.0', `version: ${version}`),
+      'utf8',
+    )
+    const recompiled = loadRuleBundle({ dir, toolNames: [], verifyLock: false })
+    writeRuleLockFile(dir, recompiled.lock)
+    return dir
+  }
+
+  it('载入后服务给出 13 条规则与 sentry 身份串（描述符 kind 正确）', async () => {
+    const root = tempRoot('sentry-load')
+    installSentry(root)
+    const app = await bootPolicy({
+      root,
+      config: { active: { 'sentry.rules': 'sentry-rules/1.0.0' } },
+    })
+    try {
+      const view = findSentryRules(app.ctx)
+      expect(view?.descriptor.kind).toBe('sentry.rules')
+      const current = view?.rulesFor('s-any')
+      expect(current?.handle).toBe('sentry-rules/1.0.0')
+      expect(current?.rules).toHaveLength(13)
+      expect(current?.version).toMatch(/^sentry-rules\/1\.0\.0\+sha256:[0-9a-f]{16}$/)
+      expect(current?.rules.find((rule) => rule.id === 'CMD-001')?.pattern.source).toBe(
+        String.raw`\brm\s+(-[rfRF]{1,2}\s*)+(\S+)`,
+      )
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('灰度：canary 会话拿到候选版本，其他会话留在 active', async () => {
+    const root = tempRoot('sentry-canary')
+    const stable = installSentry(root)
+    const variant = installSentryVariant(root, 'sentry-rules/1.0.1', '1.0.1')
+    writeRegistry(
+      root,
+      {
+        'sentry-rules/1.0.0': entryOf('sentry-rules/1.0.0', stable),
+        'sentry-rules/1.0.1': entryOf('sentry-rules/1.0.1', variant),
+      },
+      'sentry.rules',
+    )
+    writeState(root, {
+      'sentry.rules': {
+        active: 'sentry-rules/1.0.0',
+        canary: { version: 'sentry-rules/1.0.1', percent: 0, sessions: ['s-canary'], epoch: 1 },
+      },
+    })
+    const app = await bootPolicy({
+      root,
+      config: { active: { 'sentry.rules': 'sentry-rules/1.0.0' } },
+    })
+    try {
+      const view = findSentryRules(app.ctx)
+      expect(view?.rulesFor('s-canary')?.handle).toBe('sentry-rules/1.0.1')
+      expect(view?.rulesFor('s-other')?.handle).toBe('sentry-rules/1.0.0')
+      expect(view?.descriptor.canary?.handle).toBe('sentry-rules/1.0.1')
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('只装 sentry 时银行描述符读取失败（fail-loud，不做假版本兜底）', async () => {
+    const root = tempRoot('sentry-only')
+    installSentry(root)
+    const app = await bootPolicy({
+      root,
+      config: { active: { 'sentry.rules': 'sentry-rules/1.0.0' } },
+    })
+    try {
+      expect(() => findPolicyDescriptor(app.ctx)?.kind).toThrowError(/没有 bank\.tier/)
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('只装银行时 sentry 视图读取失败 / rulesFor 返回 undefined（不伪造规则集）', async () => {
+    const root = tempRoot('bank-only')
+    install(root, 'bank-tier/1.0.0')
+    const app = await bootPolicy({ root })
+    try {
+      expect(() => findSentryRules(app.ctx)?.descriptor).toThrowError(/没有 sentry\.rules/)
+      expect(findSentryRules(app.ctx)?.rulesFor('s-any')).toBeUndefined()
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('sentry 影子与 active 同版本 → policy-shadow-self', async () => {
+    const root = tempRoot('sentry-shadow-self')
+    installSentry(root)
+    const code = await bootPolicy({
+      root,
+      config: {
+        active: { 'sentry.rules': 'sentry-rules/1.0.0' },
+        shadow: { 'sentry.rules': 'sentry-rules/1.0.0' },
+      },
+    }).then(
+      () => 'no-throw',
+      (error: unknown) => {
+        const shaped = error as { code?: string; detail?: { cause?: { code?: string } } }
+        return shaped.detail?.cause?.code ?? shaped.code
+      },
+    )
+    expect(code).toBe('policy-shadow-self')
+  })
+
+  it('runtime-state 把 sentry 的 active 改成与 shadow 同版本 → 启动失败 policy-shadow-self', async () => {
+    const root = tempRoot('sentry-shadow-state-self')
+    const stable = installSentry(root)
+    const variant = installSentryVariant(root, 'sentry-rules/1.0.1', '1.0.1')
+    writeRegistry(
+      root,
+      {
+        'sentry-rules/1.0.0': entryOf('sentry-rules/1.0.0', stable),
+        'sentry-rules/1.0.1': entryOf('sentry-rules/1.0.1', variant),
+      },
+      'sentry.rules',
+    )
+    writeState(root, { 'sentry.rules': { active: 'sentry-rules/1.0.1' } })
+    const code = await bootPolicy({
+      root,
+      config: {
+        active: { 'sentry.rules': 'sentry-rules/1.0.0' },
+        shadow: { 'sentry.rules': 'sentry-rules/1.0.1' },
+      },
+    }).then(
+      () => 'no-throw',
+      (error: unknown) => {
+        const shaped = error as { code?: string; detail?: { cause?: { code?: string } } }
+        return shaped.detail?.cause?.code ?? shaped.code
+      },
+    )
+    expect(code).toBe('policy-shadow-self')
+  })
+
+  it('sentry 影子指向另一版本 → 正常编译（与灰度同一平面）', async () => {
+    const root = tempRoot('sentry-shadow')
+    const stable = installSentry(root)
+    const variant = installSentryVariant(root, 'sentry-rules/1.0.1', '1.0.1')
+    writeRegistry(
+      root,
+      {
+        'sentry-rules/1.0.0': entryOf('sentry-rules/1.0.0', stable),
+        'sentry-rules/1.0.1': entryOf('sentry-rules/1.0.1', variant),
+      },
+      'sentry.rules',
+    )
+    const app = await bootPolicy({
+      root,
+      config: {
+        active: { 'sentry.rules': 'sentry-rules/1.0.0' },
+        shadow: { 'sentry.rules': 'sentry-rules/1.0.1' },
+      },
+    })
+    try {
+      expect(findSentryRules(app.ctx)?.rulesFor('s-any')?.handle).toBe('sentry-rules/1.0.0')
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('findSentryRules：非 service-missing 的异常原样上抛', () => {
+    const boom = Object.assign(new Error('boom'), { code: 'boom' })
+    const ctx = {
+      get() {
+        throw boom
+      },
+    }
+    expect(() => findSentryRules(ctx as never)).toThrow('boom')
+  })
+
+  it('active 指向不存在的 sentry 版本 → 启动失败 policy-bundle-missing', async () => {
+    const root = tempRoot('sentry-missing')
+    const code = await bootPolicy({
+      root,
+      config: { active: { 'sentry.rules': 'sentry-rules/9.9.9' } },
+    }).then(
+      () => 'no-throw',
+      (error: unknown) => {
+        const shaped = error as { code?: string; detail?: { cause?: { code?: string } } }
+        return shaped.detail?.cause?.code ?? shaped.code
+      },
+    )
+    expect(code).toBe('policy-bundle-missing')
   })
 })

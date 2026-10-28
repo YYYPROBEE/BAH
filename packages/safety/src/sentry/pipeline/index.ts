@@ -23,7 +23,7 @@ import type { Context, Disposer, ServiceKey, SessionId, ToolTierLevel } from '@b
 import { HaltState } from '../halt.ts'
 import type { HaltEvent, HaltHandle, HaltPersistence, HaltTicket } from '../halt.ts'
 import { BudgetLedger, TraceLog } from '../kernel/index.ts'
-import type { TraceSink } from '../kernel/index.ts'
+import type { ScanRule, TraceSink } from '../kernel/index.ts'
 
 import { createAuditListener } from './audit.ts'
 import { SentryBreaker } from './breaker.ts'
@@ -76,6 +76,11 @@ export interface SentryPorts {
    * **不是会话事件**：事件表没有 `sentry/decision`，不要在这里 `session.append`。
    */
   readonly recordDecision?: (decision: SentryDecisionRecord) => void
+  /**
+   * 外置规则集（S5）：`rules.engine=bundle` 时由宿主注入（来自 `sentry.rules` bundle）。
+   * 缺省 = 内核 `BUILTIN_RULES`（legacy 模式零变化）。
+   */
+  readonly ruleSet?: () => { readonly version: string; readonly rules: readonly ScanRule[] } | undefined
   /** TraceLog 落盘出口（`trace.sink = 'memory'` 时缺省 = 只留内存环）。 */
   readonly traceSink?: TraceSink
   /**
@@ -178,6 +183,7 @@ export function provideSentry(
     trace,
     record: ports.record,
     now: ports.now,
+    ...(ports.ruleSet === undefined ? {} : { ruleSet: ports.ruleSet }),
   }
 
   ctx.effect(ctx.events.on('agent/pre-step', createIngressListener(shared)))

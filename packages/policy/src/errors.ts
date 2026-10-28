@@ -6,7 +6,7 @@
  * 2. **定位必须能点到行**：任何与源文件有关的错误都带 `file:line`，与某一行规则有关的
  *    错误再带 `ruleId`。CLI 首行输出 `file:line: ruleId: message`，不打堆栈。
  *
- * 码表比方案 §6.4 的 24 条多 3 条：§2.2 的 `policy-input-invalid`、§5.4 的
+ * 码表比方案 §6.4 的 24 条多 4 条（含 S5 的 `policy-regex-unsafe`）：§2.2 的 `policy-input-invalid`、§5.4 的
  * `policy-eval-overflow`，以及"IR 被篡改"的 `policy-eval-invalid`（§4.2 不变式 3 要求
  * 运行期只可能因 IR 损坏失败，必须给它一个可判别的码，否则治理平面只能当未知异常）。
  */
@@ -41,6 +41,8 @@ export const POLICY_ERROR_CODES = [
   'policy-corpus-missing',
   'policy-limit-exceeded',
   'policy-engine-incompatible',
+  // sentry 规则集：正则安全子集（S5）
+  'policy-regex-unsafe',
   // 运行期：输入非法 / 求值异常（fail-closed，绝不变成 allow）
   'policy-input-invalid',
   'policy-eval-overflow',

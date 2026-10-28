@@ -21,7 +21,7 @@ import { join, relative, resolve, sep } from 'node:path'
 import { parse } from 'yaml'
 
 import { BANK_TOOL_NAME_SET } from '../packages/bank/src/tools/specs.ts'
-import { loadBundle } from '../packages/policy/src/load.ts'
+import { loadBundle, loadRuleBundle } from '../packages/policy/src/load.ts'
 import { describePolicyError } from '../packages/policy/src/errors.ts'
 
 import { isMainModule, runStandalone, walk, type Gate, type GateResult } from './gate-lib.ts'
@@ -32,7 +32,10 @@ const STATE_API = 'bah.policy.runtime-state/v1'
 const HANDLE_PATTERN = /^[a-z0-9][a-z0-9-]*\/\d+\.\d+\.\d+$/
 const SEMVER = /^\d+\.\d+\.\d+$/
 
+const POLICY_KINDS = ['bank.tier', 'sentry.rules'] as const
+
 interface Entry {
+  readonly kind?: string
   readonly path: string
   readonly semanticDigest: string
   readonly sourceDigest: string
@@ -82,7 +85,10 @@ const gate: Gate = {
         findings.push(`registry ${handle}: path 与 handle 不一致（${rel}）`)
       }
       try {
-        const result = loadBundle({ dir: abs, toolNames, verifyLock: true, withCorpus: false })
+        const result =
+          entry.kind === 'sentry.rules'
+            ? loadRuleBundle({ dir: abs, toolNames: [], verifyLock: true })
+            : loadBundle({ dir: abs, toolNames, verifyLock: true, withCorpus: false })
         const descriptor = result.compiled.descriptor
         if (entry.semanticDigest !== descriptor.semanticDigest) {
           findings.push(`registry ${handle}: semanticDigest 与现场不符`)
@@ -220,14 +226,15 @@ function readRegistry(path: string, findings: string[]): Map<string, Entry> | un
   const kinds = (parsed as { kinds?: unknown }).kinds
   if (typeof kinds !== 'object' || kinds === null) return entries
   for (const [kind, value] of Object.entries(kinds)) {
-    if (kind !== 'bank.tier') {
-      findings.push(`registry: 未知 kind ${kind}（v1 只认 bank.tier）`)
+    if (!(POLICY_KINDS as readonly string[]).includes(kind)) {
+      findings.push(`registry: 未知 kind ${kind}（v1 只认 ${POLICY_KINDS.join(' / ')}）`)
     }
     const versions = (value as { versions?: unknown }).versions
     if (typeof versions !== 'object' || versions === null) continue
     for (const [handle, raw] of Object.entries(versions)) {
       const entry = raw as Partial<Entry> & { demo?: unknown }
       entries.set(handle, {
+        kind,
         path: String(entry.path),
         semanticDigest: String(entry.semanticDigest),
         sourceDigest: String(entry.sourceDigest),
@@ -256,7 +263,9 @@ function registryShapeFindings(parsed: unknown): string[] {
     return findings
   }
   for (const [kind, value] of Object.entries(kinds)) {
-    if (kind !== 'bank.tier') findings.push(`registry: 未知 kind ${kind}`)
+    if (!(POLICY_KINDS as readonly string[]).includes(kind)) {
+      findings.push(`registry: 未知 kind ${kind}`)
+    }
     const versions = (value as { versions?: unknown }).versions
     if (typeof versions !== 'object' || versions === null || Array.isArray(versions)) {
       findings.push(`registry: kinds.${kind}.versions 必须是对象`)

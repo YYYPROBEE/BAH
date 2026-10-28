@@ -37,6 +37,7 @@ import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { DECISION_AUDIT } from './audit-decisions.ts'
 import { createHaltStore } from './halt-store.ts'
 import { DEFAULT_ROOT } from './persistence.ts'
+import { findSentryRules } from './policy.ts'
 import { RUN_SERVICE } from '../boot.ts'
 
 /** `safety:sentry` 的配置就是 sentry 模块的 `SentrySettings`（校验已内聚在安全包）。 */
@@ -168,9 +169,36 @@ export const sentryPlugin: HostPlugin<SentryPluginSettings> = {
         return { ticketId, status: 'approved', expiresAt, mfa: true }
       }
 
+      /**
+       * 外置规则集（S5）：`rules.engine=bundle` 时**必须**拿到 `policy:rules` 的
+       * `sentry.rules`；缺了就是装配错误，启动失败（不静默退回内核 13 条）。
+       */
+      const ruleSetView = config.rules.engine === 'bundle' ? findSentryRules(ctx) : undefined
+      if (config.rules.engine === 'bundle' && ruleSetView === undefined) {
+        throw new BahError(
+          'sentry-rules-missing',
+          'safety:sentry.rules.engine=bundle 但没有装配 policy:rules 的 sentry.rules（或它排在 safety:sentry 之后）',
+          { where: 'safety:sentry.rules.engine' },
+        )
+      }
+      if (ruleSetView !== undefined) {
+        try {
+          void ruleSetView.descriptor
+        } catch (error) {
+          throw new BahError(
+            'sentry-rules-missing',
+            'policy:rules.active 没有 sentry.rules（engine=bundle 却无规则集）',
+            { cause: reasonOf(error) },
+          )
+        }
+      }
+      const rulesFor = (): { readonly version: string } | undefined =>
+        ruleSetView?.rulesFor(String(run.sessionId))
+
       const handle = provideSentry(ctx, config, {
         sessionId: run.sessionId,
         now: run.now,
+        ...(ruleSetView === undefined ? {} : { ruleSet: () => ruleSetView.rulesFor(String(run.sessionId)) }),
         // HALT 跨重启（C3）：`<root>/halt.json` 与会话 ID 无关——停机是部署级事实，
         // 换个会话 ID 不该绕过它。固定 `fsync: true`：停机写入不在审批热路径上
         // （一次停机只写一次），没有理由为了演示省这一次 fsync。
@@ -200,7 +228,7 @@ export const sentryPlugin: HostPlugin<SentryPluginSettings> = {
             data: decision,
             subject: `session:${String(run.sessionId)}`,
             decision: decision.decision,
-            policyVersion: SENTRY_POLICY_VERSION,
+            policyVersion: rulesFor()?.version ?? SENTRY_POLICY_VERSION,
           })
         },
         ...(traceSink === undefined ? {} : { traceSink }),

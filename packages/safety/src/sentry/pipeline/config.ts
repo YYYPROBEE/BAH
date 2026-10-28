@@ -30,6 +30,11 @@ export interface SentryDetectorSettings {
 
 /** 规则面配置。 */
 export interface SentryRuleSettings {
+  /**
+   * 规则来源：`legacy` = 内核 `BUILTIN_RULES`；`bundle` = `policy:rules` 的
+   * `sentry.rules` bundle（S5）。缺省 legacy，切换必须显式写。
+   */
+  readonly engine: 'legacy' | 'bundle'
   /** 停用的内置规则 ID（13 条之外的 ID 也允许写：内核会忽略，配置不因此报错）。 */
   readonly disabled: readonly string[]
   /** NET-001 的 demo/example/mock 校准位（施工单 10 §2 的规则级白名单）。 */
@@ -141,7 +146,7 @@ export const SENTRY_CONFIG_KEYS = {
     'trace',
   ],
   detector: ['warnThreshold', 'highThreshold'],
-  rules: ['disabled', 'demoWhitelist', 'crossScenario', 'extra'],
+  rules: ['engine', 'disabled', 'demoWhitelist', 'crossScenario', 'extra'],
   rule: ['id', 'pattern', 'family', 'note'],
   budget: ['totalCalls', 'riskyCalls', 'amountYuan'],
   breaker: ['denyThreshold', 'windowSeconds', 'revokeTickets'],
@@ -181,7 +186,7 @@ export const DEFAULT_SENTRY_SETTINGS: SentryDefaults = {
   detector: { warnThreshold: 0.45, highThreshold: 0.8 },
   // XSC-001/002 是"部署侧追加规则"：默认关，演示/压测 profile 显式打开。
   // 上线前用 `pnpm sentry:fp` 跑真实语料统计（见 docs/sentry.md §10.7）。
-  rules: { disabled: [], demoWhitelist: true, crossScenario: false, extra: [] },
+  rules: { engine: 'legacy', disabled: [], demoWhitelist: true, crossScenario: false, extra: [] },
   budget: { totalCalls: 60, riskyCalls: 20, amountYuan: 200_000 },
   breaker: { denyThreshold: 5, windowSeconds: 600, revokeTickets: true },
   degrade: { invalidArgsThreshold: 3 },
@@ -262,6 +267,15 @@ export function resolveSentrySettings(
   return {
     detector: { warnThreshold, highThreshold },
     rules: {
+      engine:
+        readConfigEnum(
+          rules,
+          'engine',
+          'safety:sentry.rules',
+          ['legacy', 'bundle'] as const,
+          DEFAULT_SENTRY_SETTINGS.rules.engine,
+          invalidSentry,
+        ) ?? 'legacy',
       disabled: readStringArray(rules, 'disabled', 'safety:sentry.rules') ?? [],
       demoWhitelist: readBoolean(
         rules,

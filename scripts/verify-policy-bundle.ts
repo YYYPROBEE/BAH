@@ -22,7 +22,8 @@ import { BANK_TOOL_NAME_SET } from '../packages/bank/src/tools/specs.ts'
 import { canonicalJson } from '../packages/util/src/index.ts'
 import { compileBundle } from '../packages/policy/src/compile.ts'
 import { describePolicyError } from '../packages/policy/src/errors.ts'
-import { loadBundle, readBundleFiles } from '../packages/policy/src/load.ts'
+import { loadBundle, loadRuleBundle, readBundleFiles } from '../packages/policy/src/load.ts'
+import { checkRuleCases } from '../packages/policy/src/sentry-rules.ts'
 
 import { isMainModule, runStandalone, walk, type Gate, type GateResult } from './gate-lib.ts'
 
@@ -53,11 +54,26 @@ const gate: Gate = {
         continue
       }
       try {
-        const result = loadBundle({ dir, toolNames, verifyLock: true, withCorpus: true })
+        const kind = peekKind(join(dir, 'bundle.yml'))
+        const result =
+          kind === 'sentry.rules'
+            ? loadRuleBundle({ dir, toolNames: [], verifyLock: true })
+            : loadBundle({ dir, toolNames, verifyLock: true, withCorpus: true })
         compiled += 1
         verifyFullLock(root, dir, rel, result.lock, findings)
-        if (result.compiled.warnings.length > 0) {
-          notes.push(`${rel}: ${String(result.compiled.warnings.length)} 条非阻断告警（deny 顺序）`)
+        if (kind === 'sentry.rules') {
+          const ruleset = result as ReturnType<typeof loadRuleBundle>
+          const failures = checkRuleCases(ruleset.compiled)
+          for (const failure of failures) findings.push(`${rel}: ${failure}`)
+          notes.push(
+            `${rel}: sentry 规则集 ${String(ruleset.compiled.rules.length)} 条，语料 ${
+              String(ruleset.compiled.ir.rules.reduce((sum, rule) => sum + rule.cases.match.length + rule.cases.nonMatch.length, 0))
+            } 例`,
+          )
+        } else if ((result as ReturnType<typeof loadBundle>).compiled.warnings.length > 0) {
+          notes.push(
+            `${rel}: ${String((result as ReturnType<typeof loadBundle>).compiled.warnings.length)} 条非阻断告警（deny 顺序）`,
+          )
         }
       } catch (error) {
         const described = describePolicyError(error)
@@ -94,12 +110,19 @@ const gate: Gate = {
   },
 }
 
+/** 读 bundle.yml 的 kind（分派编译器；读不出来就让后面编译报错）。 */
+function peekKind(manifestPath: string): string {
+  const text = readFileSync(manifestPath, 'utf8')
+  const matched = /^kind:\s*([A-Za-z0-9._-]+)\s*$/m.exec(text)
+  return matched?.[1] ?? 'unknown'
+}
+
 /** `lock.json` 必须与编译产物**逐字段**一致（不只两个摘要）。 */
 function verifyFullLock(
   root: string,
   dir: string,
   rel: string,
-  computed: ReturnType<typeof loadBundle>['lock'],
+  computed: unknown,
   findings: string[],
 ): void {
   let parsed: unknown

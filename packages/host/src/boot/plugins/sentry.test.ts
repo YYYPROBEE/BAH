@@ -8,7 +8,7 @@
  * 4. 票据窄端口（`status` + `revokeAll`，不暴露核销入口）。
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -31,6 +31,8 @@ function rows(options: {
   readonly script: readonly unknown[]
   readonly sentry?: Readonly<Record<string, unknown>>
   readonly approval?: boolean
+  readonly policySentry?: boolean
+  readonly policyBank?: boolean
 }): readonly PluginRow[] {
   const list: PluginRow[] = [
     { id: 'core:session' },
@@ -45,6 +47,19 @@ function rows(options: {
       config: { channel: 'headless', loop: { model: 'mock:mock-chat', maxSteps: 8 } },
     },
     { id: 'core:persistence', config: { root: 'sessions', fsync: false } },
+    ...(options.policySentry === true
+      ? [
+          {
+            id: 'policy:rules',
+            config: {
+              root: 'policies',
+              active: { 'sentry.rules': 'sentry-rules/1.0.0' },
+            } as Readonly<Record<string, unknown>>,
+          },
+        ]
+      : options.policyBank === true
+        ? [{ id: 'policy:rules', config: { root: 'policies' } as Readonly<Record<string, unknown>> }]
+        : []),
     { id: 'audit:decisions' },
     { id: 'bank:tools', config: { demoUserId: 'u-1', seed: 7, datasetTier: 'demo' } },
     ...(options.approval === false
@@ -88,6 +103,8 @@ async function bootWith(options: {
   readonly sentry?: Readonly<Record<string, unknown>>
   readonly approval?: boolean
   readonly sessionId?: string
+  readonly policySentry?: boolean
+  readonly policyBank?: boolean
 }): Promise<BootedApp> {
   bootSeq += 1
   const bootOptions: BootOptions = {
@@ -561,5 +578,73 @@ describe('C3 HALT 跨重启（部署级停机）', () => {
     } finally {
       await next.dispose()
     }
+  })
+})
+
+describe('S5 · sentry.rules 外置（engine=bundle）', () => {
+  it('恶意参数命中外置 CMD-001，链上 policyVersion 是 sentry bundle 身份', async () => {
+    const sessionId = 's-sentry-bundle'
+    const app = await bootWith({
+      sessionId,
+      policySentry: true,
+      sentry: { rules: { engine: 'bundle' } },
+      script: [
+        {
+          tool: {
+            id: 'call-1',
+            name: 'transfer_create',
+            args: { amount: 100, payee: { name: 'rm -rf /tmp/x' } },
+          },
+        },
+        { text: '已拒绝。' },
+      ],
+    })
+    try {
+      const events = await runTurn(app, '给王建国转 100 元')
+      const denied = payloads(events, 'sentry/tool-denied')
+      expect(denied).toHaveLength(1)
+      expect(String(denied[0]?.['reason'])).toContain('CMD-001')
+      expect(denied[0]?.['stage']).toBe('rules')
+
+      const chain = readFileSync(join(sessionDir, sessionId, 'audit.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+      const decisions = chain.filter((row) => row['t'] === 'sentry/decision')
+      expect(decisions.length).toBeGreaterThan(0)
+      for (const row of decisions) {
+        expect(String(row['policyVersion'])).toMatch(/^sentry-rules\/1\.0\.0\+sha256:[0-9a-f]{16}$/)
+      }
+      expect(chain.map((row) => row['t'])).toContain('policy/decision')
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('policy:rules 在场但没有 sentry.rules kind → 启动失败 sentry-rules-missing', async () => {
+    const error = await bootWith({
+      policyBank: true,
+      sentry: { rules: { engine: 'bundle' } },
+      script: [{ text: '不会跑到这里' }],
+    }).then(
+      () => undefined,
+      (thrown: unknown) => thrown,
+    )
+    const shaped = error as { code?: string; detail?: { cause?: { code?: string } } }
+    expect(shaped.code).toBe('boot-failed')
+    expect(shaped.detail?.cause?.code).toBe('sentry-rules-missing')
+  })
+
+  it('engine=bundle 但没装配 policy:rules → 启动失败 sentry-rules-missing（不静默退回内核）', async () => {
+    const error = await bootWith({
+      sentry: { rules: { engine: 'bundle' } },
+      script: [{ text: '不会跑到这里' }],
+    }).then(
+      () => undefined,
+      (thrown: unknown) => thrown,
+    )
+    const shaped = error as { code?: string; detail?: { cause?: { code?: string } } }
+    expect(shaped.code).toBe('boot-failed')
+    expect(shaped.detail?.cause?.code).toBe('sentry-rules-missing')
   })
 })

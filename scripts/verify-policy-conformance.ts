@@ -20,7 +20,9 @@ import { join, relative, resolve } from 'node:path'
 import { BANK_TOOL_NAME_SET } from '../packages/bank/src/tools/specs.ts'
 import { decide, type DecideVerdict, type TierConfig, type TierReason } from '../packages/bank/src/tools/tier.ts'
 import { canonicalJson } from '../packages/util/src/index.ts'
-import { loadBundle } from '../packages/policy/src/load.ts'
+import { loadBundle, loadRuleBundle } from '../packages/policy/src/load.ts'
+import { checkRuleCases, type CompiledRuleSet } from '../packages/policy/src/sentry-rules.ts'
+import { BUILTIN_RULES, scanToolArgs } from '../packages/safety/src/sentry/kernel/rules.ts'
 import type { CompiledPolicy } from '../packages/policy/src/compile.ts'
 import { mutateAndKill, runCorpus, type CorpusCase, type Evaluator } from '../packages/policy/src/corpus.ts'
 import { describePolicyError } from '../packages/policy/src/errors.ts'
@@ -37,6 +39,7 @@ const LEVEL_RANK: Readonly<Record<TierLevel, number>> = { green: 0, yellow: 1, r
 
 /** registry 里的一个版本条目（只取门禁关心的字段）。 */
 interface RegistryEntry {
+  readonly kind?: string
   readonly path: string
   readonly demo?: boolean
 }
@@ -56,11 +59,26 @@ const gate: Gate = {
     let demo = 0
     let sawOracle = false
 
+    let sentrySets = 0
     for (const [handle, entry] of versions) {
       const dir = resolve(root, entry.path)
       const rel = relative(root, dir).replace(/\\/g, '/')
       if (!existsSync(dir)) {
         findings.push(`${handle}: registry 指向的目录不存在（${rel}）`)
+        continue
+      }
+      if (entry.kind === 'sentry.rules') {
+        try {
+          const loaded = loadRuleBundle({ dir, toolNames: [], verifyLock: true })
+          for (const failure of checkRuleCases(loaded.compiled)) {
+            findings.push(`${rel}: ${failure}`)
+          }
+          checkSentryEquivalence(rel, loaded.compiled, findings)
+          sentrySets += 1
+        } catch (error) {
+          const described = describePolicyError(error)
+          findings.push(`${rel}: 编译失败 ${described.code} —— ${described.message}`)
+        }
         continue
       }
       let compiled: CompiledPolicy
@@ -92,9 +110,58 @@ const gate: Gate = {
     if (!sawOracle) {
       findings.push(`registry 缺少 ${ORACLE_HANDLE}：没有生产 oracle，等价性无法证明`)
     }
-    notes.push(`bundle：生产 ${String(production)} 个（覆盖/变异/等价全查）、演示 ${String(demo)} 个（只验用例）`)
+    notes.push(
+      `bundle：生产 ${String(production)} 个（覆盖/变异/等价全查）、演示 ${String(demo)} 个（只验用例）、` +
+        `sentry 规则集 ${String(sentrySets)} 个（语料 + 旧内核等价）`,
+    )
     return { ok: findings.length === 0, findings, notes }
   },
+}
+
+/**
+ * `sentry.rules` 与旧内核的等价证明：13 条规则的 ID/正则/族/说明逐字一致，
+ * 且每条规则的正/反例在"bundle 规则集"与"内核 13 条"下命中序列完全相同。
+ */
+function checkSentryEquivalence(
+  rel: string,
+  compiled: CompiledRuleSet,
+  findings: string[],
+): void {
+  const external = new Map(compiled.rules.map((rule) => [rule.id, rule]))
+  if (external.size !== BUILTIN_RULES.length) {
+    findings.push(`${rel}: 规则条数 ${String(external.size)} 与内核 ${String(BUILTIN_RULES.length)} 不一致`)
+  }
+  for (const builtin of BUILTIN_RULES) {
+    const found = external.get(builtin.id)
+    if (found === undefined) {
+      findings.push(`${rel}: 缺规则 ${builtin.id}`)
+      continue
+    }
+    if (found.pattern.source !== builtin.pattern.source || found.pattern.flags !== builtin.pattern.flags) {
+      findings.push(`${rel}: ${builtin.id} 的正则/flags 与内核不一致`)
+    }
+    if (found.family !== builtin.family || found.note !== builtin.note) {
+      findings.push(`${rel}: ${builtin.id} 的族/说明与内核不一致`)
+    }
+  }
+  for (const rule of compiled.ir.rules) {
+    for (const text of [...rule.cases.match, ...rule.cases.nonMatch]) {
+      const externalIds = scanToolArgs(text, {
+        baseRules: compiled.rules,
+        demoWhitelist: false,
+      })
+        .map((finding) => finding.id)
+        .join(',')
+      const kernelIds = scanToolArgs(text, { demoWhitelist: false })
+        .map((finding) => finding.id)
+        .join(',')
+      if (externalIds !== kernelIds) {
+        findings.push(
+          `${rel}: ${rule.id} 的语料 "${text}" 命中不一致（bundle ${externalIds || '<none>'} vs 内核 ${kernelIds || '<none>'}）`,
+        )
+      }
+    }
+  }
 }
 
 /** 读 registry 的版本表；坏 JSON/坏形状 = 红。 */
@@ -132,7 +199,7 @@ function readRegistryVersions(
         findings.push(`${REGISTRY}: ${kind}/${handle} 缺 path`)
         continue
       }
-      out.set(handle, { path: entry.path, ...(entry.demo === true ? { demo: true } : {}) })
+      out.set(handle, { kind, path: entry.path, ...(entry.demo === true ? { demo: true } : {}) })
     }
   }
   return out

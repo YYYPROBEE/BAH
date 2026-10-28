@@ -19,6 +19,7 @@ import { evaluateExpr } from './expr/eval.ts'
 import { tokenize } from './expr/lexer.ts'
 import { parseExpression, toIr } from './expr/parser.ts'
 import { validateInput } from './schema.ts'
+import { compileRuleBundle } from './sentry-rules.ts'
 import { parseBundleSignature } from './signature.ts'
 import { readTables, type ParsedTable } from './table.ts'
 import { parseYaml } from './yaml.ts'
@@ -219,6 +220,37 @@ const TRIGGERS: readonly { readonly code: PolicyErrorCode; readonly run: () => u
     },
   },
   { code: 'policy-limit-exceeded', run: () => tokenize(`1${' + 1'.repeat(2000)}`) },
+  {
+    code: 'policy-regex-unsafe',
+    run: () =>
+      compileRuleBundle(
+        {
+          dir: 'sentry-rules/1.0.0',
+          files: {
+            'bundle.yml': [
+              'apiVersion: bah.policy/v1',
+              'kind: sentry.rules',
+              'name: sentry-rules',
+              'version: 1.0.0',
+              'description: 错误码矩阵的最小规则集',
+              'owners: [test]',
+              'schema: sentry.rules.input/v1',
+              'engine: { min: 1.0.0, max: 1.x }',
+              'rules:',
+              '  - id: CMD-001',
+              '    family: destructive',
+              '    note: 嵌套量词',
+              "    pattern: '(a+)+'",
+              '    cases:',
+              "      match: ['aa', 'aaa']",
+              "      nonMatch: ['bb', 'cc']",
+            ].join('\n'),
+            'CHANGELOG.md': '# test\n',
+          },
+        },
+        { verifyLock: false },
+      ),
+  },
   {
     code: 'policy-engine-incompatible',
     run: () =>

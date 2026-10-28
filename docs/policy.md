@@ -333,3 +333,81 @@ pnpm policy:audit-verify               # rollout 链连续性
 pnpm policy:explain --session <sessionId> --dir <sessions> --call-id <callId>
 pnpm bench:policy                      # compile/eval/reload 预算
 ```
+
+---
+
+## 12. `sentry.rules` 第二类 bundle（S5）
+
+sentry 的工具参数危险模式规则（13 条内置规则）已可外置为同一交付平面里的第二类 bundle。
+它与 `bank.tier` **分开编译**：执行的是正则，不是纯表达式，风险模型不同（回溯、误报、编码绕过）。
+
+### 12.1 Bundle 形状
+
+```yaml
+apiVersion: bah.policy/v1
+kind: sentry.rules
+name: sentry-rules
+version: 1.0.0
+description: sentry 工具参数危险模式规则集
+owners: [security-platform]
+schema: sentry.rules.input/v1
+engine: { min: 1.0.0, max: 1.x }
+rules:
+  - id: CMD-001
+    family: destructive
+    note: 递归强删文件系统命令
+    pattern: '\brm\s+(-[rfRF]{1,2}\s*)+(\S+)'
+    flags: i
+    cases:
+      match: ['rm -rf /tmp/data', 'sudo rm -RF ~']
+      nonMatch: ['rm file.txt', 'remove all data']
+```
+
+规则 ID 形状 `^[A-Z]{3}-\d{3}$`；`family` 必须是六族之一；`note` 4..200 字符；
+每条规则至少 **2 正例 + 2 反例**（`policy:test` 与 `verify-policy-conformance` 逐条跑）。
+
+### 12.2 正则安全子集（编译期强制，`policy-regex-unsafe`）
+
+| 约束 | 取值 |
+|---|---|
+| 正则长度 | ≤ 256 字符 |
+| 字符类长度 | ≤ 128 字符 |
+| 禁止 | 反向引用 `\1`、lookbehind `(?<=`/`(?<!`、`(a+)+`/`(.*)*`、`.*.*` |
+| flags | 只允许 `i` / `m` / `s` |
+| 规则数 | 1..64；bundle 总字节 ≤ 128 KiB |
+
+已知放行形态：`(-[rfRF]{1,2}\s*)+` 这类"组内以字面量锚定"的有界重复（13 条内置规则之一）；
+残余 ReDoS 风险由语料 + 旧内核等价 + 上线前影子兜底（R10：不通过就不切）。
+
+### 12.3 开关与身份
+
+```yaml
+# profile patch（**当前仍是 legacy**；S6 影子通过后再切）
+- id: policy:rules
+  config:
+    active: { bank.tier: bank-tier/1.0.0, sentry.rules: sentry-rules/1.0.0 }
+- id: safety:sentry
+  config:
+    rules: { engine: bundle }
+    trace: { sink: session }
+```
+
+- `rules.engine: legacy`（默认）= 内核 `BUILTIN_RULES`，行为逐字不变；
+- `rules.engine: bundle` = 必须装配 `policy:rules` 且 `active` 含 `sentry.rules`，否则**启动失败**
+  （`sentry-rules-missing`，不静默退回内核）；
+- 链上 `sentry/decision.policyVersion` 改为 bundle 身份（`sentry-rules/1.0.0+sha256:<16>`）；
+- 灰度/回滚与 bank.tier 同一套：`policy:promote --kind sentry.rules ...` /
+  `policy:rollback --kind sentry.rules`；`policy:shadow` 仍只支持银行表（规则集用 `policy:test` 的语料等价）。
+
+### 12.4 命令
+
+```bash
+pnpm policy:compile policies/sentry-rules/1.0.0 --write
+pnpm policy:test policies/sentry-rules/1.0.0
+pnpm policy:lint policies/sentry-rules/1.0.0
+pnpm policy:install policies/sentry-rules/1.0.0
+pnpm policy:promote --kind sentry.rules --to sentry-rules/1.0.0 --reason "首次外置"
+```
+
+门禁：`verify-policy-bundle`（编译 + 全量 lock + 语料）、`verify-policy-conformance`
+（13 条规则与旧内核逐字一致 + 每条语料命中序列全等）、`verify-policy-registry`（kind/摘要/目录）。
