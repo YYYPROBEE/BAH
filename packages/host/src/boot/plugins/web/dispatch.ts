@@ -29,6 +29,7 @@ import { handleHandoff } from './handlers/handoff.ts'
 import { handleMetrics } from './handlers/metrics.ts'
 import { sendError } from './http.ts'
 import { METHOD_NOT_ALLOWED_CODE, METHOD_NOT_ALLOWED_STATUS, matchRoute, type RouteHandler } from './router.ts'
+import { startHttpSpan } from './trace.ts'
 import { tokenMatches } from '../web-admin.ts'
 import { presentedWebToken } from '../web-auth.ts'
 
@@ -64,6 +65,11 @@ export function createDispatcher(
     const isApi = path.startsWith('/api/')
     const match = matchRoute(method, path)
     const isAdmin = match?.spec.auth === 'admin'
+
+    // 可观测性 01：一条请求一个 `http.request` span。
+    // 收尾挂在 `res.once('close')`，所以下面 6 个提前 return 全都被覆盖，
+    // 闸的顺序一个字都不用改（`route` 取模板，未命中记 `unmatched`——不记原始 URL）。
+    startHttpSpan(deps.tryTelemetry(), req, res, match?.spec.path ?? 'unmatched')
 
     // 限流先于凭证：脚本误刷与重连风暴不该消耗票据查询/验签资源。
     if (isApi) {

@@ -134,6 +134,8 @@ describe('依赖清单（HOST_PLUGINS）', () => {
     const catalog = createCatalog()
     expect(Object.keys(catalog)).toEqual([
       'core:session',
+      // 可观测性 01：紧跟 session 之后（只 inject run + session）
+      'obs:telemetry',
       'core:tools',
       'core:prompt',
       'core:model',

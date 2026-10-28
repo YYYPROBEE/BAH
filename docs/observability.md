@@ -1,7 +1,8 @@
 # 可观测性与成本（D2）
 
 > 定位：**单机、单进程**。这是"演示与排障时能看见什么"，不是分布式监控，也没有 APM。
-> 一句话边界：**有指标端点、有结构化日志、有可配置告警出口；没有 trace 导出、没有跨实例聚合、没有成本看板 UI。**
+> 一句话边界：**有指标端点、有结构化日志、有可配置告警出口、有库内 span 派生与 Chrome / JSON 导出（可选落 `span.jsonl`）；
+> 没有 HTTP trace 端点、没有跨实例聚合、没有成本看板 UI。**
 
 ## 1. 成本：`costMicroYuan` 怎么才算得出数
 
@@ -89,5 +90,20 @@ curl -s -H "Authorization: Bearer <demo-token>" http://127.0.0.1:7331/api/metric
 2. **`collectSloMetrics` 仍未接进 `/api/metrics`**：SLO 八指标（补偿失败率、DLQ 深度、链断…）
    走的是 saga 自己的观测注入，与 web 指标端点之间**没有桥**。
 3. **结构化日志只覆盖 3 个出口**：其余约 20 处 `console.*` 仍是拼接串（D6 §any/console 分类里登记）。
-4. **没有 trace / 没有 metrics 保留**：不存历史，刷新即重算；跨实例对比无从谈起。
+4. **没有 trace / metrics 的 HTTP 历史保留**：span 默认只在内存环形缓冲（可配 `span.jsonl`），
+   指标刷新即重算；跨实例对比无从谈起。HTTP trace 端点与面板尚未提供。
 5. **`usage/summary` 的 `calls` 不计缓存命中率**：要算命中率得拿 `cachedInput / input`，指标端点没做这个派生。
+
+## 6. 轨迹（span）与 `sentry/trace` 不是一回事
+
+两者名字里都有 trace，但**数据源、结构、用途**完全不同：
+
+| | `@bah/telemetry` 的 span | `sentry/trace` |
+|---|---|---|
+| 数据源 | `session.jsonl` 的成对事件派生 + 少量包裹点计时 | sentry 内核的推理轨迹（`trace.sink='session'` 时逐行落领域事件） |
+| 结构 | 扁平的 `(spanId, parentSpanId, startMs, endMs)`，可建森林 | 文本化的推理步骤记录 |
+| 用途 | 回答"时间花在哪、哪个环慢" | 审计与复盘"当时怎么判的" |
+| 是否参与计数 | **否**（计数与金额只从事件现算） | 否 |
+
+纪律：不要把 `sentry/trace` 当 span 的数据源，也不要用 span 算任何业务数字——
+一旦采样丢一条，图只是少一个节点，账却会少一笔。`@bah/telemetry` 也不产生任何会话事件。

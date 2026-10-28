@@ -37,6 +37,7 @@ import {
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
+import { TELEMETRY } from './telemetry.ts'
 import { createRateLimiter } from './web-rate-limit.ts'
 import { generateWebToken, readWebToken } from './web-auth.ts'
 import { DEFAULT_WEB, resolveWebSettings, type WebSettings } from './web/config.ts'
@@ -155,6 +156,7 @@ export const webPlugin: HostPlugin<WebSettings> = {
         ensureDriver,
         trySentry: () => tryService(ctx, SENTRY_SERVICE),
         tryHalt: () => tryService(ctx, HALT_SERVICE),
+        tryTelemetry: () => tryService(ctx, TELEMETRY),
         staticRoot,
         indexPath: join(staticRoot, 'index.html'),
       }

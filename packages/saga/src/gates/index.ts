@@ -16,7 +16,7 @@
  * - `@bah/runtime` 仅以 `import type` 引入（devDependency，编译期类型面）。
  */
 
-import { BahError, sha256Hex } from '@bah/util'
+import { BahError } from '@bah/util'
 
 import { commitSegment } from '../coordinator/commit.ts'
 import { SAGA_AUDIT, SAGA_CLOCK, SAGA_STEP_CONTEXT, SAGA_STORE } from '../seams.ts'
@@ -312,66 +312,30 @@ export function provideParamGates(ctx: Context): Disposer {
 /** 携带出站追踪头的调用形状：`traceparent` 是**非枚举**属性，不进模型可见参数。 */
 export type TracedToolCall = ToolCallInput & { readonly traceparent: string }
 
-const ZERO_TRACE_ID = '0'.repeat(32)
-const ZERO_SPAN_ID = '0'.repeat(16)
-const HEX_32 = /^[0-9a-f]{32}$/
-
 /**
- * saga `traceId` → W3C trace-id（**恰好** 32 位小写 hex）。
+ * W3C 标识与 `traceparent` 的**唯一实现**在 `@bah/telemetry`（可观测性 01 / S1.9）。
  *
- * 已是合法 32-hex（且非全零）→ 原样小写；否则用 `sha256Hex` 取前 32 位**确定性**归一
- * （不引入随机；sha256 是 64 hex，W3C 要求 32，故必须截断）。
- */
-export function toW3cTraceId(traceId: string): string {
-  const lower = traceId.toLowerCase()
-  if (HEX_32.test(lower) && lower !== ZERO_TRACE_ID) return lower
-  const digest = sha256Hex(traceId).slice(0, 32)
-  return digest === ZERO_TRACE_ID ? `${ZERO_TRACE_ID.slice(1)}1` : digest
-}
-
-/** 调用 ID → 16 位 span-id（sha256 前缀；避开全零）。 */
-export function spanIdOf(callId: string): string {
-  const spanId = sha256Hex(callId).slice(0, 16)
-  return spanId === ZERO_SPAN_ID ? `${ZERO_SPAN_ID.slice(1)}1` : spanId
-}
-
-/**
- * 构造 W3C `traceparent`：`00-<32hex>-<16hex>-01`。
+ * 为什么搬走而不是留两份：出站 `traceparent` 与派生 span 的 trace-id 必须能对上，
+ * 两套实现迟早会在"归一规则"（`toW3cTraceId` 的零值兜底）上分叉，而分叉的表现是
+ * "连上了但图断了"——那种问题在演示现场几乎查不出来。
  *
- * @throws `BahError('invalid-traceparent')` span-id 不是 16-hex 或为全零
- *   （trace-id 走确定性归一，不抛）
- */
-export function buildTraceparent(traceId: string, spanId: string): string {
-  const span = spanId.toLowerCase()
-  if (!/^[0-9a-f]{16}$/.test(span) || span === ZERO_SPAN_ID) {
-    throw new BahError('invalid-traceparent', `bah-saga: invalid-traceparent: span-id ${spanId}`, {
-      spanId,
-    })
-  }
-  return `00-${toW3cTraceId(traceId)}-${span}-01`
-}
-
-/**
- * 把 `traceparent` 挂到调用的**浅拷贝**上（非枚举：`JSON.stringify` / 指纹 / 模型侧都看不到）。
+ * **算法逐字保留**：`spanIdOf(callId) = sha256(callId)[0..16]`，**没有** `bah/span/` 前缀。
+ * `gates.test.ts` 里有硬编码期望值，改算法等于改已发出的协议。
  *
- * 出站承载由 bank 网关适配器读取（`call.traceparent`），Saga 只保证"每外部调用前 trace 已绑定 saga"。
+ * `withTraceparent` / `traceparentOf` 也一并迁走，但用了结构泛型（`T extends object`）——
+ * 因为 `@bah/telemetry` **不依赖 `@bah/core`**（宪法 R-2）。行为完全不变：
+ * 浅拷贝 + 非枚举 + 不可写/不可配置。
  */
-export function withTraceparent(call: ToolCallInput, traceparent: string): TracedToolCall {
-  const copy: Record<string, unknown> = { ...call }
-  Object.defineProperty(copy, 'traceparent', {
-    value: traceparent,
-    enumerable: false,
-    writable: false,
-    configurable: false,
-  })
-  return copy as unknown as TracedToolCall
-}
+import {
+  buildTraceparent,
+  spanIdOf,
+  toW3cTraceId,
+  traceparentOf,
+  withTraceparent,
+} from '@bah/telemetry'
 
-/** 读取调用上的出站追踪头（未注入时 `undefined`）。 */
-export function traceparentOf(call: ToolCallInput): string | undefined {
-  const value = (call as { readonly traceparent?: unknown }).traceparent
-  return typeof value === 'string' ? value : undefined
-}
+export { buildTraceparent, spanIdOf, toW3cTraceId, traceparentOf, withTraceparent }
+
 
 /**
  * 环绕 `tools/execute`：派发前把 saga `traceId` 绑成 `traceparent`。

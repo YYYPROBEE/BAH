@@ -54,6 +54,7 @@ import {
   SAGA_STORE,
 } from '@bah/saga'
 import { SESSION_SERVICE, TOOLS_SERVICE } from '@bah/runtime'
+import { traceIdOfSession } from '@bah/telemetry'
 import { BahError } from '@bah/util'
 
 import type { Context } from '@bah/core'
@@ -69,6 +70,7 @@ import {
   readStringArray,
   rejectUnknownKeys,
 } from '../config.ts'
+import { tryTelemetry } from './telemetry.ts'
 
 /** 一步的计划素材（`args` 由配方函数从模型入参派生）。 */
 interface StepSpec {
@@ -373,7 +375,11 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
           {
             sagaId,
             businessType: call.name.toUpperCase(),
-            traceId: `${sessionId()}:${call.callId}`,
+            // 与 `@bah/telemetry` 的派生 trace-id 用**同一个值**（可观测性 01 / G6）：
+            // 出站 `traceparent` 由 saga.traceId 归一而来，若这里写成 `${sessionId}:${callId}`，
+            // 归一时会再 sha256 一次，得到与派生 span 不同的 trace——图就连不上了。
+            // W3C 语义下同一会话的多次工具调用共享 trace-id、靠 span-id 区分，正是我们要的。
+            traceId: traceIdOfSession(sessionId()),
             timeoutBudgetMs: settings.saga.softSlaMs,
             initiator: sessionId(),
             steps: planned,
@@ -381,6 +387,14 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
           settings.saga,
         )
         if (compensationEnabled) bindCompensationSteps(sagaId, planned)
+
+        // 可观测性 01：`saga.run` 包住整段编排（plan + 正向 + 可能的补偿）。
+        // 用 `open/end` 而不是 `withSpanAsync`：状态要由 `failure` 决定，而 `runSaga`
+        // 在单步失败时**正常返回**（失败是一等事实，不是异常）。
+        const sagaSpan = tryTelemetry(ctx)?.recorder.open('saga.run', {
+          sagaId,
+          businessType: call.name.toUpperCase(),
+        })
 
         await runSaga(ctx, sagaId, {
           settings: settings.saga,
@@ -404,15 +418,20 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
               return { kind: 'err', code }
             }
           },
+        }).catch((error: unknown) => {
+          sagaSpan?.end('error', codeOf(error))
+          throw error
         })
 
         if (failure !== undefined) {
+          sagaSpan?.end('error', failure.code)
           // 不吞：外层管线要把这次调用记成 `isError`，模型下一 step 才能自愈。
           throw new BahError('saga-step-failed', `saga 编排失败：${failure.code}（saga ${sagaId}）`, {
             sagaId,
             code: failure.code,
           })
         }
+        sagaSpan?.end('ok')
         return lastPayload
       }
 

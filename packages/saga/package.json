@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@bah/core": "workspace:*",
+    "@bah/telemetry": "workspace:*",
     "@bah/util": "workspace:*"
   },
   "devDependencies": {
