@@ -17,6 +17,8 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { HOST_PLUGINS, boot, createCatalog, type BootedApp, type HostPlugin } from '@bah/host'
+import { BANK_TOOL_NAME_SET } from '@bah/bank'
+import { loadBundle, writeLockFile } from '@bah/policy'
 import {
   AGENTS_SERVICE,
   SESSION_SERVICE,
@@ -1103,6 +1105,83 @@ describe('policy:rules · 重载参数绑定（S3）', () => {
       expect(reloadPolicyNow()).toBe(true)
       expect(eventsOf(app, 'policy/reload-rejected')[0]?.['code']).toBe('policy-param-mismatch')
       expect(findPolicyDescriptor(app.ctx)?.handle).toBe('bank-tier/1.0.0')
+    } finally {
+      await app.dispose('test')
+    }
+  })
+})
+
+describe('policy:rules · 影子隔离（S3）', () => {
+  it('影子候选求值抛错 → 只落 shadow-error，生效判决仍是 active', async () => {
+    const root = tempRoot('shadow-error')
+    install(root, 'bank-tier/1.0.0')
+    const boom = install(root, 'bank-tier/1.0.1')
+    const bundleYml = join(boom, 'bundle.yml')
+    writeFileSync(
+      bundleYml,
+      readFileSync(bundleYml, 'utf8').replace('version: 1.0.0', 'version: 1.0.1'),
+      'utf8',
+    )
+    const rulesPath = join(boom, 'rules.yml')
+    writeFileSync(
+      rulesPath,
+      readFileSync(rulesPath, 'utf8').replace(
+        `      - id: TR-003-default`,
+        `      - id: BOOM-001-overflow
+        when: preview.amountCents * preview.amountCents > 0
+        keep: true
+      - id: TR-003-default`,
+      ),
+      'utf8',
+    )
+    const recompiled = loadBundle({
+      dir: boom,
+      toolNames: [...BANK_TOOL_NAME_SET],
+      verifyLock: false,
+    })
+    writeLockFile(boom, recompiled.lock)
+    const lock = JSON.parse(readFileSync(join(boom, 'lock.json'), 'utf8')) as {
+      semanticDigest: string
+      sourceDigest: string
+      engineVersion: string
+    }
+    const stable = install(root, 'bank-tier/1.0.0')
+    writeRegistry(root, {
+      'bank-tier/1.0.0': entryOf('bank-tier/1.0.0', stable),
+      'bank-tier/1.0.1': {
+        path: boom,
+        semanticDigest: lock.semanticDigest,
+        sourceDigest: lock.sourceDigest,
+        engine: lock.engineVersion,
+        installedAt: FIXED_NOW,
+      },
+    })
+    const app = await bootPolicy({
+      root,
+      config: { shadow: { 'bank.tier': 'bank-tier/1.0.1' } },
+    })
+    try {
+      const engine = findPolicyEngine(app.ctx)
+      const decision = engine?.decide(
+        { userId: 'u-1', sessionId: 's-policy-test' },
+        { name: 'transfer_create', declared: 'yellow', callId: 'call-boom' },
+        {
+          riskyCallsInTurn: 0,
+          verifyLocked: false,
+          input: tierInput({
+            preview: {
+              amountCents: 1_000_000_000_000,
+              dailyUsedCents: 0,
+              dailyLimitCents: 1_000_000_000_000,
+              payee: { binding: 'whitelist' },
+            },
+            limits: { dailyLimitCents: 1_000_000_000_000 },
+          }),
+        },
+      )
+      expect(decision?.level).toBe('yellow')
+      const diff = eventsOf(app, 'policy/shadow-diff')[0]!
+      expect(diff['changed']).toEqual(['shadow-error'])
     } finally {
       await app.dispose('test')
     }
