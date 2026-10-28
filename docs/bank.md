@@ -149,7 +149,7 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 
 | 项 | 值 |
 |---|---|
-| 用户 | 王建国（`u-1`，手机 13800001111） |
+| 用户 | 张三（`u-1`，手机 13800001111） |
 | 活期账户 | `a-1` 余额 **¥12,345.67**（可用同额） |
 | 定期 / 锁定 | `a-2` ¥50,000.00（不可用）；`a-3` ¥888.88 |
 | 卡 | `c-1` 尾号 1234，日限 ¥5,000 / 月限 ¥20,000；`c-2` 虚拟卡尾号 5678 |
@@ -196,7 +196,7 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 | T-BANK-006 未审批票据 | `core/ticket.test.ts` |
 | T-BANK-007 日累计权威口径 | `core/mock.test.ts` |
 | T-BANK-008 换会话不重置 | `core/mock.test.ts` |
-| T-BANK-009 demo 王建国 | `forge/index.test.ts` |
+| T-BANK-009 demo 主体与白名单收款人 | `forge/index.test.ts` |
 | T-BANK-010 adversarial 档 | `forge/index.test.ts` |
 | T-BANK-011 风控预检规则 | `forge/risk.test.ts` |
 | T-BANK-012 余额不足 | `core/mock.test.ts` |

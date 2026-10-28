@@ -13,7 +13,7 @@ import type { AccountsResult, AnalysisResult, BalanceResult, BillAnalysisResult,
 import { createBankHarness } from './testing.ts'
 
 describe('account_list / account_balance（T-TOOLS-001 的读侧）', () => {
-  it('列出 demo 王建国的三个账户，并落 read/accounts', async () => {
+  it('列出 demo 张三的三个账户，并落 read/accounts', async () => {
     const h = createBankHarness()
     const result = (await h.call('account_list')) as AccountsResult
 

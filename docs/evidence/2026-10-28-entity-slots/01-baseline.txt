@@ -1,0 +1,75 @@
+ES-00 基线冻结（S0 · 2026-10-28）
+=====================================
+
+采集时间：2026-10-28 14:17–14:19 +0800
+仓库：D:/项目集/微众杯银行ai智能体/BAH/MonoRepo
+
+1. HEAD
+-------
+$ git log -1 --format='%H %ad' --date=iso
+c7a25abfed802384e1199ec91efc90ed12e92570 2026-10-28 12:41:19 +0800
+（提交标题：docs(facts): 覆盖率平台差异归因改为“未定位”，CRLF 与 Node 均非原因）
+
+2. 工作区
+---------
+$ git status --porcelain
+（空，0 项）
+
+3. 与 origin/main 的关系
+------------------------
+$ git rev-parse --verify origin/main
+ad9dc539ae8d3e9391ec3bdb8c1579892b7d5bbd
+$ git merge-base origin/main HEAD
+ad9dc539ae8d3e9391ec3bdb8c1579892b7d5bbd
+$ git rev-list --left-right --count origin/main...HEAD
+0	2
+（⇒ verify-snapshot-fresh 的基线 = merge-base = ad9dc53；本地 HEAD 领先 2 个提交）
+
+4. 全量测试
+-----------
+$ NODE_EXTRA_CA_CERTS= npx vitest run
+ Test Files  205 passed (205)
+      Tests  2115 passed (2115)
+   Start at  14:17:56
+   Duration  17.88s
+
+5. 快照测试
+-----------
+$ NODE_EXTRA_CA_CERTS= pnpm test:snapshot
+ Test Files  6 passed (6)
+      Tests  23 passed (23)
+   Start at  14:18:25
+   Duration  11.04s
+
+6. 门禁
+-------
+$ npx tsx scripts/run-gates.ts
+全部通过（36/36）
+  · tool-catalog：工具 16 个（上限 28）、落账事件 19 个
+  · tracked-sources：696 个源码文件、1851 条相对导入；未跟踪源码 0 个
+
+7. 覆盖率（引用既有台账，非本机实测）
+-------------------------------------
+docs/coverage-baseline.json：91.14%（31233/34270），包 15/16，口径 = CI（Ubuntu/Node 22.19）
+
+8. 结论
+-------
+基线四项数字与施工方案 00-总纲 §0 完全一致（205/2115、36/36、6/23、HEAD c7a25ab），
+无需改表，可以按 ES-01 开始施工。
+
+9. 覆盖关系（决定提交形态的关键事实）
+-------------------------------------
+$ grep -l "forge" snapshots/*/scenario.json
+snapshots/sandbox-compute/scenario.json
+⇒ 唯一在 coveredSources 里声明覆盖 packages/bank/src/forge/ 的场景是 sandbox-compute。
+⇒ 其余 5 个场景均未覆盖 forge/，改 forge/index.ts 不会要求它们重录。
+
+$ grep -rl "王建国" snapshots/
+snapshots/plan/scenario.ts          （收款人 args）
+snapshots/plan/session.jsonl        （payeeName / 转账文案）
+snapshots/plan/snapshot.test.ts     （负控：plan 事件不得含收款人名）
+snapshots/web-channel/scenario.json （prompt: 给王建国转 800 元）
+snapshots/web-channel/scenario.ts   （同上）
+snapshots/web-channel/session.jsonl （payeeName / 转账文案）
+⇒ 全部是**收款人**语境（p-1 / t-5 counterparty），没有一处是 demo 用户姓名
+⇒ 改名不改任何快照内容（与方案"姓名不进事件流"的判断一致）。
