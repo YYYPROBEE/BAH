@@ -31,7 +31,9 @@ const CONTEXT: PromptContext = {
   channel: 'web',
   runtime: {
     user: { name: '张三', level: '金卡' },
-    accounts: [{ name: '储蓄卡', maskedNumber: '1234', balance: 12345.6 }],
+    accounts: [
+      { name: '储蓄卡', maskedNumber: '1234', balanceText: '¥12,345.60', availableText: '¥12,345.60' },
+    ],
     recentTransactions: ['2026-10-01 超市 -88.00'],
   },
 }

@@ -181,7 +181,7 @@ headless 走 `provider: router`（读消息现规划，不是固定磁带），�
 ### 4.4 一键自证（不需要密钥）
 
 ```bash
-pnpm test              # 205 文件 / 2115 用例（2026-10-28 实测；前端另有 55 例）
+pnpm test              # 205 文件 / 2131 用例（2026-10-28 实测；前端另有 55 例）
 pnpm test:snapshot     # 5 场景 / 6 文件 23 例，录制↔回放逐条全等
 pnpm gate              # 36/36
 pnpm demo:verifier-fail # 判决件异常 → 结果被挡在模型之外（20 条断言）

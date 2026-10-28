@@ -48,6 +48,7 @@ import type { SessionApi } from '../session/service.ts'
 import { SessionEventBuffer, withSessionBuffer } from '../session/buffer.ts'
 import type { AnySessionEvent, ToolCallRecord, ToolResultData, TurnEndReason } from '../session/types.ts'
 import { SYSTEM_PROMPT_SERVICE } from '../system-prompt/index.ts'
+import type { ContextSlotsEventData, RuntimeContextInvocation } from '../system-prompt/port.ts'
 import { RuntimeContextQueue } from '../system-prompt/reconcile.ts'
 import type { PromptRegistry } from '../system-prompt/registry.ts'
 import type { ChannelKind, RuntimeContextView } from '../system-prompt/types.ts'
@@ -103,6 +104,17 @@ export {
  */
 const MAX_PARALLEL_READS = 8
 
+/**
+ * 运行时上下文取数函数。
+ *
+ * 每个 step 现算（可异步）。`invocation.sessionId` 是**本次会话**（fork 后是子会话），
+ * `forkOf` 是父会话——闭包不得自己取会话，否则分叉会读错身份（I12）。
+ * 旧写法 `() => view` 仍可赋值（TS 允许少参数函数赋给多参数签名）。
+ */
+export type RuntimeContextProvider = (
+  invocation: RuntimeContextInvocation,
+) => RuntimeContextView | undefined | Promise<RuntimeContextView | undefined>
+
 /** `AgentLoop` 的装配依赖（全部显式注入，便于单测替换时钟 / 注册表）。 */
 export interface AgentLoopOptions {
   readonly ctx: Context
@@ -118,8 +130,14 @@ export interface AgentLoopOptions {
   readonly inbox?: Inbox
   readonly queue?: RuntimeContextQueue
   readonly channel?: ChannelKind
-  /** 运行时上下文视图（每次 attempt 现算；渲染结果会落账为 `request/context`）。 */
-  readonly runtimeContext?: () => RuntimeContextView | undefined
+  /**
+   * 运行时上下文视图（每次 attempt 现算，可异步；渲染结果会落账为 `request/context`）。
+   *
+   * `invocation.sessionId` 是本次会话（fork 后是子会话），`forkOf` 是父会话；
+   * `invocation.now` 是注入钟（函数；只有 bank 路径会调用一次）；`invocation.signal`
+   * 在该 step 取消时 abort。业务失败应由实现方返回降级视图，**不要 throw**。
+   */
+  readonly runtimeContext?: RuntimeContextProvider
   readonly now?: () => number
   readonly guard?: ToolGuard
   /**
@@ -191,7 +209,7 @@ export class AgentLoop implements Agent {
 
   private readonly channel: ChannelKind | undefined
 
-  private readonly runtimeContext: (() => RuntimeContextView | undefined) | undefined
+  private readonly runtimeContext: RuntimeContextProvider | undefined
 
   /** 入队前的全系统闸（HALT；缺省 = 不设防，由宿主决定）。 */
   private readonly beforeSend: (() => void) | undefined
@@ -486,8 +504,49 @@ export class AgentLoop implements Agent {
       runCompaction(this.session, this.config.compaction, this.requestOverhead)
     }
 
-    // ② 装配（纯）
-    const runtime = this.runtimeContext?.()
+    // ② 解析运行时上下文（可异步）→ 装配（纯）
+    //
+    // 顺序：压缩 → 解析 → 装配。解析失败/取消时**一个字节都不提交**（提交点在 `commitAttempt`），
+    // 只有 `context/slots` 会落一条"本次解析发生了什么"——它表示解析结果，不是模型可见内容。
+    // `signal.aborted` 在 await 之后必须**复查**：端口可能忽略 abort 直接返回。
+    let runtime: RuntimeContextView | undefined
+    if (this.runtimeContext !== undefined) {
+      try {
+        runtime = await this.runtimeContext({
+          sessionId: this.sessionId,
+          ...(this.forkInfo === undefined ? {} : { forkOf: this.forkInfo.parentSession }),
+          turn,
+          step,
+          signal,
+          // 传函数不调用：静态路径永不取钟，旧快照不会多走一格
+          now: this.now,
+        })
+      } catch (error) {
+        if (signal.aborted) {
+          return this.cancelled(turn, '运行时上下文解析阶段取消（未提交 system/user）')
+        }
+        return this.failed(turn, error, signal, '运行时上下文')
+      }
+      if (signal.aborted) {
+        return this.cancelled(turn, '运行时上下文解析阶段取消（未提交 system/user）')
+      }
+      // 事件落**自己的** session（fork 安全）；只记计数与码，不记姓名/尾号/文本
+      if (runtime?.meta?.source === 'bank') {
+        this.session.appendDomain(
+          'context/slots',
+          {
+            source: runtime.meta.source,
+            status: runtime.meta.status,
+            ...(runtime.meta.code === undefined ? {} : { code: runtime.meta.code }),
+            accounts: runtime.accounts?.length ?? 0,
+            transactions: runtime.recentTransactions?.length ?? 0,
+            ...(runtime.meta.asOfText === undefined ? {} : { asOfText: runtime.meta.asOfText }),
+          } satisfies ContextSlotsEventData,
+          { ignorable: true },
+        )
+      }
+    }
+
     const assembly = assembleRequest({
       session: this.session,
       composer: this.composer,

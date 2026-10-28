@@ -48,6 +48,9 @@ import { TOOLS_SERVICE, provideTools } from '../tools/index.ts'
 import type { ToolRegistry } from '../tools/index.ts'
 
 import { AgentLoop, outcomeOf, resolveAgentLoopConfig, resolveParams, stickyReason } from './agent.ts'
+import type { RuntimeContextProvider } from './agent.ts'
+import type { RuntimeContextInvocation } from '../system-prompt/port.ts'
+import type { RuntimeContextView } from '../system-prompt/types.ts'
 
 /** 正常工具：绿级、回显参数。 */
 const OK_TOOL: ToolDefinition = {
@@ -83,8 +86,10 @@ interface HarnessOptions {
   readonly steps: readonly MockStep[]
   readonly config?: unknown
   readonly channel?: 'web' | 'mobile' | 'im' | 'desktop' | 'headless' | 'sdk'
-  /** 是否注入运行时上下文视图（默认注入，用来走 request/context 落账）。 */
+  /** 是否注入默认运行时上下文视图（默认注入，用来走 request/context 落账）。 */
   readonly runtime?: boolean
+  /** 自定义取数函数（优先于 `runtime`；异步 / 抛错 / 记录 invocation 都用它）。 */
+  readonly runtimeContext?: RuntimeContextProvider
   readonly sessionId?: string
   /** 包一层 adapter（T-LOOP-010 用）。 */
   readonly wrapAdapter?: (mock: MockLlmAdapter) => LlmAdapter
@@ -126,7 +131,11 @@ async function withHarness(
       config: options.config ?? { model: 'mock:mock-chat' },
       now: clock.now,
       ...(options.channel === undefined ? {} : { channel: options.channel }),
-      ...(options.runtime === false ? {} : { runtimeContext: () => ({ user: { name: '张三' } }) }),
+      ...(options.runtimeContext !== undefined
+        ? { runtimeContext: options.runtimeContext }
+        : options.runtime === false
+          ? {}
+          : { runtimeContext: () => ({ user: { name: '张三' } }) }),
       ...(options.beforeSend === undefined ? {} : { beforeSend: options.beforeSend }),
     })
 
@@ -1472,6 +1481,195 @@ describe('beforeSend（W07 全系统闸）', () => {
         expect(harness.loop.inbox.pending).toBe(1)
         await harness.loop.run()
         expect(harness.types()).toContain('turn/start')
+      },
+    )
+  })
+})
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 实体槽位：运行时上下文端口（S1 · ES-13…ES-17）
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+describe('实体槽位：运行时上下文解析（S1）', () => {
+  it('每个 step 调一次，invocation 带 turn / step / 当前 sessionId', async () => {
+    const calls: RuntimeContextInvocation[] = []
+    await withHarness(
+      {
+        steps: [textStep('好的')],
+        runtimeContext: (invocation) => {
+          calls.push(invocation)
+          return { user: { name: '张三' } }
+        },
+      },
+      async (harness) => {
+        harness.loop.send('你好')
+        await harness.loop.run()
+
+        expect(calls).toHaveLength(1)
+        expect(calls[0]?.sessionId).toBe(asSessionId('s-loop'))
+        expect(calls[0]?.turn).toBe(1)
+        expect(calls[0]?.step).toBe(1)
+        expect(calls[0]?.forkOf).toBeUndefined()
+        expect(typeof calls[0]?.now).toBe('function')
+      },
+    )
+  })
+
+  it('每 step 现算：两步返回不同视图 → 两段 request/context 不同（I3）', async () => {
+    let round = 0
+    await withHarness(
+      {
+        steps: [toolCallStep('call-1', 'ok_tool', { amount: 1 }), textStep('完成')],
+        runtimeContext: () => {
+          round += 1
+          return { user: { name: round === 1 ? '张三' : '李四' } }
+        },
+      },
+      async (harness) => {
+        harness.loop.send('查一下')
+        await harness.loop.run()
+
+        const contexts = payloads(harness.events(), 'request/context')
+        expect(contexts).toHaveLength(2)
+        expect(contexts[0]?.texts.join('')).toContain('张三')
+        expect(contexts[1]?.texts.join('')).toContain('李四')
+      },
+    )
+  })
+
+  it('解析挂起时 interrupt → 该 step 不提交 system/user/context', async () => {
+    let resolveLate: ((view: RuntimeContextView) => void) | undefined
+    let entered = false
+    await withHarness(
+      {
+        steps: [textStep('不该走到这里')],
+        runtimeContext: () =>
+          new Promise<RuntimeContextView>((resolve) => {
+            entered = true
+            resolveLate = resolve
+          }),
+      },
+      async (harness) => {
+        harness.loop.send('你好')
+        const running = harness.loop.turn()
+        await waitFor(() => entered)
+
+        harness.loop.interrupt('用户按下停止')
+        resolveLate?.({ user: { name: '张三' } })
+        const outcome = await running
+
+        expect(outcome).toEqual({ kind: 'aborted' })
+        expect(harness.types()).not.toContain('request/header')
+        expect(harness.types()).not.toContain('system/message')
+        expect(harness.types()).not.toContain('request/context')
+        expect(payloads(harness.events(), 'assistant/attempt')[0]?.status).toBe('cancelled')
+      },
+    )
+  })
+
+  it('解析抛普通 Error → turn failed（bug 是异常，不是降级值）', async () => {
+    await withHarness(
+      {
+        steps: [textStep('x')],
+        runtimeContext: () => {
+          throw new Error('boom')
+        },
+      },
+      async (harness) => {
+        harness.loop.send('你好')
+        const outcome = await harness.loop.turn()
+
+        expect(outcome).toEqual({ kind: 'failed', reason: '运行时上下文：boom' })
+        expect(payloads(harness.events(), 'assistant/attempt')[0]?.reason).toContain('运行时上下文')
+        expect(harness.types()).not.toContain('request/header')
+      },
+    )
+  })
+
+  it('bank 视图 → 落 context/slots 事件，payload 不含 PII', async () => {
+    await withHarness(
+      {
+        steps: [textStep('好的')],
+        runtimeContext: () => ({
+          user: { name: '张三' },
+          accounts: [
+            {
+              name: '活期',
+              maskedNumber: '1234',
+              balanceText: '¥12,345.67',
+              availableText: '¥12,345.67',
+            },
+          ],
+          recentTransactions: ['2026-10-23 12:57 转出 ¥68.00（消费）'],
+          notes: ['演示数据'],
+          meta: { source: 'bank', status: 'ok', asOfText: '2026-10-28 12:57' },
+        }),
+      },
+      async (harness) => {
+        harness.loop.send('你好')
+        await harness.loop.run()
+
+        const slots = harness
+          .events()
+          .filter((event) => (event as { type: string }).type === 'context/slots')
+        expect(slots).toHaveLength(1)
+        expect(slots[0]?.data).toEqual({
+          source: 'bank',
+          status: 'ok',
+          accounts: 1,
+          transactions: 1,
+          asOfText: '2026-10-28 12:57',
+        })
+
+        const payload = JSON.stringify(slots[0]?.data)
+        expect(payload).not.toContain('张三')
+        expect(payload).not.toContain('1234')
+        expect(payload).not.toContain('¥')
+      },
+    )
+  })
+
+  it('静态视图（无 meta）→ 不落 context/slots', async () => {
+    await withHarness({ steps: [textStep('好的')] }, async (harness) => {
+      harness.loop.send('你好')
+      await harness.loop.run()
+
+      expect(
+        harness.events().filter((event) => (event as { type: string }).type === 'context/slots'),
+      ).toHaveLength(0)
+    })
+  })
+
+  it('fork：子 loop 的 invocation 是子会话，forkOf 是父会话（I12）', async () => {
+    const calls: RuntimeContextInvocation[] = []
+    await withHarness(
+      {
+        steps: [textStep('第一轮'), textStep('分叉后')],
+        runtimeContext: (invocation) => {
+          calls.push(invocation)
+          return { user: { name: '张三' } }
+        },
+      },
+      async (harness) => {
+        harness.loop.send('原会话')
+        await harness.loop.run()
+
+        const child = createTestContext()
+        try {
+          const forked = harness.loop.fork({
+            sessionId: asSessionId('s-forked'),
+            turn: 1,
+            ctx: child.ctx,
+          })
+          forked.send('分叉后')
+          await forked.run()
+
+          const forkedCall = calls[calls.length - 1]
+          expect(forkedCall?.sessionId).toBe(asSessionId('s-forked'))
+          expect(forkedCall?.forkOf).toBe(harness.session.sessionId)
+        } finally {
+          await child.dispose('fork-finished')
+        }
       },
     )
   })
