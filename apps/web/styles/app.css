@@ -866,3 +866,353 @@ textarea {
     scroll-behavior: auto !important;
   }
 }
+
+/* ────────────────────────────── 人工坐席（人机接管 02） */
+
+/* 人工气泡用 primary 族（品牌蓝），与 assistant 的中性色区分。
+   注意：令牌是 `--status-primary-surface-l1`（不是 l）——写错会静默失效。 */
+.message--operator .bubble__body {
+  background: var(--status-primary-surface-l1);
+  /* 门禁 `no-left-accent`：禁止单侧状态色条；用**整圈**边框色表达身份 */
+  border-color: var(--status-primary-default);
+}
+
+.message--operator .message__meta {
+  color: var(--status-primary-default);
+}
+
+/* 坐席台骨架：顶部状态条 / 左栏队列 / 中间对话 / 底部回复 */
+.seat-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100dvh;
+  background: var(--bg-base-default);
+}
+
+.seat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacer-16);
+  padding: var(--spacer-12) var(--spacer-24);
+  border-bottom: 1px solid var(--border-neutral-l1);
+  background: var(--surface-frosted);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.seat-header__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-12);
+}
+
+.seat-header__logo {
+  display: inline-flex;
+  color: var(--status-primary-default);
+}
+
+.seat-header__title {
+  font-weight: var(--heading-sm-font-weight);
+  font-size: var(--heading-sm-font-size);
+}
+
+.seat-header__subtitle {
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+}
+
+.seat-header__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacer-16);
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+}
+
+.seat-header__session {
+  font-family: var(--code-editor-font-family);
+  font-variant-numeric: tabular-nums;
+}
+
+.seat-header__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacer-6);
+}
+
+.seat-header__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-success-default);
+}
+
+.seat-header__dot.is-connecting { background: var(--status-warning-default); }
+.seat-header__dot.is-offline { background: var(--status-error-default); }
+
+.seat-body {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.seat-queue {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-12);
+  padding: var(--spacer-16);
+  border-right: 1px solid var(--border-neutral-l1);
+  background: var(--bg-base-secondary);
+  overflow: auto;
+}
+
+.seat-queue__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: var(--heading-2xs-font-weight);
+}
+
+.seat-queue__body {
+  display: grid;
+  gap: var(--spacer-12);
+}
+
+.seat-queue__card {
+  display: grid;
+  gap: var(--spacer-8);
+  padding: var(--spacer-12);
+  border: 1px solid var(--border-neutral-l1);
+  border-radius: var(--radius-12);
+  background: var(--bg-base-default);
+}
+
+.seat-queue__session {
+  font-family: var(--code-editor-font-family);
+  font-size: var(--body-sm-font-size);
+  word-break: break-all;
+}
+
+.seat-queue__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacer-8);
+}
+
+.seat-queue__label {
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+}
+
+.seat-queue__value {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--body-sm-font-size);
+}
+
+.seat-queue__value--overdue {
+  color: var(--status-error-default);
+  font-weight: var(--heading-2xs-font-weight);
+}
+
+.seat-queue__reason {
+  display: grid;
+  gap: var(--spacer-4);
+  padding-top: var(--spacer-8);
+  border-top: 1px dashed var(--border-neutral-l1);
+}
+
+.seat-queue__reason-text {
+  color: var(--text-secondary);
+  font-size: var(--body-xs-font-size);
+  word-break: break-word;
+}
+
+.seat-queue__claim {
+  justify-content: center;
+}
+
+.seat-thread-wrap {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.seat-thread {
+  flex: 1;
+  padding: var(--spacer-16) var(--spacer-24);
+  overflow: auto;
+}
+
+.seat-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-12);
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+}
+
+.seat-divider__line {
+  flex: 1;
+  height: 1px;
+  background: var(--border-neutral-l1);
+}
+
+.seat-divider__label {
+  white-space: nowrap;
+}
+
+.seat-divider[data-handoff='true'] .seat-divider__label {
+  color: var(--status-primary-default);
+}
+
+.seat-composer {
+  display: grid;
+  gap: var(--spacer-8);
+  padding: var(--spacer-12) var(--spacer-24);
+  border-top: 1px solid var(--border-neutral-l1);
+  background: var(--surface-frosted);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.seat-composer__send-form {
+  display: grid;
+  gap: var(--spacer-8);
+}
+
+.seat-composer__input,
+.seat-composer__handover {
+  width: 100%;
+  resize: vertical;
+}
+
+.seat-composer__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacer-12);
+}
+
+.seat-composer__count {
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+}
+
+.seat-composer__resume {
+  display: grid;
+  gap: var(--spacer-6);
+  padding-top: var(--spacer-8);
+  border-top: 1px dashed var(--border-neutral-l1);
+}
+
+.seat-composer__resume-title {
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+}
+
+.seat-badge--overdue {
+  padding: var(--spacer-6) var(--spacer-12);
+  border-radius: var(--radius-8);
+  background: var(--status-error-surface-l1);
+  color: var(--status-error-default);
+  font-size: var(--body-xs-font-size);
+}
+
+/* 凭证闸（未配置 token 时唯一可见的东西） */
+.seat-gate {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--spacer-24);
+  background: var(--bg-base-secondary);
+  z-index: 40;
+}
+
+.seat-gate__card {
+  display: grid;
+  gap: var(--spacer-16);
+  width: min(420px, 92vw);
+  padding: var(--spacer-24);
+  border: 1px solid var(--border-neutral-l1);
+  border-radius: var(--radius-16);
+  background: var(--bg-base-default);
+  box-shadow: 0 12px 40px var(--status-primary-surface-l2);
+}
+
+.seat-gate__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-8);
+  font-weight: var(--heading-sm-font-weight);
+  font-size: var(--heading-sm-font-size);
+  color: var(--status-primary-default);
+}
+
+.seat-gate__desc,
+.seat-gate__error {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--body-sm-font-size);
+}
+
+.seat-gate__error {
+  color: var(--status-error-default);
+}
+
+.seat-gate__form {
+  display: grid;
+  gap: var(--spacer-12);
+}
+
+.seat-gate__input {
+  width: 100%;
+  padding: var(--spacer-8) var(--spacer-12);
+  border: 1px solid var(--border-neutral-l1);
+  border-radius: var(--radius-8);
+  background: var(--bg-overlay-l1);
+}
+
+.seat-gate__input:focus-visible {
+  outline: 2px solid var(--status-primary-default);
+  outline-offset: 1px;
+}
+
+@media (max-width: 960px) {
+  .seat-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .seat-queue {
+    flex-direction: row;
+    align-items: center;
+    border-right: none;
+    border-bottom: 1px solid var(--border-neutral-l1);
+    overflow-x: auto;
+  }
+
+  .seat-queue__title {
+    flex: none;
+  }
+
+  .seat-queue__body {
+    flex: 1;
+  }
+
+  .seat-queue__card {
+    grid-auto-flow: column;
+    align-items: center;
+    gap: var(--spacer-12);
+  }
+
+  .seat-thread {
+    padding: var(--spacer-12) var(--spacer-16);
+  }
+
+  .seat-composer {
+    padding: var(--spacer-12) var(--spacer-16);
+  }
+}
+

@@ -61,6 +61,8 @@ export interface WebDeps {
   readonly staticRoot: string
   /** 静态根下的 index.html（token 与 CSRF cookie 的唯一载体）。 */
   readonly indexPath: string
+  /** 静态根下的 operator.html（坐席入口；**零注入**，文件不存在则 404）。 */
+  readonly operatorIndexPath: string
 }
 
 /** 解析好的请求行（避免每个 handler 各自 `new URL` 一遍）。 */

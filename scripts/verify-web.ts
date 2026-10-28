@@ -136,40 +136,72 @@ const gate: Gate = {
       }
     }
 
-    // ④ 令牌纪律：app.css 不得出现裸色值
-    const appCssPath = join(root, WEB_DIR, 'styles', 'app.css')
-    const appCss = read(appCssPath)
-    if (appCss === undefined) {
-      findings.push(`${WEB_DIR}/styles/app.css 不存在`)
-    } else {
-      const lines = appCss.split('\n')
+    // ④ 令牌纪律：全部 `styles/*.css`（排除 ds/ 分发副本）不得出现裸色值；
+    //    同时校验 `--icon-url` 指向的本地图标真实存在。
+    const cssFiles = files.filter((file) => file.endsWith('.css'))
+    const iconTargets = new Map<string, string>()
+    for (const file of cssFiles) {
+      const where = relative(root, file).split('\\').join('/')
+      if (where.includes('/styles/ds/')) continue
+      const css = read(file) ?? ''
+      const lines = css.split('\n')
       lines.forEach((line, index) => {
         // 允许注释里出现示例；只查声明值
         if (/^\s*(\/\*|\*)/.test(line)) return
         if (/#[0-9a-fA-F]{3,8}\b/.test(line)) {
-          findings.push(`${WEB_DIR}/styles/app.css:${String(index + 1)} 出现裸色值（请用 var(--…) 令牌）`)
+          findings.push(`${where}:${String(index + 1)} 出现裸色值（请用 var(--…) 令牌）`)
         }
       })
-
-      // 图标路径必须真实存在（防止改名后静默 404）
-      for (const match of appCss.matchAll(/--icon-url:\s*url\(['"]?([^'")]+)['"]?\)/g)) {
+      for (const match of css.matchAll(/--icon-url:\s*url\(['"]?([^'")]+)['"]?\)/g)) {
         const urlPath = match[1] ?? ''
         if (isRemote(urlPath)) {
-          findings.push(`${WEB_DIR}/styles/app.css: 图标来自远程 ${urlPath}`)
+          findings.push(`${where}: 图标来自远程 ${urlPath}`)
           continue
         }
-        const target = join(root, WEB_DIR, 'styles', urlPath)
-        if (!existsSync(target)) findings.push(`${WEB_DIR}/styles/app.css: 图标不存在 ${urlPath}`)
+        if (!existsSync(join(root, WEB_DIR, 'styles', urlPath))) {
+          findings.push(`${where}: 图标不存在 ${urlPath}`)
+        }
+      }
+      // 图标类名 → 文件（供 ⑥ 的 JS 检查复用）
+      for (const match of css.matchAll(/\.icon--([\w-]+)\s*\{[^}]*?--icon-url:\s*url\(['"]?([^'")]+)['"]?\)/g)) {
+        iconTargets.set(match[1] ?? '', match[2] ?? '')
       }
     }
 
-    // ⑤ index.html 必须挂本地样式与入口
-    const indexHtml = read(join(root, WEB_DIR, 'index.html'))
-    if (indexHtml === undefined) {
+    // ⑤ 入口页清单：apps/web 下每个 .html 都必须挂齐三份样式与一个模块入口，
+    //    且入口文件真实存在（不能靠"index.html 一把梭"漏检 operator.html）。
+    const htmlFiles = files.filter((file) => file.endsWith('.html'))
+    const REQUIRED_STYLES = ['./styles/ds/colors_and_type.css', './styles/ds/components.css', './styles/app.css']
+    for (const file of htmlFiles) {
+      const where = relative(root, file).split('\\').join('/')
+      const html = read(file) ?? ''
+      for (const required of REQUIRED_STYLES) {
+        if (!html.includes(required)) findings.push(`${where}: 缺少 ${required}`)
+      }
+      const entry = /<script[^>]*type=["']module["'][^>]*src=["'](\.\/src\/[^"']+\.js)["']/i.exec(html)
+      if (entry === null) {
+        findings.push(`${where}: 缺少 <script type="module" src="./src/**.js"> 模块入口`)
+      } else if (!existsSync(join(root, WEB_DIR, entry[1] ?? ''))) {
+        findings.push(`${where}: 入口文件不存在 ${entry[1] ?? ''}`)
+      }
+    }
+    if (!htmlFiles.some((file) => file.endsWith('index.html'))) {
       findings.push(`${WEB_DIR}/index.html 不存在`)
-    } else {
-      for (const required of ['./styles/ds/colors_and_type.css', './styles/ds/components.css', './styles/app.css', './src/main.js']) {
-        if (!indexHtml.includes(required)) findings.push(`${WEB_DIR}/index.html: 缺少 ${required}`)
+    }
+
+    // ⑥ JS 里 `icon('name')` 的实参必须在 CSS 里有 `.icon--name` 且文件存在。
+    //    为什么查 CSS 映射而不是直接拼 `<name>.svg`：文件名大小写与 `user → UserCheck.svg`
+    //    的映射都在 CSS 里，直接拼会在 Linux 上假红、在 Windows 上假绿。
+    const jsFiles = files.filter((file) => file.endsWith('.js') && !file.endsWith('.test.js'))
+    for (const file of jsFiles) {
+      const where = relative(root, file).split('\\').join('/')
+      const source = read(file) ?? ''
+      for (const match of source.matchAll(/\bicon\(\s*['"]([\w-]+)['"]/g)) {
+        const name = match[1] ?? ''
+        const target = iconTargets.get(name)
+        if (target === undefined) {
+          findings.push(`${where}: icon('${name}') 没有对应的 .icon--${name} 样式/图标`)
+        }
       }
     }
 

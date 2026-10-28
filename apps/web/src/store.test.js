@@ -92,3 +92,38 @@ describe('store · 审批查询', () => {
     expect(approvalDecision([approval], 't1')).toBeNull()
   })
 })
+
+describe('store · 接管帧（B3 / I18）', () => {
+  it('handoff 固定 key：active:true 后 active:false 覆盖同一条', () => {
+    const store = createStore()
+    store.apply({ kind: 'handoff', seq: 1, at: 100, active: true, operator: '坐席小周' })
+    expect(store.state().handoff).toMatchObject({ active: true, operator: '坐席小周' })
+    store.apply({ kind: 'handoff', seq: 2, at: 200, active: false })
+    expect(store.state().handoff).toMatchObject({ active: false })
+    expect(store.state().frames.filter((frame) => frame.kind === 'handoff')).toHaveLength(1)
+  })
+
+  it('handoff-warn 固定 key：两次只留一条', () => {
+    const store = createStore()
+    store.apply({ kind: 'handoff-warn', seq: 1, at: 1, waitedMs: 180_001, slaMs: 180_000 })
+    store.apply({ kind: 'handoff-warn', seq: 2, at: 2, waitedMs: 190_000, slaMs: 180_000 })
+    expect(store.state().handoffWarn.waitedMs).toBe(190_000)
+    expect(store.state().frames.filter((frame) => frame.kind === 'handoff-warn')).toHaveLength(1)
+  })
+
+  it('I18 快照重放：帧、handoff、handoffWarn 都一致', () => {
+    const store = createStore()
+    const message = { kind: 'message', seq: 1, at: 1, role: 'user', blocks: [{ type: 'text', text: '客户' }] }
+    const handoff = { kind: 'handoff', seq: 2, at: 2, active: true, operator: '坐席小周' }
+    const warn = { kind: 'handoff-warn', seq: 3, at: 3, waitedMs: 200_000, slaMs: 180_000 }
+    store.apply(message)
+    store.apply(handoff)
+    store.apply(warn)
+
+    const replayed = createStore()
+    replayed.apply({ kind: 'snapshot', sessionId: 's', maxSeq: 3, frames: [message, handoff, warn] })
+    expect(replayed.state().frames).toEqual(store.state().frames)
+    expect(replayed.state().handoff).toEqual(store.state().handoff)
+    expect(replayed.state().handoffWarn).toEqual(store.state().handoffWarn)
+  })
+})

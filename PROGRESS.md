@@ -5974,3 +5974,45 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
   - 新增的 claim 路由是对 01 原稿的补正（原稿只有 3 条新路由）。
 - **口径**：可以说"接管状态落盘 + 坐席说得上话 + 交接语进模型历史 + 客户/坐席凭证分离"；
   **不能**说"多坐席排队 / SLA 自动升级 / 重启后坐席能接着聊"。
+
+## 96.36 人机接管 02：坐席工作台与交付（2026-10-29 01:00）
+
+- **基线**：`7806e51`（人机接管 01）。在独立 worktree `HANDOFF-02-WT`（分支 `handoff-02-workbench`）
+  施工；01 的契约（20 条路由 / 坐席凭证 / handoff 帧）保持不变，本份只加前端与入口。
+- **交付**：
+  - `GET /operator` 入口（`auth:'static'`）：`/operator` 与 `/operator.html` 在未配
+    `BAH_OPERATOR_TOKEN` 时都 404；页面**零注入**，坐席手输凭证、只存 `sessionStorage`。
+  - `apps/web/operator.html` + `src/seat/`：`main/api/gate/views/{queue,thread,composer,status}`；
+    SSE 全量快照 + 15s 心跳；`visibilitychange` 暂停/恢复；401 清凭证回输入闸。
+  - `store.js` 认 `handoff` / `handoff-warn`（固定 key）；`conversation.js` 认 `role:'operator'`
+    与 `handoff-handover`（系统交接条）；`main.js` 独立接管横幅（不碰 `setBanner`），
+    1s 计时、交回后 3s 一次性提示；`format.js` 的 `formatWaited`。
+  - `app.css`：`.message--operator`（primary 整圈边框 + 浅色底）+ 坐席台三栏布局 + 940/960 响应式；
+    零裸色值、无左侧色条（`no-left-accent` 门禁）。
+  - `verify-web` 三处加严：全部 `styles/*.css` 裸色值、JS `icon('…')` 经 CSS 映射校验、
+    每个 `.html` 必须挂齐三份样式 + 真实存在的模块入口。
+  - `scripts/demo-handoff.ts` + `pnpm handoff:demo`：真实 HTTP 全流程 + 断言 + 审计根打印；
+    `docs/handoff-drill.md` 收录原始响应与审计输出。
+- **复审修正（文档 + 实现同批）**：
+  1. `--status-primary-surface-l` 不存在 → 实际是 `-l1`（写错会静默失效）。
+  2. 人工气泡的 `border-left` 触发 `no-left-accent` → 改**整圈** `border-color`。
+  3. 未配坐席凭证时 `/operator.html` 直链也会暴露页面 → 与 `/operator` 一起 404。
+  4. `bah audit --dir` 要的是"含会话子目录的根"；demo 原先打印会话子目录导致"未找到可审计的链"。
+  5. `probe:false` 在 `bindPort` 里等价于 `--dump-config`（不监听）→ demo 改 `probe:true` 才拿到真实端口。
+  6. 交回后的摘要 `operatorMessages` 原为 0（state 已清）→ 用"最近一次进入的 seq"回看，现为 3。
+  7. demo 的等待期消息只有 1 条（`CUSTOMER_SAYS` 少一项）→ 补足 2 条，与施工单断言一致。
+- **实测（Windows / worktree）**：
+  - `tsc -b tsconfig.host.json tsconfig.client.json` 绿；
+  - `pnpm test:web`：**12 文件 / 78 用例**（01 收工时 7/55）；
+  - 主仓全量：**224 文件 / 2535 用例**（串行；前端不计入）；
+  - `run-gates`：**40/40**；`test:snapshot`：**34/34**；
+  - `pnpm handoff:demo`：闭环断言通过；`bah audit --dir <runDir> --no-signature` →
+    `s-handoff-demo 9 事件 链连续`、saga 链 `diff-zero`、结论"通过"。
+- **未闭环/限制**：
+  - `docs/handoff-drill/step-*.png` 6 张截图**未附**：按施工单要求由人工在浏览器做，
+    自动化不冒充（`pnpm handoff:demo --keep` 已提供 URL 与两个 token）。
+  - 客户页仍无"转人工"按钮（产品策略未裁决）；单会话、无坐席转接、无自动交回；
+  - 重启后坐席台看不到接管期间历史（boot 不重放，`session-exists` 仍在）；
+  - 坐席台是单一共享 token，无个人账号（租户方案）。
+- **口径**：可以说"客户→坐席→客户→模型的闭环已通，坐席台零注入、凭证只存 sessionStorage"；
+  **不能**说"多坐席排队 / SLA 自动升级 / 6 张截图已完成"。

@@ -18,8 +18,8 @@ coverage_total=34270
 coverage_pct=91.14
 coverage_package_ok=15
 coverage_package_total=16
-tests_main_files=223
-tests_main_cases=2529
+tests_main_files=224
+tests_main_cases=2535
 <!-- facts:sources:end -->
 
 > `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。
@@ -36,9 +36,9 @@ tests_main_cases=2529
 | 快照文件 / 用例 | **8 / 34** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 8 文件 / 34 例（`pnpm test:snapshot` 同值；S4 新增 `policy-externalized` 6 例） |
 | 覆盖率（行） | **91.14%** | `pnpm test:coverage:all`（**CI / Ubuntu 口径**） | 覆盖 31233 行 / 参与统计 34270 行（2026-10-28 CI run 40631263792，端口守卫新增 36 行后） |
 | 覆盖率（包） | **15/16** | 同上 | 只有 `eval` 53.20% 未达 80%；`memory-store` 89.40% 已达标 |
-| 主仓测试 | **223 文件 / 2529 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 221 文件 / 2481 例（2026-10-28 复跑）→ 人机接管 01 +2 文件 / +48 例（handoff-store / web-operator 单测 + handoff 状态机/投影/集成用例 + 存储层 IO 失败路径）；门禁不重跑测试，只校验本文与 facts.md 一致 |
+| 主仓测试 | **224 文件 / 2535 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 221 文件 / 2481 例（2026-10-28 复跑）→ 人机接管 01 +2 文件 / +48 例（handoff-store / web-operator 单测 + handoff 状态机/投影/集成用例 + 存储层 IO 失败路径）→ 02 +1 文件 / +5 例（坐席入口静态面）；门禁不重跑测试，只校验本文与 facts.md 一致 |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
-| web 测试 | **7 文件 / 55 例** | `pnpm test:web` | 7 passed / 55 passed |
+| web 测试 | **12 文件 / 78 例** | `pnpm test:web` | 12 passed / 78 passed |
 | 快照跑批 | **8 文件 / 34 例** | `pnpm test:snapshot` | 8 passed / 34 passed |
 
 ## 3. 覆盖率为什么只有一个值

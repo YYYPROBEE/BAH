@@ -41,7 +41,7 @@ function fingerprint(route: (typeof ROUTES)[number]): string {
 }
 
 describe('W16 路由表（拆分前后同一份期望）', () => {
-  it('20 条路由的三元组逐条不变（12 条 W16 基线 + 1 条 D2 指标 + 7 条人机接管）', () => {
+  it('21 条路由的三元组逐条不变（12 条 W16 基线 + 1 条 D2 指标 + 7 条人机接管 01 + 1 条坐席入口）', () => {
     expect(ROUTES.map(fingerprint)).toEqual([
       'GET /api/health exact public no-csrf 200 health',
       'POST /api/admin/sentry/unfreeze exact admin no-csrf 200,400,401,403,404,405,503 admin',
@@ -66,6 +66,8 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
       'POST /api/handoff/claim exact operator csrf 200,401,403,404,409 handoff-claim',
       'POST /api/handoff/heartbeat exact operator csrf 200,401,403,404 handoff-heartbeat',
       'GET /api/handoff/queue exact operator no-csrf 200,401,404 handoff-queue',
+      // 人机接管 02：坐席工作台入口（static ⇒ 页面能打开才能输凭证；零注入）
+      'GET /operator exact static no-csrf 200,404 static',
       // 400 是 D6 新增：畸形百分号编码（`%E0%A4%A`）以前冒成 500
       'GET|HEAD / prefix static no-csrf 200,400,404 static',
     ])

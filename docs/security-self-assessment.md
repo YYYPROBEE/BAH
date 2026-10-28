@@ -3,7 +3,7 @@
 > 口径：只写本仓能回源码、回命令复核的事实。**未实装的逐条列在 §8，不用"设计中"充数**；
 > 每条结论后给落点，答辩时可按落点当场翻代码。
 > 对应赛题：§3.1 权限分级、§3.2 安全设计、§五.5 安全自评材料。
-> 最后核实：2026-10-28（门禁与测试面：`pnpm gate` 40/40、`pnpm test` 223 文件 / 2529 用例 + 前端 55 例、快照 8 文件 34 例；安全面结论沿用 2026-10-27）。
+> 最后核实：2026-10-29（门禁与测试面：`pnpm gate` 40/40、`pnpm test` 224 文件 / 2535 用例 + 前端 78 例、快照 8 文件 34 例；安全面结论沿用 2026-10-27）。
 
 ---
 
@@ -253,8 +253,9 @@ saga/residual-recorded、saga/manually-closed、approval/decided
 | 坐席发言 | `POST /api/handoff/message`（**坐席凭证** + CSRF）→ 落 `handoff/operator-message`（`appendDomain` + `ignorable`） | **不进模型历史**：模型不会"以为自己答应过客户"；该事件进会话日志与审计链，可在 `bah audit` 查到 |
 | 认领 / 心跳 / 队列 | `POST /api/handoff/claim`、`POST /api/handoff/heartbeat`、`GET /api/handoff/queue`（均坐席凭证） | 单会话部署：`depth ∈ {0,1}`；心跳只落 `handoff/timeout-warned`（**不自动交回**） |
 | 交回 | `POST /api/handoff/resume`（**坐席凭证**）`{ handover? }` → 落 `handoff/resumed`；`handover` 另落一条 `user/message(source='handoff-handover')` | 未接管时交回 → **409**，不做"幂等成功"；交接语是**唯一**进入模型历史的人工文本（下一轮模型看得到） |
-| 凭证分离 | 客户 `BAH_WEB_TOKEN` 与坐席 `BAH_OPERATOR_TOKEN` 分离；两 token 相同 ⇒ 启动失败 `web-operator-token-conflict`；未配坐席 token ⇒ 所有 `auth:'operator'` 路由 **404**（不暴露存在性） | 坐席 token 绝不注入页面（第 2 份的 `/operator` 只返回原样 HTML）；`operator` 显示名取 `BAH_OPERATOR_NAME`，**请求体里的 `operator` 一律忽略** |
+| 凭证分离 | 客户 `BAH_WEB_TOKEN` 与坐席 `BAH_OPERATOR_TOKEN` 分离；两 token 相同 ⇒ 启动失败 `web-operator-token-conflict`；未配坐席 token ⇒ 所有 `auth:'operator'` 路由 **404**（不暴露存在性） | 坐席 token 绝不注入页面（`/operator` 只返回原样 HTML）；`operator` 显示名取 `BAH_OPERATOR_NAME`，**请求体里的 `operator` 一律忽略** |
 | 权限面收窄 | `/api/turn`、`/api/interrupt`、`/api/approval/:id`、`/api/verify/:id` 的 auth 从 `web` 降为 **`user`**：持坐席凭证不能替客户发消息、打断、**也不能替客户放行审批/强验证** | 坐席能读会话、连 SSE、读摘要、发言/认领/心跳/交回；资金动作的授权始终在客户手里 |
+| 坐席台前端面 | `/operator` 与 `/operator.html` 零注入（响应体不含任何 token）；凭证只存 `sessionStorage`，不进 localStorage / URL / cookie；输入框失败/401 可见 | 页面本身可公开打开（否则坐席无法输凭证），但它只是一个输入框；无个人账号，单一共享 token（租户方案） |
 | 与审批的区别 | 审批是"放行一次动作"，接管是"把会话控制权交出去"：接管期间模型不被驱动 | 不要拿审批弹窗冒充接管 |
 
 ---
@@ -366,7 +367,7 @@ pnpm demo:verifier-fail
 ## 10. 复现命令
 
 ```bash
-pnpm test                                   # 223 文件 / 2529 用例（前端另有 55 例）
+pnpm test                                   # 224 文件 / 2535 用例（前端另有 78 例）
 pnpm vitest run packages/safety/src/sentry/halt.test.ts \
   packages/host/src/boot/plugins/halt.test.ts \
   packages/cli/src/cli/halt.test.ts         # HP-3 / W07 的 46 条（TC-W07-01…07）
