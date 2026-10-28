@@ -477,7 +477,7 @@ describe('policy:rules · 灰度与影子', () => {
     try {
       const decision = findPolicyEngine(app.ctx)?.decide(
         { userId: 'u-1', sessionId: 's-policy-test' },
-        // 80000 分：1.0.0 与 demo 都判黄，无差异
+        // 80000 分：1.0.0 与 demo 1.0.0（阈值 500000）都判黄，无差异
         { name: 'transfer_create', declared: 'yellow' },
         {
           riskyCallsInTurn: 0,

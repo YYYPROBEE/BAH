@@ -1,0 +1,6 @@
+# verify-policy-hardcode · 2026-10-28T19:14:40+08:00
+✔ policy-hardcode
+    ℹ 银行工具源码 26 个：escalateTransferTier 只许出现在 tier/policy
+    ℹ 策略包源码 16 个：两个资金阈值不得写死
+    ℹ 生产 bundle 1 个：IR 里禁止数字常量（阈值必须走 limits/params）
+exit=0

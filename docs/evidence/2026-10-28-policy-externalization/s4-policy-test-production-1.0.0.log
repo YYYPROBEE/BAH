@@ -1,0 +1,10 @@
+# policy:test production 1.0.0 · 2026-10-28T19:14:44+08:00
+bundle      bank-tier/1.0.0+sha256:97764bc1298834d6
+rules       5/5 (TR-001-over-daily-limit, TR-002-new-payee, TR-003-default, RC-001-over-threshold, RC-002-default)
+reasons     4/4 (daily-limit, declared, new-payee, risky-calls)
+actions     keep 3, raise-red 2
+boundary    limit-eq 1, limit+1 1, threshold-1 1, threshold 1, threshold+1 1
+cases       20
+mutants     16/16 killed (100.0%)
+✓ policy:test 通过
+exit=0

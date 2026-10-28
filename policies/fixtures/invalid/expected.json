@@ -1,0 +1,32 @@
+{
+  "apiVersion": "bah.policy.fixtures/v1",
+  "cases": {
+    "downgrade/1.0.0": "policy-lower-tier",
+    "duplicate-rule/1.0.0": "policy-duplicate-rule",
+    "unreachable-row/1.0.0": "policy-unreachable-row",
+    "unsatisfiable-row/1.0.0": "policy-unsatisfiable-row",
+    "missing-default/1.0.0": "policy-missing-default",
+    "unknown-tool/1.0.0": "policy-unknown-tool",
+    "unknown-param/1.0.0": "policy-unknown-param",
+    "unknown-field/1.0.0": "policy-unknown-field",
+    "unknown-key/1.0.0": "policy-unknown-key",
+    "type-mismatch/1.0.0": "policy-type-mismatch",
+    "float-amount/1.0.0": "policy-parse-error",
+    "unknown-operator/1.0.0": "policy-unknown-operator",
+    "regex-access/1.0.0": "policy-parse-error",
+    "clock-access/1.0.0": "policy-unknown-operator",
+    "bad-reason/1.0.0": "policy-bad-reason",
+    "bad-deny-code/1.0.0": "policy-bad-deny-code",
+    "action-conflict/1.0.0": "policy-row-action-conflict",
+    "param-unused/1.0.0": "policy-param-unused",
+    "engine-incompatible/1.0.0": "policy-engine-incompatible",
+    "bad-semver/1.0.0": "policy-bad-semver",
+    "version-mismatch/1.0.0": "policy-version-mismatch",
+    "path-escape/1.0.0": "policy-parse-error",
+    "corpus-missing/1.0.0": "policy-corpus-missing",
+    "digest-tamper/1.0.0": "policy-digest-mismatch",
+    "too-many-tables/1.0.0": "policy-limit-exceeded",
+    "too-many-rows/1.0.0": "policy-limit-exceeded",
+    "too-deep-expr/1.0.0": "policy-limit-exceeded"
+  }
+}

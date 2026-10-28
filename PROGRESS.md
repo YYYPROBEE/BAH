@@ -5759,3 +5759,62 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 | B 对抗 | 源摘要含 CHANGELOG：改错别字也要新版本 | 保留（I9 优先），CHANGELOG 写明"不可就地修改" |
 | B 对抗 | 静态分析 sound 但 incomplete（合取矛盾、组合覆盖不判） | 方案 §7.1 允许；登记不改 |
 | **P1** | **覆盖率台账滞后**：`policy` 进名单后 CI 分母变化，`verify-facts` 在 CI 首跑会比旧台账红 | 本机 Windows 口径不可比（PA-06），**不写本机数**；按先例 `23df3e6` 在 CI 跑批后用实测更新台账 + facts 三处 |
+
+## 96.29 2026-10-28 策略外置 S4：4 条门禁、负例、policy-externalized 快照
+
+施工依据：`BAH-策略外置施工方案-2026-10-28/03-装配迁移与门禁.md`（PE-40 … PE-49）。
+输入 HEAD `d2f8922`；S2/S3 运行期平面已在 `1ea501d` / `b6f6e1a`。
+
+### 96.29.1 交付
+
+- **门禁 36 → 40**：`verify-policy-bundle`（整份 lock + 27 负例）、
+  `verify-policy-conformance`（生产语料/覆盖/变异/480+480 等价域/属性 + 假求值器负控）、
+  `verify-policy-hardcode`（legacy 引用面 + 策略包阈值 + 生产 IR 数字常量）、
+  `verify-policy-registry`（registry/state/rollout/未登记 bundle/demo 路径/profile active）。
+- **负例**：`policies/fixtures/invalid/**` 27 个，`expected.json` 逐条绑定错误码。
+- **演示 bundle**：新增 `bank-tier-demo/1.1.0`（单笔 ≥ 800 元升红；11 条语料、21/21 变异）；
+  `1.0.0` 保持原样（遵守"已安装版本不可变"）。
+- **快照**：`policy-externalized`（overlay active=demo/1.1.0；6 例）。断言
+  `tier/decided = red + daily-limit + TR-004-single-large + demo/1.1.0`，
+  同一 evidence 输入给 legacy 是 yellow；篡改 evidence 的 replay 负控必红。
+- **银行侧**：`transfers.ts` 试算展示改用 `decide()`，不再直接引用 `escalateTransferTier`
+  （全部 7 个场景重录后 session/llm 零 diff，证明行为等价）。
+- **S1 遗留修复**：`analyze.ts` 的区间包含方向写反（`>10` 后接 `>5` 被误判不可达）；
+  `verify-tiers` 的计数器属性误报。
+- **文档**：新增 `docs/policy.md`；README/facts/facts-sources/profile/bank/audit、
+  security-design、deploy、testing、security-self-assessment 同步 40/40、8/34、2404 例。
+
+### 96.29.2 判据
+
+| 判据 | 实测 |
+|---|---|
+| `pnpm typecheck` | ✔ 三项全绿 |
+| `npx vitest run` | ✔ **219 文件 / 2404 例** |
+| `pnpm test:snapshot` | ✔ **8 文件 / 34 例** |
+| `pnpm gate` | ✔ **40/40** |
+| 4 条策略门禁 | ✔ 全绿；bundle 3 个 / 负例 27 个 / 生产 1 个 / demo 2 个 |
+| demo 1.1.0 `policy:test` | ✔ 11 例、6/6 规则、4/4 理由、5/5 边界、21/21 变异 |
+
+### 96.29.3 对抗式复审（详见 `docs/evidence/2026-10-28-policy-externalization/s4-construction-and-review.md`）
+
+| 级别 | 发现 | 处置 |
+|---|---|---|
+| P0 | hardcode 门禁只读 `rules.yml`，`rulesFile` 诱饵可绕过 | 改为扫编译后的 **IR**；任何 `when` 数字常量即红 |
+| P1 | `analyze.ts` 区间包含方向写反（S1 误报不可达） | 修正 le/ge 方向 + 4 组回归用例 + 负例改成真包含 |
+| P1 | `demo: true` 可任意路径自声明，借 demo 跳过检查 | demo 必须在 `policies/demo/`；生产 profile active 不得指向 demo |
+| P1 | 门禁/负例下限过松（36 / 18） | 改为 40 / 27：删一条必须同步改常量 |
+| P1 | "960 组逐字段等价"口径夸大 | 统一为 480 组已绑定逐字段 + 480 组未绑定 no-identity 边界 |
+| P2 | 快照 T-PE-001 未校验 evidence.inputDigest | 断言 `sha256(canonicalJson(input))` |
+| P2 | transfers `??` 与旧 `=== undefined` 不完全一致 | 先算 `limitCents`，判决与 DTO 复用 |
+| P2 | snapshot-fresh 敏感面不含 policy 包 | 加入 `packages/policy/src/` |
+| P2 | demo 1.0.0 就地改会破坏不可变性 | 改为新增 1.1.0，1.0.0 保持原样 |
+
+### 96.29.4 口径与待办
+
+- **可以说**：规则文件化、内容寻址、灰度/回滚、逐判决审计、4 条门禁、40/40、
+  `policy-externalized` 快照、demo 1.1.0 的 21/21 变异。
+- **不能说**：接入 OPA/Cedar、多租户策略隔离、策略文件防篡改（本地链 + 可选签名）。
+- **待 CI**：`docs/coverage-baseline.json` 仍为 91.14%（CI 口径）；本批改动会让分母变化，
+  下次 CI 跑批后按 `facts-sources.md` 流程刷新。
+- **仍留 S5/S6**：`sentry.rules` 可选；生产 Ed25519 密钥分发/轮换；semver major 差异检查
+  （当前只有一个生产版本，no-op）。

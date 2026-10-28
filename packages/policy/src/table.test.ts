@@ -618,16 +618,39 @@ describe('analyzeTables', () => {
 
   it('镜像写法（常量在左）也能证明覆盖', () => {
     expect(
-      analyzeCode(table([row('R-1', '6 < state.riskyCallsInTurn'), row('R-2', '5 < state.riskyCallsInTurn')])),
+      analyzeCode(table([row('R-1', '4 < state.riskyCallsInTurn'), row('R-2', '5 < state.riskyCallsInTurn')])),
     ).toBe('policy-unreachable-row')
     expect(
-      analyzeCode(table([row('R-1', '5 <= state.riskyCallsInTurn'), row('R-2', '4 <= state.riskyCallsInTurn')])),
+      analyzeCode(table([row('R-1', '4 <= state.riskyCallsInTurn'), row('R-2', '5 <= state.riskyCallsInTurn')])),
     ).toBe('policy-unreachable-row')
     expect(
-      analyzeCode(table([row('R-1', '5 > state.riskyCallsInTurn'), row('R-2', '6 > state.riskyCallsInTurn')])),
+      analyzeCode(table([row('R-1', '6 > state.riskyCallsInTurn'), row('R-2', '5 > state.riskyCallsInTurn')])),
     ).toBe('policy-unreachable-row')
     expect(
-      analyzeCode(table([row('R-1', '5 >= state.riskyCallsInTurn'), row('R-2', '6 >= state.riskyCallsInTurn')])),
+      analyzeCode(table([row('R-1', '6 >= state.riskyCallsInTurn'), row('R-2', '5 >= state.riskyCallsInTurn')])),
+    ).toBe('policy-unreachable-row')
+  })
+
+  it('边界方向不能写反：更窄的前序不覆盖更宽的后序', () => {
+    // S4 对抗审查抓到：旧实现把 le/ge 的包含方向写反，以下四组会被误报不可达。
+    expect(
+      analyzeCode(table([row('R-1', 'state.riskyCallsInTurn > 10'), row('R-2', 'state.riskyCallsInTurn > 5')])),
+    ).toBe('ok')
+    expect(
+      analyzeCode(table([row('R-1', 'state.riskyCallsInTurn < 5'), row('R-2', 'state.riskyCallsInTurn < 10')])),
+    ).toBe('ok')
+    expect(
+      analyzeCode(table([row('R-1', 'state.riskyCallsInTurn >= 10'), row('R-2', 'state.riskyCallsInTurn >= 5')])),
+    ).toBe('ok')
+    expect(
+      analyzeCode(table([row('R-1', 'state.riskyCallsInTurn <= 5'), row('R-2', 'state.riskyCallsInTurn <= 10')])),
+    ).toBe('ok')
+    // 反过来（前序更宽）才是真不可达。
+    expect(
+      analyzeCode(table([row('R-1', 'state.riskyCallsInTurn > 5'), row('R-2', 'state.riskyCallsInTurn > 10')])),
+    ).toBe('policy-unreachable-row')
+    expect(
+      analyzeCode(table([row('R-1', 'state.riskyCallsInTurn < 10'), row('R-2', 'state.riskyCallsInTurn < 5')])),
     ).toBe('policy-unreachable-row')
   })
 

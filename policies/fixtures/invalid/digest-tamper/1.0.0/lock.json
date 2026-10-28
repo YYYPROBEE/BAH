@@ -1,0 +1,31 @@
+{
+  "apiVersion": "bah.policy.lock/v1",
+  "kind": "bank.tier",
+  "name": "digest-tamper",
+  "version": "1.0.0",
+  "engineVersion": "1.0.0",
+  "semanticDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "sourceDigest": "c3694af47467b3087e7e3a1862c4d81ee9d25276da8a3b9314646f5ef22937e9",
+  "files": [
+    {
+      "name": "CHANGELOG.md",
+      "bytes": 103,
+      "digest": "17a371e67f7ec83d7e34dd0529085bf5f07097d3ac996e7d1af39e23017bea31"
+    },
+    {
+      "name": "bundle.yml",
+      "bytes": 446,
+      "digest": "c2185eecba89aa62cbf933b2d0a8779a6210607cab626e23e4555b3b7a168e37"
+    },
+    {
+      "name": "corpus.yml",
+      "bytes": 499,
+      "digest": "c3d7b650b5e98934c8e901b35c22027ed5388edaa0225a9ea56fc9374951f196"
+    },
+    {
+      "name": "rules.yml",
+      "bytes": 640,
+      "digest": "b825fa66b32925b97370bf3c2fe9ecafdf4418c4c807d6322296fb2694ff6472"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+# verify-policy-registry · 2026-10-28T19:14:41+08:00
+✔ policy-registry
+    ℹ registry 3 个版本：目录/摘要/engine/handle 逐条核对
+    ℹ runtime-state.json 不存在（预期：用部署默认 active）
+    ℹ rollout 链不存在（预期：只在 promote/rollback 后出现，且不入库）
+exit=0

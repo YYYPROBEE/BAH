@@ -26,8 +26,8 @@ pnpm install
 |---|---|---|
 | **起演示** | `pnpm demo:web` | 主路径为**离线 router**（不读密钥、不依赖外网），每次新建独立会话目录，打开 `http://127.0.0.1:7331` |
 | **容器演示** | `docker build -t bah:local . && docker run --rm -p 7331:7331 bah:local` | 单容器 Web，默认离线 router（不需要密钥）；RAG sidecar 不在镜像内，知识工具降级为 `knowledge-unavailable` |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 219 文件 / 2403 用例 |
-| **门禁** | `pnpm gate` | 36 项静态与契约检查，任一红即失败 |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 219 文件 / 2404 用例 |
+| **门禁** | `pnpm gate` | 40 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
 主演示**不需要密钥**：`profiles/web/patch.yml` 默认 `provider: router`（读消息做意图路由，
@@ -81,6 +81,7 @@ flowchart LR
 | 主循环 | `packages/runtime` | turn/step、提示词装配、七段工具管线、会话存储、压缩、恢复 |
 | 模型 | `packages/llm` | DeepSeek（OpenAI 兼容协议）、离线意图路由、固定脚本 mock |
 | 银行 | `packages/bank` | 内存账本、16 个工具、三级权限升级、票据桥接、强验证状态机 |
+| 策略 | `packages/policy` | 决策表 DSL + 编译器 + 内容寻址；规则在 `policies/**`，`tier.ts` 保留为 legacy oracle |
 | 交互 | `packages/interaction` | 审批仲裁器 + 票据账本（五绑定、一次性核销、过期） |
 | 安全 | `packages/safety` | sentry（检测 / 控制 / 票据观测 / 审计 / 幻觉防护 / 断路器）+ 沙箱 |
 | 可靠性 | `packages/saga` | 多步配方、补偿、幂等键、审计锚点 |
@@ -112,6 +113,10 @@ flowchart LR
 
 - 工具声明下限：`green` 直接执行、`yellow` 必须确认、`red` 强验证 + 确认；
 - 转账的动态升级：日累计超限 → 红；新收款人 → 红；组合风险超阈（同 turn 风险调用过多）→ 非绿一律 `ask`；
+- **规则文件化**：默认判定来自 `policies/bank-tier/1.0.0`（决策表 + 内容寻址），与 `tier.ts`
+  legacy 在 960 组输入域上（480 组已绑定逐字段等价 + 480 组未绑定只验 `no-identity` 边界）；
+  `bank:tools.policy.engine: legacy` 是整体回退开关。
+  作者/运维手册见 [docs/policy.md](docs/policy.md)；
 - 日限额取 `min(卡片限额, Config.dailyTransferLimit)`：**只调 Config 一处，判决与预演展示一起动**；
 - 升级只升不降：同一 turn 内已判红，后续不会因为参数变化降回黄。
 
@@ -215,9 +220,9 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 
 ```text
 apps/web/            前端（对话 / 工具卡 / 审批 / DAG / 审计）
-packages/            16 个包（见 §2.1）
+packages/            17 个包（见 §2.1）
 profiles/            web / headless 装配与 patch
-scripts/             34 个 verify-* 门禁、录制、演示脚本
+scripts/             40 个 verify-* 门禁、录制、演示脚本
 design/bah-ds/       自研设计系统（与应用内分发副本逐字节一致）
 docs/                管线、sentry、审计、前端、测试等落地文档
 facts.md             演示材料唯一数字来源
@@ -227,11 +232,11 @@ facts.md             演示材料唯一数字来源
 
 | 命令 | 范围 | 实测（2026-10-27） |
 |---|---|---|
-| `pnpm test` | 主仓 | 219 文件 / 2403 用例 |
+| `pnpm test` | 主仓 | 219 文件 / 2404 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
 | `pnpm test:web` | 前端 | 7 文件 / 55 用例 |
-| `pnpm test:snapshot` | 快照回放 | 7 文件 / 28 用例 |
-| `pnpm gate` | 门禁 | 36/36 |
+| `pnpm test:snapshot` | 快照回放 | 8 文件 / 34 用例 |
+| `pnpm gate` | 门禁 | 40/40 |
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
 

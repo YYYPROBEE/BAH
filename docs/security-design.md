@@ -16,7 +16,7 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **22 项 / 36 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
+| 注册表 / 门禁 | **22 项 / 40 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
 | 覆盖率 | **91.14%（行口径，31233/34270 行，实测 2026-10-28）；15/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
@@ -48,7 +48,7 @@
 | **D**enial of service | 刷接口；上游挂起拖死主循环 | 限流 429；`requestTimeoutMs`；请求体上限 64 KiB |
 | **E**levation of privilege | 绿级工具被当成写操作；被 block 的节点偷偷执行 | `verify-tiers` 门禁；`tools/pre-execute` 唯一阻断点；plan 的 blocked 不进管线 |
 
-## 3. 攻击面清单（攻击面 → 现有防线 → 缺口，17 项）
+## 3. 攻击面清单（攻击面 → 现有防线 → 缺口，19 项）
 
 > 这是本文的核心表。缺口列写"没有"也是一种结论——比被评委问出来强。
 
@@ -71,6 +71,8 @@
 | 15 | 知识库被整体替换 | 文件级 + 条目级 HMAC-SHA256；命中逐条验签；不通过 → 拒答信封 | **HP-2 响应信封未签名**（见 §4） |
 | 16 | 审计日志被篡改 | 判决链哈希串联（`audit.jsonl`）+ 独立重放器 `--verify` 三判据 | 链是本地文件，没有外部锚定（时间戳/第三方存证） |
 | 17 | 判决件自身失效 | fail-closed：核验组件抛错 → 阻断并替换模型可见内容（`verifier-unavailable`） | 只覆盖已知的两个接缝（post-execute / turn-stopping） |
+| 18 | 策略文件被替换 / 被降级 | 编译期禁止 `lower`/降级；`lock.json` 语义+源摘要；registry 摘要核对；默认 bundle 与 legacy 穷举等价；`verify-policy-{bundle,conformance,hardcode,registry}` 四条门禁 | 本地链没有外部锚定；生产 Ed25519 密钥分发/轮换流程未落地（S4 只做可选验签，演示 unsigned） |
+| 19 | 热重载竞态 / 坏候选半生效 | 先编译后原子替换；失败保持旧版并发 `policy/reload-rejected`；参数绑定在激活前复校；在途判决持旧快照 | 单进程文件监听（`fs.watchFile` 轮询），没有分布式一致性；多实例部署不在当前形态内 |
 
 ### 3.1 三处"顺序即安全"的设计（顺序错了，上面一半的防线都会失效）
 
@@ -105,6 +107,9 @@
 补充（不算"未实现"，但要主动说）：
 
 - **覆盖率还剩一个包没到 80%**：`eval` 53.20%（行口径 91.14%＝31233/34270，仅 `packages/*/src`；包口径 15/16，见事实表）。`memory-store` 89.40% 已达标。`eval` 的行数多在场景数据装载，属于评测 harness 而非产品路径。
+- **策略生产签名密钥的分发/轮换未落地**：S4 提供 Ed25519 可选验签与 `policy:rules.signature`
+  路径，密钥不进仓；演示 profile 仍 `requireSignature: false`，链上策略判决是 `unsigned`。
+  生产强制签名需要密钥托管与轮换流程，登记到 S6；不能据此宣称"策略文件防篡改"。
 - **`security-self-assessment.md` 里的"14 个工具"是旧数**（现为 16）：本轮已顺手改正，
   该文档的评分与状态不受影响。
 

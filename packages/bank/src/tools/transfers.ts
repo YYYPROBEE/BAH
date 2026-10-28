@@ -17,7 +17,7 @@ import type { TransferCreatedResult, TransferPreviewResult } from './dto.ts'
 import { parseTransferInput, assertExecutableNow, type TransferInput } from './inputs.ts'
 import { transferConfirmCard, transferCreatedCard, transferPreviewCard } from './presenters.ts'
 import { specOf } from './specs.ts'
-import { escalateTransferTier } from './tier.ts'
+import { decide } from './tier.ts'
 import { ticketRefForCall } from './tickets.ts'
 import type { BankToolDeps } from './types.ts'
 import { clockOf } from './types.ts'
@@ -138,11 +138,26 @@ export function toTransferPreview(
   at: number,
   dailyLimitCents?: number,
 ): TransferPreviewResult {
-  const tier = escalateTransferTier('yellow', preview, dailyLimitCents)
+  // 生效日限额与 legacy `escalateTransferTier` 同一口径：只取 min(core, config)。
   const limitCents =
     dailyLimitCents === undefined
       ? preview.dailyLimitCents
       : Math.min(preview.dailyLimitCents, dailyLimitCents)
+  // 试算卡片只展示"执行时会是黄还是红"：仍然走 tier.ts 的同一判定矩阵，
+  // 但不直接引用 `escalateTransferTier`——策略外置后，legacy 升级规则只允许在
+  // `tier.ts` / `policy.ts` 出现（03 §7.3 第 1 条）。这里传 `declared: 'yellow'`
+  // 与无风险调用状态，等价于旧的 `escalateTransferTier('yellow', preview, limit)`。
+  const tier = decide({
+    name: 'transfer_create',
+    declared: 'yellow',
+    config: {
+      dailyTransferLimitCents: limitCents,
+      riskyOps: [],
+      riskyCallThreshold: Number.MAX_SAFE_INTEGER,
+    },
+    state: { userId: 'preview', riskyCallsInTurn: 0, verifyLocked: false },
+    preview,
+  })
   return {
     amountCents: preview.amountCents,
     feeCents: preview.feeCents,

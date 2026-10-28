@@ -210,7 +210,30 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 覆盖率：`bank/core/` 与 `bank/forge/` 进强制名单（逐文件行覆盖 100%），
 `core/provider.ts` 是纯类型模块、在 `vitest.config.ts` 中排除（与 `runtime/src/tools/types.ts` 同例）。
 
-## 8. 已知边界（不是遗漏，是记账）
+## 8. 策略外置（S2/S3）：判决从哪来
+
+`bank:tools.policy.engine` 有两个取值，缺省 `legacy`：
+
+| 取值 | 判决来源 | 用途 |
+|---|---|---|
+| `legacy` | `tools/tier.ts` 的 `decide()`（代码分支） | 整体回退开关；无需删 `policies/`、无需重启策略服务 |
+| `bundle` | `policies/bank-tier/1.0.0` 编译出的决策表（宿主 `policy:rules` 提供服务） | 生产默认（headless/web/web-plan/plan） |
+
+`engine: bundle` 时，治理平面的顺序不变：身份 → 预检 → 生效上限 `min(core, config)` →
+策略求值（只给 `level/reason`，作为 escalation）→ 硬规则（`no-identity` / `verify-locked` /
+红级挑战）→ 票据/审批。**策略不能把红降黄，也不能让锁定/未绑定放行**；策略 deny 覆盖
+allow，但绿级读工具不咨询策略（TC-W04-06）。
+
+审计口径：`tier/decided` 带 `engineSource / policyVersion / ruleIds / paramsDigest`，
+bundle 实际求值时还有 `evidence`（完整输入 + `inputDigest`）；链上镜像为
+`policy/decision`（v2 信封）。`policy:explain` 按记录 digest 找归档 bundle 复算，
+归档缺失显式失败，绝不用新策略重算历史。
+
+已知边界：`transfer_preview` 的 `effectiveTier` 仍是 legacy 展示口径（试算卡片只回答
+"执行时大概会是黄还是红"）；权威判决只来自治理平面。作者/运维手册见
+[policy.md](policy.md)。
+
+## 9. 已知边界（不是遗漏，是记账）
 
 | 项 | 现状 | 计划 |
 |---|---|---|
