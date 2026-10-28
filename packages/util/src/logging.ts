@@ -51,8 +51,8 @@ const LEVEL_RANK: Readonly<Record<LogLevel, number>> = { debug: 0, info: 1, warn
 /** 禁止入日志的字段名（粗粒度但够用：宁可少记，不可漏记）。 */
 const FORBIDDEN_KEYS = /^(?:key|apiKey|token|secret|password|authorization|cookie)$/i
 
-/** 固定字段不能被 `fields` 覆盖（否则事件 code 会被字段名的 `code` 顶掉）。 */
-const RESERVED_FIELDS = new Set(['ts', 'code'])
+/** 固定字段不能被 `fields` 覆盖（否则事件 code / 日志级别会被同名字段顶掉）。 */
+const RESERVED_FIELDS = new Set(['ts', 'level', 'code'])
 
 /** 文件轮转：固定 8 MiB × 3 份（无第三方）。 */
 const MAX_FILE_BYTES = 8 * 1024 * 1024

@@ -253,7 +253,7 @@
   "packages/test-support/src/session-snapshot/harness.test.ts": 27,
   "packages/test-support/src/session-snapshot/session-log.test.ts": 12,
   "packages/util/src/jsonl/codec.test.ts": 29,
-  "packages/util/src/logging.test.ts": 22,
+  "packages/util/src/logging.test.ts": 23,
   "packages/util/src/tool-contract-validate.test.ts": 9,
   "packages/util/src/util/canonical.test.ts": 16
 }
