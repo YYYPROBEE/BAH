@@ -685,3 +685,30 @@ async function captureThrownAsync(run: () => Promise<unknown>): Promise<{ readon
   }
   throw new Error('预期应抛错，但调用成功了')
 }
+
+/* ── 主体读取（实体槽位的数据来源） ───────────────────────────────────────── */
+
+describe('getUser（只读主体，实体槽位用它校验"是谁"）', () => {
+  it('存在 → 返回主体（S0 后 demo u-1 是张三）', async () => {
+    const core = setup()
+    const user = await core.getUser(USER)
+    expect(user?.id).toBe(USER)
+    expect(user?.name).toBe('张三')
+    expect(user?.phone).toBe('13800001111')
+  })
+
+  it('不存在 → undefined（"查无此人"是业务结果，不是异常）', async () => {
+    const core = setup()
+    await expect(core.getUser(bankIds.user('u-404'))).resolves.toBeUndefined()
+  })
+
+  it('返回副本：调用方改字段不污染账本主体', async () => {
+    const core = setup()
+    const first = await core.getUser(USER)
+    if (first === undefined) throw new Error('demo 数据集缺少 u-1')
+    Object.assign(first, { name: '李四' })
+    const second = await core.getUser(USER)
+    expect(second?.name).toBe('张三')
+    expect(first.name).toBe('李四')
+  })
+})

@@ -29,6 +29,7 @@ import type {
   SubscriptionId,
   Transaction,
   TxnCategory,
+  User,
   UserId,
   WealthProduct,
 } from './model.ts'
@@ -72,6 +73,8 @@ export class MockBankCore implements BankCoreProvider {
 
   private readonly now: () => number
   private readonly limitsConfig: BankLimits
+  /** 主体（只读；`getUser` 返回副本，账本不被外部改动）。 */
+  private readonly users: ReadonlyMap<UserId, User>
   private accounts: Account[]
   private cards: Card[]
   private subscriptions: Subscription[]
@@ -96,6 +99,7 @@ export class MockBankCore implements BankCoreProvider {
     this.now = options.now ?? (() => data.now)
     this.limitsConfig = options.limits ?? data.limits
     this.tickets = options.tickets ?? new TicketStore()
+    this.users = new Map(data.users.map((user) => [user.id, user]))
     this.accounts = data.accounts.map((item) => ({ ...item }))
     this.cards = [...data.cards]
     this.subscriptions = [...data.subscriptions]
@@ -112,6 +116,16 @@ export class MockBankCore implements BankCoreProvider {
 
   limits(): BankLimits {
     return this.limitsConfig
+  }
+
+  /**
+   * 读用户（只读；不存在返回 `undefined`，不抛）。
+   *
+   * 返回**副本**：调用方（实体槽位适配器）改字段不能污染账本主体。
+   */
+  async getUser(userId: UserId): Promise<User | undefined> {
+    const user = this.users.get(userId)
+    return user === undefined ? undefined : { ...user }
   }
 
   async reportCardLost(userId: UserId, cardId: CardId): Promise<CardLostResult> {

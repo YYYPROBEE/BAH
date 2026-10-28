@@ -8,6 +8,8 @@
 
 import { BahError } from '@bah/util'
 
+import { CN_TZ_OFFSET_MS } from './model.ts'
+
 /** 一天的毫秒数。 */
 export const DAY_MS = 86_400_000
 
@@ -19,6 +21,25 @@ export function dayKey(at: number): string {
 /** epoch ms → UTC 账期 `YYYY-MM`。 */
 export function monthKey(at: number): string {
   return new Date(at).toISOString().slice(0, 7)
+}
+
+/**
+ * epoch ms → **东八区** `YYYY-MM-DD HH:mm`（固定 +8）。
+ *
+ * 为什么不复用 `formatInstant`（ISO UTC）：提示词里的时刻给人读，`...T...Z` 是机器格式；
+ * 为什么不用 `toLocaleString` / `Intl.DateTimeFormat`：受运行环境 locale 与 tzdata 影响，
+ * 快照回放会飘。这里只做整数拼接，跨机器逐字一致。
+ *
+ * 秒被截掉（不是四舍五入）：槽位的时刻是"截至"语义，分钟粒度足够，也不泄露时序噪声。
+ */
+export function formatCnMinute(at: number): string {
+  const shifted = new Date(at + CN_TZ_OFFSET_MS)
+  const year = String(shifted.getUTCFullYear()).padStart(4, '0')
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(shifted.getUTCDate()).padStart(2, '0')
+  const hour = String(shifted.getUTCHours()).padStart(2, '0')
+  const minute = String(shifted.getUTCMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hour}:${minute}`
 }
 
 /** `YYYY-MM` → 上一账期（跨年正确）。 */
