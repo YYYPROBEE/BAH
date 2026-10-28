@@ -20,7 +20,9 @@ import type { BankSessionEventMap } from '@bah/bank'
 
 import type { PolicySessionEventMap } from '../../policy.ts'
 import type { WebDeps, WebRequest } from '../deps.ts'
-import { sendJson } from '../http.ts'
+import { sendError, sendJson } from '../http.ts'
+import { buildMetricsView, jsonExtrasOf } from './metrics-extra.ts'
+import { handlePrometheusMetrics } from './prometheus.ts'
 
 /** 分位数（空数组返回 `null`，不返回 0——"没有样本"和"很快"是两件事）。 */
 function quantile(samples: readonly number[], p: number): number | null {
@@ -32,11 +34,22 @@ function quantile(samples: readonly number[], p: number): number | null {
 
 /** 指标快照（键名固定，前端与脚本按它取数）。 */
 export async function handleMetrics(
-  _req: IncomingMessage,
+  req: IncomingMessage,
   res: ServerResponse,
-  _request: WebRequest,
+  request: WebRequest,
   deps: WebDeps,
 ): Promise<void> {
+  const format = request.url.searchParams.get('format')
+  const accept = String(req.headers.accept ?? '')
+  if (format === 'prometheus' || (format === null && accept.includes('text/plain'))) {
+    await handlePrometheusMetrics(req, res, request, deps)
+    return
+  }
+  if (format !== null && format !== 'json') {
+    sendError(res, 400, 'metrics-format-unsupported', `format 只支持 json / prometheus（收到 ${format}）`)
+    return
+  }
+
   const events = deps.session.events()
 
   let turns = 0
@@ -132,6 +145,7 @@ export async function handleMetrics(
   }
 
   const halt = deps.tryHalt()
+  const extra = jsonExtrasOf(buildMetricsView(deps))
   sendJson(res, 200, {
     sessionId: String(deps.session.sessionId),
     lastSeq: deps.session.lastSeq(),
@@ -161,5 +175,6 @@ export async function handleMetrics(
         ? null
         : { status: halt.status, halted: halt.halted, reason: halt.reason ?? null },
     sseClients: deps.hub.size(),
+    ...extra,
   })
 }

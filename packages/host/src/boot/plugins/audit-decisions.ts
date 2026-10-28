@@ -30,7 +30,7 @@ import { defineService, type Context } from '@bah/core'
 import type { BankSessionEventMap } from '@bah/bank'
 import { ChainFile, SIGNED_TYPES, createSagaAudit, toolResultSummaryOf } from '@bah/persistence'
 import type { ChainDecision } from '@bah/persistence'
-import { BahError, reasonOf } from '@bah/util'
+import { BahError, logJson, reasonOf } from '@bah/util'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
@@ -156,10 +156,11 @@ export const auditDecisionsPlugin: HostPlugin<AuditDecisionsSettings> = {
       // 但告警会污染"配置是否能载入"这条判据——真实的启动路径仍然会说。
       const keyExists = existsSync(resolve(settings.signingKeyPath))
       if (!keyExists && run.probe !== false) {
-        console.warn(
-          `[audit:decisions] 未找到签名私钥 ${settings.signingKeyPath}；` +
+        logJson('warn', 'host.audit-key-missing', {
+          reason:
+            `未找到签名私钥 ${settings.signingKeyPath}；` +
             '会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）',
-        )
+        })
       }
       const audit = createSagaAudit({
         now: run.now,
@@ -168,7 +169,7 @@ export const auditDecisionsPlugin: HostPlugin<AuditDecisionsSettings> = {
         signedTypes: keyExists ? SESSION_SIGNED_TYPES : [],
         ...(keyExists ? { signingKeyPath: settings.signingKeyPath } : {}),
         fsync: false,
-        warn: console.warn,
+        warn: (line) => logJson('warn', 'host.audit-write-failed', { line }),
       })
 
       ctx.effect(
@@ -217,9 +218,9 @@ export const auditDecisionsPlugin: HostPlugin<AuditDecisionsSettings> = {
                 policyVersion: data.policyVersion ?? 'legacy',
               })
             } catch (error) {
-              console.warn(
-                `[audit:decisions] policy/decision 写入失败（判决不变）：${reasonOf(error)}`,
-              )
+              logJson('warn', 'host.audit-write-failed', {
+                reason: `policy/decision 写入失败（判决不变）：${reasonOf(error)}`,
+              })
             }
             return
           }

@@ -14,6 +14,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebChannelAdapter } from '@bah/channels'
 import type { Context, ServiceKey } from '@bah/core'
 import type { Agent, SessionApi } from '@bah/runtime'
+import type { SloSample } from '@bah/saga'
 import type { HaltHandle, SentryHandle } from '@bah/safety'
 
 import type { HandoffHandle } from './handoff.ts'
@@ -55,6 +56,8 @@ export interface WebDeps {
    * 调用点写 `deps.tryTelemetry()?.recorder.open(...)`——判空是义务，不是可选项。
    */
   readonly tryTelemetry: () => TelemetryHandle | undefined
+  /** 惰性取 SLO 八项（没装 saga 时 `undefined`；`/api/metrics.slo` 显示 null）。 */
+  readonly trySlo: () => Record<string, SloSample> | undefined
   /**
    * 人工接管状态机（C5）。进程内状态 + `handoff/*` 事件留痕；
    * 重启后回到未接管（见 `handoff.ts` 的"诚实边界"）。

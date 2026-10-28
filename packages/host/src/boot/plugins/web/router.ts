@@ -21,6 +21,7 @@ export type RouteHandler =
   | 'session'
   | 'events'
   | 'metrics'
+  | 'trace'
   | 'turn'
   | 'interrupt'
   | 'approval'
@@ -162,9 +163,21 @@ export const ROUTES: readonly RouteSpec[] = [
     auth: 'web',
     csrf: false,
     // D2：单机指标（从会话事件现算；不出原文，不是分布式监控）
-    statuses: [200, 401],
+    // 400 = `?format` 非法（02 起支持 json / prometheus）
+    statuses: [200, 400, 401],
     handler: 'metrics',
     note: '单机指标：turn / 工具成功失败 / 审批分布 / token 与成本 / 工具耗时分位 / SSE 连接数',
+  },
+  {
+    methods: ['GET'],
+    path: '/api/trace',
+    kind: 'exact',
+    auth: 'web',
+    csrf: false,
+    // 400 = format/limit 非法；503 = 序列化超过 4 MiB（不截断返回半棵树）
+    statuses: [200, 400, 401, 503],
+    handler: 'trace',
+    note: '轨迹：事件派生的 span 森林；`?format=chrome` 导出 Chrome Trace（Perfetto 可直接打开）',
   },
   {
     methods: ['POST'],

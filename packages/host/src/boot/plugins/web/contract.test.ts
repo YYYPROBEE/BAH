@@ -41,7 +41,7 @@ function fingerprint(route: (typeof ROUTES)[number]): string {
 }
 
 describe('W16 路由表（拆分前后同一份期望）', () => {
-  it('16 条路由的三元组逐条不变（12 条 W16 基线 + 1 条 D2 指标 + 3 条 C5 接管）', () => {
+  it('17 条路由的三元组逐条不变（12 条 W16 基线 + D2 指标 + 02 轨迹 + 3 条 C5 接管）', () => {
     expect(ROUTES.map(fingerprint)).toEqual([
       'GET /api/health exact public no-csrf 200 health',
       'POST /api/admin/sentry/unfreeze exact admin no-csrf 200,400,401,403,404,405,503 admin',
@@ -51,7 +51,9 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
       'GET /api/session exact web no-csrf 200,401 session',
       'GET /api/events exact web no-csrf 200,400,401,503 events',
       // D2 新增：单机指标（只读，Bearer 与其它业务路由同闸）
-      'GET /api/metrics exact web no-csrf 200,401 metrics',
+      'GET /api/metrics exact web no-csrf 200,400,401 metrics',
+      // 02 新增：轨迹森林 / Chrome Trace（只读，Bearer 同闸；400 = format/limit 非法）
+      'GET /api/trace exact web no-csrf 200,400,401,503 trace',
       'POST /api/turn exact web csrf 202,400,401,403,423,503 turn',
       'POST /api/interrupt exact web csrf 200,401,403,503 interrupt',
       'POST /api/approval/ prefix web csrf 200,400,401,403,404,409 approval',
@@ -145,8 +147,17 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
 })
 
 describe('W16 结构预算', () => {
-  it('四个 handler 均 < 200 行', () => {
-    const files = ['handlers/session.ts', 'handlers/approval.ts', 'handlers/admin.ts', 'handlers/static.ts']
+  it('handler 均 < 200 行', () => {
+    const files = [
+      'handlers/session.ts',
+      'handlers/approval.ts',
+      'handlers/admin.ts',
+      'handlers/static.ts',
+      'handlers/metrics.ts',
+      'handlers/prometheus.ts',
+      'handlers/trace.ts',
+      'handlers/handoff.ts',
+    ]
     for (const file of files) {
       const lines = countLines(readSource(`./${file}`))
       expect(lines, `${file} 超过 200 行（${String(lines)}）`).toBeLessThan(200)

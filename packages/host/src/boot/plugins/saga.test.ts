@@ -279,7 +279,7 @@ describe('Saga 收敛 job 的生命周期', () => {
 
       expect(logs.join('\n')).toContain('saga-recovery-failed')
       // 兜底必须留痕：否则"记账失败"会静默变成"什么都没发生"
-      expect(logs.join('\n')).toContain('bah-saga: recovery-audit-failed')
+      expect(logs.join('\n')).toContain('host.saga-recovery-audit-failed')
       expect(app.phase).toBe('idle')
     } finally {
       spy.mockRestore()

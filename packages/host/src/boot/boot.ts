@@ -11,7 +11,7 @@
  */
 
 import { createContext, defineService, describeThrown } from '@bah/core'
-import { BahError } from '@bah/util'
+import { BahError, configureLogging } from '@bah/util'
 
 import type { BahContext, SessionId, TicketId } from '@bah/core'
 
@@ -130,6 +130,11 @@ export interface BootedApp {
  * @throws `BahError`（`bah-boot: ` 前缀）合并 / 校验 / 启动任一环节失败
  */
 export async function boot(options: BootOptions): Promise<BootedApp> {
+  // 日志出口在**任何插件副作用之前**配置：后面所有失败都要能按配置的级别落出来。
+  configureLogging({
+    level: process.env['BAH_LOG_LEVEL'],
+    file: process.env['BAH_LOG_FILE'],
+  })
   const manager = new PluginManager(options.catalog)
   let rows = manager.validate(mergeLayers(options.bundles, options.layers))
 

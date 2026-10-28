@@ -21,7 +21,7 @@
 
 import { randomUUID } from 'node:crypto'
 
-import { BahError, assertNever, errorCodeOf, reasonOf } from '@bah/util'
+import { BahError, assertNever, errorCodeOf, logJson, reasonOf } from '@bah/util'
 
 import type {
   ContentBlock,
@@ -154,7 +154,11 @@ export class ToolPipeline {
       })
     } catch (auditError) {
       // 审计通道本身不可用时，至少让运维能在进程日志里看到（不静默吞错）。
-      console.error('bah-tools: tool/callback-failed 审计落账失败', auditError)
+      logJson('error', 'runtime.callback-audit-failed', {
+        stage,
+        callId,
+        reason: reasonOf(auditError),
+      })
     }
   }
 

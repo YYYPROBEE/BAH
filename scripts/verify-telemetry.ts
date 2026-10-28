@@ -37,7 +37,7 @@ const ALL_PACKAGES = 'packages'
  * **02 收口时必须把这个数组清空**——留着它，等于允许往闭集里加永不发射的名字，
  * 那正是把"每个名字都被用到"这条判据稀释成"看起来有 13 个"的做法。
  */
-const PENDING_EMITTER: readonly string[] = ['policy.evaluate']
+const PENDING_EMITTER: readonly string[] = []
 
 /** 无副作用的读（失败返回 `undefined`，由调用方决定算不算红）。 */
 function read(path: string): string | undefined {

@@ -244,7 +244,7 @@ describe('W08 · 会话级证据链', () => {
         jsonlDir: dir,
       },
     })
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
       // 把链文件的位置占成目录：append 必然失败（EISDIR），模拟磁盘故障。
       // 判决落账（session.jsonl）与写链是两个出口，前者的成功不受后者影响。
@@ -263,9 +263,7 @@ describe('W08 · 会话级证据链', () => {
       })
 
       expect(
-        warn.mock.calls.some((args) =>
-          String(args[0]).includes('policy/decision 写入失败（判决不变）'),
-        ),
+        warn.mock.calls.some((args) => String(args[0]).includes('host.audit-write-failed')),
       ).toBe(true)
       // 判决本体仍在会话日志里（写链失败只是旁路证据缺失）
       expect(
@@ -277,8 +275,41 @@ describe('W08 · 会话级证据链', () => {
     }
   })
 
+  it('链尾截断的告警走结构化日志（warn 回调被调用）', async () => {
+    const dir = root()
+    const sessionId = 's-w08-tail'
+    mkdirSync(join(dir, sessionId), { recursive: true })
+    const valid = {
+      s: sessionId,
+      q: 1,
+      t: 'tool/call',
+      sub: 'x',
+      d: 'd',
+      p: 'p',
+      r: 'r',
+      keyVersion: 1,
+      recordedAt: 1,
+      hb: [],
+    }
+    writeFileSync(join(dir, sessionId, 'audit.jsonl'), `${JSON.stringify(valid)}\n{"s":`, 'utf8')
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const app = await bootWith({ dir, sessionId, seen: [], script: [{ text: 'ok' }] })
+      try {
+        app.ctx.get(DECISION_AUDIT).verifyAll()
+        expect(
+          warn.mock.calls.some((args) => String(args[0]).includes('host.audit-write-failed')),
+        ).toBe(true)
+      } finally {
+        await app.dispose('test')
+      }
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('B4：缺钥 → unsigned 启动不失败，且显式提示（不静默）', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
       const dir = root()
       const app = await bootWith({
@@ -298,6 +329,7 @@ describe('W08 · 会话级证据链', () => {
         for (const row of rows) expect(row['sig']).toBeUndefined()
         // 提示必须说出来（B4：不能静默降级）
         const notices = warn.mock.calls.map((call) => String(call[0])).join('\n')
+        expect(notices).toContain('host.audit-key-missing')
         expect(notices).toContain('unsigned')
       } finally {
         await app.dispose('test')

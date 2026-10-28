@@ -6,6 +6,7 @@
  */
 
 import { defineService } from '@bah/core'
+import { logJson } from '@bah/util'
 
 import type { Context, Disposer, ServiceKey, SessionEvent, SessionEventMap, SessionId } from '@bah/core'
 
@@ -101,7 +102,10 @@ export function provideSession(ctx: Context, options: ProvideSessionOptions): Di
       { session: options.sessionId, event },
       (error, name) => {
         // 隔离后只留痕：这里再 append 一条审计会递归进同一个广播口
-        console.error(`bah-runtime: ${name} 监听器失败（已隔离，落账不受影响）`, error)
+        logJson('error', 'runtime.session-listener-failed', {
+          listener: name,
+          reason: error instanceof Error ? error.message : String(error),
+        })
       },
     )
   }

@@ -51,6 +51,18 @@ function makeRes(status = 200, contentLength?: number): { res: ServerResponse; c
 }
 
 describe('web · http.request span', () => {
+  it('开 span 抛错：返回 false，绝不让请求 500', () => {
+    const handle = {
+      recorder: {
+        open(): never {
+          throw new Error('recorder broken')
+        },
+      },
+    } as unknown as TelemetryHandle
+    const { res } = makeRes()
+    expect(startHttpSpan(handle, makeReq(), res, '/api/health')).toBe(false)
+  })
+
   it('没有遥测：返回 false，不碰 req/res', () => {
     const { res } = makeRes()
     expect(startHttpSpan(undefined, makeReq(), res, '/api/health')).toBe(false)

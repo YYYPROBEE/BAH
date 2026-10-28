@@ -760,10 +760,9 @@ describe('B3 回调边界与结果落账顺序', () => {
 
       expect(execution.result.isError).toBe(false)
       // 断的是"隔离日志"，不是"任意一条 console.error"——否则审计通道真坏时它也会误绿。
-      expect(spy.mock.calls.some(([first]) => String(first).startsWith('bah-runtime:'))).toBe(true)
-      expect(spy.mock.calls.some(([first]) => String(first).includes('tool/callback-failed 审计落账失败'))).toBe(
-        false,
-      )
+      const lines = spy.mock.calls.map((call) => String(call[0]))
+      expect(lines.some((line) => line.includes('"code":"runtime.session-listener-failed"'))).toBe(true)
+      expect(lines.some((line) => line.includes('runtime.callback-audit-failed'))).toBe(false)
       spy.mockRestore()
     })
   })
@@ -815,9 +814,15 @@ describe('B3 回调边界与结果落账顺序', () => {
 
       const execution = await pipeline.execute(CALL)
 
-      // ① 运维日志：固定前缀 + 原始审计异常本体（不是一串格式化文本）
+      // ① 运维日志：单行 JSON，带 code + stage + 原始审计异常理由
       expect(spy).toHaveBeenCalledTimes(1)
-      expect(spy).toHaveBeenCalledWith('bah-tools: tool/callback-failed 审计落账失败', auditError)
+      const payload = JSON.parse(String(spy.mock.calls[0]![0])) as Record<string, unknown>
+      expect(payload).toMatchObject({
+        level: 'error',
+        code: 'runtime.callback-audit-failed',
+        stage: 'project-content',
+        reason: 'audit channel down',
+      })
       // ② 主流程继续：成功结果仍是成功，内容走 fallbackContent 回退
       expect(execution.result.isError).toBe(false)
       expect(execution.result.code).toBeUndefined()

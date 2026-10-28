@@ -12,7 +12,7 @@ import { join } from 'node:path'
 
 import { defineService } from '@bah/core'
 import { JsonlPersistence } from '@bah/persistence'
-import { assertSafePathSegment } from '@bah/util'
+import { assertSafePathSegment, logJson } from '@bah/util'
 
 import type { SessionEvent, SessionId } from '@bah/core'
 import type { SessionHandle, JsonlOptions } from '@bah/persistence'
@@ -60,7 +60,7 @@ export const persistencePlugin: HostPlugin<PersistenceSettings> = {
       const backend = new JsonlPersistence({
         fsync: config.fsync,
         // 尾行截断是**可容忍**的损坏（半写），告警但继续；中间行损坏仍抛错
-        warn: (message) => console.warn(message),
+        warn: (message) => logJson('warn', 'host.persistence-warn', { message }),
       } satisfies JsonlOptions)
 
       const dirOf = (sessionId: SessionId): string => {

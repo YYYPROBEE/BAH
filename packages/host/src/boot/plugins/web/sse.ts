@@ -15,6 +15,14 @@ import { SECURITY_HEADERS, sendError } from './http.ts'
 /** 同时在线连接的上限（D1）。单机演示 = 一台机器一两个页面；16 已经远超正常量。 */
 const DEFAULT_MAX_CLIENTS = 16
 
+/** 进程内帧计数（`/api/metrics` 的 `bah_sse_frames_total`；单进程，不区分 hub 实例）。 */
+const frames = { frame: 0, fault: 0 }
+
+/** 读 SSE 帧计数（只读快照）。 */
+export function sseFrameStats(): { readonly frame: number; readonly fault: number } {
+  return { frame: frames.frame, fault: frames.fault }
+}
+
 /** 单连接允许积压的字节数（D1）：超过就是慢客户端，直接断开，不替它缓存。 */
 const DEFAULT_MAX_BUFFERED_BYTES = 1024 * 1024
 
@@ -104,10 +112,12 @@ export function createSseHub(options: SseHubOptions): SseHub {
 
   return {
     publish(frame: WebFrame): void {
+      frames.frame += 1
       broadcast('frame', frame)
     },
 
     publishFault(code: string, reason: string): void {
+      frames.fault += 1
       broadcast('fault', { code, reason })
     },
 

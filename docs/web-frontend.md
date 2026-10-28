@@ -256,7 +256,8 @@ confirmed(amount, callId) =
 | POST | `/api/admin/halt/unfreeze` | 凭票据解除 HALT（唯一解除路径；没有 `force`） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 409 / 503 |
 | GET | `/api/session` | 会话与能力位：`{ sessionId, lastSeq, capabilities }` | Bearer | 200 / 401 |
 | GET | `/api/events` | SSE：先全量快照，再推 frame / delta / 心跳注释；凭证可用 `?token=`；连接满 → 503 | Bearer | 200 / 400 / 401 / 503 |
-| GET | `/api/metrics` | 单机指标：turn / 工具成功失败 / 审批分布 / token 与成本 / 工具耗时分位 / SSE 连接数 | Bearer | 200 / 401 |
+| GET | `/api/metrics` | 单机指标：turn / 工具成功失败 / 审批分布 / token 与成本 / 工具耗时分位 / SSE 连接数 | Bearer | 200 / 400 / 401 |
+| GET | `/api/trace` | 轨迹：事件派生的 span 森林；`?format=chrome` 导出 Chrome Trace（Perfetto 可直接打开） | Bearer | 200 / 400 / 401 / 503 |
 | POST | `/api/turn` | 提交一轮输入 `{ text }` → 入队并驱动；202 = 已入队，HALT 期间 423 | Bearer + CSRF | 202 / 400 / 401 / 403 / 423 / 503 |
 | POST | `/api/interrupt` | 打断当前 turn `{ reason? }`（理由进审计） | Bearer + CSRF | 200 / 401 / 403 / 503 |
 | POST | `/api/approval/:ticketId` | 提交审批结论 `{ decision, reason? }`；跨会话票据 403 | Bearer + CSRF | 200 / 400 / 401 / 403 / 404 / 409 |

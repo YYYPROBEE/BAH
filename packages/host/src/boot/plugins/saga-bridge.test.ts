@@ -628,17 +628,26 @@ describe('bank:saga-bridge 单元面：接线层的错误码与副作用', () =>
         if (boom !== undefined) throw boom
       })
 
-      // 定时器里抛错没人接：只能落 stderr，且理由码必须结构化（codeOf：BahError 原码透传）
+      // 定时器里抛错没人接：只能落日志，且理由码必须结构化（codeOf：BahError 原码透传）
       boom = new BahError('anchor-lock-contended', '锚定周期锁被占用')
       tick()
       await settle()
-      expect(logSpy).toHaveBeenCalledWith('bah-saga-bridge: tick-failed: anchor-lock-contended')
+      const lines = logSpy.mock.calls.map((call) => String(call[0]))
+      expect(
+        lines.some(
+          (line) => line.includes('"code":"host.saga-tick-failed"') && line.includes('anchor-lock-contended'),
+        ),
+      ).toBe(true)
 
       // 非 BahError → 统一退到 tool-failed（与步骤派发失败同一个兜底码，审计口径一致）
       boom = new Error('裸超时')
       tick()
       await settle()
-      expect(logSpy).toHaveBeenCalledWith('bah-saga-bridge: tick-failed: tool-failed')
+      expect(
+        logSpy.mock.calls
+          .map((call) => String(call[0]))
+          .some((line) => line.includes('"code":"host.saga-tick-failed"') && line.includes('tool-failed')),
+      ).toBe(true)
 
       await h.dispose()
       expect(clearSpy).toHaveBeenCalledWith(setSpy.mock.results[0]!.value)
