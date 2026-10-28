@@ -225,9 +225,10 @@ async function contractCheck(root: string): Promise<Pick<GateResult, 'findings' 
   const temp = mkdtempSync(join(tmpdir(), 'bah-audit-gate-'))
   try {
     mkdirSync(temp, { recursive: true })
+    // 租户化之后链在 <部署根>/<tenant>/ 下（01 TA-12）；夹具与真实布局一致
     const writer = createSagaAudit({
       now: () => 1_700_000_000_000,
-      rootDir: temp,
+      rootDir: join(temp, 'demo'),
       fsync: false,
       signedTypes: [],
       warn: () => undefined,

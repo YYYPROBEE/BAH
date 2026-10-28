@@ -144,6 +144,7 @@ export const webPlugin: HostPlugin<WebSettings> = {
 
       const deps: WebDeps = {
         session,
+        tenantId: run.tenantId,
         adapter,
         hub, // C5 人工接管（装配细节见 web/handoff.ts）
         handoff: createHandoff({ session, now: run.now, pendingTickets: () => adapter.pendingTickets().length }),

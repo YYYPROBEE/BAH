@@ -158,7 +158,7 @@ describe('headless 端到端（底座出口）', () => {
       expect(out.some((line) => line.includes('config HMR 开'))).toBe(true)
       expect(out.some((line) => line.includes('会话 s-e2e'))).toBe(true)
 
-      const file = join(root, 'out', 's-e2e', 'session.jsonl')
+      const file = join(root, 'out', 'demo', 's-e2e', 'session.jsonl')
       const events = readEvents(file)
       // seq 连续、header 在首行
       expect(events.map((event) => event.seq)).toEqual(events.map((_, index) => index + 1))

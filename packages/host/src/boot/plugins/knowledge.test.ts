@@ -8,6 +8,7 @@ import { join } from 'node:path'
 
 import { buildManifest, collectFixtureEntries, requireKnowledgeKey } from '@bah/knowledge'
 import { asSessionId } from '@bah/test-support'
+import { parseTenantId } from '@bah/util'
 import {
   AGENTS_SERVICE,
   KNOWN_SESSION_EVENT_TYPES,
@@ -21,6 +22,7 @@ import { createCatalog } from '../index.ts'
 import { parseKnowledgeSettings } from './knowledge.ts'
 
 import type { Bundle, PluginRow } from '../profile-plugins.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 const PROFILE: ProfileSummary = { name: 'fx', bundles: ['fx'], hmr: false }
 const FIXTURE = 'packages/knowledge/fixtures/headless.json'
@@ -93,12 +95,12 @@ async function bootWith(
     bundles: [bundle],
     layers: [],
     catalog: createCatalog(),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId(`s-knowledge-${bootSequence}`),
       now: () => 1_000,
       jsonlDir: mkdtempSync(join(tmpdir(), 'bah-knowledge-')),
       ...run,
-    },
+    }),
     ...(warn === undefined ? {} : { warn }),
   }
   bootSequence += 1
@@ -275,12 +277,15 @@ describe('bank:knowledge 失败策略', () => {  it('required=true 且 sidecar �
         (message) => warnings.push(message),
       )
       expect(app.ctx.get(TOOLS_SERVICE).has('knowledge_answer')).toBe(true)
-      // 告警必须可被 CLI 的 io.err 捕获（boot 把 options.warn 透传进 `bah:run`）
-      expect(warnings).toHaveLength(1)
-      expect(warnings[0]).toContain('bank:knowledge 健康检查失败')
-      expect(warnings[0]).toContain('http://127.0.0.1:1')
-      expect(warnings[0]).toContain('required=false')
-      expect(warnings[0]).toContain('knowledge-unavailable')
+      // 告警必须可被 CLI 的 io.err 捕获（boot 把 options.warn 透传进 `bah:run`）。
+      // 这里按内容挑出"健康检查失败"那条：01 TA-17 之后同一场景还会多一条
+      // "demo 回退到共享令牌"的告警（两条都是真的，不能靠条数断言）
+      const health = warnings.filter((message) => message.includes('健康检查失败'))
+      expect(health).toHaveLength(1)
+      expect(health[0]).toContain('bank:knowledge 健康检查失败')
+      expect(health[0]).toContain('http://127.0.0.1:1')
+      expect(health[0]).toContain('required=false')
+      expect(health[0]).toContain('knowledge-unavailable')
     } finally {
       delete process.env.TEST_KNOWLEDGE_TOKEN
     }
@@ -601,6 +606,80 @@ describe('W06 · 签名门启动校验', () => {
       expect(answered?.data).toMatchObject({ kind: 'answer', verdict: 'GREEN' })
     } finally {
       await app.dispose('test-done')
+    }
+  })
+})
+
+describe('令牌按租户（01 TA-17）', () => {
+  /** 临时改环境变量；返回恢复函数（用例失败也要恢复，否则污染同进程其它用例）。 */
+  function withEnv(values: Readonly<Record<string, string | undefined>>): () => void {
+    const saved = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]))
+    for (const [key, value] of Object.entries(values)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    return () => {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+  }
+
+  const knowledgeRows = (overrides: Readonly<Record<string, unknown>> = {}) =>
+    rows({
+      knowledge: {
+        mode: 'fixture',
+        fixturePath: FIXTURE,
+        claims: CLAIMS,
+        required: false,
+        signature: { enabled: false },
+        ...overrides,
+      },
+    })
+
+  it('TA-17-1 demo 用共享令牌 → 起得来 + 一条回退告警', async () => {
+    const restore = withEnv({ BAH_KNOWLEDGE_TOKEN: 'shared-token', BAH_KNOWLEDGE_TOKEN_DEMO: undefined })
+    const warnings: string[] = []
+    try {
+      const app = await bootWith(knowledgeRows(), (message) => warnings.push(message))
+      try {
+        const fallback = warnings.filter((message) => message.includes('回退到共享令牌'))
+        expect(fallback).toHaveLength(1)
+        expect(fallback[0]).toContain('BAH_KNOWLEDGE_TOKEN')
+      } finally {
+        await app.dispose('test-done')
+      }
+    } finally {
+      restore()
+    }
+  })
+
+  it('TA-17-2 非 demo 用共享令牌 → 启动失败 knowledge-token-shared（不是告警）', async () => {
+    const restore = withEnv({ BAH_KNOWLEDGE_TOKEN: 'shared-token', BAH_KNOWLEDGE_TOKEN_ACME: undefined })
+    try {
+      await expect(
+        bootWith(knowledgeRows(), () => undefined, { tenantId: parseTenantId('acme') }),
+      ).rejects.toMatchObject({ code: 'knowledge-token-shared' })
+    } finally {
+      restore()
+    }
+  })
+
+  it('TA-17-3 非 demo + per-tenant 变量 → 用租户令牌，不报回退', async () => {
+    const restore = withEnv({ BAH_KNOWLEDGE_TOKEN: undefined, BAH_KNOWLEDGE_TOKEN_ACME: 'acme-token' })
+    const warnings: string[] = []
+    try {
+      const app = await bootWith(knowledgeRows(), (message) => warnings.push(message), {
+        tenantId: parseTenantId('acme'),
+      })
+      try {
+        expect(warnings.some((message) => message.includes('回退到共享令牌'))).toBe(false)
+      } finally {
+        await app.dispose('test-done')
+      }
+    } finally {
+      restore()
     }
   })
 })

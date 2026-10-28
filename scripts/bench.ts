@@ -26,7 +26,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { SESSION_FILES, boot, createCatalog } from '@bah/host'
+import { SESSION_FILES, boot, createCatalog, testRunContext } from '@bah/host'
 import type { WebFrame, WebProjector } from '@bah/channels'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
 
@@ -86,7 +86,7 @@ async function bootOnce(sessionId: string, dir: string): Promise<Awaited<ReturnT
     layers,
     catalog: createCatalog(),
     // 会话 id 在 boot 里是 branded 类型；脚本按 demo-compaction 的同一写法转一下
-    run: { sessionId: sessionId as never, now: () => Date.now(), jsonlDir: dir },
+    run: testRunContext({ sessionId: sessionId as never, now: () => Date.now(), jsonlDir: dir }),
   })
 }
 

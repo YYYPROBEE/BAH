@@ -8,7 +8,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
-import { reasonOf } from '@bah/util'
+import { DEFAULT_TENANT_ID, isTenantId, reasonOf } from '@bah/util'
 import { ChainFile, buildChainAudit, createSagaAudit } from '@bah/persistence'
 
 import { runAuditReplay } from './audit-replay.ts'
@@ -30,9 +30,10 @@ export const AUDIT_HELP = [
   AUDIT_USAGE,
   '',
   '选项：',
-  '  --dir <path>        待审计目录（缺省 sessions/）',
+  '  --dir <path>        部署根（缺省 sessions/）；真正的链目录是 <dir>/<tenant>',
+  '  --tenant <id>       要审的租户（缺省 demo）。租户化后链在 <dir>/<tenant>/ 下',
   '  --saga <id>         只审一条链（缺省全部）',
-  '  --db <path>         saga 库（缺省 <dir>/saga.sqlite）',
+  '  --db <path>         saga 库（缺省 <dir>/saga.sqlite；按设计**不**按租户分库）',
   '  --no-projection     跳过投影重算',
   '  --key <path>        验签私钥（缺省 keys/saga-ed25519.pem）',
   '  --format <fmt>      text | json（缺省 text）',
@@ -45,6 +46,8 @@ export const AUDIT_HELP = [
 /** 解析后的参数。 */
 export interface AuditArgs {
   readonly dir: string
+  /** 要审的租户（链目录 = `<dir>/<tenant>`；01 TA-15 配套）。 */
+  readonly tenant: string
   readonly saga?: string
   readonly db: string
   readonly noProjection: boolean
@@ -84,6 +87,7 @@ const SAGA_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
 /** 解析 `bah audit` 自己的 flag。 */
 export function parseAuditArgs(argv: readonly string[]): AuditParseResult {
   let dir: string | undefined
+  let tenant: string | undefined
   let saga: string | undefined
   let db: string | undefined
   let noProjection = false
@@ -110,6 +114,15 @@ export function parseAuditArgs(argv: readonly string[]): AuditParseResult {
         const read = value()
         if (read === undefined) return failure(`${flag} 需要一个值`)
         dir = read
+        break
+      }
+      case '--tenant': {
+        const read = value()
+        if (read === undefined) return failure(`${flag} 需要一个值`)
+        // 用法错误（退出码 2），不是"该租户没有链"（那也是 2，但语义不同）：
+        // 非法租户 ID 会在拼路径前就被拒——审计命令同样不许把 `../` 拼进目录
+        if (!isTenantId(read)) return failure(`${flag} 的值不是合法租户 ID：${read}`)
+        tenant = read
         break
       }
       case '--saga': {
@@ -160,6 +173,7 @@ export function parseAuditArgs(argv: readonly string[]): AuditParseResult {
     ok: true,
     args: {
       dir: resolvedDir,
+      tenant: tenant ?? String(DEFAULT_TENANT_ID),
       db: db ?? join(resolvedDir, 'saga.sqlite'),
       key: key ?? 'keys/saga-ed25519.pem',
       format,
@@ -195,23 +209,38 @@ export async function runAudit(
     io.err(`bah audit: 目录不存在或不是目录：${dir}`)
     return 2
   }
+  // 租户化之后链在 `<dir>/<tenant>/` 下（01 TA-12）。这里**必须**显式拼租户：
+  // 不拼的话 `discover(dir)` 找到的是 `<tenant>/` 这一层，它下面没有 audit.jsonl，
+  // 于是"扫不到 = 没问题"——那正是 AR-01 警告的静默失败。
+  const chainDir = join(dir, parsed.args.tenant)
+  if (!existsSync(chainDir) || !statSync(chainDir).isDirectory()) {
+    io.err(
+      `bah audit: 该租户没有链：${parsed.args.tenant}（${chainDir} 不存在或不是目录）；` +
+        `用 --tenant <id> 指定租户，--dir 给部署根`,
+    )
+    return 2
+  }
   const dbPath = resolve(cwd, parsed.args.db)
   const keyPath = resolve(cwd, parsed.args.key)
 
-  const sagaIds = discover(dir, parsed.args.saga)
+  const sagaIds = discover(chainDir, parsed.args.saga)
   if (sagaIds.length === 0) {
     io.err(
       parsed.args.saga === undefined
-        ? 'bah audit: 未找到可审计的链'
-        : `bah audit: 未找到链 ${parsed.args.saga}`,
+        ? `bah audit: 该租户没有链：${parsed.args.tenant}（${chainDir} 下没有 audit.jsonl）`
+        : `bah audit: 未找到链 ${parsed.args.saga}（租户 ${parsed.args.tenant}）`,
     )
     return 2
   }
 
-  const chain = new ChainFile({ rootDir: dir, fsync: false, warn: (message) => io.err(message) })
+  const chain = new ChainFile({
+    rootDir: chainDir,
+    fsync: false,
+    warn: (message) => io.err(message),
+  })
   const audit = createSagaAudit({
     now: options.now ?? Date.now,
-    rootDir: dir,
+    rootDir: chainDir,
     signingKeyPath: keyPath,
     fsync: false,
     warn: (message) => io.err(message),
@@ -225,6 +254,15 @@ export async function runAudit(
       const chainRows = chain.read(sagaId)
       results.push(buildChainAudit(chain, audit, sagaId, { skipSignature: parsed.args.noSignature }))
       rows.push(...chainRows)
+      // 链行自述的租户必须与目录租户一致：文件被搬到别的租户目录时，哈希链仍然连续
+      // （搬整目录不改字节），只有这一条对账能发现。历史行没有 tenant，跳过。
+      for (const row of chainRows) {
+        if (row.tenant !== undefined && row.tenant !== parsed.args.tenant) {
+          errors.push(
+            `${sagaId}#${String(row.q)}: 链行租户 ${row.tenant} ≠ 目录租户 ${parsed.args.tenant}（文件可能被搬错目录）`,
+          )
+        }
+      }
     } catch (error) {
       errors.push(`${sagaId}: ${reasonOf(error)}`)
     }
@@ -242,10 +280,11 @@ export async function runAudit(
   )
 
   // 锚定是目录级全局量：--saga 只收窄报告，不改变叶子集（R167）。
+  // 叶子集限定在**本租户目录**内：跨租户的锚定根没有意义（各租户的链互不归并）。
   let anchorRows = rows
   if (parsed.args.saga !== undefined) {
     anchorRows = []
-    for (const sagaId of discover(dir, undefined)) {
+    for (const sagaId of discover(chainDir, undefined)) {
       try {
         anchorRows.push(...chain.read(sagaId))
       } catch (error) {
@@ -254,8 +293,8 @@ export async function runAudit(
       }
     }
   }
-  const anchors = buildAnchorsAudit(anchorRows, dir)
-  const report = makeReport(dir, dbPath, results, projection, anchors, errors)
+  const anchors = buildAnchorsAudit(anchorRows, chainDir)
+  const report = makeReport(chainDir, dbPath, results, projection, anchors, errors)
 
   // W08 §1.3：断链必须在 **stderr** 明确点名（事件名 + 链 + 条目），不能只藏在人读输出里。
   // 退出码由 `exitCodeOf` 统一给出（断链 = 1）；这里只补告警面。

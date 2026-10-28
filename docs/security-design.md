@@ -16,7 +16,7 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **23 项 / 41 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
+| 注册表 / 门禁 | **23 项 / 42 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
 | 覆盖率 | **91.14%（行口径，31233/34270 行，实测 2026-10-28）；15/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
@@ -144,3 +144,38 @@ npx tsx scripts/replay.ts --session <id> --dir <jsonlDir> --verify
 本文不复制（两份文档各写一遍必然打架）。本文只补充一条口径：
 **"票据 + 强验证 + 断言核验"三件事共同构成"资金动作可控"**，
 单独拿任何一件讲都会被追问缺口（例如只讲票据会被问"模型胡说金额怎么办"）。
+
+## 7. 租户边界（跨租户威胁与防线）
+
+> 模型与决策见 `docs/adr/0004-tenant-as-deployment-boundary.md`。
+> 这一节的每一条都能用命令复现，见文末。
+
+| # | 威胁 | 真实场景 | 防线 | 残余风险 |
+|---|---|---|---|---|
+| T1 | 跨租户**读**会话 | acme 的进程去读 demo 的 `session.jsonl` | 目录不可达（租户段在部署根下）+ 认证层 401（别的租户的 cookie 查不到） | 同一 OS 账号下的运维可以直接 `ls`——部署边界不是 OS 权限边界 |
+| T2 | 跨租户**写** / 串号 | 一个写错目录导致 demo 的会话落进 acme | `SessionFiles.root` 是唯一拼法（`tenantRootOf`）；`fileOf` 的首段是租户 | 迁移脚本搬错目录：靠 `bah audit --tenant` 的链行对账发现 |
+| T3 | 跨租户 **DoS** | acme 触发 HALT，把 demo 也停了 | HALT 状态在租户根下（`<root>/<tenant>/halt.json`） | 同部署根的两个租户仍共享磁盘与 CPU |
+| T4 | **令牌共用** | 两个租户共用一个 `BAH_KNOWLEDGE_TOKEN`，任一泄漏 = 全平台可查 | 非 demo 租户必须配 `BAH_KNOWLEDGE_TOKEN_<TENANT>`，否则启动失败 `knowledge-token-shared` | 该环境变量仍在本机环境里；密钥分发的运维面不在本方案 |
+| T5 | **存在性探测** | 用 403/404 差异判断"这个客户号在不在本行" | 跨租户在认证层 401 就断了（连"有没有这张票"都不知道） | 资源层的 403→404 映射属 T3 的授权平面 |
+| T6 | **数据同源** | 两个租户的仿真数据逐字段相同，演示时看不出是两个法人 | `tenantSaltOf` 只对 `stress` / `adversarial` 档加盐 | `demo` 档是固定脚本（快照与槽位画像依赖它），**刻意不按租户变化** |
+| T7 | **证据串户** | 把 acme 的链目录整搬进 demo（哈希链仍然连续） | 链行 `tenant` 进哈希 + `bah audit --tenant` 对账目录租户 | 历史行（无 `tenant`）无法对账——迁移前的链只能靠目录位置 |
+| T8 | **凭证跨租户复用** | 拿 A 租户的会话 cookie 访问 B 租户进程 | 身份存储按进程 + `SessionIdentity.tenantId`（T2 的会话认证落地） | Cookie 的域与端口隔离是部署面（`channel:web` 不跨端口共享存储） |
+
+**不声称**：一进程多租户；租户级配额 / 限流；租户级 KMS；知识库 sidecar 侧隔离；
+`saga.sqlite` 分库。逐条理由见 ADR-0004 §6。
+
+复现命令：
+
+```bash
+# ⑥ 租户目录：两个租户的会话集合不相交
+npx tsx packages/cli/src/main.ts run --profile web --prompt '你好' --tenant demo
+npx tsx packages/cli/src/main.ts run --profile web --prompt '你好' --tenant acme
+ls sessions/demo sessions/acme
+
+# ⑦ 非 demo 租户不许共用知识库令牌（启动期就拒）
+BAH_KNOWLEDGE_TOKEN=shared npx tsx packages/cli/src/main.ts run --profile web --tenant acme --dump-config
+BAH_KNOWLEDGE_TOKEN=shared BAH_KNOWLEDGE_TOKEN_ACME=own npx tsx packages/cli/src/main.ts run --profile web --tenant acme --dump-config
+
+# ⑧ 门禁：没有哪个平面漏了租户
+npx tsx scripts/verify-tenant-scope.ts --self-test
+```

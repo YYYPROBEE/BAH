@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { boot, createCatalog } from '@bah/host'
+import { boot, createCatalog, testRunContext } from '@bah/host'
 import { LLM_ADAPTERS } from '@bah/llm'
 import { loadBundles, readLayers, readProfile } from '@bah/cli'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
@@ -136,13 +136,13 @@ export async function runRecord(): Promise<{
     bundles,
     layers,
     catalog: createCatalog(),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId(CASE.sessionId),
       now: clock.now,
       sandboxNow: sandboxClock.tick,
       mintTicketId: snapshotTicketId,
       jsonlDir: scratch,
-    },
+    }),
   })
 
   try {
@@ -202,13 +202,13 @@ export async function runReplay(snapshot: LoadedSnapshot): Promise<readonly Sess
     bundles: [{ name: 'snapshot', rows: snapshot.meta.rows }],
     layers: [],
     catalog: createCatalog(),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId(snapshot.meta.sessionId),
       now: clock.now,
       sandboxNow: sandboxClock.tick,
       mintTicketId: snapshotTicketId,
       jsonlDir: scratch,
-    },
+    }),
   })
 
   try {

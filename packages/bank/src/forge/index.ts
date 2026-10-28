@@ -11,7 +11,7 @@
  * 答辩、回放与"数据速查表"都能逐字复现。种子由调用方记录（施工单 12 的会话元数据）。
  */
 
-import { assertNever, seededRandom } from '@bah/util'
+import { assertNever, seededRandom, sha256Hex } from '@bah/util'
 
 import type {
   Account,
@@ -45,6 +45,14 @@ export interface ForgeOptions {
   readonly tier?: ForgeTier
   /** 生成基准时刻（缺省 `DEMO_NOW`；测试与回放注入固定钟）。 */
   readonly now?: number
+  /**
+   * 租户盐（01 TA-14；缺省 0 = 无偏移）。
+   *
+   * 只有 `stress` / `adversarial` 档用随机源，所以**盐只对这两档生效**；
+   * `demo` 档是固定脚本（王建国 + 一笔预置收款人），盐对它没有作用——
+   * 那一档必须保持字节不变（7 个快照 + 槽位姓名一致性都靠它）。
+   */
+  readonly tenantSalt?: number
 }
 
 /** 造数产物：mock 核心的全部初始状态。 */
@@ -53,6 +61,8 @@ export interface BankDataset {
   readonly tier: ForgeTier
   /** 生成基准时刻（epoch ms）。 */
   readonly now: number
+  /** 本数据集用的租户盐（0 = demo / 未分租户）。 */
+  readonly tenantSalt: number
   readonly users: readonly User[]
   readonly accounts: readonly Account[]
   readonly cards: readonly Card[]
@@ -87,22 +97,42 @@ export const DEFAULT_LIMITS: BankLimits = {
 }
 
 /**
+ * 租户盐（01 TA-14）：**加法 + 大质数乘子**，不用异或。
+ *
+ * 为什么不是 `seed ^ salt`：异或会把 seed 7 变成 `7 ^ salt`，盐相邻时随机序列高度相关
+ * （同一种子的低比特差异），造出来的"不同租户"数据会长得很像。
+ *
+ * 为什么 `& 0x0fffff`（20 位）：`seededRandom` 内部是 32 位运算，而 `salt * 7919` 会放大到
+ * 8e9 量级；20 位保证 `|Δsalt| * 7919 < 2^32`（不会因取模折回而让两个租户撞同一个序列）。
+ *
+ * `demo` 零偏移是**硬编码**的：7 个快照与 profiles 下各 patch.yml 的静态画像都依赖
+ * demo 档数据逐字节不变。
+ */
+export function tenantSaltOf(tenantId: string): number {
+  if (tenantId === 'demo') return 0
+  return parseInt(sha256Hex(`tenant:${tenantId}`).slice(0, 6), 16) & 0x0fffff
+}
+
+/**
  * 生成一份仿真数据集。
  *
- * 同 `seed` + 同 `tier` + 同 `now` → 逐字段相同（T-BANK-001）。
+ * 同 `seed` + 同 `tier` + 同 `now` + 同 `tenantSalt` → 逐字段相同（T-BANK-001）。
  */
 export function buildBankDataset(options: ForgeOptions): BankDataset {
   const tier = options.tier ?? 'demo'
   const now = options.now ?? DEMO_NOW
-  const random = seededRandom(options.seed)
+  const tenantSalt = options.tenantSalt ?? 0
+  // 盐只影响随机源入口：`buildDemo` / `buildStress` / `buildAdversarial` 内部逻辑不动
+  const random = seededRandom(options.seed + tenantSalt * 7919)
+  const header = { seed: options.seed, tier, now, tenantSalt, limits: DEFAULT_LIMITS }
 
   switch (tier) {
     case 'demo':
-      return { seed: options.seed, tier, now, limits: DEFAULT_LIMITS, ...buildDemo(now) }
+      return { ...header, ...buildDemo(now) }
     case 'stress':
-      return { seed: options.seed, tier, now, limits: DEFAULT_LIMITS, ...buildStress(now, random) }
+      return { ...header, ...buildStress(now, random) }
     case 'adversarial':
-      return { seed: options.seed, tier, now, limits: DEFAULT_LIMITS, ...buildAdversarial(now) }
+      return { ...header, ...buildAdversarial(now) }
     default:
       return assertNever(tier, 'forge-tier')
   }

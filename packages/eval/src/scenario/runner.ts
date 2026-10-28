@@ -17,7 +17,7 @@ import { join, resolve } from 'node:path'
 
 import { loadBundles, readLayers, readProfile } from '@bah/cli'
 import type { ContentBlock, SessionId, ToolDefinition } from '@bah/core'
-import { PLAN_SERVICE, SAGA_BRIDGE_RECIPES, boot, createCatalog } from '@bah/host'
+import { PLAN_SERVICE, SAGA_BRIDGE_RECIPES, boot, createCatalog, testRunContext } from '@bah/host'
 import type { BootedApp } from '@bah/host'
 import { LLM_ADAPTERS } from '@bah/llm'
 import type { ModelSpec } from '@bah/llm'
@@ -288,11 +288,11 @@ async function runGroup(
       bundles,
       layers,
       catalog: createCatalog(),
-      run: {
+      run: testRunContext({
         sessionId: asSessionId(`s-eval-${group.key.replace(/[^A-Za-z0-9_-]/g, '-')}`),
         now: clock.now,
         jsonlDir,
-      },
+      }),
     })
 
     const bus = attachBus(app)

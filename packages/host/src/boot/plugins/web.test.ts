@@ -22,6 +22,7 @@ import { RUN_SERVICE } from '../boot.ts'
 import { ADMIN_TOKEN_ENV } from './web-admin.ts'
 import { WEB_TOKEN_ENV } from './web-auth.ts'
 import { DEFAULT_WEB, WEB_SERVER, webPlugin, type WebSettings } from './web.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 测试侧的透明接缝：捕获 channel:web 的请求监听器（供非回环 403 用例注入假 socket）
@@ -124,7 +125,7 @@ async function boot(
   const previousToken = process.env[WEB_TOKEN_ENV]
   process.env[WEB_TOKEN_ENV] = WEB_TOKEN
 
-  ctx.provide(RUN_SERVICE, { sessionId, now })
+  ctx.provide(RUN_SERVICE, testRunContext({ sessionId, now }))
   provideSession(ctx, { sessionId, now })
 
   // 边收边写的监听器（必须在 Web 插件之前注册，见 BootExtras.traceWriter）
@@ -1816,6 +1817,22 @@ describe('C5 人工接管（handoff）', () => {
       // 状态没被这两个失败请求改动
       const read = await authedFetch(`${harness.url}api/handoff`)
       expect(((await read.json()) as { active: boolean }).active).toBe(false)
+    } finally {
+      await shutdown(harness)
+    }
+  })
+})
+
+describe('租户（01 TA-16）', () => {
+  it('TA-16-1 /api/metrics 的返回体第一层带 tenant（进程级事实，不从请求取）', async () => {
+    const harness = await boot()
+    try {
+      const response = await authedFetch(`${harness.url}api/metrics`)
+      expect(response.status).toBe(200)
+      const body = (await response.json()) as { tenant: string; sessionId: string }
+      expect(body.tenant).toBe('demo')
+      // 与 sessionId 同层：租户是"这次进程为谁服务"，不是某个会话的属性
+      expect(body.sessionId).toBe('s-web-test')
     } finally {
       await shutdown(harness)
     }

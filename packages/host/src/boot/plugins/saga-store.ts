@@ -17,7 +17,7 @@ import { SESSION_FILES } from './persistence.ts'
 
 /** `bank:saga-store` 的配置。 */
 export interface SagaStoreSettings {
-  /** sqlite 文件路径；相对会话根目录；`:memory:` 仅用于测试。 */
+  /** sqlite 文件路径；相对**部署根**（不按租户分库，见下）；`:memory:` 仅用于测试。 */
   readonly dbPath: string
 }
 
@@ -27,10 +27,16 @@ export const sagaStorePlugin: HostPlugin<SagaStoreSettings> = {
   plugin: {
     name: 'bank:saga-store',
     apply(ctx, config) {
-      // 跟随会话根：否则 --jsonl / per-run demo 只换了会话日志，事务库仍落在 sessions/，
-      // 审计时会出现“库有事务、目录无链”的反向缺口。
+      // 跟随部署根（不是租户根）：否则 --jsonl / per-run demo 只换了会话日志，
+      // 事务库仍落在 sessions/，审计时会出现“库有事务、目录无链”的反向缺口。
+      //
+      // **01 §5 的裁剪决策**：saga 存储**不按租户分库**（单库单进程；`verify-saga-wiring`
+      // 以固定路径 `sessions/saga.sqlite` 为基线）。要按租户分库，与 saga 单合并立项。
+      // 除这里之外，任何地方都不许用 `baseRoot`——那会把租户面撕开一个口子。
       const dbPath =
-        config.dbPath === ':memory:' ? ':memory:' : resolve(ctx.get(SESSION_FILES).root, config.dbPath)
+        config.dbPath === ':memory:'
+          ? ':memory:'
+          : resolve(ctx.get(SESSION_FILES).baseRoot, config.dbPath)
       if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true })
       const store = createSagaStore({ dbPath })
       ctx.provide(SAGA_STORE, store)

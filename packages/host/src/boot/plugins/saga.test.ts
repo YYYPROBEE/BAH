@@ -29,6 +29,7 @@ import { sagaAuditPlugin } from './saga-audit.ts'
 import { sagaStorePlugin } from './saga-store.ts'
 
 import type { Context, ServiceKey } from '@bah/core'
+import { DEFAULT_TENANT_ID } from '@bah/util'
 
 /** `ctx.get` 未注册服务必须抛 `service-missing`。 */
 function expectServiceMissing<T>(ctx: Context, key: ServiceKey<T>): void {
@@ -48,6 +49,8 @@ describe('Saga 三插件装配', () => {
     try {
       ctx.provide(SESSION_FILES, {
         root: chainRoot,
+        baseRoot: chainRoot,
+        tenantId: DEFAULT_TENANT_ID,
         fileOf: (session) => join(chainRoot, String(session), 'session.jsonl'),
       })
       await ctx.use(sagaStorePlugin.plugin, sagaStorePlugin.validate({ dbPath: ':memory:' }))
@@ -124,6 +127,8 @@ describe('Saga 收敛 job 的生命周期', () => {
     try {
       ctx.provide(SESSION_FILES, {
         root: chainRoot,
+        baseRoot: chainRoot,
+        tenantId: DEFAULT_TENANT_ID,
         fileOf: (session) => join(chainRoot, String(session), 'session.jsonl'),
       })
       await ctx.use(sagaStorePlugin.plugin, sagaStorePlugin.validate({ dbPath: ':memory:' }))
@@ -179,6 +184,8 @@ describe('Saga 收敛 job 的生命周期', () => {
     try {
       ctx.provide(SESSION_FILES, {
         root: chainRoot,
+        baseRoot: chainRoot,
+        tenantId: DEFAULT_TENANT_ID,
         fileOf: (session) => join(chainRoot, String(session), 'session.jsonl'),
       })
       await sagaPlugin.plugin.apply(ctx, sagaPlugin.validate({}))
@@ -219,6 +226,8 @@ describe('Saga 收敛 job 的生命周期', () => {
     try {
       ctx.provide(SESSION_FILES, {
         root: chainRoot,
+        baseRoot: chainRoot,
+        tenantId: DEFAULT_TENANT_ID,
         fileOf: (session) => join(chainRoot, String(session), 'session.jsonl'),
       })
       sagaStorePlugin.plugin.apply(app, sagaStorePlugin.validate({ dbPath: ':memory:' }))
@@ -270,6 +279,8 @@ describe('Saga 收敛 job 的生命周期', () => {
     try {
       ctx.provide(SESSION_FILES, {
         root: chainRoot,
+        baseRoot: chainRoot,
+        tenantId: DEFAULT_TENANT_ID,
         fileOf: (session) => join(chainRoot, String(session), 'session.jsonl'),
       })
       await sagaPlugin.plugin.apply(ctx, sagaPlugin.validate({}))
@@ -326,6 +337,8 @@ describe('Saga 收敛 job 的生命周期', () => {
     try {
       ctx.provide(SESSION_FILES, {
         root: chainRoot,
+        baseRoot: chainRoot,
+        tenantId: DEFAULT_TENANT_ID,
         fileOf: (session) => join(chainRoot, String(session), 'session.jsonl'),
       })
       await sagaPlugin.plugin.apply(ctx, sagaPlugin.validate({}))

@@ -24,7 +24,7 @@ import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
 import { asSessionId } from '@bah/test-support'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { boot, createCatalog, HOST_PLUGINS, type BootOptions, type BootedApp, type HostPlugin } from '@bah/host'
+import { boot, createCatalog, HOST_PLUGINS, type BootOptions, type BootedApp, type HostPlugin , testRunContext } from '@bah/host'
 
 import { DECISION_AUDIT, auditDecisionsPlugin } from './audit-decisions.ts'
 import type { Context } from '@bah/core'
@@ -112,18 +112,18 @@ async function bootWith(input: {
     bundles: [{ name: 'fx-audit-decisions', rows: rows(input) }],
     layers: [],
     catalog: createCatalog([...HOST_PLUGINS, spyPlugin(input.seen, input.spyThrows ?? false)]),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId(input.sessionId),
       now: () => 1_792_000_000_000,
       jsonlDir: input.dir,
-    },
+    }),
   }
   return boot(bootOptions)
 }
 
 /** 读会话链（按 seq 升序；文件本身已是追加序）。 */
 function chainOf(dir: string, sessionId: string): Record<string, unknown>[] {
-  const path = join(dir, sessionId, 'audit.jsonl')
+  const path = join(dir, 'demo', sessionId, 'audit.jsonl')
   return readFileSync(path, 'utf8')
     .trim()
     .split('\n')
@@ -133,7 +133,7 @@ function chainOf(dir: string, sessionId: string): Record<string, unknown>[] {
 
 /** 读会话事件（`type` + `data`；用于重算链上的 `d`）。 */
 function sessionOf(dir: string, sessionId: string): Record<string, unknown>[] {
-  return readFileSync(join(dir, sessionId, 'session.jsonl'), 'utf8')
+  return readFileSync(join(dir, 'demo', sessionId, 'session.jsonl'), 'utf8')
     .trim()
     .split('\n')
     .filter((line) => line.length > 0)
@@ -213,7 +213,7 @@ describe('W08 · 会话级证据链', () => {
       expect(policyRow['d']).toBe(sha256Hex(canonicalJson(decided['data'])))
 
       // 链是连续的（用审计器再验一遍，而不是只看文件）
-      const audit = createSagaAudit({ now: () => 1, rootDir: dir, fsync: false })
+      const audit = createSagaAudit({ now: () => 1, rootDir: join(dir, 'demo'), fsync: false })
       expect(audit.verifyContinuity('s-w08-chain')).toEqual({ ok: true })
       expect(seen).toEqual([])
     } finally {
@@ -238,17 +238,17 @@ describe('W08 · 会话级证据链', () => {
       ],
       layers: [],
       catalog: createCatalog(),
-      run: {
+      run: testRunContext({
         sessionId: asSessionId(sessionId),
         now: () => 1_792_000_000_000,
         jsonlDir: dir,
-      },
+      }),
     })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       // 把链文件的位置占成目录：append 必然失败（EISDIR），模拟磁盘故障。
       // 判决落账（session.jsonl）与写链是两个出口，前者的成功不受后者影响。
-      mkdirSync(join(dir, sessionId, 'audit.jsonl'), { recursive: true })
+      mkdirSync(join(dir, 'demo', sessionId, 'audit.jsonl'), { recursive: true })
       const session = app.ctx.get(SESSION_SERVICE)
       session.appendDomain('tier/decided', {
         callId: 'call-chain-fail',
@@ -370,10 +370,10 @@ describe('W08 · 会话级证据链', () => {
   it('TC-W08-04（运行时）：启动发现断链 → audit/chain-broken + stderr + HALT', async () => {
     const dir = root()
     // 造一条两行的链，再篡改第一条的 data 摘要
-    const chain = createSagaAudit({ now: () => 1, rootDir: dir, fsync: false })
+    const chain = createSagaAudit({ now: () => 1, rootDir: join(dir, 'demo'), fsync: false })
     chain.append('s-broken', 'saga/created', { sagaId: 's-broken' })
     chain.append('s-broken', 'saga/call-result', { sagaId: 's-broken', stepId: 'st-1' })
-    const path = join(dir, 's-broken', 'audit.jsonl')
+    const path = join(dir, 'demo', 's-broken', 'audit.jsonl')
     const lines = readFileSync(path, 'utf8').trim().split('\n')
     const first = JSON.parse(lines[0] as string) as Record<string, unknown>
     lines[0] = JSON.stringify({ ...first, d: 'tampered' })
@@ -430,7 +430,7 @@ describe('W08 · 会话级证据链', () => {
       agent.send('查余额')
       await agent.run()
 
-      const path = join(dir, 's-w08-unreadable', 'audit.jsonl')
+      const path = join(dir, 'demo', 's-w08-unreadable', 'audit.jsonl')
       const lines = readFileSync(path, 'utf8').trim().split('\n')
       // 至少要两行：末行半写会被容忍，只有中段损坏才进入"读不出来"分支
       expect(lines.length).toBeGreaterThan(1)

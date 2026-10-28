@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { boot, createCatalog } from '@bah/host'
+import { boot, createCatalog , testRunContext } from '@bah/host'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
 import type { SessionId } from '@bah/core'
 import { replaySession } from '@bah/persistence'
@@ -76,7 +76,7 @@ async function makeSession(): Promise<{ root: string; sessionDir: string; cleanu
     bundles: [bundle],
     layers: [],
     catalog: createCatalog(),
-    run: { sessionId: asSessionId(SESSION), now: () => 1_700_000_000_000, jsonlDir: root },
+    run: testRunContext({ sessionId: asSessionId(SESSION), now: () => 1_700_000_000_000, jsonlDir: root }),
   }
   const app = await boot(options)
   try {

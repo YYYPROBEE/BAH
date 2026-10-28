@@ -61,6 +61,9 @@ bah audit [选项]
 # 审某次演示的独立目录（pnpm demo:web 会打印这个路径）
 bah audit --dir sessions/demo-20261024-153000-ab12cd
 
+# 租户化之后：--dir 给**部署根**，链在 <dir>/<tenant>/ 下
+bah audit --dir sessions --tenant demo
+
 # 无签名密钥时只验链连续性/投影（不是完整验签）
 bah audit --dir sessions/demo-20261024-153000-ab12cd --no-signature
 
@@ -68,7 +71,7 @@ bah audit --dir sessions/demo-20261024-153000-ab12cd --no-signature
 bah audit --dir sessions --saga saga-gate-001 --format json
 
 # 只有链、没有库：跳过投影
-bah audit --dir sessions --no-projection
+bah audit --dir sessions --tenant demo --no-projection
 
 # 显式使用临时密钥
 bah audit --dir sessions --key keys/saga-ed25519.pem

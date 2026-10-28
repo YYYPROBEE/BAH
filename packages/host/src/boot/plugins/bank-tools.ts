@@ -35,6 +35,7 @@ import {
   DEFAULT_CONTEXT_SLOTS,
   provideBankGovernance,
   restoreSessionIdentity,
+  tenantSaltOf,
   yuanToCents,
   type BankAudit,
   type BankToolDeps,
@@ -185,10 +186,14 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
     inject: [RUN_SERVICE.id, SESSION_SERVICE.id, TOOLS_SERVICE.id],
     apply(ctx, config) {
       const run = ctx.get(RUN_SERVICE)
+      // 租户盐（01 TA-14）：让 `stress` / `adversarial` 档的仿真数据按租户不同；
+      // `demo` 档造数是固定脚本（不含随机源），盐对它**没有作用**——这是刻意的，
+      // 见 `tenantSaltOf` 与 `docs/contracts/tenant-model.md` 的"明确不声称"。
       const dataset = buildBankDataset({
         seed: config.seed,
         tier: config.datasetTier,
         now: run.now(),
+        tenantSalt: tenantSaltOf(String(run.tenantId)),
       })
       // 日限额与 Config 同源：core 账本只负责「已用多少」，上限由 Config 收紧
       const core = new MockBankCore({
@@ -226,14 +231,15 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
       const session = ctx.get(SESSION_SERVICE)
       const identity = new SessionIdentityStore()
       ctx.effect(ctx.provide(BANK_IDENTITY, identity))
-      // 回放 / 重启：`identity/bound` 是 durable 事实，先按日志恢复
-      restoreSessionIdentity(identity, run.sessionId, session.events())
+      // 回放 / 重启：`identity/bound` 是 durable 事实，先按日志恢复。
+      // 租户取当前进程（日志所在目录即证明），见 `restoreSessionIdentity` 的注释
+      restoreSessionIdentity(identity, run.sessionId, session.events(), String(run.tenantId))
       // 演示档的**显式**身份：写进 profile，不写就保持未绑定（无隐式默认账户）
       if (
         config.demoUserId !== undefined &&
         identity.resolve(run.sessionId) !== config.demoUserId
       ) {
-        identity.bind(run.sessionId, config.demoUserId)
+        identity.bind(run.sessionId, config.demoUserId, String(run.tenantId))
         appendIdentityBound(session, {
           userId: config.demoUserId,
           method: 'demo-config',
@@ -258,7 +264,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
                 sessionId: target,
               })
             }
-            identity.bind(target, userId)
+            identity.bind(target, userId, String(run.tenantId))
             appendIdentityBound(session, { userId, method, at: run.now() })
           },
         },
