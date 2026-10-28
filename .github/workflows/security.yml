@@ -66,9 +66,9 @@ jobs:
   # D3 新增：软件物料清单（SBOM）。为什么必须有：没有清单就说不清"镜像里到底装了什么"，
   # 出事时无法反查受影响的依赖。CycloneDX JSON 是事实标准，能直接被 Dependency-Track 等消费。
   #
-  # 说明：新加的两个 action 用**版本 tag** 而不是 commit SHA（本单不能凭空编 SHA）。
-  # 转正前用 `gh api repos/<owner>/<repo>/git/refs/tags/<tag>` 查到 SHA 后替换，
-  # 与仓库里其它 action 的锁法保持一致。
+  # 供应链纪律：全部 action 锁 commit SHA（不是可移动的版本 tag）。
+  # 2026-10-28 用 `git ls-remote https://github.com/<owner>/<repo>.git refs/tags/<tag> refs/tags/<tag>^{}`
+  # 解析真实 SHA 后替换；`# vN` 注释只是给人看的版本提示。
   sbom:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -79,7 +79,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Generate SBOM (CycloneDX)
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           path: .
           format: cyclonedx-json
@@ -87,7 +87,7 @@ jobs:
           output-file: bah-sbom.cdx.json
 
       - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom
           path: bah-sbom.cdx.json
@@ -105,6 +105,6 @@ jobs:
           fetch-depth: 0
 
       - name: TruffleHog（仅报已验真的凭据）
-        uses: trufflesecurity/trufflehog@main
+        uses: trufflesecurity/trufflehog@ce76ea8f54888c154de94d37f0681493e69193f8 # main（2026-10-28 HEAD）
         with:
           extra_args: --only-verified
