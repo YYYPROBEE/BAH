@@ -18,6 +18,14 @@ import type { TransferPreview } from '../core/provider.ts'
 /** 升级理由（审计与文案用）。 */
 export type TierReason = 'declared' | 'new-payee' | 'daily-limit' | 'risky-calls'
 
+/** 全部理由（封闭四值；策略外置 S2 的 `policy.tierReason` 按此校验，非法即引擎异常）。 */
+export const TIER_REASONS: readonly TierReason[] = [
+  'declared',
+  'new-payee',
+  'daily-limit',
+  'risky-calls',
+]
+
 /** 判定结果。 */
 export interface TierDecision {
   readonly level: ToolTierLevel
@@ -152,9 +160,17 @@ export function isRiskyOp(config: Pick<TierConfig, 'riskyOps'>, name: string): b
  * 4. **组合风险超阈 → 非绿一律 ask**；
  * 5. 绿 allow / 黄 ask / 红 ask+challenge。
  *
+ * @param input 判定输入
+ * @param escalation **外部升级**（策略外置 S2）：bundle 给出的级别/理由。
+ *   不传 = 旧行为逐字不变（内部走 `escalateTransferTier`）。
+ *   传了 = 用 `max(declared, escalation.level)`，且**跳过**内部的 `risky-calls` 理由改写
+ *   （bundle 的 `RC-001` 已带 `level != "green"` 守卫处理过，双重改写会掩盖 bundle 的判据）。
+ *   注意：`verify-locked` 与 `no-identity` 两条硬规则**不受** `escalation` 影响——
+ *   策略永远不能把"锁定中"或"未绑定"变成放行（I4）。
+ *
  * @returns 判决；**任何未知输入都不会得到 allow**（未知级别在类型上不可达）
  */
-export function decide(input: DecideInput): DecideVerdict {
+export function decide(input: DecideInput, escalation?: TierDecision): DecideVerdict {
   const { config, state } = input
 
   if (state.userId === undefined || state.userId.trim().length === 0) {
@@ -166,12 +182,14 @@ export function decide(input: DecideInput): DecideVerdict {
     }
   }
 
-  const escalation =
-    input.preview === undefined
-      ? { level: input.declared, reason: 'declared' as const }
-      : escalateTransferTier(input.declared, input.preview, config.dailyTransferLimitCents)
-  const level = higherTier(input.declared, escalation.level)
-  let reason = escalation.reason
+  const applied: TierDecision =
+    escalation !== undefined
+      ? escalation
+      : input.preview === undefined
+        ? { level: input.declared, reason: 'declared' }
+        : escalateTransferTier(input.declared, input.preview, config.dailyTransferLimitCents)
+  const level = higherTier(input.declared, applied.level)
+  let reason = applied.reason
 
   if (level === 'red' && state.verifyLocked) {
     return {
@@ -185,8 +203,9 @@ export function decide(input: DecideInput): DecideVerdict {
   if (level === 'green') return { kind: 'allow', level, reason }
 
   // 组合风险：超过阈值的"后续调用"一律 ask；更具体的升级理由优先（金额/收款人更能解释风险）
+  // bundle 模式下这条改写由 `RC-001` 承担（见上），这里只服务 legacy。
   const riskyOver = state.riskyCallsInTurn >= config.riskyCallThreshold
-  if (riskyOver && reason === 'declared') reason = 'risky-calls'
+  if (escalation === undefined && riskyOver && reason === 'declared') reason = 'risky-calls'
 
   return { kind: 'ask', level, reason, challenge: requiresChallenge(level) }
 }

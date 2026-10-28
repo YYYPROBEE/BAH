@@ -56,10 +56,11 @@ import {
   RUNTIME_CONTEXT_SOURCE,
   SESSION_SERVICE,
   TOOLS_SERVICE,
+  findPolicyDescriptor,
   findPolicyEngine,
   provideToolContracts,
 } from '@bah/runtime'
-import type { SessionApi } from '@bah/runtime'
+import type { PolicyDescriptor, SessionApi } from '@bah/runtime'
 import { BahError, seededRandom } from '@bah/util'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
@@ -108,6 +109,18 @@ export interface BankToolsSettings extends BankToolsConfig {
    * 属数据层；`core:agent` 只管"要不要读"。
    */
   readonly contextSlots: ContextSlotSettings
+  /**
+   * 策略引擎模式（策略外置 S2）。
+   *
+   * - `legacy`（缺省）：`createTierPolicy` = 既有 `tier.ts`，行为逐字不变；
+   * - `bundle`：用 `policy:rules` 提供的外置规则引擎；缺服务 = 启动失败。
+   *
+   * **不写版本**：版本的唯一来源是 `policy:rules.active` / `runtime-state.json`，
+   * 两处配置打架时没人知道哪份是真的（03 §3.1）。
+   */
+  readonly policy: {
+    readonly engine: 'legacy' | 'bundle'
+  }
 }
 
 /** 默认配置（只有随部署可调的值；身份必须显式给）。 */
@@ -133,6 +146,8 @@ export const DEFAULT_BANK_TOOLS: Omit<BankToolsSettings, 'demoUserId'> = {
   ticketLease: { enforce: true, ttlSeconds: 120 },
   // 实体槽位：默认值与 02 §ES-23 / 00 §5.1 逐字一致（数据行 800 字符、超时 250ms、熔断 3×10s）
   contextSlots: DEFAULT_CONTEXT_SLOTS,
+  // 策略外置：S2 默认 legacy（零行为变化）；S3 由各 profile 显式写 bundle
+  policy: { engine: 'legacy' },
 }
 
 /** 允许的强验证渠道。 */
@@ -143,6 +158,9 @@ const VERIFY_PROVIDERS = ['mock', 'gateway'] as const
 
 /** 允许的造数档位。 */
 const DATASET_TIERS: readonly ForgeTier[] = ['demo', 'stress', 'adversarial']
+
+/** 允许的策略引擎模式（策略外置 S2）。 */
+const POLICY_ENGINES = ['legacy', 'bundle'] as const
 
 export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
   id: 'bank:tools',
@@ -340,15 +358,39 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         }),
       )
 
-      // 策略引擎（W04）：宿主若装了 `runtime:policy`（插件行 / 测试装置），治理平面就用它；
-      // 没装则回落到 bank 的 `createTierPolicy`（= 既有 tier.ts，零行为变化）。
-      const policy = findPolicyEngine(ctx)
+      // 策略引擎（W04 + 策略外置 S2）。
+      //
+      // - `legacy`：直接用 `createTierPolicy`（= 既有 tier.ts，零行为变化）；
+      // - `bundle`：**必须**拿到 `runtime:policy`，否则启动失败（I15：没有静默回退）。
+      //   传**函数**而不是对象：热重载换引擎后下一次判决就生效，重载不需要重建治理平面。
+      const mode = config.policy.engine
+      const inlinePolicy = findPolicyEngine(ctx)
+      if (mode === 'bundle' && inlinePolicy === undefined) {
+        throw new BahError(
+          'policy-service-missing',
+          'bank:tools.policy.engine=bundle 但没有装配 policy:rules（或它排在 bank:tools 之后）',
+          { where: 'bank:tools.policy.engine' },
+        )
+      }
+      /**
+       * 早拒路径的"当前生效版本"必须**每次判决时读**：热重载后描述符是活引用，
+       * 装配期捕获字符串会把所有后续早拒判决钉在旧版本上（I12）。
+       */
+      const activePolicyVersion = (): string =>
+        mode === 'bundle' ? (findPolicyDescriptor(ctx)?.version ?? 'unknown') : 'legacy'
+      if (mode === 'bundle') {
+        assertPolicyParams(findPolicyDescriptor(ctx), {
+          riskyCallThreshold: config.riskyCallThreshold,
+        })
+      }
       provideBankGovernance({
         ctx,
         sessionId: run.sessionId,
         deps,
         lifecycle: tickets,
-        ...(policy === undefined ? {} : { policy }),
+        policy: mode === 'bundle' ? () => findPolicyEngine(ctx) : (inlinePolicy ?? undefined),
+        policyEngineMode: mode,
+        activePolicyVersion,
         lease: {
           enforce: config.ticketLease.enforce,
           ttlMs: config.ticketLease.ttlSeconds * 1_000,
@@ -374,6 +416,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         'verify',
         'ticketLease',
         'contextSlots',
+        'policy',
       ],
       'bank:tools',
     )
@@ -416,6 +459,14 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         )
       }
     }
+
+    // 策略外置（S3）：整块只允许 `engine`；值只有两档
+    const policyConfig =
+      config['policy'] === undefined ? {} : asRecord(config['policy'], 'bank:tools.policy')
+    rejectUnknownKeys(policyConfig, ['engine'], 'bank:tools.policy')
+    const policyEngine =
+      readEnum(policyConfig, 'engine', 'bank:tools.policy', POLICY_ENGINES) ??
+      DEFAULT_BANK_TOOLS.policy.engine
 
     // 实体槽位：七键各自有界；越界是配置错误（运行期不许"静默收敛成一个别的数"）
     const contextSlotsRecord =
@@ -483,6 +534,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         ttlSeconds: leaseTtlSeconds,
       },
       contextSlots,
+      policy: { engine: policyEngine },
       verify: {
         provider:
           readEnum(verify, 'provider', 'bank:tools.verify', VERIFY_PROVIDERS) ??
@@ -508,4 +560,45 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
  */
 function appendIdentityBound(session: SessionApi, data: IdentityBoundData): void {
   session.appendDomain('identity/bound', data, { ignorable: true })
+}
+
+/**
+ * 参数绑定校验（02 §3.1）：bundle 只声明参数名/类型/边界，**值只来自 `bank:tools`**。
+ *
+ * 三条都要报 `policy-param-mismatch`（而不是静默用默认值）：
+ * 1. 声明了但部署没给 → 求值器会拿到 `undefined`（`validateInput` 会拒，但那是运行期）；
+ * 2. 部署给了但 bundle 没声明 → 改这个参数不会改变判决，改它是自欺；
+ * 3. 值越界 → bundle 的语义假设被破坏（它按区间写了规则）。
+ *
+ * 这是**启动期**校验：坏配置不该等到第一笔转账才发现。
+ */
+function assertPolicyParams(
+  descriptor: PolicyDescriptor | undefined,
+  values: Readonly<Record<string, number>>,
+): void {
+  const declared = descriptor?.parameters ?? {}
+  const declaredKeys = Object.keys(declared).sort()
+  const actualKeys = Object.keys(values).sort()
+  if (
+    declaredKeys.length !== actualKeys.length ||
+    declaredKeys.some((key, index) => key !== actualKeys[index])
+  ) {
+    throw new BahError(
+      'policy-param-mismatch',
+      `bundle 声明的参数 [${declaredKeys.join(', ')}] 与部署参数 [${actualKeys.join(', ')}] 不一致`,
+      { declared: declaredKeys.join(','), actual: actualKeys.join(',') },
+    )
+  }
+  for (const key of declaredKeys) {
+    const spec = declared[key]
+    const value = values[key]
+    if (spec === undefined || value === undefined) continue
+    if (value < spec.min || value > spec.max) {
+      throw new BahError(
+        'policy-param-mismatch',
+        `参数 ${key}=${String(value)} 超出 bundle 声明的区间 [${String(spec.min)}, ${String(spec.max)}]`,
+        { key, value, min: spec.min, max: spec.max },
+      )
+    }
+  }
 }

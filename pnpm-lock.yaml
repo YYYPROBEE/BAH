@@ -49,6 +49,9 @@ importers:
       '@bah/core':
         specifier: workspace:*
         version: link:../core
+      '@bah/policy':
+        specifier: workspace:*
+        version: link:../policy
       '@bah/safety':
         specifier: workspace:*
         version: link:../safety
@@ -172,6 +175,9 @@ importers:
       '@bah/persistence':
         specifier: workspace:*
         version: link:../persistence
+      '@bah/policy':
+        specifier: workspace:*
+        version: link:../policy
       '@bah/runtime':
         specifier: workspace:*
         version: link:../runtime

@@ -26,6 +26,10 @@ export const bundle: Bundle = {
     { id: 'audit:decisions' },
     // 银行工具族（施工单 08）：默认不带身份（会话绑定由 profile 显式写 demoUserId）；
     // headless / 演示 profile 用 patch 显式引导
+    // 策略外置 S2：**必须排在 bank:tools 之前**——bank 在 apply() 里 `findPolicyEngine`，
+    // 后置的行它看不到（`policy:rules.validateComposition` 会把这个顺序做成启动错误）。
+    // 行本身不启用判决：`bank:tools.policy.engine` 缺省 `legacy`，行为逐字不变。
+    { id: 'policy:rules' },
     { id: 'bank:tools' },
     // 审批服务（施工单 09）：必须排在 bank:tools 之后——bank 的桥接先签五绑定票据，
     // 再把「找谁应答」交给本行的仲裁器（waterfall 的注册顺序 = 外层顺序）

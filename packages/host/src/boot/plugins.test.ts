@@ -142,6 +142,7 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       'audit:decisions',
       'demo:echo',
       'bank:tools',
+      'policy:rules',
       'bank:knowledge',
       'interaction:approval',
       'safety:sentry',

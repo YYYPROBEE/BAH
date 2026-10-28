@@ -23,3 +23,7 @@ __pycache__/
 services/rag/models/
 services/rag/web/evidence_panel/panel*.png
 .workbuddy/
+
+# 策略外置（S3）：运行时灰度/回滚状态与变更链是**部署事实**，不入库
+policies/runtime-state.json
+policies/policy-rollout/
