@@ -16,8 +16,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { boot, createCatalog, type BootedApp } from '@bah/host'
-import { AGENTS_SERVICE, SESSION_SERVICE, findPolicyDescriptor, findPolicyEngine } from '@bah/runtime'
+import { HOST_PLUGINS, boot, createCatalog, type BootedApp, type HostPlugin } from '@bah/host'
+import {
+  AGENTS_SERVICE,
+  SESSION_SERVICE,
+  findPolicyDescriptor,
+  findPolicyEngine,
+  providePolicyParamCheck,
+} from '@bah/runtime'
+import { BahError } from '@bah/util'
 import { asSessionId } from '@bah/test-support'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -1041,6 +1048,60 @@ describe('policy:rules · 形状负例（S3）', () => {
     install(root, 'bank-tier/1.0.0')
     const app = await bootPolicy({ root, config: { signature: { allowedKeyVersions: [1, 2] } } })
     try {
+      expect(findPolicyDescriptor(app.ctx)?.handle).toBe('bank-tier/1.0.0')
+    } finally {
+      await app.dispose('test')
+    }
+  })
+})
+
+describe('policy:rules · 重载参数绑定（S3）', () => {
+  it('候选 bundle 与部署参数不兼容 → reload-rejected，旧版继续服务', async () => {
+    const root = tempRoot('reload-param')
+    const stable = install(root, 'bank-tier/1.0.0')
+    const demo = install(root, 'bank-tier-demo/1.0.0', demoBundle)
+    writeRegistry(root, {
+      'bank-tier/1.0.0': entryOf('bank-tier/1.0.0', stable),
+      'bank-tier-demo/1.0.0': entryOf('bank-tier-demo/1.0.0', demo),
+    })
+    const guard: HostPlugin<Record<string, never>> = {
+      id: 'fx:policy-param-check',
+      plugin: {
+        name: 'fx:policy-param-check',
+        apply(ctx) {
+          ctx.effect(
+            providePolicyParamCheck(ctx, (descriptor) => {
+              if (descriptor.handle === 'bank-tier-demo/1.0.0') {
+                throw new BahError('policy-param-mismatch', '模拟：部署参数不兼容')
+              }
+            }),
+          )
+        },
+      },
+      validate() {
+        return {}
+      },
+    }
+    const app = await boot({
+      profile: { name: 'param-check', bundles: ['param-check'], hmr: false },
+      bundles: [
+        {
+          name: 'param-check',
+          rows: [
+            { id: 'core:session' },
+            { id: 'policy:rules', config: { root, hotReload: true } },
+            { id: 'fx:policy-param-check' },
+          ],
+        },
+      ],
+      layers: [],
+      catalog: createCatalog([...HOST_PLUGINS, guard]),
+      run: { sessionId: asSessionId('s-policy-test'), now: () => FIXED_NOW, probe: true },
+    })
+    try {
+      writeState(root, { 'bank.tier': { active: 'bank-tier-demo/1.0.0' } })
+      expect(reloadPolicyNow()).toBe(true)
+      expect(eventsOf(app, 'policy/reload-rejected')[0]?.['code']).toBe('policy-param-mismatch')
       expect(findPolicyDescriptor(app.ctx)?.handle).toBe('bank-tier/1.0.0')
     } finally {
       await app.dispose('test')

@@ -147,6 +147,37 @@ export interface PolicyDescriptor {
 export const POLICY_DESCRIPTOR: ServiceKey<PolicyDescriptor> =
   defineService<PolicyDescriptor>('runtime:policy-meta')
 
+/**
+ * 参数绑定检查（策略外置 S3）：在**激活前**用部署参数校验新描述符。
+ *
+ * 为什么单独一个服务键：`policy:rules` 不知道 `bank:tools` 的配置值；而热重载
+ * 换到一个"参数名/边界不同"的 bundle 时，启动期校验已经跑过了，不能假设新 bundle
+ * 仍兼容。宿主在 `bank:tools` 里提供一个检查函数，`policy:rules` 在原子替换前调用；
+ * 抛错 = 重载失败、旧版继续服务（I10）。
+ */
+export type PolicyParamCheck = (descriptor: PolicyDescriptor) => void
+
+/** 服务键：`runtime:policy-param-check`。 */
+export const POLICY_PARAM_CHECK: ServiceKey<PolicyParamCheck> =
+  defineService<PolicyParamCheck>('runtime:policy-param-check')
+
+/** 取参数检查函数；未装配时返回 `undefined`（纯策略插件 / 测试）。 */
+export function findPolicyParamCheck(ctx: Context): PolicyParamCheck | undefined {
+  try {
+    return ctx.get(POLICY_PARAM_CHECK)
+  } catch {
+    return undefined
+  }
+}
+
+/** 提供参数检查函数（宿主装配用）；返回注销句柄。 */
+export function providePolicyParamCheck(
+  ctx: Context,
+  check: PolicyParamCheck,
+): Disposer {
+  return ctx.provide(POLICY_PARAM_CHECK, check)
+}
+
 /** 取策略描述符；未提供时返回 `undefined`（legacy 模式或未装策略插件）。 */
 export function findPolicyDescriptor(ctx: Context): PolicyDescriptor | undefined {
   try {
