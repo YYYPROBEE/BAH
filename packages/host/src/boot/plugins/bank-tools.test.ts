@@ -6,9 +6,10 @@
  * 2. 不写 `demoUserId` → 未绑定身份，业务工具 deny `no-identity`（施工单 09 §4）。
  */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { asSessionId, captureRejection, captureThrown } from '@bah/test-support'
 import {
@@ -21,25 +22,35 @@ import {
 import {
   BANK_CHALLENGE,
   BANK_RESULT_SCHEMAS,
+  BANK_TOOL_NAME_SET,
   DEFAULT_CONTEXT_SLOTS,
   SessionIdentityStore,
   restoreSessionIdentity,
   specOf,
 } from '@bah/bank'
 import { CREDENTIALS } from '@bah/persistence'
-import { describe, expect, it } from 'vitest'
+import { loadBundle, writeLockFile } from '@bah/policy'
+import { describe, expect, it, vi } from 'vitest'
 
 import { boot, type BootOptions } from '../boot.ts'
 import { createCatalog } from './index.ts'
-import { DEFAULT_BANK_TOOLS, bankToolsPlugin, type BankToolsSettings } from './bank-tools.ts'
+import {
+  DEFAULT_BANK_TOOLS,
+  bankToolsPlugin,
+  warnContextSlots,
+  type BankToolsSettings,
+} from './bank-tools.ts'
 import { SESSION_FILES } from './persistence.ts'
 import type { AnySessionEvent } from '@bah/runtime'
 import type { PluginRow } from '../profile-plugins.ts'
 
-/** 造一组 base 行（bank:tools 的配置可替换）。 */
+const repoRoot = fileURLToPath(new URL('../../../../../', import.meta.url))
+
+/** 造一组 base 行（bank:tools 的配置可替换；`policyConfig` 给出时插入 `policy:rules` 行）。 */
 function rows(
   bank: Readonly<Record<string, unknown>>,
   script: readonly Readonly<Record<string, unknown>>[],
+  policyConfig?: Readonly<Record<string, unknown>>,
 ): readonly PluginRow[] {
   return [
     { id: 'core:session' },
@@ -55,6 +66,7 @@ function rows(
     },
     { id: 'core:agent', config: { channel: 'headless', loop: { model: 'mock:mock-chat' } } },
     { id: 'core:persistence', config: { root: 'sessions', fsync: false } },
+    ...(policyConfig === undefined ? [] : [{ id: 'policy:rules', config: policyConfig }]),
     { id: 'bank:tools', config: bank },
   ]
 }
@@ -72,10 +84,11 @@ async function bootWith(
   jsonlDir?: string,
   extraRows: readonly PluginRow[] = [],
   script: readonly Readonly<Record<string, unknown>>[] = DEFAULT_SCRIPT,
+  policyConfig?: Readonly<Record<string, unknown>>,
 ): Promise<Awaited<ReturnType<typeof boot>>> {
   const options: BootOptions = {
     profile: { name: 'fx', bundles: ['fx'], hmr: false },
-    bundles: [{ name: 'fx', rows: [...rows(bank, script), ...extraRows] }],
+    bundles: [{ name: 'fx', rows: [...rows(bank, script, policyConfig), ...extraRows] }],
     layers: [],
     catalog: createCatalog(),
     run: {
@@ -651,6 +664,116 @@ describe('实体槽位参数（bank:tools.contextSlots）', () => {
     } finally {
       await app.dispose('test')
       expect(captureThrown(() => app.ctx.get(RUNTIME_CONTEXT_SOURCE)).code).toBe('service-missing')
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('bank:tools · 槽位告警与参数绑定（交付面 P1）', () => {
+  /** 递归复制目录（Node 22.17 在中文路径下 `cpSync` 会静默退出，见 policy.test.ts 的说明）。 */
+  function copyTree(source: string, target: string): void {
+    mkdirSync(target, { recursive: true })
+    for (const entry of readdirSync(source, { withFileTypes: true })) {
+      const from = join(source, entry.name)
+      const to = join(target, entry.name)
+      if (entry.isDirectory()) copyTree(from, to)
+      else copyFileSync(from, to)
+    }
+  }
+
+  it('槽位告警出口：走结构化日志（level=warn + 字段原样进入 JSONL）', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      warnContextSlots('context/slots-circuit-open', { failures: 3 })
+      const line = JSON.parse(String(spy.mock.calls[0]?.[0])) as Record<string, unknown>
+      expect(line['level']).toBe('warn')
+      expect(line['code']).toBe('context/slots-circuit-open')
+      expect(line['failures']).toBe(3)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  /** 复制真 bundle → 逐文件改文本 → 重算 lock（只作用于临时目录）。 */
+  function installVariant(
+    root: string,
+    handle: string,
+    edits: Readonly<Record<string, (text: string) => string>>,
+  ): void {
+    const dir = join(root, ...handle.split('/'))
+    copyTree(join(repoRoot, 'policies', 'bank-tier', '1.0.0'), dir)
+    for (const [file, transform] of Object.entries(edits)) {
+      const path = join(dir, file)
+      writeFileSync(path, transform(readFileSync(path, 'utf8')), 'utf8')
+    }
+    const recompiled = loadBundle({
+      dir,
+      toolNames: [...BANK_TOOL_NAME_SET],
+      verifyLock: false,
+    })
+    writeLockFile(dir, recompiled.lock)
+  }
+
+  it('bundle 声明的参数集与部署参数不一致 → 启动失败 policy-param-mismatch', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-param-keys-'))
+    try {
+      const policies = join(dir, 'policies')
+      installVariant(policies, 'bank-tier-alt/1.0.0', {
+        'bundle.yml': (text) =>
+          text
+            .replace('name: bank-tier', 'name: bank-tier-alt')
+            .replace('riskyCallThreshold:', 'riskyCallThresholdV2:'),
+        'rules.yml': (text) =>
+          text.replaceAll('params.riskyCallThreshold', 'params.riskyCallThresholdV2'),
+        'corpus.yml': (text) => text.replaceAll('riskyCallThreshold: 3', 'riskyCallThresholdV2: 3'),
+      })
+
+      // 部署参数只有 riskyCallThreshold；bundle 声明了 V2 → 键集不一致，启动即红
+      const error = await bootWith(
+        { policy: { engine: 'bundle' } },
+        's-param-key-mismatch',
+        dir,
+        [],
+        DEFAULT_SCRIPT,
+        { root: policies, active: { 'bank.tier': 'bank-tier-alt/1.0.0' } },
+      ).then(
+        () => undefined,
+        (thrown: unknown) => thrown,
+      )
+      const shaped = error as { code?: string; detail?: { cause?: { code?: string } } }
+      expect(shaped.code).toBe('boot-failed')
+      expect(shaped.detail?.cause?.code).toBe('policy-param-mismatch')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('bundle 参数越界（部署值低于声明下限）→ 启动失败 policy-param-mismatch', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-param-'))
+    try {
+      const policies = join(dir, 'policies')
+      installVariant(policies, 'bank-tier/1.0.0', {
+        'bundle.yml': (text) => text.replace('min: 1, max: 100', 'min: 5, max: 100'),
+        // 语料也按新边界改（否则重算 lock 时语料校验先红）
+        'corpus.yml': (text) => text.replaceAll('riskyCallThreshold: 3', 'riskyCallThreshold: 5'),
+      })
+      // 部署值 3 落在 bundle 声明的 [5, 100] 之外：启动期就该红，而不是等到第一笔转账
+      const error = await bootWith(
+        { policy: { engine: 'bundle' }, riskyCallThreshold: 3 },
+        's-param-out-of-range',
+        dir,
+        [],
+        DEFAULT_SCRIPT,
+        { root: policies },
+      ).then(
+        () => undefined,
+        (thrown: unknown) => thrown,
+      )
+      // `boot()` 把启动错误包成 `boot-failed`（原始码在 detail.cause），剥一层再断言
+      const shaped = error as { code?: string; detail?: { cause?: { code?: string } } }
+      expect(shaped.code).toBe('boot-failed')
+      expect(shaped.detail?.cause?.code).toBe('policy-param-mismatch')
+    } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })

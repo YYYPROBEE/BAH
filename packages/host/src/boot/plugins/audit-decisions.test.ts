@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path'
 import { createSagaAudit } from '@bah/persistence'
 import { canonicalJson, sha256Hex } from '@bah/util'
 import { HALT_SERVICE } from '@bah/safety'
-import { AGENTS_SERVICE } from '@bah/runtime'
+import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
 import { asSessionId } from '@bah/test-support'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -217,6 +217,62 @@ describe('W08 · 会话级证据链', () => {
       expect(audit.verifyContinuity('s-w08-chain')).toEqual({ ok: true })
       expect(seen).toEqual([])
     } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('policy/decision 写链失败只告警（I17：已做出的判决不被翻转）', async () => {
+    const dir = root()
+    const sessionId = 's-policy-chain-fail'
+    const app = await boot({
+      profile: { name: 'fx-audit-fail', bundles: ['fx-audit-fail'], hmr: false },
+      bundles: [
+        {
+          name: 'fx-audit-fail',
+          rows: [
+            { id: 'core:session' },
+            { id: 'core:persistence', config: { root: 'sessions', fsync: false } },
+            { id: 'audit:decisions' },
+          ],
+        },
+      ],
+      layers: [],
+      catalog: createCatalog(),
+      run: {
+        sessionId: asSessionId(sessionId),
+        now: () => 1_792_000_000_000,
+        jsonlDir: dir,
+      },
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      // 把链文件的位置占成目录：append 必然失败（EISDIR），模拟磁盘故障。
+      // 判决落账（session.jsonl）与写链是两个出口，前者的成功不受后者影响。
+      mkdirSync(join(dir, sessionId, 'audit.jsonl'), { recursive: true })
+      const session = app.ctx.get(SESSION_SERVICE)
+      session.appendDomain('tier/decided', {
+        callId: 'call-chain-fail',
+        name: 'transfer_create',
+        level: 'red',
+        reason: 'daily-limit',
+        verdict: 'deny',
+        code: 'daily-limit',
+        at: 1_792_000_000_000,
+        policyVersion: 'bank-tier/1.0.0+sha256:0123456789abcdef',
+        ruleIds: ['TR-001-over-daily-limit'],
+      })
+
+      expect(
+        warn.mock.calls.some((args) =>
+          String(args[0]).includes('policy/decision 写入失败（判决不变）'),
+        ),
+      ).toBe(true)
+      // 判决本体仍在会话日志里（写链失败只是旁路证据缺失）
+      expect(
+        session.events().some((event) => String(event.type) === 'tier/decided'),
+      ).toBe(true)
+    } finally {
+      warn.mockRestore()
       await app.dispose('test')
     }
   })

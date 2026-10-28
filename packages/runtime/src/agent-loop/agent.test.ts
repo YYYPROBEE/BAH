@@ -1586,6 +1586,34 @@ describe('实体槽位：运行时上下文解析（S1）', () => {
     )
   })
 
+  it('解析拒绝时已 interrupt → 记 cancelled（取消优先于失败）', async () => {
+    let rejectLate: ((error: Error) => void) | undefined
+    let entered = false
+    await withHarness(
+      {
+        steps: [textStep('不该走到这里')],
+        runtimeContext: () =>
+          new Promise<RuntimeContextView>((_resolve, reject) => {
+            entered = true
+            rejectLate = reject
+          }),
+      },
+      async (harness) => {
+        harness.loop.send('你好')
+        const running = harness.loop.turn()
+        await waitFor(() => entered)
+
+        harness.loop.interrupt('用户按下停止')
+        rejectLate?.(new Error('端口忽略了取消'))
+        const outcome = await running
+
+        expect(outcome).toEqual({ kind: 'aborted' })
+        expect(payloads(harness.events(), 'assistant/attempt')[0]?.status).toBe('cancelled')
+        expect(harness.types()).not.toContain('request/header')
+      },
+    )
+  })
+
   it('bank 视图 → 落 context/slots 事件，payload 不含 PII', async () => {
     await withHarness(
       {

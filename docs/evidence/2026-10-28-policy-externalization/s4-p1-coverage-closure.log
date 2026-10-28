@@ -1,0 +1,63 @@
+# 交付面 P1 · 覆盖率门禁闭合（2026-10-28）
+
+执行者：Qoder（主线程串行）
+HEAD：`7af35c7` + 本批未提交工作区（2026-10-28 20:0x–20:1x +0800）
+目的：关闭 S4 复审登记的交付面 P1 —— `pnpm check` 第 5 步 `test:coverage` 红
+（6 个 host/runtime 文件未达逐文件 100%）与 PE-46 的门禁部分。
+
+## 命令与结果
+
+```text
+$ npx vitest run --coverage
+exit=0
+# 名单内逐文件 100% 全绿；此前红的 6 个文件：
+#   host/boot/plugins/{agent,audit-decisions,bank-tools,policy}.ts
+#   host/boot/runtime-context.ts
+#   runtime/agent-loop/agent.ts
+
+$ pnpm check
+✔ typecheck          1675ms
+✔ lint              11551ms
+✔ build             13254ms
+✔ test (unit)       15511ms  2416 tests
+✔ test:coverage     21542ms  2416 tests
+✔ test:coverage:all  19569ms
+✔ gate               6981ms
+✔ eval:unit         27600ms
+✔ eval:smoke         2066ms
+✔ eval:baseline      7002ms
+○ test:e2e              0ms  SKIP (no DEEPSEEK_API_KEY)
+✔ test:snapshot     12151ms  34 tests
+✔ test:web           2499ms  55 tests
+✔ rag:check          6856ms  78 tests
+通过 13 步，未执行面 test:e2e（本地模式不计为失败）
+
+$ npx tsx scripts/run-gates.ts
+全部通过（40/40）
+```
+
+## 补齐方式（只补测试 + 两处具名出口）
+
+| 文件 | 补法 |
+|---|---|
+| `host/boot/plugins/agent.ts` | 懒取端口抽成 `contextSourceOf()`；新单测覆盖"缺服务 → undefined / 其它异常原样上抛" |
+| `host/boot/plugins/bank-tools.ts` | `warnContextSlots()` 具名导出并单测（熔断告警走结构化日志）；新增"参数集不一致 / 参数越界 → `policy-param-mismatch`"两条启动失败用例 |
+| `host/boot/plugins/audit-decisions.ts` | 新增"链文件不可写只告警、判决照常落账"（I17），用目录占位模拟 EISDIR |
+| `host/boot/plugins/policy.ts` | 描述符 4 个 getter 断言；事件写失败只告警；canary 参数集不同构 → 启动失败；bundle deny 分支；`allowedKeyVersions` 空分支按 `loadBundle` 的 `?? []` 语义合并，删掉不可达三元 |
+| `host/boot/runtime-context.ts` | "权威无姓名且静态无 level → 不造 user 键" |
+| `runtime/agent-loop/agent.ts` | "解析拒绝时已 interrupt → cancelled（取消优先于失败）" |
+
+## 台账同步
+
+- `facts.md` / `docs/facts-sources.md` / `README.md` / `docs/testing.md` /
+  `docs/deploy.md` / `docs/security-self-assessment.md`：主仓用例
+  **219 文件 / 2405 例 → 220 文件 / 2416 例**。
+- `scripts/assertion-baseline.json`：登记新增断言（**236 文件 / 7550 条**；门禁通过）。
+- 未改 `docs/coverage-baseline.json`：行/包口径只认 CI（Ubuntu / Node 22.19），
+  本机 Windows 报表分母失真（见 facts-sources §3）；PE-46 的台账刷新仍待 CI。
+
+## 结论
+
+DoD#3 的本地口径已闭合：`pnpm check` 除无 key 的 `test:e2e` 外 13 步全绿。
+可以说"`pnpm check` 本地 13 步绿 + e2e SKIP"；**不能**说"覆盖率台账已刷新"或
+"CI 口径已更新"。

@@ -5862,3 +5862,25 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 - **可以说**：S4 完成、40/40、`policy-externalized` 快照、27 负例、第二轮复审行为面 P0/P1 = 0。
 - **不能说**：`pnpm check` 全绿、S5/S6 完成、覆盖率台账已更新、策略文件防篡改、多租户策略隔离。
 - **待办**：覆盖率门禁（6 文件）、`docs/coverage-baseline.json`（CI）、生产 Ed25519 密钥流程、semver major 门禁、S5 `sentry.rules`。
+
+## 96.31 交付面 P1 闭合：覆盖率门禁与事实台账（2026-10-28 20:15）
+
+- 起因：S4 复审记 `pnpm check` 第 5 步红 —— 6 个 host/runtime 文件未达逐文件 100%。
+- 处置（只补测试 + 两处具名出口，不改判决语义）：
+  - `host/boot/plugins/agent.ts`：`contextSourceOf()` 具名导出，单测钉"缺服务 → undefined /
+    其它异常原样上抛"（`agent.test.ts` 新增）；
+  - `host/boot/plugins/bank-tools.ts`：`warnContextSlots()` 具名导出并单测；新增
+    "参数集不一致 / 参数越界 → `policy-param-mismatch`"两条启动失败用例；
+  - `host/boot/plugins/audit-decisions.ts`：新增"链文件不可写只告警、判决照常落账"（I17）；
+  - `host/boot/plugins/policy.ts`：描述符 4 个 getter、事件写失败只告警、canary 参数集
+    不同构、bundle deny 四个用例；`allowedKeyVersions` 空分支按 `loadBundle` 的 `?? []`
+    语义合并，删掉不可达三元；
+  - `host/boot/runtime-context.ts`、`runtime/agent-loop/agent.ts`：各补 1 条边界用例。
+- 实测：`npx vitest run --coverage` exit=0（逐文件 100% 全绿）；`pnpm check` 13 步通过 +
+  `test:e2e` SKIP（无 `DEEPSEEK_API_KEY`）；unit **220 文件 / 2416 例**、snapshot 34、
+  web 55、rag 78；`gate` **40/40**。
+- 台账：facts/facts-sources/README/testing/deploy/自评同步 220/2416；
+  `assertion-baseline.json` 登记 **236 文件 / 7550 条**断言。
+- 仍未闭合：`docs/coverage-baseline.json` 的行/包口径只认 CI（Windows 分母失真），
+  PE-46 的台账刷新待 CI 跑批。
+- 口径：可以说"`pnpm check` 本地 13 步绿 + e2e 无 key SKIP"；**不能**说"覆盖率台账已刷新"。

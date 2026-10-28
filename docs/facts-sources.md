@@ -18,8 +18,8 @@ coverage_total=34270
 coverage_pct=91.14
 coverage_package_ok=15
 coverage_package_total=16
-tests_main_files=219
-tests_main_cases=2405
+tests_main_files=220
+tests_main_cases=2416
 <!-- facts:sources:end -->
 
 > `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。
@@ -36,7 +36,7 @@ tests_main_cases=2405
 | 快照文件 / 用例 | **8 / 34** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 8 文件 / 34 例（`pnpm test:snapshot` 同值；S4 新增 `policy-externalized` 6 例） |
 | 覆盖率（行） | **91.14%** | `pnpm test:coverage:all`（**CI / Ubuntu 口径**） | 覆盖 31233 行 / 参与统计 34270 行（2026-10-28 CI run 40631263792，端口守卫新增 36 行后） |
 | 覆盖率（包） | **15/16** | 同上 | 只有 `eval` 53.20% 未达 80%；`memory-store` 89.40% 已达标 |
-| 主仓测试 | **219 文件 / 2405 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 219 passed / 2405 例（2026-10-28 复跑，实体槽位 S1 +16 / S2 +40 / S3 +24 例；策略外置 S1 +136 例（7 文件）、S2/S3 +70 例（8 文件，含穷举等价 / 管理面 / explain / 影子）、S4 +2 例（区间包含方向回归；账本限额更紧的 min 方向）；门禁不重跑测试，只校验本文与 facts.md 一致） |
+| 主仓测试 | **220 文件 / 2416 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 220 passed / 2416 例（2026-10-28 复跑，实体槽位 S1 +16 / S2 +40 / S3 +24 例；策略外置 S1 +136 例（7 文件）、S2/S3 +70 例（8 文件，含穷举等价 / 管理面 / explain / 影子）、S4 +2 例；交付面 P1 +11 例（6 个覆盖红文件补到逐文件 100%）；门禁不重跑测试，只校验本文与 facts.md 一致） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
 | web 测试 | **7 文件 / 55 例** | `pnpm test:web` | 7 passed / 55 passed |
 | 快照跑批 | **8 文件 / 34 例** | `pnpm test:snapshot` | 8 passed / 34 passed |

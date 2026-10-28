@@ -28,7 +28,7 @@ import {
 } from '@bah/runtime'
 import { BahError } from '@bah/util'
 import { asSessionId } from '@bah/test-support'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AnySessionEvent } from '@bah/runtime'
 
@@ -76,6 +76,34 @@ function install(root: string, handle: string, source = realBundle): string {
   const target = join(root, ...handle.split('/'))
   copyTree(source, target)
   return target
+}
+
+/**
+ * 复制真 bundle → 按需改 manifest/rules → 重算 lock（只作用于临时目录）。
+ *
+ * 用来造"参数集不同/带 deny 行"的合法变体；不改 `policies/` 的入库内容。
+ */
+function installMutated(
+  root: string,
+  handle: string,
+  mutate: {
+    readonly manifest?: (text: string) => string
+    readonly rules?: (text: string) => string
+    readonly corpus?: (text: string) => string
+  },
+): string {
+  const dir = install(root, handle)
+  const edit = (file: string, transform: ((text: string) => string) | undefined): void => {
+    if (transform === undefined) return
+    const path = join(dir, file)
+    writeFileSync(path, transform(readFileSync(path, 'utf8')), 'utf8')
+  }
+  edit('bundle.yml', mutate.manifest)
+  edit('rules.yml', mutate.rules)
+  edit('corpus.yml', mutate.corpus)
+  const recompiled = loadBundle({ dir, toolNames: [...BANK_TOOL_NAME_SET], verifyLock: false })
+  writeLockFile(dir, recompiled.lock)
+  return dir
 }
 
 /** registry 条目：`path` 用**临时目录的绝对路径**，确保测的是复制出来的 bundle。 */
@@ -348,6 +376,89 @@ describe('policy:rules · 载入与判决', () => {
     }
   })
 
+  it('会话事件写入失败只告警：bundle 仍载入、描述符可用（I17 同一条纪律）', async () => {
+    const root = tempRoot('emit-fail')
+    install(root, 'bank-tier/1.0.0')
+    const brokenSession: HostPlugin<Record<string, never>> = {
+      id: 'fx:session-broken',
+      plugin: {
+        name: 'fx:session-broken',
+        apply(ctx) {
+          ctx.provide(SESSION_SERVICE, {
+            appendDomain() {
+              throw new Error('disk-full')
+            },
+          } as never)
+        },
+      },
+      validate() {
+        return {}
+      },
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const app = await boot({
+        profile: { name: 'emit-fail', bundles: ['emit-fail'], hmr: false },
+        bundles: [
+          {
+            name: 'emit-fail',
+            rows: [{ id: 'fx:session-broken' }, { id: 'policy:rules', config: { root } }],
+          },
+        ],
+        layers: [],
+        catalog: createCatalog([...HOST_PLUGINS, brokenSession]),
+        run: { sessionId: asSessionId('s-policy-emit'), now: () => FIXED_NOW, probe: true },
+      })
+      try {
+        // 观测失败不改判决：快照照常建立，`policy/bundle-loaded` 的写入失败只落 stderr
+        expect(findPolicyDescriptor(app.ctx)?.handle).toBe('bank-tier/1.0.0')
+        expect(
+          warn.mock.calls.some((args) => String(args[0]).includes('policy/bundle-loaded')),
+        ).toBe(true)
+      } finally {
+        await app.dispose('test')
+      }
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('bundle 规则 deny → 判决 deny（code/reason 与四字段一起带出）', async () => {
+    const root = tempRoot('deny')
+    installMutated(root, 'bank-tier-deny/1.0.0', {
+      manifest: (text) => text.replace('name: bank-tier', 'name: bank-tier-deny'),
+      rules: (text) =>
+        text.replace(
+          '      - id: TR-003-default',
+          [
+            '      - id: TR-004-deny',
+            '        when: preview.amountCents >= 100',
+            '        deny: policy-denied',
+            '        reason: daily-limit',
+            '      - id: TR-003-default',
+          ].join('\n'),
+        ),
+    })
+    const app = await bootPolicy({ root, config: { active: { 'bank.tier': 'bank-tier-deny/1.0.0' } } })
+    try {
+      const decision = findPolicyEngine(app.ctx)?.decide(
+        { userId: 'u-1', sessionId: 's-policy-test' },
+        { name: 'transfer_create', declared: 'yellow' },
+        { riskyCallsInTurn: 0, verifyLocked: false, input: tierInput() },
+      )
+      expect(decision?.verdict).toBe('deny')
+      expect(decision?.code).toBe('policy-denied')
+      expect(decision?.reason).toBe('daily-limit')
+      // 判决身份与级别照旧带出（deny 不是"只给一句拒绝"）
+      expect(decision?.level).toBe('yellow')
+      // deny 命中即短路：后续表不再演进（规则 ID 只到命中行）
+      expect(decision?.ruleIds).toEqual(['TR-004-deny'])
+      expect(String(decision?.policyVersion)).toMatch(/^bank-tier-deny\/1\.0\.0\+sha256:/)
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
   it('registry 缺省时按 root/<name>/<version> 推断目录（S2 的兼容路径）', async () => {
     const root = tempRoot('no-registry')
     install(root, 'bank-tier/1.0.0')
@@ -592,6 +703,11 @@ describe('policy:rules · 热重载', () => {
       const descriptor = findPolicyDescriptor(app.ctx)
       expect(descriptor?.handle).toBe('bank-tier-demo/1.0.0')
       expect(String(descriptor?.version)).toMatch(/^bank-tier-demo\/1\.0\.0\+sha256:/)
+      // 描述符的其余活字段也要跟着换（早拒路径/前端/运维面板都按它读）
+      expect(descriptor?.kind).toBe('bank.tier')
+      expect(descriptor?.semanticDigest).toMatch(/^[0-9a-f]{64}$/)
+      expect(descriptor?.engineVersion).toMatch(/^\d+\.\d+\.\d+$/)
+      expect(descriptor?.loadedAt).toBe(FIXED_NOW)
     } finally {
       await app.dispose('test')
     }
@@ -710,6 +826,30 @@ describe('policy:rules · 启动失败矩阵（02 §13）', () => {
       },
     })
     expect(await bootCode(root)).toBe('policy-state-invalid')
+  })
+
+  it('灰度版本声明了不同参数集 → policy-param-mismatch（同 kind 参数集必须同构）', async () => {
+    const root = tempRoot('canary-params')
+    const stable = install(root, 'bank-tier/1.0.0')
+    const variant = installMutated(root, 'bank-tier/1.0.2', {
+      manifest: (text) =>
+        text
+          .replace('version: 1.0.0', 'version: 1.0.2')
+          .replace('riskyCallThreshold:', 'riskyCallThresholdV2:'),
+      rules: (text) => text.replaceAll('params.riskyCallThreshold', 'params.riskyCallThresholdV2'),
+      corpus: (text) => text.replaceAll('riskyCallThreshold: 3', 'riskyCallThresholdV2: 3'),
+    })
+    writeRegistry(root, {
+      'bank-tier/1.0.0': entryOf('bank-tier/1.0.0', stable),
+      'bank-tier/1.0.2': entryOf('bank-tier/1.0.2', variant),
+    })
+    writeState(root, {
+      'bank.tier': {
+        active: 'bank-tier/1.0.0',
+        canary: { version: 'bank-tier/1.0.2', percent: 0, sessions: ['s-canary'], epoch: 1 },
+      },
+    })
+    expect(await bootCode(root)).toBe('policy-param-mismatch')
   })
 
   it('requireSignature 且无 bundle.sig → policy-signature-invalid', async () => {
