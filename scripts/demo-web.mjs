@@ -123,17 +123,26 @@ try {
   console.warn(`[demo:web] saga 签名密钥生成失败（${error.message}）；补偿将走缺钥降级路径`)
 }
 
+// 租户：01 起 `--tenant` 是部署输入。演示脚本**透传**它（缺省 demo），
+// 否则 `pnpm demo:web -- --tenant other` 会静默按 demo 起服务，而操作者以为在为 other 服务。
+const tenantArgIndex = process.argv.indexOf('--tenant')
+const tenant =
+  tenantArgIndex > 0 && process.argv[tenantArgIndex + 1] !== undefined
+    ? process.argv[tenantArgIndex + 1]
+    : 'demo'
+
 console.log(`[demo:web] 本次会话目录：${runDir}`)
+console.log(`[demo:web] 租户：${tenant}（链与记忆在 ${join(runDir, tenant)} 下）`)
 console.log(
-  `[demo:web] 审计（链连续性，无密钥）：pnpm bah audit --dir "${runDir}" --no-signature`,
+  `[demo:web] 审计（链连续性，无密钥）：pnpm bah audit --dir "${runDir}" --tenant ${tenant} --no-signature`,
 )
 if (sagaKeyPath !== undefined) {
   console.log(
-    `[demo:web] 审计（完整验签，用本次一次性密钥）：pnpm bah audit --dir "${runDir}" --key "${sagaKeyPath}"`,
+    `[demo:web] 审计（完整验签，用本次一次性密钥）：pnpm bah audit --dir "${runDir}" --tenant ${tenant} --key "${sagaKeyPath}"`,
   )
 } else {
   console.log(
-    `[demo:web] 审计（完整验签，需 keys/saga-ed25519.pem）：pnpm bah audit --dir "${runDir}"`,
+    `[demo:web] 审计（完整验签，需 keys/saga-ed25519.pem）：pnpm bah audit --dir "${runDir}" --tenant ${tenant}`,
   )
 }
 
@@ -147,6 +156,8 @@ const child = spawn(
     '--serve',
     '--jsonl',
     runDir,
+    '--tenant',
+    tenant,
     // B5：签名密钥补丁（层序最外）；密钥生成失败时不传，保持缺钥行为
     ...(sagaKeyPath === undefined ? [] : ['--patch', join(runDir, 'saga-key.patch.yml')]),
   ],

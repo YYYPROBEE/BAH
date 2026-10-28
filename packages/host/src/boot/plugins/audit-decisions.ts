@@ -185,11 +185,28 @@ export const auditDecisionsPlugin: HostPlugin<AuditDecisionsSettings> = {
           },
           verifyAll() {
             const breaks: ChainBreak[] = []
+            const tenant = String(run.tenantId)
+            const files = new ChainFile({ rootDir: root, fsync: false, warn: () => undefined })
             for (const id of chainIds(root)) {
               try {
                 const result = audit.verifyContinuity(id)
                 if (!result.ok) {
                   breaks.push({ chainId: id, brokenAt: result.brokenAt ?? 0 })
+                  continue
+                }
+                /**
+                 * 租户对账（复审 AR-02）：整目录被搬到别的租户下时，哈希链**仍然连续**，
+                 * 只有这一条能发现。历史行没有 `tenant`，跳过（迁移前的链只能靠目录位置）。
+                 */
+                const foreign = files
+                  .read(id)
+                  .find((row) => row.tenant !== undefined && row.tenant !== tenant)
+                if (foreign !== undefined) {
+                  breaks.push({
+                    chainId: id,
+                    brokenAt: foreign.q,
+                    error: `链行租户 ${String(foreign.tenant)} ≠ 本进程租户 ${tenant}（链目录可能被搬错租户）`,
+                  })
                 }
               } catch (error) {
                 breaks.push({ chainId: id, brokenAt: 0, error: reasonOf(error) })

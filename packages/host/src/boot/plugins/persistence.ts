@@ -12,7 +12,7 @@ import { join } from 'node:path'
 
 import { defineService } from '@bah/core'
 import { JsonlPersistence } from '@bah/persistence'
-import { assertSafePathSegment } from '@bah/util'
+import { BahError, assertSafePathSegment, isTenantId } from '@bah/util'
 
 import type { SessionEvent, SessionId } from '@bah/core'
 import type { TenantId } from '@bah/util'
@@ -73,12 +73,20 @@ export const DEFAULT_ROOT = 'sessions'
  *
  * @param baseRoot 部署根（`--jsonl` 覆盖值或 `core:persistence.root`）
  * @param tenantId 启动期确定的租户
+ * @throws `BahError('tenant-id-invalid')` 不是合法租户 ID
  */
 export function tenantRootOf(baseRoot: string, tenantId: TenantId): string {
   const id = String(tenantId)
-  // 租户 ID 已过 `parseTenantId`（字符集 [a-z0-9-]）；这里再挡一道，
-  // 因为 `asTenantId` 是无校验断言，而它下面紧跟的就是 mkdir -p
-  assertSafePathSegment(id, 'tenantId')
+  // 用**租户字符集**而不是路径白名单：路径白名单会放过 `undefined` / `Demo` / `demo_1`
+  // 这类"路径安全但不是租户"的值（复审 AR-03：JS 调用方漏传 tenantId 时会落成
+  // `<root>/undefined`，既没有报错也没有意义）。`asTenantId` 是无校验断言，这里是兜底。
+  if (!isTenantId(id)) {
+    throw new BahError(
+      'tenant-id-invalid',
+      `租户根解析失败：${JSON.stringify(id)} 不是合法租户 ID（TenantId 必须经 parseTenantId 产出）`,
+      { tenantId: id, baseRoot },
+    )
+  }
   return join(baseRoot, id)
 }
 
