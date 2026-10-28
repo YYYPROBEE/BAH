@@ -33,7 +33,7 @@ pnpm install          # 同时把 core.hooksPath 指到 .githooks
 ```
 
 `pnpm install` 的 `prepare` 会执行 `git config core.hooksPath .githooks`；
-之后提交跑 `pnpm gate`（36 项），推送跑 `pnpm check`（10 步）。钩子挡疏忽，不挡 `--no-verify`。
+之后提交跑 `pnpm gate`（40 项），推送跑 `pnpm check`（14 步）。钩子挡疏忽，不挡 `--no-verify`。
 
 ---
 
@@ -181,9 +181,9 @@ headless 走 `provider: router`（读消息现规划，不是固定磁带），�
 ### 4.4 一键自证（不需要密钥）
 
 ```bash
-pnpm test              # 219 文件 / 2403 用例（2026-10-28 实测；前端另有 55 例）
-pnpm test:snapshot     # 6 场景 / 7 文件 28 例，录制↔回放逐条全等
-pnpm gate              # 36/36
+pnpm test              # 219 文件 / 2404 用例（2026-10-28 实测；前端另有 55 例）
+pnpm test:snapshot     # 7 场景 / 8 文件 34 例，录制↔回放逐条全等
+pnpm gate              # 40/40
 pnpm demo:verifier-fail # 判决件异常 → 结果被挡在模型之外（20 条断言）
 ```
 
@@ -270,7 +270,7 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>" --key "<demo:web 打印�
 | 第一次对话报「未配置密钥」 | 已切 DeepSeek 但 `BAH_MODEL_KEY` 为空 | 写 `.env.local`；或按 profile 注释把 `core:model` 与 `core:agent.loop.model` 成对换回 router |
 | 知识问答报 `knowledge-unavailable` | 7801 sidecar 没起 | `pnpm rag:dev`（或按 `services/rag` 的 README 起），再确认探活 |
 | 断路器冻结，解不掉 | 在用 headless | headless 只能重启；Web 用管理路由 |
-| 提交被 `pnpm gate` 拒绝 | 36 项里有红 | 看输出末段；`docs` 路径红最常见（引用了不存在的文件） |
+| 提交被 `pnpm gate` 拒绝 | 40 项里有红 | 看输出末段；`docs` 路径红最常见（引用了不存在的文件） |
 | 推送被 `pnpm check` 拒绝 | 14 步里有红 | 先 `pnpm test:snapshot`；快照红会卡在最后一步 |
 | 演示日志里全是历史转账 | 用 `pnpm web` 起在了共享 `sessions/`；`demo:web` 才会每次新建独立目录 | 改用 `pnpm demo:web`，按打印的目录审计；不要删别人的历史目录 |
 
@@ -279,8 +279,8 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>" --key "<demo:web 打印�
 ## 6. 演示前 60 秒检查
 
 ```bash
-pnpm gate                 # 36/36（不需要 BAH_ALLOW_NO_SNAPSHOT）
-pnpm test:snapshot        # 7 文件 / 28 例（录制↔回放逐条全等）
+pnpm gate                 # 40/40（不需要 BAH_ALLOW_NO_SNAPSHOT）
+pnpm test:snapshot        # 8 文件 / 34 例（录制↔回放逐条全等）
 pnpm demo:verifier-fail   # 退出码 0
 pnpm demo:web             # 另开终端；记下打印的“本次会话目录”
 curl -s http://127.0.0.1:7331/api/health   # 返回 JSON，且不含票据 ID

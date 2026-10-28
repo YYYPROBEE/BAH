@@ -1,6 +1,6 @@
 # BAH 事实表（演示材料的唯一数字来源）
 
-> 更新：2026-10-28（端口守卫修复后复核测试数与 CI 覆盖率台账）。任何 PPT / 视频 / 自评里的数字先查这里；
+> 更新：2026-10-28（S4 策略门禁 + `policy-externalized` 快照；测试数与 CI 覆盖率沿用 2026-10-28 口径）。任何 PPT / 视频 / 自评里的数字先查这里；
 > 改代码后重跑对应命令再改本表。**不要把三行测试数相加成一个"总用例数"**。
 > 数字的取值命令与原始输出见 `docs/facts-sources.md`；门禁 `verify-facts` 逐项比对，不一致即红。
 > ⚠ 本表上一版停在 2026-10-24，被 W03–W17 甩在后面（门禁还写 27/27、工具还写 14 个、
@@ -10,7 +10,7 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **219 文件 / 2403 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **219 文件 / 2404 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗） | **7 文件 / 55 用例** |
 
@@ -18,12 +18,11 @@
 
 | 命令 | 结果 | 说明 |
 |---|---|---|
-| `pnpm gate` | **36/36** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
+| `pnpm gate` | **40/40** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
-| `pnpm test:snapshot` | 7 文件 / 28 用例（28/28 绿） | 录制回放；`pnpm snapshot:record` 重录 |
+| `pnpm test:snapshot` | 8 文件 / 34 用例（34/34 绿） | 录制回放；`pnpm snapshot:record` 重录 |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
 | `pnpm test:coverage:all` | **行口径 91.14%**（31233/34270）/ **包口径 15/16**（**CI/Ubuntu 口径**） | 两个口径必须一起说；未达标只有 `eval` 53.20%（`memory-store` 89.40% 已达标） |
-
 评测平面（`pnpm eval`）：
 
 | 指标 | 实测 |

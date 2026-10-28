@@ -31,6 +31,8 @@ const SENSITIVE = [
   /^packages\/runtime\/src\//,
   /^packages\/llm\/src\//,
   /^packages\/bank\/src\//,
+  // 策略编译器/求值器：判决语义的唯一执行形态；改了它必须由快照背书。
+  /^packages\/policy\/src\//,
   /^packages\/saga\/src\//,
   /^packages\/persistence\/src\//,
   /^packages\/safety\/src\//,

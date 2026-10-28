@@ -20,7 +20,7 @@
 | 链 | 目录 | 写入方 | 条目 |
 |---|---|---|---|
 | saga 链 | `<root>/<sagaId>/audit.jsonl` | `bank:saga-audit` | `saga/*`（编排、补偿、恢复） |
-| 会话证据链 | `<root>/<sessionId>/audit.jsonl` | `audit:decisions` | `tool/call`（v1）、`tool/result`（v1 **摘要**：`{callId,name,isError,code,durationMs}`，B4）、`sentry/decision`（v2）、`approval/decided`（v2） |
+| 会话证据链 | `<root>/<sessionId>/audit.jsonl` | `audit:decisions` | `tool/call`（v1）、`tool/result`（v1 **摘要**：`{callId,name,isError,code,durationMs}`，B4）、`sentry/decision`（v2）、`approval/decided`（v2）、`policy/decision`（v2） |
 
 `audit:decisions` 在 boot 期拒绝占用编排链命名空间的会话 ID：`saga-*` 与 `system-startup`
 是保留名（否则两类条目会写进同一个 `audit.jsonl`）。换一个会话 ID 即可，不是环境坏了。
@@ -30,8 +30,15 @@
 - `version: 2`：与历史 v1 行区分；
 - `subject`：谁被判决（本仓写 `session:<sessionId>`，与 v1 的 `sub`（对象引用）不同）；
 - `decision`：`allow | deny | ask`；
-- `policyVersion`：判决策略版本（sentry / approval 各自独立）；
+- `policyVersion`：判决策略版本（sentry / approval / bank.tier 各自独立）；
 - `prevHash`：前一条 `recordHash`，是 v1 短键 `p` 的显式别名，两者必须相等。
+
+**`policy/decision`（策略外置 S3）**：每次 bundle 判决的 `tier/decided` 会镜像一条链记录，
+`d = sha256(canonicalJson(tier/decided.data))`。载荷里的 `policyVersion` 是
+`name/semver+sha256:<12>` 身份，`ruleIds` 是命中的规则行 ID，`paramsDigest` 是部署参数的
+稳定摘要，`evidence.input` 是去 PII 的完整判决输入。审计者按 `policyVersion` 找归档
+bundle、按 `evidence` 复算，再用 `policy:explain` 校验同一条判决；归档缺失会显式失败，
+不会用新策略重算历史。
 
 v1 行的哈希投影仍是原来的八个键，算法不改，所以**混链**可以逐条验。篡改 v2 的任一字段
 （含 `decision` 改为另一个合法值）都会让该条的 `recordHash` 对不上，`brokenAt` 直接给出条目序号。

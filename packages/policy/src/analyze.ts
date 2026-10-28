@@ -147,8 +147,10 @@ function subsumes(previous: IrRow, current: IrRow): boolean {
   const a = left.value
   const b = right.value
   if (typeof a !== 'number' || typeof b !== 'number') return false
-  if (left.dir === 'le' && right.dir === 'le') return a <= b
-  if (left.dir === 'ge' && right.dir === 'ge') return a >= b
+  // 前一行是 `x <= a`，后一行是 `x <= b`：前者的集合更大 ⇔ a >= b。
+  if (left.dir === 'le' && right.dir === 'le') return a >= b
+  // 前一行是 `x >= a`，后一行是 `x >= b`：前者的集合更大 ⇔ a <= b。
+  if (left.dir === 'ge' && right.dir === 'ge') return a <= b
   return false
 }
 
