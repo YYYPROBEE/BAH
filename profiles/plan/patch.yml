@@ -24,6 +24,7 @@
     demoUserId: u-1
     seed: 7
     datasetTier: demo
+    policy: { engine: bundle }
 
 - id: interaction:approval
   config:

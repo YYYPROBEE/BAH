@@ -39,6 +39,14 @@
     #   cachedInputPerMTok: 500000
     #   outputPerMTok: 8000000
 
+- id: policy:rules
+  config:
+    root: policies
+    active: { bank.tier: bank-tier/1.0.0 }
+    hotReload: true
+    requireSignature: false
+    shadow: { bank.tier: null }
+
 # C04 演示确定性：Web 演示进程的单会话日志不需要逐条 fsync。
 # 关掉后每次 append 不再阻塞在磁盘同步上，避免现场"点批准后气泡卡住"。
 # 代价是进程被硬杀时可能丢最后几条事件——演示用重启可复现的种子数据兜底。
@@ -52,6 +60,8 @@
     demoUserId: u-1
     seed: 7
     datasetTier: demo
+    # 策略外置 S3：判决走外置规则；热重载由下方 policy:rules 行打开
+    policy: { engine: bundle }
     # 实体槽位的数据层预算（只有 core:agent.slots.source=bank 时才会被读）。
     # 七键都有界：越界是 boot 期 invalid-config，不是运行期静默收敛。
     contextSlots:

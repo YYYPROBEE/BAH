@@ -47,7 +47,14 @@ const SAGA_EVENTS = new Set([
  */
 const SYSTEM_RECORDS = new Set(['saga/recovery-failed'])
 
-const REUSED_EVENTS = new Set(['tool/call', 'tool/result', 'approval/asked', 'approval/decided'])
+const REUSED_EVENTS = new Set([
+  'tool/call',
+  'tool/result',
+  'approval/asked',
+  'approval/decided',
+  // 策略外置 S3（02 §4.4）：tier/decided 的链上镜像，复用会话链而非 saga 状态机
+  'policy/decision',
+])
 
 const APPEND = /\.append\(\s*[^,]{1,160},\s*'([^']+)'/g
 const SAGA_DISPATCH = /\.(?:emit|serial|parallel|waterfall|bail)\(\s*'(saga\/[^']+)'/g
@@ -89,7 +96,7 @@ const gate: Gate = {
       findings,
       notes: [
         `扫描 ${files.length} 个源文件：append ${appendCount} 处、saga 派发点 ${dispatchCount} 处`,
-        `允许集合：${String(SAGA_EVENTS.size)} 个状态机键 + ${String(SYSTEM_RECORDS.size)} 个系统级审计记录 + 4 个复用键（${[...REUSED_EVENTS].join(' / ')}）`,
+        `允许集合：${String(SAGA_EVENTS.size)} 个状态机键 + ${String(SYSTEM_RECORDS.size)} 个系统级审计记录 + ${String(REUSED_EVENTS.size)} 个复用键（${[...REUSED_EVENTS].join(' / ')}）`,
       ],
     }
   },

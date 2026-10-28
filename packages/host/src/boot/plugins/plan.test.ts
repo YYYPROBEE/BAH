@@ -58,6 +58,8 @@ const BASE_ROWS: readonly PluginRow[] = [
   { id: 'core:agent', config: { loop: { model: 'deepseek:deepseek-chat' } } },
   { id: 'core:persistence', config: { root: 'sessions', fsync: false } },
   { id: 'audit:decisions' },
+  // 策略外置 S3：profile patch 把 bank:tools.policy.engine 切到 bundle，必须先装策略行
+  { id: 'policy:rules' },
   { id: 'bank:tools', config: { demoUserId: 'u-1', seed: 7, datasetTier: 'demo' } },
   {
     id: 'interaction:approval',

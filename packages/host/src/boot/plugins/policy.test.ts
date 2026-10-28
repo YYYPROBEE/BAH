@@ -735,63 +735,64 @@ describe('policy:rules · 启动失败矩阵（02 §13）', () => {
   })
 })
 
-describe('policy:rules × bank:tools（S2 端到端）', () => {
-  /** 真实底座 + 外置策略：`policy:rules` 必须排在 `bank:tools` 之前。 */
-  async function bootBank(
-    root: string,
-    bankConfig: Readonly<Record<string, unknown>>,
-    rows?: readonly { id: string; config?: Readonly<Record<string, unknown>> }[],
-  ): Promise<BootedApp> {
-    return boot({
-      profile: { name: 'policy-bank-test', bundles: ['policy-bank-test'], hmr: false },
-      bundles: [
-        {
-          name: 'policy-bank-test',
-          rows:
-            rows ??
-            ([
-              { id: 'core:session' },
-              { id: 'core:tools' },
-              { id: 'core:prompt' },
-              {
-                id: 'core:model',
-                config: {
-                  provider: 'mock',
-                  model: 'mock-chat',
-                  script: [
-                    {
-                      tool: {
-                        id: 'call-transfer',
-                        name: 'transfer_create',
-                        args: {
-                          amount: 800,
-                          payee: { name: '王建国', phone: '13900002222' },
-                          remark: '房租',
-                        },
+/** 真实底座 + 外置策略：`policy:rules` 必须排在 `bank:tools` 之前。 */
+async function bootBank(
+  root: string,
+  bankConfig: Readonly<Record<string, unknown>>,
+  rows?: readonly { id: string; config?: Readonly<Record<string, unknown>> }[],
+): Promise<BootedApp> {
+  return boot({
+    profile: { name: 'policy-bank-test', bundles: ['policy-bank-test'], hmr: false },
+    bundles: [
+      {
+        name: 'policy-bank-test',
+        rows:
+          rows ??
+          ([
+            { id: 'core:session' },
+            { id: 'core:tools' },
+            { id: 'core:prompt' },
+            {
+              id: 'core:model',
+              config: {
+                provider: 'mock',
+                model: 'mock-chat',
+                script: [
+                  {
+                    tool: {
+                      id: 'call-transfer',
+                      name: 'transfer_create',
+                      args: {
+                        amount: 800,
+                        payee: { name: '王建国', phone: '13900002222' },
+                        remark: '房租',
                       },
                     },
-                    { text: '已发起转账。' },
-                  ],
-                },
+                  },
+                  { text: '已发起转账。' },
+                ],
               },
-              {
-                id: 'core:agent',
-                config: { channel: 'headless', loop: { model: 'mock:mock-chat' } },
-              },
-              { id: 'policy:rules', config: { root } },
-              { id: 'bank:tools', config: bankConfig },
-            ] as const),
-        },
-      ],
-      layers: [],
-      catalog: createCatalog(),
-      run: {
-        sessionId: asSessionId('s-policy-bank'),
-        now: () => FIXED_NOW,
-        probe: true,
+            },
+            {
+              id: 'core:agent',
+              config: { channel: 'headless', loop: { model: 'mock:mock-chat' } },
+            },
+            { id: 'policy:rules', config: { root } },
+            { id: 'bank:tools', config: bankConfig },
+          ] as const),
       },
-    })
-  }
+    ],
+    layers: [],
+    catalog: createCatalog(),
+    run: {
+      sessionId: asSessionId('s-policy-bank'),
+      now: () => FIXED_NOW,
+      probe: true,
+    },
+  })
+}
+
+describe('policy:rules × bank:tools（S2 端到端）', () => {
 
   it('真实 bundle 判决：tier/decided 带版本/规则/参数摘要/证据，行为与等价基线一致', async () => {
     const root = tempRoot('bank-e2e')
@@ -895,5 +896,154 @@ describe('policy:rules × bank:tools（S2 端到端）', () => {
       code = shaped.detail?.cause?.code ?? shaped.code ?? 'unknown'
     }
     expect(code).toBe('policy-param-mismatch')
+  })
+})
+
+describe('policy:rules · 链上身份（S3）', () => {
+  it('bundle 判决写入 policy/decision：信封的 policyVersion 是内容寻址身份', async () => {
+    const root = tempRoot('chain')
+    install(root, 'bank-tier/1.0.0')
+    const sessions = mkdtempSync(join(tmpdir(), 'bah-policy-chain-'))
+    scratch.push(sessions)
+    const app = await bootBank(
+      root,
+      {
+        demoUserId: 'u-1',
+        seed: 7,
+        datasetTier: 'demo',
+        policy: { engine: 'bundle' },
+      },
+      [
+        { id: 'core:session' },
+        { id: 'core:tools' },
+        { id: 'core:prompt' },
+        {
+          id: 'core:model',
+          config: {
+            provider: 'mock',
+            model: 'mock-chat',
+            script: [
+              {
+                tool: {
+                  id: 'call-transfer',
+                  name: 'transfer_create',
+                  args: {
+                    amount: 800,
+                    payee: { name: '王建国', phone: '13900002222' },
+                    remark: '房租',
+                  },
+                },
+              },
+              { text: '已发起转账。' },
+            ],
+          },
+        },
+        {
+          id: 'core:agent',
+          config: { channel: 'headless', loop: { model: 'mock:mock-chat' } },
+        },
+        { id: 'core:persistence', config: { root: sessions, fsync: false } },
+        { id: 'audit:decisions' },
+        { id: 'policy:rules', config: { root } },
+        { id: 'bank:tools', config: { demoUserId: 'u-1', policy: { engine: 'bundle' } } },
+        {
+          id: 'interaction:approval',
+          config: { responder: 'headless', autoDecision: 'allow', autoVerify: true },
+        },
+      ],
+    )
+    try {
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('转账 800 元给王建国')
+      await agent.run()
+
+      const chain = readFileSync(join(sessions, 's-policy-bank', 'audit.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+      const policyRows = chain.filter((row) => row['t'] === 'policy/decision')
+      expect(policyRows).toHaveLength(1)
+      expect(policyRows[0]?.['decision']).toBe('ask')
+      expect(String(policyRows[0]?.['policyVersion'])).toMatch(
+        /^bank-tier\/1\.0\.0\+sha256:[0-9a-f]{16}$/,
+      )
+      expect(policyRows[0]?.['version']).toBe(2)
+      expect(policyRows[0]?.['subject']).toBe('session:s-policy-bank')
+    } finally {
+      await app.dispose('test')
+    }
+  })
+})
+
+describe('policy:rules · 形状负例（S3）', () => {
+  const bootCode = async (root: string, config?: Record<string, unknown>): Promise<string> => {
+    const codeOf = (error: unknown): string => {
+      const shaped = error as { code?: string; detail?: { cause?: unknown } }
+      if (shaped.code === 'boot-failed' && shaped.detail?.cause !== undefined) {
+        return codeOf(shaped.detail.cause)
+      }
+      return typeof shaped.code === 'string' ? shaped.code : 'unknown'
+    }
+    try {
+      const app = await bootPolicy({ root, ...(config === undefined ? {} : { config }) })
+      await app.dispose('cleanup')
+      return 'no-throw'
+    } catch (error) {
+      return codeOf(error)
+    }
+  }
+
+  it('runtime-state 把 active 指向 shadow 同版本 → policy-shadow-self', async () => {
+    const root = tempRoot('shadow-self')
+    const stable = install(root, 'bank-tier/1.0.0')
+    const demo = install(root, 'bank-tier-demo/1.0.0', demoBundle)
+    writeRegistry(root, {
+      'bank-tier/1.0.0': entryOf('bank-tier/1.0.0', stable),
+      'bank-tier-demo/1.0.0': entryOf('bank-tier-demo/1.0.0', demo),
+    })
+    writeState(root, { 'bank.tier': { active: 'bank-tier-demo/1.0.0' } })
+    expect(
+      await bootCode(root, { shadow: { 'bank.tier': 'bank-tier-demo/1.0.0' } }),
+    ).toBe('policy-shadow-self')
+  })
+
+  it('registry 条目缺字段 → policy-registry-invalid', async () => {
+    const root = tempRoot('registry-field')
+    const stable = install(root, 'bank-tier/1.0.0')
+    writeFileSync(
+      join(root, 'registry.json'),
+      JSON.stringify({
+        apiVersion: 'bah.policy.registry/v1',
+        kinds: { 'bank.tier': { versions: { 'bank-tier/1.0.0': { path: stable } } } },
+      }),
+      'utf8',
+    )
+    expect(await bootCode(root)).toBe('policy-registry-invalid')
+  })
+
+  it('canary.sessions 含空串 / active 空串 → policy-state-invalid', async () => {
+    const root = tempRoot('state-strings')
+    install(root, 'bank-tier/1.0.0')
+    writeState(root, {
+      'bank.tier': {
+        active: 'bank-tier/1.0.0',
+        canary: { version: 'bank-tier/1.0.0', percent: 0, sessions: [''], epoch: 1 },
+      },
+    })
+    expect(await bootCode(root)).toBe('policy-state-invalid')
+
+    writeState(root, { 'bank.tier': { active: '' } })
+    expect(await bootCode(root)).toBe('policy-state-invalid')
+  })
+
+  it('显式 allowedKeyVersions 会传给编译（不被默认值吞掉）', async () => {
+    const root = tempRoot('key-version')
+    install(root, 'bank-tier/1.0.0')
+    const app = await bootPolicy({ root, config: { signature: { allowedKeyVersions: [1, 2] } } })
+    try {
+      expect(findPolicyDescriptor(app.ctx)?.handle).toBe('bank-tier/1.0.0')
+    } finally {
+      await app.dispose('test')
+    }
   })
 })

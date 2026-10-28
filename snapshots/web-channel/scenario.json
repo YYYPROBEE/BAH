@@ -65,12 +65,20 @@
       "config": {}
     },
     {
+      "id": "policy:rules",
+      "use": "policy:rules",
+      "config": {}
+    },
+    {
       "id": "bank:tools",
       "use": "bank:tools",
       "config": {
         "demoUserId": "u-1",
         "seed": 7,
-        "datasetTier": "demo"
+        "datasetTier": "demo",
+        "policy": {
+          "engine": "bundle"
+        }
       }
     },
     {
@@ -182,7 +190,6 @@
     "packages/persistence/src/saga-store/",
     "packages/safety/src/sentry/",
     "packages/interaction/src/approval/",
-    "packages/saga/src/recovery/",
-    "packages/bank/src/forge/"
+    "packages/saga/src/recovery/"
   ]
 }
