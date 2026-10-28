@@ -1,0 +1,30 @@
+# S1 负控矩阵（对抗式审查）
+# 命令：npx tsx <temp>/policy-drill.ts（对真实 bundle 逐条变形，走 compileBundle 全链路）
+# 时间：2026-10-28T16:26:10+08:00
+# HEAD：c15fb28（工作区含 S1 未提交改动）
+# 结论：24/24 PASS（应红即红）
+
+PASS	1 降级字段 lower	期望 policy-lower-tier	实际 policy-lower-tier	rules.yml:25: 不支持降级字段 `lower`
+PASS	2 降级动作 raise:green	期望 policy-lower-tier	实际 policy-lower-tier	rules.yml:20: TR-002-new-payee: 不支持降级到 green
+PASS	3 重复规则 ID	期望 policy-duplicate-rule	实际 policy-duplicate-rule	rules.yml:18: TR-001-over-daily-limit: 规则 ID 重复：TR-001-over-daily-limit
+PASS	4 缺默认行	期望 policy-missing-default	实际 policy-missing-default	rules.yml:23: TR-003-default: 最后一行必须是默认行 `when: true`
+PASS	5 不可达行（同谓词）	期望 policy-unreachable-row	实际 policy-unreachable-row	rules.yml:18: TR-002-new-payee: 规则 `TR-002-new-payee` 被前序规则 `TR-001-over-daily-limit` 完全覆盖
+PASS	6 不可满足行	期望 policy-unsatisfiable-row	实际 policy-unsatisfiable-row	rules.yml:18: TR-002-new-payee: 规则 `TR-002-new-payee` 的谓词恒假
+PASS	7 未知字段	期望 policy-unknown-field	实际 policy-unknown-field	rules.yml:14: TR-001-over-daily-limit: 字段 `preview.amount` 不在 schema 内
+PASS	8 未知工具	期望 policy-unknown-tool	实际 policy-unknown-tool	rules.yml:8: 工具 `foo` 不在工具目录中
+PASS	9 未知参数	期望 policy-unknown-param	实际 policy-unknown-param	rules.yml:31: RC-001-over-threshold: 参数 `nope` 未在 manifest 声明
+PASS	10 参数未用	期望 policy-param-unused	实际 policy-param-unused	rules.yml: 参数 `riskyCallThreshold` 已声明但没有任何行引用
+PASS	11 浮点金额	期望 policy-parse-error	实际 policy-parse-error	rules.yml:14: TR-001-over-daily-limit: 不支持小数（金额只用整数分）
+PASS	12 正则调用	期望 policy-unknown-operator	实际 policy-unknown-operator	rules.yml:19: TR-002-new-payee: 不支持函数调用 `matches()`
+PASS	13 读环境变量	期望 policy-unknown-field	实际 policy-unknown-field	rules.yml:19: TR-002-new-payee: 不允许读环境/进程状态 `env`
+PASS	14 非法理由	期望 policy-bad-reason	实际 policy-bad-reason	rules.yml:21: TR-002-new-payee: 理由 `fast` 不在词表内
+PASS	15 非法拒绝码	期望 policy-bad-deny-code	实际 policy-bad-deny-code	rules.yml:20: TR-002-new-payee: 拒绝码 `policy-other` 未在 denyCodes 声明
+PASS	16 一行两个动作	期望 policy-row-action-conflict	实际 policy-row-action-conflict	rules.yml:18: TR-002-new-payee: 一行只能有一个动作，实际有 raise/keep
+PASS	17 版本非 semver	期望 policy-bad-semver	实际 policy-bad-semver	bundle.yml:4: 版本必须是 semver：1
+PASS	18 目录/版本不一致	期望 policy-version-mismatch	实际 policy-version-mismatch
+PASS	19 就地改一个字符（源摘要）	期望 policy-digest-mismatch	实际 policy-digest-mismatch	lock.json: 源摘要不符：bundle 被就地改动（lock c5093f5be4cf585c090715516a5a5d16b78e7a0d3fd28eaf4759ee2
+PASS	20 引擎不兼容	期望 policy-engine-incompatible	实际 policy-engine-incompatible	bundle.yml:8: 引擎 1.0.0 不在 [9.0.0, 9.x] 内
+PASS	21 超大 bundle	期望 policy-limit-exceeded	实际 policy-limit-exceeded	bundle 总字节超过 262144
+PASS	22 路径穿越	期望 policy-parse-error	实际 policy-parse-error	bundle.yml:13: rulesFile 必须是 bundle 内的简单文件名（禁止路径分隔符）
+PASS	23 缺语料	期望 policy-corpus-missing	实际 policy-corpus-missing	corpus.yml: 缺少文件 `corpus.yml`
+PASS	24 requireSignature 无签名	期望 policy-signature-invalid	实际 policy-signature-invalid

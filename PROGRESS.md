@@ -5715,3 +5715,47 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 | B 对抗与回归 | README §3.5 与 §4 原本自相矛盾（验签门"未施工" vs "双层签名已落地"） | 统一到 security-design §4 口径：条目级已落地、信封未做 |
 | B 对抗与回归 | `printf` 写中文长文本遇 `%` 截断（本轮真实事故） | 改用 Edit 工具补全；方法论登记：PROGRESS 追加一律用 Edit，不用 printf |
   新 plan 节点（只拦新动作，不打断已在途的写）"；security-design §4 补充 85.83
+
+## 96.28 2026-10-28 策略外置 S1：语言、编译器与求值器（`@bah/policy`）
+
+### 96.28.1 做了什么
+
+- **新包 `packages/policy`**（纯库）：`schema`（输入契约 + 类型守卫）、`expr/{lexer,parser,check,eval}`
+  （整数/枚举/布尔表达式，无浮点/正则/时钟/I/O）、`table`（first-match + 默认行 + `raise/keep/deny`）、
+  `analyze`（重复/不可达/恒假/参数未用/deny 顺序）、`canonical`（语义摘要/源摘要/身份）、
+  `corpus`（语料 + 覆盖 + 变异）、`signature`（Ed25519）、`load`（唯一 I/O 边界）、`compile`（流水线）。
+- **生产 bundle `policies/bank-tier/1.0.0`**：5 条规则（2 表）、20 条语料、CHANGELOG、`lock.json`。
+  与 `tier.ts` legacy 逐条等价；**修正了方案示例的一个语义 bug**：RC-001 补 `level != "green"`，
+  否则"绿级 + 风险超阈"的理由会与 legacy 分叉（语料 C-020 钉住）。
+- **CLI**：`policy:lint` / `policy:compile --write|--check` / `policy:test`（其余 9 条命令属 S3/S4，未宣称）。
+- **工程登记**：tsconfig 三处、`vitest.shared` 包目录、覆盖率名单（`policy` 全包 100%）、barrel 名单、
+  `verify-package-graph` 域层、`package.json` scripts。
+- **测试**：7 文件 / 136 例，含错误码矩阵自检（27 码 + 1 告警，触发集合与码表**完全相等**）、
+  10000 组属性测试（种子 0xBA11）、16 个变异体 100% 杀死。
+
+### 96.28.2 判据与输出
+
+| 判据 | 实测 |
+|---|---|
+| 逐文件覆盖 | `packages/policy/src/**` 行/语句/函数 **100%**，分支最低 80.0% |
+| `policy:lint` / `compile --check` / `policy:test` | 全绿；变异 16/16 killed；边界 5/5、规则 5/5、理由 4/4 |
+| 错误码 | 码表 28 条（§6.4 的 24 + §5.3/§2.2/§5.4 的 4），逐条有触发用例且集合相等 |
+| 负控 | **24/24 应红即红**（`docs/evidence/2026-10-28-policy-externalization/s1-negative-controls.log`） |
+| CRLF 检出 | 整目录转 CRLF 后 `--check` 仍通过（摘要按规范化文本算） |
+| 全量 | `pnpm test` **214 文件 / 2331 例**；`pnpm typecheck` 绿；`pnpm gate` **36/36** |
+
+### 96.28.3 双角度复审（详见 `docs/evidence/2026-10-28-policy-externalization/s1-construction-and-review.md`）
+
+| 视角 | 发现 | 处置 |
+|---|---|---|
+| A 验收 | 方案 §14 写"错误码 22 条"，实为 24 + 4 | 实现 28 条并由测试自检；文档债登记 |
+| A 验收 | PE-12 的 `has()` 与 §5.1"无 has()"冲突 | 采用表级 `requires` 守卫，未守卫引用报 `policy-type-mismatch` |
+| A 验收 | §3.1 "name 等于上一级目录名"与"目录名=版本号"矛盾 | 按 `policies/<name>/<version>/` 实现；负控 18 验证 |
+| A 验收 | CLI 契约 12 条只交付 3 条 | 属 S3/S4；**不宣称 CLI 齐全** |
+| B 对抗 | `compiled.parameters` 可变 → 改边界即改语义 | **已修**：深冻结 parameters（含每项） |
+| B 对抗 | `maxStringLength` 与 `maxExprChars` 同为 4096 → 超长字符串分支不可达 | **已修**：降到 1024，分支可测 |
+| B 对抗 | `check.ts` 的 env/process 守卫被 parser 抢先，永远不可达 | **已删**（G8：不留不可达防御） |
+| B 对抗 | `readBundleFiles` 的单文件 catch 无法稳定复现 | **已删**，让原始错误直接冒 |
+| B 对抗 | 源摘要含 CHANGELOG：改错别字也要新版本 | 保留（I9 优先），CHANGELOG 写明"不可就地修改" |
+| B 对抗 | 静态分析 sound 但 incomplete（合取矛盾、组合覆盖不判） | 方案 §7.1 允许；登记不改 |
+| **P1** | **覆盖率台账滞后**：`policy` 进名单后 CI 分母变化，`verify-facts` 在 CI 首跑会比旧台账红 | 本机 Windows 口径不可比（PA-06），**不写本机数**；按先例 `23df3e6` 在 CI 跑批后用实测更新台账 + facts 三处 |

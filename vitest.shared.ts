@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url'
 const PACKAGE_DIRS = [
   'core',
   'runtime',
+  'policy',
   'llm',
   'interaction',
   'safety',

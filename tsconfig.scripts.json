@@ -28,6 +28,7 @@
     "paths": {
       "@bah/core": ["./packages/core/src/index.ts"],
       "@bah/runtime": ["./packages/runtime/src/index.ts"],
+      "@bah/policy": ["./packages/policy/src/index.ts"],
       "@bah/llm": ["./packages/llm/src/index.ts"],
       "@bah/llm/mock": ["./packages/llm/src/mock/index.ts"],
       "@bah/llm/demo": ["./packages/llm/src/demo/index.ts"],

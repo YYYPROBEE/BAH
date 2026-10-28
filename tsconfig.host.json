@@ -4,6 +4,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/runtime" },
+    { "path": "packages/policy" },
     { "path": "packages/llm" },
     { "path": "packages/interaction" },
     { "path": "packages/safety" },
