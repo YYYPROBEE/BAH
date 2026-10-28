@@ -78,6 +78,9 @@ const SERVICE_OWNER: Readonly<Record<string, string>> = {
   'audit:decisions': 'audit:decisions',
   'bank:identity': 'bank:tools',
   'bank:ticket-guard': 'bank:tools',
+  // 实体槽位数据源：由 bank:tools provide、core:agent **懒取**（不在 inject 里）。
+  // 因为它不是注入边，依赖图里不会画这条线——这是已知表达边界，与 safety:halt 同类。
+  'runtime:context-source': 'bank:tools',
   'interaction:approval': 'interaction:approval',
   'safety:sentry': 'safety:sentry',
   // saga 时钟由 `provideSaga` 自己提供（saga.ts 的注释明确禁止把它写进 inject）

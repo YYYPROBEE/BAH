@@ -7,7 +7,7 @@
 
 | 面 | 命令 | 配置 | 装什么 | 现状（2026-10-27 实测） |
 |---|---|---|---|---|
-| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 206 文件 / 2171 用例 |
+| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 207 文件 / 2195 用例 |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
 | snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 6 文件 / 23 用例 |
 | web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 7 文件 / 55 用例 |
@@ -72,7 +72,7 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 - **第 4 批明确不做**：`eval`（53.20%，主体是评测 harness 的场景装载）**不进**本轮目标；
   `memory-store` 已随补测升到 89.40%，不再属于放弃项。这是**显式放弃的项目**，不是漏做——写在这里是为了
   让"80%/85%"这两个数可复现，而不是靠慢慢缩分母。
-- 现状（2026-10-28 实测，2171 例全绿）：覆盖率数字以 `facts.md` 为准（本文不重复记具体百分比，避免二次漂移）
+- 现状（2026-10-28 实测，2195 例全绿）：覆盖率数字以 `facts.md` 为准（本文不重复记具体百分比，避免二次漂移）
   **包口径 15/16**（CI/Ubuntu 口径；Windows 检出为 CRLF 时 v8 行映射会退化，分母虚高，别拿本机数对账）；分母只含参与统计的逻辑行，注释、空行与纯类型文件按设计不计入。
 - 产物：`coverage/lcov.info`、`coverage/lcov-report/`（名单口径）；
   `.ci-artifacts/cov-all/coverage-summary.json`（全仓口径）。两者都已进 `.gitignore`。
