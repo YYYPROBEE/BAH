@@ -90,12 +90,15 @@ export interface MessageFrame {
   readonly kind: 'message'
   readonly seq: number
   readonly at: number
-  readonly role: 'user' | 'assistant'
+  /** C5-2：`operator` 是人工坐席发言，与 assistant 区别渲染（不是模型说的）。 */
+  readonly role: 'user' | 'assistant' | 'operator'
   readonly blocks: readonly MessageBlock[]
   /** 本轮发起的工具调用（只给 ID / 名字，明细在 `tool` 帧）。 */
   readonly toolCalls?: readonly { readonly callId: string; readonly name: string }[]
   /** 消息来源（`context` = 工具后置纠正文本，不显示为用户发言）。 */
   readonly source?: string
+  /** 坐席显示名（仅 `role:'operator'` 时有值）。 */
+  readonly operator?: string
 }
 
 /**
@@ -242,6 +245,27 @@ export interface DagFrame {
   readonly summary: string
 }
 
+/** 接管状态变化（用户页顶部横幅）。 */
+export interface HandoffFrame {
+  readonly kind: 'handoff'
+  readonly seq: number
+  /** 进入接管的时刻（认领帧也沿用它，见 `projectHandoff`）。 */
+  readonly at: number
+  readonly active: boolean
+  readonly reason?: string
+  readonly operator?: string
+  readonly waitedMs?: number
+}
+
+/** 超时告警（不自动交回，只提示）。 */
+export interface HandoffWarnFrame {
+  readonly kind: 'handoff-warn'
+  readonly seq: number
+  readonly at: number
+  readonly waitedMs: number
+  readonly slaMs: number
+}
+
 /** 全量快照（连接 / 重同步）。 */
 export interface SnapshotFrame {
   readonly kind: 'snapshot'
@@ -261,6 +285,8 @@ export type WebFrame =
   | NoticeFrame
   | AuditFrame
   | DagFrame
+  | HandoffFrame
+  | HandoffWarnFrame
   | SnapshotFrame
 
 /** 帧的稳定键：同一键的新帧**替换**旧帧（不追加），这是三态与 DAG 更新的基础。 */
@@ -284,6 +310,13 @@ export function frameKey(frame: WebFrame): string {
       return `audit:${String(frame.seq)}`
     case 'dag':
       return `dag:${String(frame.turn)}`
+    case 'handoff':
+      // 固定 key：接管会循环（进入→交回→再进入），按 active 分键会让重放顺序
+      // 出现"新的 active:true 被旧的 active:false 覆盖"的假状态。
+      return 'handoff'
+    case 'handoff-warn':
+      // 固定 key（不带 seq）：超时只该有一个红标，累积多条没有意义。
+      return 'handoff-warn'
     case 'snapshot':
       return 'snapshot'
     default:

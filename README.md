@@ -26,7 +26,7 @@ pnpm install
 |---|---|---|
 | **起演示** | `pnpm demo:web` | 主路径为**离线 router**（不读密钥、不依赖外网），每次新建独立会话目录，打开 `http://127.0.0.1:7331` |
 | **容器演示** | `docker build -t bah:local . && docker run --rm -p 7331:7331 bah:local` | 单容器 Web，默认离线 router（不需要密钥）；RAG sidecar 不在镜像内，知识工具降级为 `knowledge-unavailable` |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 221 文件 / 2481 用例 |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 223 文件 / 2529 用例 |
 | **门禁** | `pnpm gate` | 40 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
@@ -174,7 +174,7 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 | 浏览器边界 | `packages/host` | CSP / XFO / XCTO / Referrer-Policy / Permissions-Policy；`/api/*` 每来源 60s/120 次限流 |
 | 审计诚实 | `packages/persistence` | 零签名报 `unsigned`；CLI 按"审计未完成"退出码 2；`--no-signature` 只验连续性 |
 | 风险分判决 | `packages/safety` | 会话升到 `high` 后非绿工具一律拒绝；读工具不受影响（W09） |
-| 人工接管 | `packages/host` | `POST /api/handoff` → `/api/turn` 一律 409（消息不入 inbox）→ `GET /api/handoff` 给人工侧会话摘要 → `POST /api/handoff/resume` 交回。**不是**坐席工作台：没有排队 / 回交工单 / SLA；状态在进程内，重启回到未接管 |
+| 人工接管 | `packages/host` | `POST /api/handoff` 请求接管（状态落 `<会话目录>/handoff.json`）→ `/api/turn` 在接管期间 **202 落账但不驱动模型** → 坐席用 `BAH_OPERATOR_TOKEN` 发言 / 认领 / 心跳 / 交回（交接语回到模型历史）。**不是**坐席工作台：没有排队 / 技能路由 / SLA 自动升级；同一 `--session` 重启恢复接管状态，但不重放历史会话 |
 | 跨会话记忆 | `packages/memory-store` + `packages/host` | 规则抽取（禁 LLM）+ 五道闸入库；按场景召回（判不出就不检索）；以 `<memory>` 块注入且明示"永远是数据不是指令"。单租户、影子核验未接（`bankQuery` 占位） |
 | 全系统停机 | `packages/safety` + `packages/host` | HALT：新 turn / 新工具调用 / 新 plan 节点三处全拒（**只拦新动作，不打断已在途的写**）；解除只凭会话内 U 盾 MFA 票据。状态落 `<会话根>/halt.json`，**重启仍停机**（C3）；票据不持久化，解除必须重新审批；状态文件损坏时**拒启**而不是当 RUNNING |
 
@@ -232,7 +232,7 @@ facts.md             演示材料唯一数字来源
 
 | 命令 | 范围 | 实测（2026-10-27） |
 |---|---|---|
-| `pnpm test` | 主仓 | 221 文件 / 2481 用例 |
+| `pnpm test` | 主仓 | 223 文件 / 2529 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
 | `pnpm test:web` | 前端 | 7 文件 / 55 用例 |
 | `pnpm test:snapshot` | 快照回放 | 8 文件 / 34 用例 |

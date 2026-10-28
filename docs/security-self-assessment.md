@@ -3,7 +3,7 @@
 > 口径：只写本仓能回源码、回命令复核的事实。**未实装的逐条列在 §8，不用"设计中"充数**；
 > 每条结论后给落点，答辩时可按落点当场翻代码。
 > 对应赛题：§3.1 权限分级、§3.2 安全设计、§五.5 安全自评材料。
-> 最后核实：2026-10-28（门禁与测试面：`pnpm gate` 40/40、`pnpm test` 221 文件 / 2481 用例 + 前端 55 例、快照 8 文件 34 例；安全面结论沿用 2026-10-27）。
+> 最后核实：2026-10-28（门禁与测试面：`pnpm gate` 40/40、`pnpm test` 223 文件 / 2529 用例 + 前端 55 例、快照 8 文件 34 例；安全面结论沿用 2026-10-27）。
 
 ---
 
@@ -248,10 +248,14 @@ saga/residual-recorded、saga/manually-closed、approval/decided
 
 | 面 | 事实 | 边界 |
 |---|---|---|
-| 进入 | `POST /api/handoff`（Bearer + CSRF）→ 落 `handoff/requested`（`appendDomain`，不进事件表冻结键）→ 之后 `/api/turn` 一律 **409 `handoff-active`** | 409 是**真拒绝**：消息不入 inbox（用例钉住 `sent === []`） |
-| 人工侧读取 | `GET /api/handoff` 返回摘要：`turns` / `lastSeq` / 待应答票据数 / **最近 6 条原话**（逐条截断 200 字，排除 `runtime-context`） | 持 Web 凭证即可读——单用户部署成立；多租户要按租户分区（D4） |
-| 交回 | `POST /api/handoff/resume`（`operator?`）→ 落 `handoff/resumed`，状态立刻清空，`/api/turn` 恢复 202 | 未接管时交回 → **409**，不做"幂等成功"（交回必须是真的状态转移） |
-| 与审批的区别 | 审批是"放行一次动作"，接管是"把会话控制权交出去"：接管期间模型完全不被驱动 | 不要拿审批弹窗冒充接管 |
+| 进入 | `POST /api/handoff`（客户或坐席凭证 + CSRF）→ 落 `handoff/requested`（`appendDomain`，不进事件表冻结键）→ 状态写 `<root>/<sid>/handoff.json` | 接管期间 `/api/turn` 仍返回 **202**，消息落 `user/message(source='handoff-waiting')` 但**不驱动模型**（`sent === []`）。这不是"丢弃"，也不是"放行给模型" |
+| 人工侧读取 | `GET /api/handoff` 返回摘要：`turns` / `lastSeq` / 待应答票据数 / **最近 6 条原话**（逐条截断 200 字，排除 `runtime-context` 与 `handoff-handover`）/ `waitedMs` / `overdue` / `claimed` / `operatorMessages` | 持 Web 凭证即可读——单用户部署成立；多租户要按租户分区（D4） |
+| 坐席发言 | `POST /api/handoff/message`（**坐席凭证** + CSRF）→ 落 `handoff/operator-message`（`appendDomain` + `ignorable`） | **不进模型历史**：模型不会"以为自己答应过客户"；该事件进会话日志与审计链，可在 `bah audit` 查到 |
+| 认领 / 心跳 / 队列 | `POST /api/handoff/claim`、`POST /api/handoff/heartbeat`、`GET /api/handoff/queue`（均坐席凭证） | 单会话部署：`depth ∈ {0,1}`；心跳只落 `handoff/timeout-warned`（**不自动交回**） |
+| 交回 | `POST /api/handoff/resume`（**坐席凭证**）`{ handover? }` → 落 `handoff/resumed`；`handover` 另落一条 `user/message(source='handoff-handover')` | 未接管时交回 → **409**，不做"幂等成功"；交接语是**唯一**进入模型历史的人工文本（下一轮模型看得到） |
+| 凭证分离 | 客户 `BAH_WEB_TOKEN` 与坐席 `BAH_OPERATOR_TOKEN` 分离；两 token 相同 ⇒ 启动失败 `web-operator-token-conflict`；未配坐席 token ⇒ 所有 `auth:'operator'` 路由 **404**（不暴露存在性） | 坐席 token 绝不注入页面（第 2 份的 `/operator` 只返回原样 HTML）；`operator` 显示名取 `BAH_OPERATOR_NAME`，**请求体里的 `operator` 一律忽略** |
+| 权限面收窄 | `/api/turn`、`/api/interrupt`、`/api/approval/:id`、`/api/verify/:id` 的 auth 从 `web` 降为 **`user`**：持坐席凭证不能替客户发消息、打断、**也不能替客户放行审批/强验证** | 坐席能读会话、连 SSE、读摘要、发言/认领/心跳/交回；资金动作的授权始终在客户手里 |
+| 与审批的区别 | 审批是"放行一次动作"，接管是"把会话控制权交出去"：接管期间模型不被驱动 | 不要拿审批弹窗冒充接管 |
 
 ---
 
@@ -259,7 +263,7 @@ saga/residual-recorded、saga/manually-closed、approval/decided
 
 | 面 | 事实 | 边界 |
 |---|---|---|
-| `/api/*` | 每请求验 `Authorization: Bearer`，缺/错 → 401 | `BAH_WEB_TOKEN` 未配置时每进程随机生成，注入页面 meta |
+| `/api/*` | 每请求验 `Authorization: Bearer`，缺/错 → 401；`user` / `operator` 路由分别只认对应凭证 | `BAH_WEB_TOKEN` 未配置时每进程随机生成，注入页面 meta；`BAH_OPERATOR_TOKEN` 未配置时 `operator` 路由一律 404 |
 | 健康探针 | 只返回数量（`pendingTicketCount`），不返回票据 ID | 防探针绕过页面直接调审批 |
 | SSE | `GET /api/events` 额外接受 `?token=` | `EventSource` 不能设请求头，故只对它放宽 |
 | 管理路由 | 未设 `BAH_ADMIN_TOKEN` → 404；非回环 → 403；token 走 `timingSafeEqual`；未知键 → 400 | 默认关闭、只绑回环、不加 CORS |
@@ -362,7 +366,7 @@ pnpm demo:verifier-fail
 ## 10. 复现命令
 
 ```bash
-pnpm test                                   # 221 文件 / 2481 用例（前端另有 55 例）
+pnpm test                                   # 223 文件 / 2529 用例（前端另有 55 例）
 pnpm vitest run packages/safety/src/sentry/halt.test.ts \
   packages/host/src/boot/plugins/halt.test.ts \
   packages/cli/src/cli/halt.test.ts         # HP-3 / W07 的 46 条（TC-W07-01…07）

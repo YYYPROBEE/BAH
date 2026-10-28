@@ -10,7 +10,16 @@ import { describe, expect, it } from 'vitest'
 import type { AnySessionEvent } from '@bah/runtime'
 
 import { projectSession, WebProjector } from './project.ts'
-import type { ApprovalFrame, AuditFrame, DagFrame, ToolFrame, TurnFrame } from './frames.ts'
+import type {
+  ApprovalFrame,
+  AuditFrame,
+  DagFrame,
+  HandoffFrame,
+  HandoffWarnFrame,
+  MessageFrame,
+  ToolFrame,
+  TurnFrame,
+} from './frames.ts'
 
 /** 造事件的游标。 */
 let cursor = 0
@@ -535,5 +544,86 @@ describe('WebProjector · plan 节点图（B2）', () => {
     )).toBe(true)
     expect(a.length + created.length + resumed.length).toBeGreaterThan(0)
     expect(projector.frames().length).toBeGreaterThanOrEqual(before)
+  })
+})
+
+describe('handoff/* 投影（人机接管 01）', () => {
+  it('T-31 requested → handoff{active:true}，带 reason', () => {
+    reset()
+    const projector = new WebProjector()
+    const frames = projector.apply(ev('handoff/requested', { reason: '客户要求人工', at: 1_000 }))
+    const frame = frames.find((item) => item.kind === 'handoff') as HandoffFrame
+    expect(frame).toMatchObject({ kind: 'handoff', active: true, reason: '客户要求人工' })
+  })
+
+  it('T-33 resumed → handoff{active:false}，带 operator', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('handoff/requested', { at: 1_000 }))
+    const frames = projector.apply(ev('handoff/resumed', { operator: '坐席小周', at: 2_000 }))
+    const frame = frames.find((item) => item.kind === 'handoff') as HandoffFrame
+    expect(frame).toMatchObject({ kind: 'handoff', active: false, operator: '坐席小周' })
+    // 固定 key：接管帧始终只有一条，重放顺序不会把新的 active:true 覆盖成旧的 false
+    const handoffs = projector.frames().filter((item) => item.kind === 'handoff') as HandoffFrame[]
+    expect(handoffs).toHaveLength(1)
+    expect(handoffs[0]?.active).toBe(false)
+  })
+
+  it('T-32 operator-message → message{role:operator}，blocks 只有一个 text', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('handoff/requested', { at: 1_000 }))
+    const frames = projector.apply(
+      ev('handoff/operator-message', { text: '您好，我是人工坐席', operator: '坐席小周', at: 2_000 }),
+    )
+    const frame = frames.find((item) => item.kind === 'message') as MessageFrame
+    expect(frame).toMatchObject({ kind: 'message', role: 'operator', operator: '坐席小周' })
+    expect(frame.blocks).toEqual([{ type: 'text', text: '您好，我是人工坐席' }])
+  })
+
+  it('空文本的 operator-message 不产帧（第二道防线）', () => {
+    reset()
+    const projector = new WebProjector()
+    const frames = projector.apply(ev('handoff/operator-message', { text: '', operator: 'A', at: 1 }))
+    expect(frames).toEqual([])
+  })
+
+  it('T-40 claimed 沿用 enteredAt：认领不重置等待计时', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('handoff/requested', { at: 1_000 }))
+    const frames = projector.apply(
+      ev('handoff/claimed', { operator: '坐席小周', at: 9_000, enteredAt: 1_000 }),
+    )
+    const frame = frames.find((item) => item.kind === 'handoff') as HandoffFrame
+    expect(frame.at).toBe(1_000)
+    expect(frame.operator).toBe('坐席小周')
+  })
+
+  it('T-34 timeout-warned → handoff-warn（固定 key，只留一条）', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('handoff/requested', { at: 1_000 }))
+    const first = projector.apply(ev('handoff/timeout-warned', { waitedMs: 180_001, slaMs: 180_000 }))
+    const frame = first.find((item) => item.kind === 'handoff-warn') as HandoffWarnFrame
+    expect(frame).toMatchObject({ kind: 'handoff-warn', waitedMs: 180_001, slaMs: 180_000 })
+    projector.apply(ev('handoff/timeout-warned', { waitedMs: 190_000, slaMs: 180_000 }))
+    expect(projector.frames().filter((item) => item.kind === 'handoff-warn')).toHaveLength(1)
+  })
+
+  it('T-44 接管循环（进入→交回→再进入）：重放后仍是 active:true', () => {
+    reset()
+    const events = [
+      ev('handoff/requested', {}, 1_000),
+      ev('handoff/resumed', { operator: '坐席小周' }, 2_000),
+      ev('handoff/requested', {}, 3_000),
+    ]
+    const { frames } = projectSession(events)
+    const handoffs = frames.filter((item) => item.kind === 'handoff') as HandoffFrame[]
+    // 固定 key ⇒ 只有一条，且最后一条是新的 active:true（按 active 分键会留下旧的 false）
+    expect(handoffs).toHaveLength(1)
+    expect(handoffs[0]?.active).toBe(true)
+    // 第二次进入是新的等待起点（新的 at），不是第一次的 1000
+    expect(handoffs[0]?.at).toBe(3_000)
   })
 })

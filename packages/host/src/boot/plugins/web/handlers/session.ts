@@ -72,12 +72,9 @@ export async function handleTurn(
     sendError(res, 503, 'agent-absent', '没有活体 agent：profile 缺少 core:agent 行')
     return
   }
-  // C5：人工接管期间不再自动驱动模型。放在 HALT 之前判：HALT 是"系统停机"（423），
-  // handoff 是"这个会话交给人工了"（409）——两者语义不同，不能被前者的分支吃掉。
-  if (deps.handoff.active) {
-    sendError(res, 409, 'handoff-active', '会话已交人工接管，自动回复暂停；交回后才能继续（POST /api/handoff/resume）')
-    return
-  }
+
+  // ① 先读 body、先校验空消息：接管不能让 400 变成 409/202，也不能让坏 JSON
+  //    被"正在接管"这个状态掩盖成另一种错误。
   const body = await readJson(req)
   const text = readBodyString(body, 'text') ?? ''
   let inbound
@@ -87,8 +84,17 @@ export async function handleTurn(
     sendError(res, 400, 'web-empty-message', describeThrown(error))
     return
   }
-  // D1：inbox 有硬上限（默认 64 条）。触到上限说明调用方在刷——拒绝比无界排队诚实，
-  // 且必须是**明确的** 503，不能让异常冒到分派兜底变成 500。
+
+  // ② C5-2：接管期间仍接收，但只落账、不驱动模型（I2 + I3 同时成立）。
+  //    `sent === []` 依然成立；`source` 让前端与摘要都知道"这条是等人工的"。
+  if (deps.handoff.active) {
+    deps.session.append('user/message', { content: inbound.text, source: 'handoff-waiting' })
+    sendJson(res, 202, { ok: true, accepted: 'queued-for-operator' })
+    return
+  }
+
+  // ③ 以下与现状逐字不变（含 inbox-full 的 503）。
+  //    HALT 判定在 `agent.send` 内部产生 423；接管期间压根不调它——停机停的是模型，不是人。
   try {
     agent.send(inbound.text)
   } catch (error) {

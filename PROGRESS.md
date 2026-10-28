@@ -5923,3 +5923,54 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 - A/B：A1–A10、B1–B15 全部 ✔（A6 真实样本 1 条列 P2）；**0 P0/P1**；
 - 残余 P2：explain 真实样本、sentry 未激活（R10）、覆盖台账待 CI、semver major 门禁；
 - 口径：S0–S5 完成，S6 复审通过（P2 已登记）；生产 sentry 仍 legacy、生产签名未启用。
+
+## 96.35 人机接管 01：接管平面内核（2026-10-29 00:20）
+
+- **基线**：`bbb7a80`（代码面 = `b6e9a63` + 一份证据文档）。为把本份与主工作区的在途改动隔离，
+  全部施工与验证在独立 worktree `HANDOFF-01-WT`（分支 `handoff-01-core`）完成；01 单独提交。
+- **交付**：
+  - `web/handoff-store.ts`：`<root>/<sid>/handoff.json`，`tmp → fsync → rename` 原子写；
+    `handoff-state-unreadable` / `handoff-state-invalid` / `handoff-state-unwritable` 三码；
+    构造时 `load()`，损坏**拒启**（不静默当作未接管）。
+  - `web/handoff.ts`：状态机接持久化；新增 `claim` / `say` / `heartbeat`，
+    `resume(operator, handover?)`；summary 增 `waitedMs/overdue/claimed/turnsSinceHandoff/operatorMessages`；
+    `enter/resume/claim/heartbeat` 全部**先落盘再改内存**。
+  - `web-operator.ts`：`BAH_OPERATOR_TOKEN` / `BAH_OPERATOR_NAME`；`presentedPrincipal`
+    （`timingSafeEqual`，长度不等也走一次同长比较）；两 token 相同 ⇒ 启动失败
+    `web-operator-token-conflict`。
+  - `dispatch.ts`：auth 六态 `public/admin/web/user/operator/static`；
+    `operator` 路由未配凭证 **404**（先于鉴权）；`user` 路由只认客户凭证。
+  - 路由 **16 → 20**：`/api/handoff/{message,claim,heartbeat,queue}`；`/api/turn`、`/api/interrupt`、
+    `/api/approval/`、`/api/verify/` 降为 `user`；`/api/handoff/resume` 改 `operator`。
+  - `/api/turn` 接管期间 **202** + `user/message(source='handoff-waiting')`，不调 `agent.send`
+    （`sent === []` 仍成立）。
+  - `channels/web`：`handoff` / `handoff-warn` 帧 + `message{role:'operator'}`；
+    `handoff` 用**固定 key**（接管循环重放不会留下旧的 `active:false`）。
+  - `metrics`：`handoff` 段（`active` 从状态机读，历史从事件算）。
+- **复审修正（文档 + 实现同批）**：
+  1. 原 01 只把 turn/interrupt 降到 user，**漏了 approval/verify**——持坐席 token 可替客户放行资金；
+     已同批降为 `user`（权限面收窄，客户页行为不变）。
+  2. 原 01 有 `claim()` 与 T-09～T-11，却没有 HTTP 入口；02 的坐席台有"认领"按钮。
+     补 `POST /api/handoff/claim`，路由 16→20（02 的 `/operator` 届时 20→21）。
+  3. `frameKey` 原按 `handoff:${active}` 分键，接管循环重放会让新的 `true` 被旧的 `false` 覆盖；
+     改为固定 key `handoff`，补 T-44。
+  4. `handoff/claimed` 帧原用认领时刻作 `at`，会把"已等待"计时清零；payload 带 `enteredAt`，帧用它。
+  5. 原 02 写"重启后接管状态与人工说过的话都还在"不成立：boot 不重放历史，且首次落账撞
+     `session-exists`；已改成诚实版并写进限制。
+  6. 事件表实际 **18 键**（原文档写 19）；`UserMessageSource` 增 `handoff-waiting` / `handoff-handover`。
+- **实测（Windows / worktree）**：
+  - `tsc -b tsconfig.host.json tsconfig.client.json` 绿；
+  - `npx vitest run --maxWorkers=1`：**223 文件 / 2529 用例全绿**；
+  - `run-gates`：**40/40**；`test:snapshot` 34/34；`test:web` 55/55；
+  - `test:coverage:all`：行 **87.92%**（36667/41707，Windows 分母口径）/ 包 **15/17 ≥80%**
+    （脚本判据 80% / 14，绿）。新文件：`web-operator.ts` 100%、`web/handoff.ts` 95.19%、
+    `handoff-store.ts` 77.5%、`handlers/handoff-message.ts` 73.11%。
+  - 本机注意：默认并发下 `--help` / 属性测试偶发 5s 超时（环境负载），串行即绿；
+    全量需要 `BAH_KNOWLEDGE_KEY=demo-key-not-for-prod`，且 worktree 的 CRLF 检出会让
+    policy/知识字节级摘要假红（施工时已把夹具转 LF）。
+- **偏差与限制**：
+  - 跨重启只恢复**接管状态**；历史对话不重放，重启后首次落账会撞 `session-exists`（D4 才能解）。
+  - 单会话：`queue.depth ∈ {0,1}`；无自动交回、无坐席间转接、无技能路由。
+  - 新增的 claim 路由是对 01 原稿的补正（原稿只有 3 条新路由）。
+- **口径**：可以说"接管状态落盘 + 坐席说得上话 + 交接语进模型历史 + 客户/坐席凭证分离"；
+  **不能**说"多坐席排队 / SLA 自动升级 / 重启后坐席能接着聊"。

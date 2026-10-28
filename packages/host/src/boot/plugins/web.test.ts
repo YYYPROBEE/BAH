@@ -11,7 +11,10 @@ import { AgentRegistry, provideAgents, provideSession, SESSION_SERVICE } from '@
 import { HALT_SERVICE, HaltState, SENTRY_SERVICE } from '@bah/safety'
 import { asSessionId } from '@bah/test-support'
 import { BahError } from '@bah/util'
+import { mkdtempSync, rmSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Agent, AnySessionEvent, LlmStreamer } from '@bah/runtime'
 import type { ApprovalInputLike, ChallengePort } from '@bah/interaction'
 import type { SentryHandle } from '@bah/safety'
@@ -19,8 +22,10 @@ import type { Context } from '@bah/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { RUN_SERVICE } from '../boot.ts'
+import { SESSION_FILES } from './persistence.ts'
 import { ADMIN_TOKEN_ENV } from './web-admin.ts'
 import { WEB_TOKEN_ENV } from './web-auth.ts'
+import { OPERATOR_NAME_ENV, OPERATOR_TOKEN_ENV } from './web-operator.ts'
 import { DEFAULT_WEB, WEB_SERVER, webPlugin, type WebSettings } from './web.ts'
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -53,6 +58,10 @@ vi.mock('node:http', async (importActual) => {
 /** 测试固定的 Web token（生产未配置时是每进程随机生成）。 */
 const WEB_TOKEN = 'web-test-token'
 
+/** 测试固定的坐席 token / 显示名。 */
+const OPERATOR_TOKEN = 'operator-test-token'
+const OPERATOR_NAME = '坐席小周'
+
 /** 测试装置。 */
 interface Harness {
   readonly ctx: Context
@@ -63,6 +72,10 @@ interface Harness {
   readonly unfreezeCalls: { by: string; reason: string }[]
   /** boot 前的环境值（shutdown 时还原，避免串味）。 */
   readonly previousToken: string | undefined
+  readonly previousOperatorToken: string | undefined
+  readonly previousOperatorName: string | undefined
+  /** 本次 boot 的会话根（接管状态文件落在它下面；shutdown 时删）。 */
+  readonly sessionRoot: string
   /** 本次 boot 捕获到的请求监听器：唯一能注入假 socket / 假 remoteAddress 的入口。 */
   readonly requestListener: WebRequestListener
   /** 假 HALT 状态机（缺省不注册，覆盖 503「没有 safety:sentry」）。 */
@@ -111,6 +124,18 @@ interface BootExtras {
    * 才能把 seq=N+1 抢在 seq=N 之前送给投影器（TC-W18-02 的缺陷现场）。
    */
   readonly traceWriter?: boolean
+  /**
+   * 坐席面：
+   * - `configured`（缺省）= 配 `BAH_OPERATOR_TOKEN` / `BAH_OPERATOR_NAME`；
+   * - `absent` = 不配 token（`auth:'operator'` 路由必须 404）。
+   */
+  readonly operator?: 'configured' | 'absent'
+  /** 覆盖坐席显示名（缺省 `坐席小周`）。 */
+  readonly operatorName?: string
+  /** 覆盖坐席 token（缺省 `operator-test-token`；与 webToken 相同可造启动失败）。 */
+  readonly operatorToken?: string
+  /** 覆盖 Web token（缺省 `web-test-token`）。 */
+  readonly webToken?: string
 }
 
 /** 起一个只装了必要服务的 ctx + 真实 HTTP 端口（`port: 0` 由内核分配）。 */
@@ -122,10 +147,22 @@ async function boot(
   const sessionId = asSessionId('s-web-test')
   const now = (): number => 1_700_000_000_000
   const previousToken = process.env[WEB_TOKEN_ENV]
-  process.env[WEB_TOKEN_ENV] = WEB_TOKEN
+  const previousOperatorToken = process.env[OPERATOR_TOKEN_ENV]
+  const previousOperatorName = process.env[OPERATOR_NAME_ENV]
+  process.env[WEB_TOKEN_ENV] = extras.webToken ?? WEB_TOKEN
+  process.env[OPERATOR_NAME_ENV] = extras.operatorName ?? OPERATOR_NAME
+  if (extras.operator === 'absent') delete process.env[OPERATOR_TOKEN_ENV]
+  else process.env[OPERATOR_TOKEN_ENV] = extras.operatorToken ?? OPERATOR_TOKEN
 
   ctx.provide(RUN_SERVICE, { sessionId, now })
   provideSession(ctx, { sessionId, now })
+
+  // 接管状态落盘需要会话根（生产由 core:persistence 提供，测试给临时目录）
+  const sessionRoot = mkdtempSync(join(tmpdir(), 'bah-web-handoff-'))
+  ctx.provide(SESSION_FILES, {
+    root: sessionRoot,
+    fileOf: (id) => join(sessionRoot, String(id), 'session.jsonl'),
+  })
 
   // 边收边写的监听器（必须在 Web 插件之前注册，见 BootExtras.traceWriter）
   if (extras.traceWriter === true) {
@@ -251,6 +288,9 @@ async function boot(
     interrupts,
     unfreezeCalls,
     previousToken,
+    previousOperatorToken,
+    previousOperatorName,
+    sessionRoot,
     requestListener,
     halt,
   }
@@ -261,6 +301,11 @@ async function shutdown(harness: Harness): Promise<void> {
   await harness.ctx.dispose('test')
   if (harness.previousToken === undefined) delete process.env[WEB_TOKEN_ENV]
   else process.env[WEB_TOKEN_ENV] = harness.previousToken
+  if (harness.previousOperatorToken === undefined) delete process.env[OPERATOR_TOKEN_ENV]
+  else process.env[OPERATOR_TOKEN_ENV] = harness.previousOperatorToken
+  if (harness.previousOperatorName === undefined) delete process.env[OPERATOR_NAME_ENV]
+  else process.env[OPERATOR_NAME_ENV] = harness.previousOperatorName
+  rmSync(harness.sessionRoot, { recursive: true, force: true })
 }
 
 /**
@@ -275,6 +320,14 @@ function authedFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers)
   if (!headers.has('authorization')) headers.set('authorization', `Bearer ${WEB_TOKEN}`)
   // W09：同源 Origin 是 CSRF 的放行路径；跨站/缺失的用例显式覆盖请求头。
+  if (!headers.has('origin')) headers.set('origin', new URL(url).origin)
+  return nativeFetch(url, { ...init, headers })
+}
+
+/** 带坐席凭证的 fetch（同源 Origin，过 CSRF）。 */
+function operatorFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers)
+  if (!headers.has('authorization')) headers.set('authorization', `Bearer ${OPERATOR_TOKEN}`)
   if (!headers.has('origin')) headers.set('origin', new URL(url).origin)
   return nativeFetch(url, { ...init, headers })
 }
@@ -1696,18 +1749,20 @@ describe('C5 人工接管（handoff）', () => {
         'handoff-already-active',
       )
 
-      const resumed = await authedFetch(`${harness.url}api/handoff/resume`, {
+      const resume = await operatorFetch(`${harness.url}api/handoff/resume`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
+        // body 里的 operator 是旧接口字段：人机接管 01 起一律忽略（I1）
         body: JSON.stringify({ operator: '坐席-A' }),
       })
-      expect(resumed.status).toBe(200)
-      const after = (await resumed.json()) as { active: boolean; operator?: string }
+      expect(resume.status).toBe(200)
+      const after = (await resume.json()) as { active: boolean; operator?: string }
       expect(after.active).toBe(false)
-      expect(after.operator).toBe('坐席-A')
+      // 身份来自 BAH_OPERATOR_NAME，不是请求体
+      expect(after.operator).toBe(OPERATOR_NAME)
 
       // 未接管时再交回 → 409 handoff-not-active（不做幂等成功）
-      const twice = await authedFetch(`${harness.url}api/handoff/resume`, {
+      const twice = await operatorFetch(`${harness.url}api/handoff/resume`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({}),
@@ -1724,17 +1779,21 @@ describe('C5 人工接管（handoff）', () => {
   it('接管/交回的请求体不是 JSON 对象 → 400 web-invalid-body，状态机不动', async () => {
     const harness = await boot()
     try {
-      // 两条 POST 路由各自都有 `readJson` 失败分支：坏 JSON 与"合法 JSON 但不是对象"
-      for (const [path, body] of [
-        ['/api/handoff', '不是 JSON'],
-        ['/api/handoff/resume', '[]'],
-      ] as const) {
-        const response = await authedFetch(`${harness.url}${path.slice(1)}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body,
-        })
-        expect(response.status).toBe(400)
+      // 客户侧（web）：坏 JSON
+      const enterBad = await authedFetch(`${harness.url}api/handoff`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '不是 JSON',
+      })
+      expect(enterBad.status).toBe(400)
+      // 坐席侧（operator）：合法 JSON 但不是对象
+      const resumeBad = await operatorFetch(`${harness.url}api/handoff/resume`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '[]',
+      })
+      expect(resumeBad.status).toBe(400)
+      for (const response of [enterBad, resumeBad]) {
         expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
           'web-invalid-body',
         )
@@ -1749,7 +1808,7 @@ describe('C5 人工接管（handoff）', () => {
     }
   })
 
-  it('接管期间 `/api/turn` → 409 handoff-active，且一句话都不进 inbox', async () => {
+  it('接管期间 `/api/turn` → 202 且消息落账，但不进模型 inbox（C5-2：吞消息改为排队）', async () => {
     const harness = await boot()
     try {
       await authedFetch(`${harness.url}api/handoff`, {
@@ -1763,15 +1822,24 @@ describe('C5 人工接管（handoff）', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: '给王建国转 800 元' }),
       })
-      expect(response.status).toBe(409)
-      expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
-        'handoff-active',
-      )
-      // 关键：不是"回了 409 但仍然入队"——那种 409 只是给人看的
+      expect(response.status).toBe(202)
+      expect((await response.json()) as { ok: boolean; accepted: string }).toEqual({
+        ok: true,
+        accepted: 'queued-for-operator',
+      })
+      // I2：模型不被驱动
       expect(harness.sent).toEqual([])
+      // I3：消息落账，带 `handoff-waiting`
+      const events = harness.ctx.get(SESSION_SERVICE).events()
+      const waiting = events.filter((event) => event.type === 'user/message')
+      expect(waiting).toHaveLength(1)
+      expect((waiting[0]?.data as { source?: string; content?: string }).source).toBe(
+        'handoff-waiting',
+      )
+      expect((waiting[0]?.data as { content?: string }).content).toBe('给王建国转 800 元')
 
       // 交回后立刻恢复可用
-      await authedFetch(`${harness.url}api/handoff/resume`, {
+      await operatorFetch(`${harness.url}api/handoff/resume`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({}),
@@ -1816,6 +1884,251 @@ describe('C5 人工接管（handoff）', () => {
       // 状态没被这两个失败请求改动
       const read = await authedFetch(`${harness.url}api/handoff`)
       expect(((await read.json()) as { active: boolean }).active).toBe(false)
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('坐席发言：200 + `handoff/operator-message` 落账，operator 来自 env（body 伪造无效）', async () => {
+    const harness = await boot()
+    try {
+      await authedFetch(`${harness.url}api/handoff`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reason: '客户要求人工' }),
+      })
+      const sent = await operatorFetch(`${harness.url}api/handoff/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        // I1：body 里的 operator 一律忽略
+        body: JSON.stringify({ text: '您好，我是人工坐席', operator: '伪造' }),
+      })
+      expect(sent.status).toBe(200)
+      const body = (await sent.json()) as { ok: boolean; seq: number }
+      expect(body.ok).toBe(true)
+      expect(body.seq).toBeGreaterThan(0)
+
+      const events = harness.ctx.get(SESSION_SERVICE).events()
+      const message = events.find((event) => String(event.type) === 'handoff/operator-message')
+      expect(message?.data as { text?: string; operator?: string }).toMatchObject({
+        text: '您好，我是人工坐席',
+        operator: OPERATOR_NAME,
+      })
+
+      // 摘要只出数字，不出正文
+      const summary = (await (await operatorFetch(`${harness.url}api/handoff`)).json()) as {
+        operatorMessages: number
+        claimed: boolean
+      }
+      expect(summary.operatorMessages).toBe(1)
+      expect(summary.claimed).toBe(false)
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('客户凭证打坐席路由 → 401；坐席凭证打 /api/turn 与审批 → 401（权限面收窄）', async () => {
+    const harness = await boot()
+    try {
+      await authedFetch(`${harness.url}api/handoff`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const userOnOperator = await authedFetch(`${harness.url}api/handoff/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '我不是坐席' }),
+      })
+      expect(userOnOperator.status).toBe(401)
+
+      const operatorOnTurn = await operatorFetch(`${harness.url}api/turn`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '坐席替客户发言' }),
+      })
+      expect(operatorOnTurn.status).toBe(401)
+      expect(harness.sent).toEqual([])
+
+      // 坐席不能替客户放行资金：审批与强验证都降到 user
+      const operatorOnApproval = await operatorFetch(`${harness.url}api/approval/ticket%3Aghost`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ decision: 'allowed-once' }),
+      })
+      expect(operatorOnApproval.status).toBe(401)
+      const operatorOnVerify = await operatorFetch(`${harness.url}api/verify/ticket%3Aghost`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      expect(operatorOnVerify.status).toBe(401)
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('未配置 BAH_OPERATOR_TOKEN → 坐席路由 404（不暴露存在性），客户路由照常', async () => {
+    const harness = await boot({}, { operator: 'absent' })
+    try {
+      const message = await nativeFetch(`${harness.url}api/handoff/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: harness.url.replace(/\/$/, '') },
+        body: JSON.stringify({ text: '在吗' }),
+      })
+      expect(message.status).toBe(404)
+      // 客户侧读摘要仍是 200
+      expect((await authedFetch(`${harness.url}api/handoff`)).status).toBe(200)
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('两 token 相同 → 启动失败 web-operator-token-conflict', async () => {
+    const previousWeb = process.env[WEB_TOKEN_ENV]
+    const previousOperator = process.env[OPERATOR_TOKEN_ENV]
+    try {
+      const error = await boot({}, { webToken: 'same-token', operatorToken: 'same-token' }).then(
+        () => undefined,
+        (thrown: unknown) => thrown,
+      )
+      expect((error as { code?: string }).code).toBe('web-operator-token-conflict')
+    } finally {
+      // boot 失败时没有 shutdown 可归还环境，必须在这里还原，否则污染后续用例
+      if (previousWeb === undefined) delete process.env[WEB_TOKEN_ENV]
+      else process.env[WEB_TOKEN_ENV] = previousWeb
+      if (previousOperator === undefined) delete process.env[OPERATOR_TOKEN_ENV]
+      else process.env[OPERATOR_TOKEN_ENV] = previousOperator
+    }
+  })
+
+  it('坐席 SSE：`?token=<operatorToken>` 能连上并拿到快照', async () => {
+    const harness = await boot()
+    try {
+      const controller = new AbortController()
+      const stream = await nativeFetch(`${harness.url}api/events?since=0&token=${OPERATOR_TOKEN}`, {
+        signal: controller.signal,
+      })
+      expect(stream.status).toBe(200)
+      expect(stream.headers.get('content-type')).toContain('text/event-stream')
+      const reader = stream.body?.getReader()
+      const first = await reader?.read()
+      expect(new TextDecoder().decode(first?.value)).toContain('"kind":"snapshot"')
+      controller.abort()
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('heartbeat / queue / claim：状态码与单会话边界', async () => {
+    const harness = await boot()
+    try {
+      // 未接管：heartbeat 200 waitedMs 0；queue depth 0；claim 409
+      const idleBeat = await operatorFetch(`${harness.url}api/handoff/heartbeat`, { method: 'POST' })
+      expect(await idleBeat.json()).toEqual({ ok: true, waitedMs: 0, overdue: false })
+      const idleQueue = (await (await operatorFetch(`${harness.url}api/handoff/queue`)).json()) as {
+        depth: number
+        note: string
+      }
+      expect(idleQueue.depth).toBe(0)
+      expect(idleQueue.note).toContain('single-session')
+      expect((await operatorFetch(`${harness.url}api/handoff/claim`, { method: 'POST' })).status).toBe(409)
+
+      await authedFetch(`${harness.url}api/handoff`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reason: '客户要求人工' }),
+      })
+      const claimed = await operatorFetch(`${harness.url}api/handoff/claim`, { method: 'POST' })
+      expect(claimed.status).toBe(200)
+      expect((await claimed.json()) as { claimed: boolean }).toMatchObject({
+        active: true,
+        claimed: true,
+        operator: OPERATOR_NAME,
+      })
+      const queue = (await (await operatorFetch(`${harness.url}api/handoff/queue`)).json()) as {
+        depth: number
+        items: { claimed: boolean }[]
+      }
+      expect(queue.depth).toBe(1)
+      expect(queue.items[0]?.claimed).toBe(true)
+
+      // 指标段：历史从事件算，active 从状态机读
+      const metrics = (await (await authedFetch(`${harness.url}api/metrics`)).json()) as {
+        handoff: {
+          active: boolean
+          entered: number
+          resumed: number
+          operatorMessages: number
+          lastWaitedMs: number | null
+          slaMs: number | null
+        }
+      }
+      expect(metrics.handoff.active).toBe(true)
+      expect(metrics.handoff.entered).toBe(1)
+      expect(metrics.handoff.resumed).toBe(0)
+      expect(metrics.handoff.operatorMessages).toBe(0)
+      expect(metrics.handoff.lastWaitedMs).toBeNull()
+      expect(metrics.handoff.slaMs).toBe(DEFAULT_WEB.handoff.slaMs)
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('坐席发言的失败分支：未接管 409 / 空串 400 / 超长 413 / 坏 body 400', async () => {
+    const harness = await boot()
+    try {
+      const notActive = await operatorFetch(`${harness.url}api/handoff/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '在吗' }),
+      })
+      expect(notActive.status).toBe(409)
+      expect(((await notActive.json()) as { error: { code: string } }).error.code).toBe(
+        'handoff-not-active',
+      )
+
+      await authedFetch(`${harness.url}api/handoff`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+
+      const empty = await operatorFetch(`${harness.url}api/handoff/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '   ' }),
+      })
+      expect(empty.status).toBe(400)
+      expect(((await empty.json()) as { error: { code: string } }).error.code).toBe(
+        'handoff-text-empty',
+      )
+
+      const tooLong = await operatorFetch(`${harness.url}api/handoff/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'x'.repeat(2001) }),
+      })
+      expect(tooLong.status).toBe(413)
+      expect(((await tooLong.json()) as { error: { code: string } }).error.code).toBe(
+        'handoff-text-too-long',
+      )
+
+      const badBody = await operatorFetch(`${harness.url}api/handoff/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '不是 JSON',
+      })
+      expect(badBody.status).toBe(400)
+      expect(((await badBody.json()) as { error: { code: string } }).error.code).toBe(
+        'web-invalid-body',
+      )
+      // 失败分支不落任何人工消息
+      expect(
+        harness.ctx.get(SESSION_SERVICE).events().filter(
+          (event) => String(event.type) === 'handoff/operator-message',
+        ),
+      ).toHaveLength(0)
     } finally {
       await shutdown(harness)
     }

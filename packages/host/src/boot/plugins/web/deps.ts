@@ -18,6 +18,7 @@ import type { HaltHandle, SentryHandle } from '@bah/safety'
 
 import type { HandoffHandle } from './handoff.ts'
 import type { createRateLimiter } from '../web-rate-limit.ts'
+import type { Principal } from '../web-operator.ts'
 import type { SseHub } from './sse.ts'
 
 /** 限流器实例类型（`createRateLimiter` 的返回，不另立接口）。 */
@@ -33,6 +34,10 @@ export interface WebDeps {
   readonly hub: SseHub
   /** 本进程的 Web 访问凭证（未配置时随机生成，绝不写死）。 */
   readonly webToken: string
+  /** 坐席凭证（未配置时 undefined ⇒ `auth:'operator'` 路由一律 404）。 */
+  readonly operatorToken: string | undefined
+  /** 坐席显示名（`BAH_OPERATOR_NAME`，缺省 `坐席`）。 */
+  readonly operatorName: string
   /** 本进程的 CSRF 令牌（index 下发 cookie，前端回填请求头）。 */
   readonly csrfToken: string
   /** 每个来源的固定窗口限流。 */
@@ -48,8 +53,8 @@ export interface WebDeps {
   /** 惰性取 HALT（同上）。 */
   readonly tryHalt: () => HaltHandle | undefined
   /**
-   * 人工接管状态机（C5）。进程内状态 + `handoff/*` 事件留痕；
-   * 重启后回到未接管（见 `handoff.ts` 的"诚实边界"）。
+   * 人工接管状态机（C5）。状态落 `<root>/<sid>/handoff.json`；
+   * 同 `--session` 重启恢复接管状态，但 boot 不重放历史会话（见 `handoff.ts`）。
    */
   readonly handoff: HandoffHandle
   /** 已解析的静态根（绝对路径）。 */
@@ -65,6 +70,13 @@ export interface WebRequest {
   readonly path: string
   /** 前缀路由的尾段（`/api/approval/t-1` → `t-1`）；其余为空串。 */
   readonly rest: string
+  /**
+   * 出示凭证的身份（dispatch 判定；`auth:'public'` 路由不填）。
+   *
+   * 不放 `deps` 上：`deps` 的生命周期是插件实例，`principal` 是一条请求——
+   * 混在一起就会出现"上一个请求的身份泄漏给下一个"。
+   */
+  readonly principal?: Principal
 }
 
 /** 处理器签名（4 个 handler 模块统一，dispatch 查表调用）。 */

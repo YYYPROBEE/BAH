@@ -63,6 +63,14 @@ export async function handleMetrics(
   const byPolicyVerdict: Record<string, number> = {}
   const byPolicyReason: Record<string, number> = {}
 
+  /** 人工接管（C5）：历史从事件算；`active` 从状态机读（"现在"与"历史"两层）。 */
+  let handoffEntered = 0
+  let handoffResumed = 0
+  let handoffOperatorMessages = 0
+  let handoffTimeoutWarned = 0
+  let handoffLastWaitedMs: number | null = null
+  let handoffEnterAt: number | undefined
+
   const count = (bucket: Record<string, number>, key: string): void => {
     bucket[key] = (bucket[key] ?? 0) + 1
   }
@@ -94,6 +102,29 @@ export async function handleMetrics(
     }
     if (kind === 'policy/shadow-diff') {
       shadowDiffs += 1
+      continue
+    }
+    // 人机接管：同样走 `String(type)`（appendDomain 不受事件表约束）
+    if (kind === 'handoff/requested') {
+      handoffEntered += 1
+      handoffEnterAt = event.at
+      continue
+    }
+    if (kind === 'handoff/resumed') {
+      handoffResumed += 1
+      // 只认成对的 enter→resume：没有配对的 enter 不算时长（不猜）
+      if (handoffEnterAt !== undefined) {
+        handoffLastWaitedMs = Math.max(0, event.at - handoffEnterAt)
+        handoffEnterAt = undefined
+      }
+      continue
+    }
+    if (kind === 'handoff/operator-message') {
+      handoffOperatorMessages += 1
+      continue
+    }
+    if (kind === 'handoff/timeout-warned') {
+      handoffTimeoutWarned += 1
       continue
     }
     switch (event.type) {
@@ -155,6 +186,16 @@ export async function handleMetrics(
       reloadRejected,
     },
     usage: { input, output, cachedInput, costMicroYuan },
+    handoff: {
+      // "现在"从状态机读，"历史"从事件算——两层真相源，各有各的职责
+      active: deps.handoff.active,
+      entered: handoffEntered,
+      resumed: handoffResumed,
+      operatorMessages: handoffOperatorMessages,
+      timeoutWarned: handoffTimeoutWarned,
+      lastWaitedMs: handoffLastWaitedMs,
+      slaMs: deps.handoff.slaMs > 0 ? deps.handoff.slaMs : null,
+    },
     // `null` = 本 profile 没装 HALT（不是"未停机"）。区分开才知道该不该去看锁。
     halt:
       halt === undefined

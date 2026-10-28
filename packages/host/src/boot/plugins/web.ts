@@ -37,8 +37,10 @@ import {
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
+import { SESSION_FILES } from './persistence.ts'
 import { createRateLimiter } from './web-rate-limit.ts'
 import { generateWebToken, readWebToken } from './web-auth.ts'
+import { readOperatorConfig } from './web-operator.ts'
 import { DEFAULT_WEB, resolveWebSettings, type WebSettings } from './web/config.ts'
 import { tryService, type WebDeps } from './web/deps.ts'
 import { createDispatcher } from './web/dispatch.ts'
@@ -77,19 +79,16 @@ export const webPlugin: HostPlugin<WebSettings> = {
       const approval = ctx.get(APPROVAL_SERVICE)
 
       const adapter: WebChannelAdapter = createWebChannelAdapter({
-        // 归属校验（W04）：票据只能由它所属的会话应答；与 ApprovalService 的 sessionId 必须同源
         sessionId: String(session.sessionId),
       })
-      const projector = new WebProjector()
-      // 历史重放：进程重启后前端连上来仍能看到完整对话（不依赖前端本地缓存）
+      const projector = new WebProjector() // 历史重放：重启后前端连上来仍能看到完整对话
       for (const event of session.events() as readonly AnySessionEvent[]) projector.apply(event)
-
       const staticRoot = resolve(config.staticRoot)
-      // 没配环境变量就每次启动生成一个：演示打不开页面比"没鉴权"更糟，
-      // 但 token 也绝不写死——它只存在于本进程与同源页面里。
+      // 未配置时每进程随机生成：演示能打开页面，但 token 绝不写死。
       const webToken = readWebToken(process.env) ?? generateWebToken()
-      // W09：进程级 CSRF token。页面加载时写进 cookie，前端读出后回填 `x-bah-csrf`；
-      // 除同源 Origin 外，只接受 cookie 与请求头双提交且都与本值一致。
+      // 坐席凭证与显示名（未配置 token ⇒ 坐席面整体 404；两 token 相同 ⇒ 启动失败）
+      const operator = readOperatorConfig(process.env, webToken)
+      // W09：进程级 CSRF token（cookie 下发，前端回填 x-bah-csrf 请求头）。
       const csrfToken = randomBytes(18).toString('base64url')
       const hub = createSseHub({
         projector,
@@ -97,7 +96,6 @@ export const webPlugin: HostPlugin<WebSettings> = {
         heartbeatMs: config.heartbeatMs,
         now: run.now,
       })
-
       // ① 会话事件 → 帧（唯一的实时数据源）
       ctx.effect(
         ctx.events.on('session/event', (payload) => {
@@ -105,7 +103,7 @@ export const webPlugin: HostPlugin<WebSettings> = {
         }),
       )
 
-      // ② 流式分片 → ephemeral delta（不入日志；断线即丢，权威仍是 assistant/message）
+      // ② 流式分片 → ephemeral delta（不入日志；权威仍是 assistant/message）
       ctx.effect(
         ctx.events.on('llm/stream', (streamer, next) => {
           const tapped: typeof streamer = async function* (call, signal) {
@@ -118,7 +116,7 @@ export const webPlugin: HostPlugin<WebSettings> = {
         }),
       )
 
-      // ③ 审批应答者：只登记，结论从 HTTP 提交（人点按钮 → adapter.decide → view.answer）
+      // ③ 审批应答者：结论从 HTTP 提交（人点按钮 → adapter.decide → view.answer）
       const responder: ApprovalResponder = {
         id: 'web',
         attach(view) {
@@ -145,8 +143,14 @@ export const webPlugin: HostPlugin<WebSettings> = {
         session,
         adapter,
         hub, // C5 人工接管（装配细节见 web/handoff.ts）
-        handoff: createHandoff({ session, now: run.now, pendingTickets: () => adapter.pendingTickets().length }),
+        handoff: createHandoff({
+          session, now: run.now, pendingTickets: () => adapter.pendingTickets().length,
+          files: tryService(ctx, SESSION_FILES),
+          slaMs: config.handoff.slaMs,
+        }),
         webToken,
+        operatorToken: operator.token,
+        operatorName: operator.name,
         csrfToken,
         rateLimiter: createRateLimiter(config.rateLimit),
         now: run.now,
