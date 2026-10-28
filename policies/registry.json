@@ -27,6 +27,17 @@
           "demo": true
         }
       }
+    },
+    "sentry.rules": {
+      "versions": {
+        "sentry-rules/1.0.0": {
+          "path": "policies/sentry-rules/1.0.0",
+          "semanticDigest": "a9f0206cec2548e5a4fa501da32700da756f6e75f698ff110c1d528a59cf67e6",
+          "sourceDigest": "9c596c2df1b362406e773ccd72ee86d3696f29e3e537b9a52ade7baa07d160fc",
+          "engine": "1.0.0",
+          "installedAt": 1761700000000
+        }
+      }
     }
   }
 }

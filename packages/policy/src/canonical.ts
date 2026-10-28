@@ -10,7 +10,6 @@
 
 import { canonicalJson, sha256Hex } from '@bah/util'
 
-import type { PolicyIr } from './table.ts'
 
 /** bundle 里的一个源文件（名字是 bundle 内相对路径）。 */
 export interface SourceFile {
@@ -18,9 +17,19 @@ export interface SourceFile {
   readonly content: string
 }
 
+/** bundle 类型（v1 两种：银行三级判决 / sentry 正则规则集）。 */
+export type PolicyKind = 'bank.tier' | 'sentry.rules'
+
+/** 参与身份计算的最小 IR 形状（两种 kind 都满足）。 */
+export interface IrIdentity {
+  readonly kind: string
+  readonly name: string
+  readonly version: string
+}
+
 /** 审计口径的身份信息（`policyVersion` 就是 D3 的 identity 串）。 */
 export interface PolicyDescriptor {
-  readonly kind: 'bank.tier'
+  readonly kind: PolicyKind
   readonly name: string
   /** semver（人读，也是目录名）。 */
   readonly version: string
@@ -44,7 +53,7 @@ export function normalizeSourceText(text: string): string {
 }
 
 /** 语义摘要：`sha256("bah.policy.semantic.v1\n" + kind + "\n" + canonicalJson(ir))`。 */
-export function semanticDigestOf(ir: PolicyIr): string {
+export function semanticDigestOf(ir: IrIdentity): string {
   return sha256Hex(`bah.policy.semantic.v1\n${ir.kind}\n${canonicalJson(ir)}`)
 }
 
@@ -68,14 +77,14 @@ export function policyVersionOf(name: string, version: string, semanticDigest: s
 
 /** 组装描述符。 */
 export function descriptorOf(
-  ir: PolicyIr,
+  ir: IrIdentity,
   owners: readonly string[],
   sourceDigest: string,
   engineVersion: string,
 ): PolicyDescriptor {
   const semanticDigest = semanticDigestOf(ir)
   return {
-    kind: ir.kind,
+    kind: ir.kind as PolicyKind,
     name: ir.name,
     version: ir.version,
     handle: `${ir.name}/${ir.version}`,

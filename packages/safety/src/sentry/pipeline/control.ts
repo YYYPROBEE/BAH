@@ -18,7 +18,7 @@
 import type { Listener, ToolTierLevel } from '@bah/core'
 
 import { collectBlob, normalize, scanToolArgs, TokenizerVault } from '../kernel/index.ts'
-import type { Budget, RuleFinding, TraceLog } from '../kernel/index.ts'
+import type { Budget, RuleFinding, ScanRule, TraceLog } from '../kernel/index.ts'
 
 import type { SentryBreaker } from './breaker.ts'
 import { CROSS_SCENARIO_RULES } from './config.ts'
@@ -161,6 +161,8 @@ export interface SentryControlOptions {
    * 由宿主把它接到 `HaltState.noteP0Hit()`；本模块不认识 HALT。
    */
   readonly onP0Hit?: (at: number) => void
+  /** 外置规则集（S5）：bundle 模式的 13 条规则；缺省 = 内核内置。 */
+  readonly ruleSet?: () => { readonly version: string; readonly rules: readonly ScanRule[] } | undefined
 }
 
 /**
@@ -183,8 +185,20 @@ const PII_VAULT = new TokenizerVault()
 export function createControlListener(
   options: SentryControlOptions,
 ): Listener<'tools/pre-execute'> {
-  const { sessionId, settings, state, trace, breaker, budget, record, now, toolTier, onP0Hit, onDecision } =
-    options
+  const {
+    sessionId,
+    settings,
+    state,
+    trace,
+    breaker,
+    budget,
+    record,
+    now,
+    toolTier,
+    onP0Hit,
+    onDecision,
+    ruleSet,
+  } = options
   const extraRules = [
     ...(settings.rules.crossScenario ? CROSS_SCENARIO_RULES : []),
     ...settings.rules.extra,
@@ -201,9 +215,12 @@ export function createControlListener(
     const normalized = normalize(blob)
 
     // a. 危险规则（归一化后再扫：base64 / 全角 / 零宽载荷先被拆开）
+    //    bundle 模式由宿主注入外置规则集；缺省仍是内核 13 条（逐字等价）
+    const external = ruleSet?.()
     const findings = scanToolArgs(normalized.normalized, {
       disabledIds: settings.rules.disabled,
       demoWhitelist: settings.rules.demoWhitelist,
+      ...(external === undefined ? {} : { baseRules: external.rules }),
       extraRules,
     })
 

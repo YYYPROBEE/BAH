@@ -15,7 +15,7 @@ import { canonicalJson } from '@bah/util'
 import type { PolicyDescriptor } from './canonical.ts'
 import { policyError } from './errors.ts'
 import { isRecord } from './schema.ts'
-import type { PolicyIr } from './table.ts'
+
 
 /** `bundle.sig` 的内容。 */
 export interface BundleSignature {
@@ -23,8 +23,16 @@ export interface BundleSignature {
   readonly value: string
 }
 
+/** 待签名的 IR 形状（两种 kind 共用：身份只看 kind/name/version/engine）。 */
+export interface SignableIr {
+  readonly kind: string
+  readonly name: string
+  readonly version: string
+  readonly engine: { readonly min: string; readonly max: string }
+}
+
 /** 待签名字节：规范化 JSON（键序稳定，跨平台一致）。 */
-export function signingPayload(ir: PolicyIr, descriptor: PolicyDescriptor): string {
+export function signingPayload(ir: SignableIr, descriptor: PolicyDescriptor): string {
   return canonicalJson({
     kind: ir.kind,
     name: ir.name,
@@ -83,7 +91,7 @@ export function parseBundleSignature(text: string): BundleSignature {
  * @param allowedKeyVersions 允许的密钥版本；为空表示不限制
  */
 export function assertSigned(
-  ir: PolicyIr,
+  ir: SignableIr,
   descriptor: PolicyDescriptor,
   signature: BundleSignature,
   publicKeyPem: string,

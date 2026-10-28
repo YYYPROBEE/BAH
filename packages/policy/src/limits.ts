@@ -25,3 +25,19 @@ export const POLICY_LIMITS = {
   /** manifest `description` 上限（下限在校验里写死 8）。 */
   maxDescription: 200,
 } as const
+
+/**
+ * `sentry.rules` 的安全边界（03 §6.3）。
+ *
+ * 与表达式上限分开：正则的风险是回溯，不是表达式深度。调大任何一项都必须先补语料与影子。
+ */
+export const SENTRY_RULE_LIMITS = {
+  /** 单 bundle 总字节。 */
+  maxBundleBytes: 131_072,
+  /** 规则条数。 */
+  maxRules: 64,
+  /** 单条正则源码字符数。 */
+  maxPatternChars: 256,
+  /** 单个字符类（`[...]`）的字符数。 */
+  maxCharClassChars: 128,
+} as const

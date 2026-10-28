@@ -91,6 +91,7 @@ if (command === undefined) {
         const plan = planPromote({
           paths,
           to,
+          ...(flag('--kind') === undefined ? {} : { kind: flag('--kind') as string }),
           ...(flag('--percent') === undefined ? {} : { percent: parseInteger('--percent') }),
           ...(flag('--sessions') === undefined
             ? {}
@@ -107,6 +108,7 @@ if (command === undefined) {
       case 'rollback': {
         const plan = planRollback({
           paths,
+          ...(flag('--kind') === undefined ? {} : { kind: flag('--kind') as string }),
           ...(flag('--to') === undefined ? {} : { to: flag('--to') as string }),
           ...(operator === undefined ? {} : { operator }),
           reason: requireReason(),
@@ -168,6 +170,7 @@ function positional(): readonly string[] {
     '--state',
     '--operator',
     '--reason',
+    '--kind',
     '--to',
     '--percent',
     '--sessions',

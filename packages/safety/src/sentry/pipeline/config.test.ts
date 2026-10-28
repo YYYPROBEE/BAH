@@ -45,6 +45,7 @@ describe('sentry 配置（fail-loud）', () => {
     const settings = resolveSentrySettings({
       detector: { warnThreshold: 0.3, highThreshold: 0.9 },
       rules: {
+        engine: 'bundle',
         disabled: ['CMD-001'],
         demoWhitelist: false,
         crossScenario: false,
@@ -60,6 +61,7 @@ describe('sentry 配置（fail-loud）', () => {
       trace: { ringSize: 10, flushThreshold: 2, sink: 'stderr' },
     })
     expect(settings.detector).toEqual({ warnThreshold: 0.3, highThreshold: 0.9 })
+    expect(settings.rules.engine).toBe('bundle')
     expect(settings.rules.disabled).toEqual(['CMD-001'])
     expect(settings.rules.demoWhitelist).toBe(false)
     expect(settings.rules.crossScenario).toBe(false)
@@ -127,6 +129,7 @@ describe('sentry 配置（fail-loud）', () => {
       ['正整数非整数', { budget: { riskyCalls: 1.5 } }, 'sentry-invalid-config'],
       ['窗口非整数', { breaker: { windowSeconds: 1.2 } }, 'sentry-invalid-config'],
       ['sink 枚举非法', { trace: { sink: 'file' } }, 'sentry-invalid-config'],
+      ['engine 非法', { rules: { engine: 'opa' } }, 'sentry-invalid-config'],
       ['disabled 非数组', { rules: { disabled: 'CMD-001' } }, 'sentry-invalid-config'],
       ['disabled 含空串', { rules: { disabled: [''] } }, 'sentry-invalid-config'],
     ]

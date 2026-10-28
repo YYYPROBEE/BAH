@@ -1,0 +1,72 @@
+# S5 · sentry.rules 第二类 bundle（2026-10-28）
+
+执行者：Qoder（主线程串行）
+HEAD：`6dd5765` + 本批未提交工作区（2026-10-28 21:0x–21:2x +0800）
+目标：把 13 条内置危险参数规则外置为同一交付平面的第二类 bundle（PE-50..57）。
+
+## 命令与结果
+
+```text
+$ npx tsx scripts/policy-compile.ts policies/sentry-rules/1.0.0 --write
+bundle    sentry-rules/1.0.0+sha256:a9f0206cec2548e5
+semantic  sha256:a9f0206cec2548e5a4fa501da32700da756f6e75f698ff110c1d528a59cf67e6
+source    sha256:9c596c2df1b362406e773ccd72ee86d3696f29e3e537b9a52ade7baa07d160fc
+✓ lock.json 已写入
+
+$ npx tsx scripts/policy-test.ts policies/sentry-rules/1.0.0
+bundle      sentry-rules/1.0.0+sha256:a9f0206cec2548e5
+rules       13
+cases       52
+✓ policy:test 通过
+
+$ npx tsx scripts/policy-lint.ts policies/sentry-rules/1.0.0
+bundle    sentry-rules/1.0.0+sha256:a9f0206cec2548e5
+rules     13
+✓ policy:lint 通过
+
+$ npx tsx scripts/verify-policy-bundle.ts
+✔ policy-bundle
+    ℹ policies/sentry-rules/1.0.0: sentry 规则集 13 条，语料 52 例
+    ℹ 编译通过 4/4 个生产/演示 bundle
+    ℹ 负例 27 个：逐条断言错误码
+
+$ npx tsx scripts/verify-policy-conformance.ts
+✔ policy-conformance
+    ℹ bank-tier/1.0.0: 20 例、规则 5、理由 4
+    ℹ 等价 bank-tier/1.0.0 vs legacy：480 组逐字段相等、480 组未绑定边界（共 960 组）
+    ℹ bundle：生产 1 个、演示 2 个、sentry 规则集 1 个（语料 + 旧内核等价）
+
+$ npx tsx scripts/verify-policy-registry.ts
+✔ policy-registry
+    ℹ registry 4 个版本：目录/摘要/engine/handle 逐条核对
+
+$ npx tsx scripts/policy-admin.ts versions
+bank.tier  bank-tier/1.0.0              sha256:97764bc1298834d6
+sentry.rules sentry-rules/1.0.0          sha256:a9f0206cec2548e5
+```
+
+## 交付内容
+
+- `packages/policy/src/sentry-rules.ts`：`sentry.rules` 编译器（manifest/规则/语料/安全子集/
+  规范化 IR/digest/lock），身份串与签名复用同一套；
+- `packages/policy/src/load.ts`：`loadRuleBundle` / `writeRuleLockFile` / `peekBundleKind`；
+- `policies/sentry-rules/1.0.0/{bundle.yml,CHANGELOG.md,lock.json}`：13 条规则、52 例语料；
+  `policies/registry.json` 新增 `sentry.rules` kind；
+- `packages/safety/src/sentry/kernel/rules.ts`：`scanToolArgs({ baseRules })`（bundle 模式注入）；
+- `packages/safety/src/sentry/pipeline/{config,index,control}.ts`：`rules.engine: legacy|bundle` +
+  `ruleSet` 端口（每步现取，热重载自动生效）；
+- `packages/host/src/boot/plugins/policy.ts`：快照支持 `sentry.rules`（active/canary/shadow），
+  新增 `runtime:sentry-rules` 服务（按会话取版本），描述符按 kind 查找（不再取 `[0]`）；
+- `packages/host/src/boot/plugins/sentry.ts`：`engine=bundle` 必须拿到规则集，否则启动失败
+  `sentry-rules-missing`；链上 `policyVersion` 用 bundle 身份；
+- CLI：`policy:compile/test/lint/install` 按 kind 分派；`policy:promote/rollback --kind sentry.rules`；
+- 门禁：`policy-bundle` / `policy-conformance` / `policy-registry` / `policy-hardcode` 全部支持第二类；
+- 测试：编译器 48 例、宿主集成（攻击参数命中 CMD-001、链上身份、fail-loud）、
+  safety 端口 2 例、灰度/影子/参数不匹配等。
+
+## 口径
+
+- **行为面**：bundle 模式下 13 条规则与旧内核"正则/族/说明/语料命中序列"全等（门禁逐条跑）；
+- **未切换**：`profiles/*` 仍写 `rules.engine: legacy`。按 R10，S6 影子/FP 证据通过前不切；
+- 可以说"`sentry.rules` 已可外置、可灰度、可回滚、可解释"；不能说"已切到外置规则"或
+  "生产 sentry 已用 bundle"。

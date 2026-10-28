@@ -8,7 +8,8 @@
  */
 
 import { evaluateIr } from '../packages/policy/src/table.ts'
-import { loadBundle } from '../packages/policy/src/load.ts'
+import { loadBundle, loadRuleBundle, peekBundleKind } from '../packages/policy/src/load.ts'
+import { checkRuleCases } from '../packages/policy/src/sentry-rules.ts'
 import { mutateAndKill, runCorpus, REQUIRED_TAGS } from '../packages/policy/src/corpus.ts'
 
 import { fail, parseArgs, toolNames, usage } from './policy-cli.ts'
@@ -20,7 +21,31 @@ if (dir === undefined) {
   process.exitCode = usage('用法：pnpm policy:test <bundle-dir> [--json]')
 } else {
   try {
-    const { compiled, cases } = loadBundle({ dir, toolNames: toolNames() })
+    if (peekBundleKind(dir) === 'sentry.rules') {
+      const { compiled } = loadRuleBundle({ dir, toolNames: [], verifyLock: true })
+      const failures = checkRuleCases(compiled)
+      const ruleCases = compiled.ir.rules.reduce(
+        (sum, rule) => sum + rule.cases.match.length + rule.cases.nonMatch.length,
+        0,
+      )
+      if (args.flags.has('json')) {
+        console.log(
+          JSON.stringify(
+            { ok: failures.length === 0, bundle: compiled.descriptor.policyVersion, failures, rules: compiled.rules.length, cases: ruleCases },
+            null,
+            2,
+          ),
+        )
+      } else {
+        console.log(`bundle      ${compiled.descriptor.policyVersion}`)
+        console.log(`rules       ${String(compiled.rules.length)}`)
+        console.log(`cases       ${String(ruleCases)}`)
+        for (const failure of failures) console.log(`failure     ${failure}`)
+        console.log(failures.length === 0 ? '✓ policy:test 通过' : '✘ 语料失败')
+      }
+      process.exitCode = failures.length === 0 ? 0 : 1
+    } else {
+      const { compiled, cases } = loadBundle({ dir, toolNames: toolNames() })
     const report = runCorpus(compiled.ir, cases, compiled)
     const mutation = mutateAndKill(compiled.ir, cases, (candidate) => ({
       evaluate: (input) => evaluateIr(candidate, input),
@@ -77,6 +102,7 @@ if (dir === undefined) {
     }
 
     if (!ok) process.exitCode = 1
+    }
   } catch (error) {
     process.exitCode = fail(error)
   }

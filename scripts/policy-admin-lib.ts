@@ -27,7 +27,7 @@ import {
 import { userInfo } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
-import { loadBundle } from '../packages/policy/src/load.ts'
+import { loadBundle, loadRuleBundle, peekBundleKind } from '../packages/policy/src/load.ts'
 import type { CompileResult } from '../packages/policy/src/compile.ts'
 import { createSagaAudit } from '../packages/persistence/src/chain/index.ts'
 import { BahError, canonicalJson } from '../packages/util/src/index.ts'
@@ -180,7 +180,11 @@ export function loadInstalled(
   root: string,
   kind: string,
   handle: string,
-): { readonly compiled: CompileResult['compiled']; readonly entry: RegistryEntry; readonly dir: string } {
+): {
+  readonly compiled: CompileResult['compiled'] | import('../packages/policy/src/sentry-rules.ts').CompiledRuleSet
+  readonly entry: RegistryEntry
+  readonly dir: string
+} {
   const registry = readRegistry(root)
   const entry = registry.kinds[kind]?.versions[handle]
   if (entry === undefined) {
@@ -190,7 +194,10 @@ export function loadInstalled(
   if (!existsSync(dir)) {
     throw new BahError('policy-bundle-missing', `bundle 目录不存在：${dir}`, { handle })
   }
-  const result = loadBundle({ dir, toolNames: toolNames(), verifyLock: true, withCorpus: false })
+  const result =
+    kind === 'sentry.rules'
+      ? loadRuleBundle({ dir, toolNames: [], verifyLock: true })
+      : loadBundle({ dir, toolNames: toolNames(), verifyLock: true, withCorpus: false })
   if (result.compiled.descriptor.semanticDigest !== entry.semanticDigest) {
     throw new BahError(
       'policy-digest-mismatch',
@@ -199,6 +206,16 @@ export function loadInstalled(
     )
   }
   return { compiled: result.compiled, entry, dir }
+}
+
+/** `policy:shadow` 只重放银行三级判决；规则集没有"同一输入两次求值"的影子语义。 */
+function asBankPolicy(
+  compiled: CompileResult['compiled'] | import('../packages/policy/src/sentry-rules.ts').CompiledRuleSet,
+): CompileResult['compiled'] {
+  if (!('evaluate' in compiled)) {
+    throw new BahError('policy-unavailable', 'policy:shadow 只支持 bank.tier（sentry.rules 用 policy:test 的语料等价）')
+  }
+  return compiled
 }
 
 /** 生成一次 promote 的计划（不写盘）。 */
@@ -378,11 +395,11 @@ export function installBundle(input: {
   readonly now: number
   readonly demo?: boolean
 }): { readonly handle: string; readonly changed: boolean; readonly digest: string } {
-  const result = loadBundle({
-    dir: resolve(input.sourceDir),
-    toolNames: toolNames(),
-    verifyLock: true,
-  })
+  const sourceDir = resolve(input.sourceDir)
+  const result =
+    peekBundleKind(sourceDir) === 'sentry.rules'
+      ? loadRuleBundle({ dir: sourceDir, toolNames: [], verifyLock: true })
+      : loadBundle({ dir: sourceDir, toolNames: toolNames(), verifyLock: true })
   const descriptor = result.compiled.descriptor
   const handle = descriptor.handle
   const target = join(input.paths.root, ...handle.split('/'))
@@ -686,8 +703,8 @@ export function compareShadow(input: {
   readonly to: string
   readonly sessionsDir: string
 }): ShadowReport {
-  const current = loadInstalled(input.paths.root, TIER_KIND, input.from).compiled
-  const candidate = loadInstalled(input.paths.root, TIER_KIND, input.to).compiled
+  const current = asBankPolicy(loadInstalled(input.paths.root, TIER_KIND, input.from).compiled)
+  const candidate = asBankPolicy(loadInstalled(input.paths.root, TIER_KIND, input.to).compiled)
   if (current.descriptor.semanticDigest === candidate.descriptor.semanticDigest) {
     throw new BahError('policy-invalid-config', '--from 与 --to 指向同一份内容（影子无意义）')
   }

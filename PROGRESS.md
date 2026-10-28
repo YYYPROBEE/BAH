@@ -5884,3 +5884,20 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 - 仍未闭合：`docs/coverage-baseline.json` 的行/包口径只认 CI（Windows 分母失真），
   PE-46 的台账刷新待 CI 跑批。
 - 口径：可以说"`pnpm check` 本地 13 步绿 + e2e 无 key SKIP"；**不能**说"覆盖率台账已刷新"。
+
+## 96.32 S5：sentry.rules 第二类 bundle（2026-10-28 21:2x）
+
+- 编译器：`packages/policy/src/sentry-rules.ts`（manifest/规则/语料/正则安全子集/IR/digest/lock）；
+  `policy-regex-unsafe` 入码表（29 条）；
+- 数据：`policies/sentry-rules/1.0.0`（13 条规则、52 例语料、lock、CHANGELOG）；
+  registry 新增 `sentry.rules` kind；
+- 安全面：`scanToolArgs` 支持 `baseRules`；`rules.engine: legacy|bundle`（默认 legacy）；
+  `ruleSet` 端口每步现取（热重载自动生效）；
+- 宿主：`policy:rules` 支持第二类 kind（active/canary/shadow）与 `runtime:sentry-rules` 服务；
+  `safety:sentry` 在 bundle 模式缺规则集 → 启动失败 `sentry-rules-missing`；
+  链上 `sentry/decision.policyVersion` 用 bundle 身份；
+- CLI：compile/test/lint/install 按 kind 分派；promote/rollback 支持 `--kind sentry.rules`；
+- 门禁：policy-bundle / conformance / registry / hardcode 全部支持第二类；
+- 语料/等价：52 例全绿；13 条规则与旧内核"正则/flags/族/说明/命中序列"全等；
+- 实测：unit **221 文件 / 2481 例**；`pnpm check` 13 步绿 + e2e SKIP；`gate 40/40`；
+- **未切 profile**：按 R10，S6 影子/FP 证据通过后再切；当前生产仍是 legacy。

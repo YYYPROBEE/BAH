@@ -19,7 +19,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
 import { BANK_TOOL_NAME_SET } from '../packages/bank/src/tools/specs.ts'
-import { loadBundle } from '../packages/policy/src/load.ts'
+import { loadBundle, loadRuleBundle, peekBundleKind } from '../packages/policy/src/load.ts'
 import { describePolicyError } from '../packages/policy/src/errors.ts'
 import { kindOf } from '../packages/policy/src/expr/eval.ts'
 import type { IrExpr } from '../packages/policy/src/expr/parser.ts'
@@ -83,6 +83,16 @@ const gate: Gate = {
         continue
       }
       try {
+        if (peekBundleKind(abs) === 'sentry.rules') {
+          const result = loadRuleBundle({ dir: abs, toolNames: [], verifyLock: true })
+          // 规则集不持有资金阈值；把阈值名藏进正则同样算硬编码（改正则就能绕过 limits/params）
+          for (const rule of result.compiled.ir.rules) {
+            if (/dailyTransferLimit|riskyCallThreshold/.test(rule.pattern)) {
+              findings.push(`${dir}: ${rule.id} 的正则引用了资金阈值名（阈值必须走 limits/params）`)
+            }
+          }
+          continue
+        }
         const result = loadBundle({ dir: abs, toolNames, verifyLock: true, withCorpus: false })
         for (const finding of scanIrLiterals(dir, result.compiled.ir)) findings.push(finding)
       } catch (error) {

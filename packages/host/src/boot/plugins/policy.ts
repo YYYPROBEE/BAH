@@ -26,10 +26,14 @@ import { join, resolve } from 'node:path'
 import { BANK_TOOL_NAME_SET } from '@bah/bank'
 import {
   loadBundle,
+  loadRuleBundle,
   type CompiledPolicy,
+  type CompiledRuleSet,
+  type CompiledSentryRule,
   type PolicyDescriptor as CompiledDescriptor,
   type TierPolicyResult,
 } from '@bah/policy'
+import { defineService, type Context } from '@bah/core'
 import {
   SESSION_SERVICE,
   findPolicyParamCheck,
@@ -106,6 +110,8 @@ declare module '@bah/core' {
 
 /** v1 只认这一种 bundle 类型（S5 才加 `sentry.rules`）。 */
 const TIER_KIND = 'bank.tier'
+const SENTRY_KIND = 'sentry.rules'
+const POLICY_KINDS = [TIER_KIND, SENTRY_KIND] as const
 
 /**
  * base bundle 行的默认部署版本（base 行不写 `config`，靠这里兜底）。
@@ -206,11 +212,48 @@ interface KindRuntime {
   readonly shadow?: CompiledPolicy
 }
 
+/** 一个 `sentry.rules` kind 的运行期快照（与银行表分开存：类型不同，不硬拼联合）。 */
+interface RuleKindRuntime {
+  readonly kind: typeof SENTRY_KIND
+  readonly active: CompiledRuleSet
+  readonly canary?: {
+    readonly compiled: CompiledRuleSet
+    readonly percent: number
+    readonly sessions: readonly string[]
+    readonly epoch: number
+  }
+  readonly shadow?: CompiledRuleSet
+}
+
 /** 全量快照。 */
 interface PolicySnapshot {
   readonly kinds: ReadonlyMap<string, KindRuntime>
+  readonly rules: ReadonlyMap<string, RuleKindRuntime>
   readonly descriptors: readonly PolicyDescriptor[]
   readonly loadedAt: number
+}
+
+/** `sentry.rules` 的只读视图（safety:sentry 按会话取当前规则集）。 */
+export interface SentryRulesView {
+  readonly descriptor: PolicyDescriptor
+  rulesFor(sessionId: string): {
+    readonly handle: string
+    readonly version: string
+    readonly rules: readonly CompiledSentryRule[]
+  }
+}
+
+/** 服务键：`runtime:sentry-rules`（宿主内部接缝；不跨包）。 */
+export const SENTRY_RULES_SERVICE = defineService<SentryRulesView>('runtime:sentry-rules')
+
+/** 取 sentry 规则服务；未装配 `policy:rules` 时返回 undefined（Fail-closed 由调用方决定）。 */
+export function findSentryRules(ctx: Context): SentryRulesView | undefined {
+  try {
+    return ctx.get(SENTRY_RULES_SERVICE)
+  } catch (error) {
+    if ((error as { code?: string }).code === 'service-missing') return undefined
+    throw error
+  }
 }
 
 /** 影子差异的输出口（宿主闭包；engine 本身不碰事件）。 */
@@ -261,36 +304,73 @@ export const policyRulesPlugin: HostPlugin<PolicyRulesSettings> = {
       /**
        * 描述符是**活引用**：热重载后 `version/canary/parameters` 必须立即反映新快照。
        *
-       * 如果这里捕获 `current.descriptors[0]` 的快照值，早拒路径（sentry/no-identity/预检）
-       * 会一直写旧版本——那正是"每条判决有身份"要避免的假账（I12）。
+       * 如果这里捕获快照值，早拒路径（sentry/no-identity/预检）会一直写旧版本——
+       * 那正是"每条判决有身份"要避免的假账（I12）。S5 起 descriptors 可能含
+       * `sentry.rules`，银行引擎必须**按 kind 找**，不能取 `[0]`。
        */
+      const bankDescriptor = (): PolicyDescriptor => {
+        const found = current.descriptors.find((descriptor) => descriptor.kind === TIER_KIND)
+        if (found === undefined) {
+          throw new BahError(
+            'policy-service-missing',
+            'policy:rules.active 没有 bank.tier（银行策略引擎不可用）',
+            { kind: TIER_KIND },
+          )
+        }
+        return found
+      }
       ctx.effect(
         providePolicyDescriptor(ctx, {
-          // `loadSnapshot` 保证每个 active kind 一个描述符，且 active 至少一行；
-          // 这里不做 `??` 兜底——没有描述符是装配 bug，不该被一个假版本号掩盖。
           get kind() {
-            return current.descriptors[0]!.kind
+            return bankDescriptor().kind
           },
           get handle() {
-            return current.descriptors[0]!.handle
+            return bankDescriptor().handle
           },
           get version() {
-            return current.descriptors[0]!.version
+            return bankDescriptor().version
           },
           get semanticDigest() {
-            return current.descriptors[0]!.semanticDigest
+            return bankDescriptor().semanticDigest
           },
           get engineVersion() {
-            return current.descriptors[0]!.engineVersion
+            return bankDescriptor().engineVersion
           },
           get loadedAt() {
             return current.loadedAt
           },
           get parameters() {
-            return current.descriptors[0]!.parameters
+            return bankDescriptor().parameters
           },
           get canary() {
-            return current.descriptors[0]!.canary
+            return bankDescriptor().canary
+          },
+        }),
+      )
+
+      // sentry 规则集视图（S5）：规则按会话从当前快照取（热重载后自动生效）。
+      ctx.effect(
+        ctx.provide(SENTRY_RULES_SERVICE, {
+          get descriptor(): PolicyDescriptor {
+            const runtime = current.rules.get(SENTRY_KIND)
+            if (runtime === undefined) {
+              throw new BahError(
+                'policy-service-missing',
+                'policy:rules.active 没有 sentry.rules（sentry 规则集不可用）',
+                { kind: SENTRY_KIND },
+              )
+            }
+            return current.descriptors.find((descriptor) => descriptor.kind === SENTRY_KIND)!
+          },
+          rulesFor(sessionId: string) {
+            const runtime = current.rules.get(SENTRY_KIND)
+            if (runtime === undefined) return undefined
+            const compiled = pickRuleSet(runtime, sessionId)
+            return {
+              handle: compiled.descriptor.handle,
+              version: compiled.descriptor.policyVersion,
+              rules: compiled.rules,
+            }
           },
         }),
       )
@@ -329,7 +409,10 @@ export const policyRulesPlugin: HostPlugin<PolicyRulesSettings> = {
           // 激活前用部署参数校验新描述符（`bank:tools` 提供）；不兼容 = 旧版继续
           const paramCheck = findPolicyParamCheck(ctx)
           if (paramCheck !== undefined) {
-            for (const descriptor of next.descriptors) paramCheck(descriptor)
+            // 部署参数只属于银行表；sentry 规则集没有参数面，不能拿银行参数去比它
+            for (const descriptor of next.descriptors) {
+              if (descriptor.kind === TIER_KIND) paramCheck(descriptor)
+            }
           }
         } catch (error) {
           const code = (error as { code?: string }).code ?? 'policy-reload-failed'
@@ -424,10 +507,10 @@ export const policyRulesPlugin: HostPlugin<PolicyRulesSettings> = {
       )
     }
     for (const kind of Object.keys(active)) {
-      if (kind !== TIER_KIND) {
+      if (!(POLICY_KINDS as readonly string[]).includes(kind)) {
         throw bootError(
           'invalid-config',
-          `policy:rules.active 含未知 kind ${kind}（v1 只认 bank.tier）`,
+          `policy:rules.active 含未知 kind ${kind}（v1 只认 ${POLICY_KINDS.join(' / ')}）`,
           { kind },
         )
       }
@@ -541,11 +624,47 @@ function loadSnapshot(settings: PolicyRulesSettings, now: () => number): PolicyS
   const state = readState(resolve(settings.statePath))
   const toolNames = [...BANK_TOOL_NAME_SET]
   const kinds = new Map<string, KindRuntime>()
+  const rules = new Map<string, RuleKindRuntime>()
   const descriptors: PolicyDescriptor[] = []
 
   for (const [kind, fallback] of Object.entries(settings.active)) {
     const assignment = state?.assignments[kind]
     const activeHandle = assignment?.active ?? fallback
+
+    if (kind === SENTRY_KIND) {
+      const active = compileRuleAt(root, kind, activeHandle, registry, settings)
+      const canaryRuleHandle = assignment?.canary?.version
+      const canary =
+        canaryRuleHandle === undefined
+          ? undefined
+          : {
+              compiled: compileRuleAt(root, kind, canaryRuleHandle, registry, settings),
+              percent: assignment?.canary?.percent ?? 0,
+              sessions: assignment?.canary?.sessions ?? [],
+              epoch: assignment?.canary?.epoch ?? 0,
+            }
+      const shadowRuleHandle = settings.shadow[kind] ?? null
+      if (shadowRuleHandle !== null && shadowRuleHandle === activeHandle) {
+        throw new BahError(
+          'policy-shadow-self',
+          `runtime-state 把 ${kind} 的 active 与 shadow 指向了同一版本（${shadowRuleHandle}）`,
+          { kind, handle: shadowRuleHandle },
+        )
+      }
+      const shadow =
+        shadowRuleHandle === null
+          ? undefined
+          : compileRuleAt(root, kind, shadowRuleHandle, registry, settings)
+      rules.set(kind, {
+        kind: SENTRY_KIND,
+        active,
+        ...(canary === undefined ? {} : { canary }),
+        ...(shadow === undefined ? {} : { shadow }),
+      })
+      descriptors.push(descriptorOfRules(active, canary, now()))
+      continue
+    }
+
     const active = compileAt(root, kind, activeHandle, registry, settings, toolNames)
 
     const canaryHandle = assignment?.canary?.version
@@ -608,7 +727,7 @@ function loadSnapshot(settings: PolicyRulesSettings, now: () => number): PolicyS
     }
   }
 
-  return { kinds, descriptors, loadedAt: now() }
+  return { kinds, rules, descriptors, loadedAt: now() }
 }
 
 /** `CompiledPolicy` → `PolicyDescriptor`（runtime 端口的只读视图）。 */
@@ -641,6 +760,46 @@ function descriptorOf(
           },
         }),
   }
+}
+
+/** `CompiledRuleSet` → 运行时描述符（无参数面；canary 与银行同形）。 */
+function descriptorOfRules(
+  active: CompiledRuleSet,
+  canary:
+    | { readonly compiled: CompiledRuleSet; readonly percent: number; readonly epoch: number }
+    | undefined,
+  loadedAt: number,
+): PolicyDescriptor {
+  const descriptor = active.descriptor
+  return {
+    kind: descriptor.kind,
+    handle: descriptor.handle,
+    version: descriptor.policyVersion,
+    semanticDigest: descriptor.semanticDigest,
+    engineVersion: descriptor.engineVersion,
+    loadedAt,
+    ...(canary === undefined
+      ? {}
+      : {
+          canary: {
+            handle: canary.compiled.descriptor.handle,
+            version: canary.compiled.descriptor.policyVersion,
+            percent: canary.percent,
+            epoch: canary.epoch,
+          },
+        }),
+  }
+}
+
+/** 按会话选规则集版本（与银行同一套分桶；纯函数、跨重启稳定）。 */
+function pickRuleSet(runtime: RuleKindRuntime, sessionId: string): CompiledRuleSet {
+  const canary = runtime.canary
+  if (canary === undefined) return runtime.active
+  if (canary.sessions.includes(sessionId)) return canary.compiled
+  const bucket =
+    Number.parseInt(sha256Hex(`${sessionId}#${String(canary.epoch)}`).slice(0, 8), 16) %
+    PERCENT_BASE
+  return bucket < canary.percent ? canary.compiled : runtime.active
 }
 
 /** 参数名集合（排序后拼接；只用于比较，不参与摘要）。 */
@@ -845,6 +1004,52 @@ function compileAt(
   settings: PolicyRulesSettings,
   toolNames: readonly string[],
 ): CompiledPolicy {
+  const { entry, dir } = bundleTargetOf(root, kind, handle, registry)
+  const keyPath = settings.signature.publicKeyPath
+  const result = loadBundle({
+    dir,
+    toolNames,
+    verifyLock: true,
+    withCorpus: false,
+    requireSignature: settings.requireSignature,
+    ...(keyPath === undefined ? {} : { publicKeyPem: readFileSync(resolve(keyPath), 'utf8') }),
+    // `loadBundle` 对缺省与空数组都按"不限制密钥版本"处理（`?? []`），
+    // 所以这里不必再分叉：`validate` 保证非空，空值语义与省略一致。
+    allowedKeyVersions: settings.signature.allowedKeyVersions,
+  })
+  assertRegistryDigest(entry, handle, result.compiled.descriptor)
+  return result.compiled
+}
+
+/** 同 `compileAt`，但走 `sentry.rules` 编译器（签名/摘要校验完全共用）。 */
+function compileRuleAt(
+  root: string,
+  kind: string,
+  handle: string,
+  registry: PolicyRegistry | undefined,
+  settings: PolicyRulesSettings,
+): CompiledRuleSet {
+  const { entry, dir } = bundleTargetOf(root, kind, handle, registry)
+  const keyPath = settings.signature.publicKeyPath
+  const result = loadRuleBundle({
+    dir,
+    toolNames: [],
+    verifyLock: true,
+    requireSignature: settings.requireSignature,
+    ...(keyPath === undefined ? {} : { publicKeyPem: readFileSync(resolve(keyPath), 'utf8') }),
+    allowedKeyVersions: settings.signature.allowedKeyVersions,
+  })
+  assertRegistryDigest(entry, handle, result.compiled.descriptor)
+  return result.compiled
+}
+
+/** handle → 目录/registry 条目（两种 kind 共用；绝不静默回落目录）。 */
+function bundleTargetOf(
+  root: string,
+  kind: string,
+  handle: string,
+  registry: PolicyRegistry | undefined,
+): { readonly entry: RegistryEntry | undefined; readonly dir: string } {
   const entry = registry?.kinds[kind]?.versions[handle]
   if (registry !== undefined && entry === undefined) {
     throw new BahError(
@@ -861,30 +1066,26 @@ function compileAt(
       kind,
     })
   }
-  const keyPath = settings.signature.publicKeyPath
-  const result = loadBundle({
-    dir,
-    toolNames,
-    verifyLock: true,
-    withCorpus: false,
-    requireSignature: settings.requireSignature,
-    ...(keyPath === undefined ? {} : { publicKeyPem: readFileSync(resolve(keyPath), 'utf8') }),
-    // `loadBundle` 对缺省与空数组都按"不限制密钥版本"处理（`?? []`），
-    // 所以这里不必再分叉：`validate` 保证非空，空值语义与省略一致。
-    allowedKeyVersions: settings.signature.allowedKeyVersions,
-  })
-  if (entry !== undefined && entry.semanticDigest !== result.compiled.descriptor.semanticDigest) {
+  return { entry, dir }
+}
+
+/** registry 里登记的语义摘要必须与现场一致（I9）。 */
+function assertRegistryDigest(
+  entry: RegistryEntry | undefined,
+  handle: string,
+  descriptor: CompiledDescriptor,
+): void {
+  if (entry !== undefined && entry.semanticDigest !== descriptor.semanticDigest) {
     throw new BahError(
       'policy-digest-mismatch',
       `registry 里的 semanticDigest 与现场不符（${handle}）`,
       {
         handle,
         expected: entry.semanticDigest,
-        actual: result.compiled.descriptor.semanticDigest,
+        actual: descriptor.semanticDigest,
       },
     )
   }
-  return result.compiled
 }
 
 /**

@@ -6,8 +6,16 @@
  * - `--check`：要求 `lock.json` 存在且一致（CI 用；缺失即失败）。
  */
 
-import { loadBundle, writeLockFile } from '../packages/policy/src/load.ts'
+import {
+  loadBundle,
+  loadRuleBundle,
+  peekBundleKind,
+  writeLockFile,
+  writeRuleLockFile,
+} from '../packages/policy/src/load.ts'
 import { policyError } from '../packages/policy/src/errors.ts'
+import type { CompileResult } from '../packages/policy/src/compile.ts'
+import type { SentryCompileResult } from '../packages/policy/src/sentry-rules.ts'
 
 import { fail, parseArgs, toolNames, usage } from './policy-cli.ts'
 
@@ -22,14 +30,15 @@ if (dir === undefined) {
   process.exitCode = usage('--write 与 --check 不能同时使用（一个写、一个只读）')
 } else {
   try {
-    const result = loadBundle({
-      dir,
-      toolNames: toolNames(),
-      verifyLock: !write,
-    })
+    const kind = peekBundleKind(dir)
+    const result =
+      kind === 'sentry.rules'
+        ? loadRuleBundle({ dir, toolNames: [], verifyLock: !write })
+        : loadBundle({ dir, toolNames: toolNames(), verifyLock: !write })
 
     if (write) {
-      writeLockFile(dir, result.lock)
+      if (kind === 'sentry.rules') writeRuleLockFile(dir, (result as SentryCompileResult).lock)
+      else writeLockFile(dir, (result as CompileResult).lock)
     } else if (check && !result.lockPresent) {
       // `--check` 要求 lock 必须存在：没有 lock 时"一致"是假绿。
       throw policyError('policy-digest-mismatch', 'lock.json 不存在（先跑 policy:compile --write）', {
