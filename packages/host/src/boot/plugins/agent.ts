@@ -24,9 +24,11 @@ import type {
   AgentLoopConfig,
   ChannelKind,
   RuntimeContextAccountView,
+  RuntimeContextSource,
   RuntimeContextView,
 } from '@bah/runtime'
 import type { HaltHandle } from '@bah/safety'
+import type { ServiceKey } from '@bah/core'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
@@ -67,6 +69,27 @@ export interface AgentSettings {
   readonly slots: { readonly source: 'none' | 'bank' }
   /** 透传给主循环的配置（`model` / `params` / `compaction` / `maxSteps`）。 */
   readonly loop: AgentLoopConfig
+}
+
+/** `ctx.get` 的最小读口（抽出来是为了单测"缺服务 vs 装配 bug"两条分支）。 */
+export interface ServiceReader {
+  get<T>(key: ServiceKey<T>): T
+}
+
+/**
+ * 懒取运行时上下文端口。
+ *
+ * `service-missing` = 这一行没装（合法装配，返回 undefined）；其它异常是装配 bug，
+ * 必须原样上抛——不许被当成"没装"。`ServiceRegistry.get` 目前只抛 `service-missing`，
+ * 所以 rethrow 是对"将来 get 增加错误类型"的守卫，由假 ctx 单测覆盖。
+ */
+export function contextSourceOf(ctx: ServiceReader): RuntimeContextSource | undefined {
+  try {
+    return ctx.get(RUNTIME_CONTEXT_SOURCE)
+  } catch (error) {
+    if ((error as { code?: string }).code === 'service-missing') return undefined
+    throw error
+  }
 }
 
 export const agentPlugin: HostPlugin<AgentSettings> = {
@@ -112,14 +135,7 @@ export const agentPlugin: HostPlugin<AgentSettings> = {
       const resolver = createRuntimeContextResolver({
         ...(config.runtimeContext === undefined ? {} : { staticView: config.runtimeContext }),
         slots: config.slots,
-        getSource: () => {
-          try {
-            return ctx.get(RUNTIME_CONTEXT_SOURCE)
-          } catch (error) {
-            if ((error as { code?: string }).code === 'service-missing') return undefined
-            throw error
-          }
-        },
+        getSource: () => contextSourceOf(ctx),
       })
 
       const loop = new AgentLoop({

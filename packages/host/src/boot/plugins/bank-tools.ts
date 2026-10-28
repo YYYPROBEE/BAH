@@ -163,6 +163,20 @@ const DATASET_TIERS: readonly ForgeTier[] = ['demo', 'stress', 'adversarial']
 /** 允许的策略引擎模式（策略外置 S2）。 */
 const POLICY_ENGINES = ['legacy', 'bundle'] as const
 
+/**
+ * 槽位告警出口（`runtime:context-source` 的 `warn`）。
+ *
+ * bank 适配器只报 code + 计数/窗口（脱敏在那边做），这里统一转结构化日志。
+ * 抽成具名导出是为了单测：熔断打开需要核心真的故障，而 `MockBankCore` 的读路径
+ * 不抛错，host 级装配走不到这条回调。
+ */
+export function warnContextSlots(
+  code: string,
+  fields: Readonly<Record<string, unknown>>,
+): void {
+  logJson('warn', code, fields)
+}
+
 export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
   id: 'bank:tools',
 
@@ -265,9 +279,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
             core,
             identity,
             settings: config.contextSlots,
-            warn: (code, fields) => {
-              logJson('warn', code, fields)
-            },
+            warn: warnContextSlots,
           }),
         ),
       )

@@ -869,9 +869,9 @@ function compileAt(
     withCorpus: false,
     requireSignature: settings.requireSignature,
     ...(keyPath === undefined ? {} : { publicKeyPem: readFileSync(resolve(keyPath), 'utf8') }),
-    ...(settings.signature.allowedKeyVersions.length === 0
-      ? {}
-      : { allowedKeyVersions: settings.signature.allowedKeyVersions }),
+    // `loadBundle` 对缺省与空数组都按"不限制密钥版本"处理（`?? []`），
+    // 所以这里不必再分叉：`validate` 保证非空，空值语义与省略一致。
+    allowedKeyVersions: settings.signature.allowedKeyVersions,
   })
   if (entry !== undefined && entry.semanticDigest !== result.compiled.descriptor.semanticDigest) {
     throw new BahError(

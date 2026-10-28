@@ -157,6 +157,20 @@ describe('slots.source=bank · ok', () => {
     const view = await resolver(invocation())
     expect(view).not.toHaveProperty('notes')
   })
+
+  it('权威无姓名且静态无 level → 不造 user 键（只有账户也算可展示内容）', async () => {
+    const resolver = resolverOf({
+      staticView: { notes: ['演示数据'] },
+      source: stubSource({
+        status: 'ok',
+        view: { accounts: OK.view?.accounts ?? [], notes: ['没有可展示的账户'] },
+      }),
+    })
+    const view = await resolver(invocation())
+    expect(view).not.toHaveProperty('user')
+    expect(view?.accounts).toHaveLength(1)
+    expect(view?.meta).toEqual({ source: 'bank', status: 'ok' })
+  })
 })
 
 /* ── 3. unbound / degraded：不显示未验证画像 ──────────────────────────────── */
