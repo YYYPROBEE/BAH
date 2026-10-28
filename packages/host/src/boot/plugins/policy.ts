@@ -911,15 +911,31 @@ function engineOf(
       const result = evaluate(compiled, context.input, kind, sessionId)
 
       if (runtime.shadow !== undefined && compiled !== runtime.shadow) {
-        const shadowed = evaluate(runtime.shadow, context.input, kind, sessionId)
-        const changed = diffOf(result, shadowed)
-        if (changed.length > 0) {
+        /**
+         * 影子**不生效**：候选求值失败不能影响已算出的生效判决。
+         * 这里单独 catch，落一条 `shadow-error` 差异（便于运维看到候选坏了），
+         * 然后照常返回 active 的判决。
+         */
+        try {
+          const shadowed = evaluate(runtime.shadow, context.input, kind, sessionId)
+          const changed = diffOf(result, shadowed)
+          if (changed.length > 0) {
+            shadowSink({
+              kind,
+              callId: action.callId,
+              from: compiled.descriptor.policyVersion,
+              to: runtime.shadow.descriptor.policyVersion,
+              changed,
+            })
+          }
+        } catch (error) {
+          console.warn(`[policy:rules] 影子求值失败（不影响生效判决）：${String(error)}`)
           shadowSink({
             kind,
             callId: action.callId,
             from: compiled.descriptor.policyVersion,
             to: runtime.shadow.descriptor.policyVersion,
-            changed,
+            changed: ['shadow-error'],
           })
         }
       }
