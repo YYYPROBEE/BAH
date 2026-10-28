@@ -11,7 +11,7 @@
 import { appendFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { describeThrown } from '@bah/core'
+import { defineService, describeThrown } from '@bah/core'
 import { ChainFile, projectionDiff } from '@bah/persistence'
 import type { ProjectionReducer } from '@bah/persistence'
 import {
@@ -28,8 +28,12 @@ import type { Context } from '@bah/core'
 import type { ChainRow } from '@bah/saga'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
+import { recordAlertResult } from './alert-stats.ts'
 import { logJson } from './log.ts'
 import { SESSION_FILES } from './persistence.ts'
+
+/** 供 SLO 桥读取**生效后**的 saga 阈值（02 / S2.6）；由 `bank:saga` 提供。 */
+export const SAGA_SETTINGS = defineService<ReturnType<typeof parseSagaSettings>>('bah:saga-settings')
 
 /**
  * 启动恢复失败的审计链 id（系统级事实，不属于任何单笔 saga）。
@@ -56,7 +60,7 @@ function recordRecoveryFailure(ctx: Context, reason: string): void {
       at: ctx.get(SAGA_CLOCK).now(),
     })
   } catch (auditError) {
-    console.error(`bah-saga: recovery-audit-failed: ${describeThrown(auditError)}`)
+    logJson('error', 'host.saga-recovery-audit-failed', { reason: describeThrown(auditError) })
   }
 }
 
@@ -68,6 +72,7 @@ export const sagaPlugin: HostPlugin<ReturnType<typeof parseSagaSettings>> = {
     name: 'bank:saga',
     inject: [SESSION_FILES.id],
     apply(ctx, settings) {
+      ctx.provide(SAGA_SETTINGS, settings)
       provideSaga(ctx, settings)
       const chainRoot = resolve(ctx.get(SESSION_FILES).root)
       const chain = new ChainFile({ rootDir: chainRoot, fsync: false })
@@ -93,10 +98,14 @@ export const sagaPlugin: HostPlugin<ReturnType<typeof parseSagaSettings>> = {
         // 所以在这里固定补两路：① 结构化日志（stderr 单行 JSON，永远在）；
         // ② 可选文件出口（`BAH_ALERT_LOG` 指到路径才开，用于赛后/现场留证）。
         (level, message) => {
+          const alertLevel = level === 'P0' ? 'P0' : 'alert'
           const sink = legacyAlertSink()
           sink(level, message)
           logJson(level === 'P0' ? 'error' : 'warn', 'saga-alert', { level, message })
-          appendAlertLine(process.env['BAH_ALERT_LOG'], level, message)
+          recordAlertResult(alertLevel, 'stderr')
+          const fileResult = appendAlertLine(process.env['BAH_ALERT_LOG'], level, message)
+          if (fileResult === 'ok') recordAlertResult(alertLevel, 'file')
+          if (fileResult === 'failed') recordAlertResult(alertLevel, 'failed')
         },
       )
 
@@ -135,8 +144,12 @@ export const sagaPlugin: HostPlugin<ReturnType<typeof parseSagaSettings>> = {
  * 用同步写：告警是稀疏事件（DLQ 升级/补偿失败），这里丢掉一行的代价比阻塞一次大。
  * **不建目录**——路径写错要立刻暴露，而不是悄悄写到别处。
  */
-function appendAlertLine(file: string | undefined, level: string, message: string): void {
-  if (file === undefined || file.trim().length === 0) return
+function appendAlertLine(
+  file: string | undefined,
+  level: string,
+  message: string,
+): 'none' | 'ok' | 'failed' {
+  if (file === undefined || file.trim().length === 0) return 'none'
   try {
     appendFileSync(
       file,
@@ -144,8 +157,10 @@ function appendAlertLine(file: string | undefined, level: string, message: strin
 `,
       'utf8',
     )
+    return 'ok'
   } catch (error) {
     // 文件出口失败不能反过来打断业务；但必须可见
     logJson('warn', 'saga-alert-file-failed', { file, reason: describeThrown(error) })
+    return 'failed'
   }
 }

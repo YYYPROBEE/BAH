@@ -27,6 +27,7 @@ import {
 import { handleStatic } from './handlers/static.ts'
 import { handleHandoff } from './handlers/handoff.ts'
 import { handleMetrics } from './handlers/metrics.ts'
+import { handleTrace } from './handlers/trace.ts'
 import { sendError } from './http.ts'
 import { METHOD_NOT_ALLOWED_CODE, METHOD_NOT_ALLOWED_STATUS, matchRoute, type RouteHandler } from './router.ts'
 import { startHttpSpan } from './trace.ts'
@@ -39,6 +40,7 @@ const HANDLERS: Readonly<Record<RouteHandler, WebHandler>> = {
   session: handleSession,
   events: handleEvents,
   metrics: handleMetrics,
+  trace: handleTrace,
   turn: handleTurn,
   interrupt: handleInterrupt,
   approval: handleApproval,

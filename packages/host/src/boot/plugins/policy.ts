@@ -56,6 +56,7 @@ import {
   rejectUnknownKeys,
 } from '../config.ts'
 import { logJson } from './log.ts'
+import { tryTelemetry, type TelemetryHandle } from './telemetry.ts'
 
 /**
  * 策略平面的四个领域事件（02 §4.3）。
@@ -292,7 +293,7 @@ export const policyRulesPlugin: HostPlugin<PolicyRulesSettings> = {
           session.appendDomain(type, data, { ignorable: true })
         } catch (error) {
           // 观测失败不改判决（I17 的同一条纪律）：策略已经算完了。
-          console.warn(`[policy:rules] 会话事件 ${type} 写入失败：${String(error)}`)
+          logJson('warn', 'host.policy-event-persist-failed', { type, reason: String(error) })
         }
       }
 
@@ -300,7 +301,9 @@ export const policyRulesPlugin: HostPlugin<PolicyRulesSettings> = {
         emit('policy/shadow-diff', { ...diff, at: run.now() })
       }
 
-      ctx.effect(providePolicyEngine(ctx, engineOf(() => current, sessionId, shadowSink)))
+      // 02 / 01 的 `policy.evaluate` 发射点：与判决取数在同一处，避免"图里没有判决"。
+      const telemetry = tryTelemetry(ctx)
+      ctx.effect(providePolicyEngine(ctx, engineOf(() => current, sessionId, shadowSink, telemetry)))
       /**
        * 描述符是**活引用**：热重载后 `version/canary/parameters` 必须立即反映新快照。
        *
@@ -1098,7 +1101,31 @@ function engineOf(
   snapshotOf: () => PolicySnapshot,
   defaultSessionId: string,
   shadowSink: ShadowSink,
+  telemetry: TelemetryHandle | undefined,
 ): PolicyEngine {
+  /** 判决 span：属性在结果出来后才齐（verdict/policyVersion），所以用 `open/setAttributes`。 */
+  const evaluateObserved = (
+    compiled: CompiledPolicy,
+    input: unknown,
+    kind: string,
+    sessionId: string,
+  ): TierPolicyResult => {
+    const span = telemetry?.recorder.open('policy.evaluate')
+    try {
+      const result = evaluate(compiled, input, kind, sessionId)
+      span?.setAttributes({
+        verdict: result.level,
+        policyVersion: compiled.descriptor.policyVersion,
+        engineSource: 'bundle',
+      })
+      span?.end('ok')
+      return result
+    } catch (error) {
+      span?.end('error', error instanceof BahError ? error.code : 'unknown-error')
+      throw error
+    }
+  }
+
   return {
     decide(subject, action, context) {
       const snapshot = snapshotOf()
@@ -1109,7 +1136,7 @@ function engineOf(
       }
       const sessionId = subject.sessionId ?? defaultSessionId
       const compiled = pick(runtime, sessionId)
-      const result = evaluate(compiled, context.input, kind, sessionId)
+      const result = evaluateObserved(compiled, context.input, kind, sessionId)
 
       if (runtime.shadow !== undefined && compiled !== runtime.shadow) {
         /**
@@ -1130,7 +1157,7 @@ function engineOf(
             })
           }
         } catch (error) {
-          console.warn(`[policy:rules] 影子求值失败（不影响生效判决）：${String(error)}`)
+          logJson('warn', 'host.policy-shadow-eval-failed', { reason: String(error) })
           shadowSink({
             kind,
             callId: action.callId,

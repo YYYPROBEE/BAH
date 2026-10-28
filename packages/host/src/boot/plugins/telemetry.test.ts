@@ -6,7 +6,7 @@
  * 瀑布图会把"没测过"画成"很快"，而那正是本方案明令禁止的三种"零"之一。
  */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -15,6 +15,7 @@ import { SESSION_SERVICE, type SessionApi } from '@bah/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { RUN_SERVICE } from '../boot.ts'
+import { MODEL_PRICING } from './model.ts'
 import { TELEMETRY, telemetryPlugin } from './telemetry.ts'
 
 const T = 1_700_000_000_000
@@ -64,8 +65,14 @@ async function boot(options: {
 }
 
 describe('obs:telemetry · 配置校验', () => {
-  it('缺省：容量 2000、只留内存、无采样覆盖', () => {
-    expect(telemetryPlugin.validate({})).toEqual({ maxSpans: 2000, spanLog: null, sample: {} })
+  it('缺省：容量 2000、只留内存、无采样覆盖、预算全关、无 webhook', () => {
+    expect(telemetryPlugin.validate({})).toEqual({
+      maxSpans: 2000,
+      spanLog: null,
+      sample: {},
+      guard: { maxTurnCostMicroYuan: 0, maxSessionCostMicroYuan: 0, maxTurnOutputTokens: 0 },
+      alerts: { webhook: null },
+    })
   })
 
   it('未知键 fail-loud（静默取缺省会导致"配了却没生效"）', () => {
@@ -102,6 +109,27 @@ describe('obs:telemetry · 配置校验', () => {
     setEnv('BAH_SPAN_LOG', 'logs/spans.jsonl')
     expect(telemetryPlugin.validate({ spanLog: 'config.jsonl' }).spanLog).toBe('logs/spans.jsonl')
   })
+
+  it('guard 三键：缺省 0，负数/小数 fail-loud', () => {
+    expect(telemetryPlugin.validate({ guard: { maxTurnOutputTokens: 100 } }).guard).toEqual({
+      maxTurnCostMicroYuan: 0,
+      maxSessionCostMicroYuan: 0,
+      maxTurnOutputTokens: 100,
+    })
+    expect(() => telemetryPlugin.validate({ guard: { maxTurnCostMicroYuan: -1 } })).toThrow(/非负整数/)
+    expect(() => telemetryPlugin.validate({ guard: { maxTurnCostMicroYuan: 1.5 } })).toThrow(/非负整数/)
+  })
+
+  it('alerts.webhook 必须是 http(s)；BAH_ALERT_WEBHOOK 覆盖 config', () => {
+    expect(telemetryPlugin.validate({ alerts: { webhook: 'https://example.test/hook' } }).alerts).toEqual({
+      webhook: 'https://example.test/hook',
+    })
+    expect(() => telemetryPlugin.validate({ alerts: { webhook: 'file:///etc/passwd' } })).toThrow(/http/)
+    setEnv('BAH_ALERT_WEBHOOK', 'https://env.test/hook')
+    expect(telemetryPlugin.validate({ alerts: { webhook: 'https://config.test/hook' } }).alerts).toEqual({
+      webhook: 'https://env.test/hook',
+    })
+  })
 })
 
 describe('obs:telemetry · 装配与派生', () => {
@@ -112,6 +140,8 @@ describe('obs:telemetry · 装配与派生', () => {
       expect(handle).toBeDefined()
       expect(handle.stats.size).toBe(0)
       expect(handle.spanLogPath).toBeNull()
+      expect(handle.budgetExhausted()).toEqual({ turn: 0, session: 0 })
+      await expect(handle.withSpanAsync('rag.answer', {}, async () => 'ok')).resolves.toBe('ok')
     } finally {
       await ctx.dispose('test')
     }
@@ -151,6 +181,39 @@ describe('obs:telemetry · 装配与派生', () => {
     }
   })
 
+  it('costConfigured 跟随 core:model.pricing（没装 model 时为 false）', async () => {
+    const ctx = await boot()
+    try {
+      expect(ctx.get(TELEMETRY).costConfigured()).toBe(false)
+      ctx.provide(MODEL_PRICING, { configured: true })
+      expect(ctx.get(TELEMETRY).costConfigured()).toBe(true)
+    } finally {
+      await ctx.dispose('test')
+    }
+  })
+
+  it('alerts.webhook 非空时注册出口（不影响装配）', async () => {
+    const ctx = await boot({ config: { alerts: { webhook: 'https://example.test/hook' } } })
+    try {
+      expect(ctx.get(TELEMETRY).spanLogPath).toBeNull()
+    } finally {
+      await ctx.dispose('test')
+    }
+  })
+
+  it('spanLog 目录建不出来 → fail-open（装配不失败）', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'bah-telemetry-bad-'))
+    const blocking = join(base, 'not-a-dir')
+    writeFileSync(blocking, 'x')
+    const ctx = await boot({ config: { spanLog: join(blocking, 'span.jsonl') } })
+    try {
+      expect(ctx.get(TELEMETRY).spanLogPath).toBe(join(blocking, 'span.jsonl'))
+    } finally {
+      await ctx.dispose('test')
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
   it('derive() 把结果并进记录器，重复调用不重复计数（absorb 去重）', async () => {
     const ctx = await boot({
       events: [{ seq: 1, at: T, type: 'turn/start', data: { turn: 1 } }],
@@ -160,6 +223,125 @@ describe('obs:telemetry · 装配与派生', () => {
       handle.derive()
       handle.derive()
       expect(handle.stats.size).toBe(1)
+    } finally {
+      await ctx.dispose('test')
+    }
+  })
+})
+
+describe('obs:telemetry · 预算闸', () => {
+  const summary = (turn: number, costMicroYuan: number): { seq: number; at: number; type: string; data: unknown } => ({
+    seq: 1,
+    at: T,
+    type: 'usage/summary',
+    data: { turn, input: 10, output: 10, cachedInput: 0, costMicroYuan },
+  })
+
+  it('本轮成本超限 → pre-step reject（信封，不是裸 verdict）', async () => {
+    const ctx = await boot({
+      events: [summary(1, 1500)],
+      config: { guard: { maxTurnCostMicroYuan: 1000 } },
+    })
+    try {
+      const input = {
+        agent: {} as never,
+        messages: [],
+        // usage/summary 属于上一轮（turn 1）；下一轮第一步才拿到它并拒
+        turn: 2,
+        step: 1,
+        signal: new AbortController().signal,
+        verdict: { kind: 'enter' as const, messages: [] },
+      }
+      const result = (await ctx.events.waterfall('agent/pre-step', input)) as {
+        verdict: { kind: string; code?: string; reason?: string }
+      }
+      expect(result.verdict.kind).toBe('reject')
+      expect(result.verdict.code).toBe('usage-budget-exhausted')
+      expect(result.verdict.reason).toMatch(/1500\/1000/)
+    } finally {
+      await ctx.dispose('test')
+    }
+  })
+
+  it('会话成本超限 → turn-stopping 判停，reason 含数字', async () => {
+    const ctx = await boot({
+      events: [summary(1, 2000)],
+      config: { guard: { maxSessionCostMicroYuan: 1000 } },
+    })
+    try {
+      let stopped: string | undefined
+      await ctx.events.serial('agent/turn-stopping', {
+        agent: {} as never,
+        turn: 1,
+        signal: new AbortController().signal,
+        stop: (reason?: string) => {
+          stopped = reason
+        },
+      })
+      expect(stopped).toMatch(/2000\/1000/)
+    } finally {
+      await ctx.dispose('test')
+    }
+  })
+
+  it('上一轮输出 token 超限 → pre-step reject', async () => {
+    const ctx = await boot({
+      events: [{ seq: 1, at: T, type: 'usage/summary', data: { turn: 1, input: 10, output: 100, cachedInput: 0, costMicroYuan: 0 } }],
+      config: { guard: { maxTurnOutputTokens: 50 } },
+    })
+    try {
+      const input = {
+        agent: {} as never,
+        messages: [],
+        turn: 2,
+        step: 1,
+        signal: new AbortController().signal,
+        verdict: { kind: 'enter' as const, messages: [] },
+      }
+      const result = (await ctx.events.waterfall('agent/pre-step', input)) as {
+        verdict: { kind: string; code?: string }
+      }
+      expect(result.verdict.kind).toBe('reject')
+      expect(result.verdict.code).toBe('usage-budget-exhausted')
+    } finally {
+      await ctx.dispose('test')
+    }
+  })
+
+  it('预算配了但未超 → pre-step 继续走 next（不误伤）', async () => {
+    const ctx = await boot({
+      events: [summary(1, 100)],
+      config: { guard: { maxTurnCostMicroYuan: 10_000 } },
+    })
+    try {
+      const input = {
+        agent: {} as never,
+        messages: [],
+        turn: 2,
+        step: 1,
+        signal: new AbortController().signal,
+        verdict: { kind: 'enter' as const, messages: [] },
+      }
+      const result = (await ctx.events.waterfall('agent/pre-step', input)) as { verdict: { kind: string } }
+      expect(result.verdict.kind).toBe('enter')
+    } finally {
+      await ctx.dispose('test')
+    }
+  })
+
+  it('预算全 0 → 不注册监听器（pre-step 原样通过）', async () => {
+    const ctx = await boot()
+    try {
+      const input = {
+        agent: {} as never,
+        messages: [],
+        turn: 1,
+        step: 1,
+        signal: new AbortController().signal,
+        verdict: { kind: 'enter' as const, messages: [] },
+      }
+      const result = (await ctx.events.waterfall('agent/pre-step', input)) as { verdict: { kind: string } }
+      expect(result.verdict.kind).toBe('enter')
     } finally {
       await ctx.dispose('test')
     }

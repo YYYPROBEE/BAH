@@ -14,7 +14,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import type { SessionApi } from '@bah/runtime'
 import type { WebChannelAdapter } from '@bah/channels'
+import { createRecorder, type TelemetrySpan } from '@bah/telemetry'
 import { afterEach, describe, expect, it } from 'vitest'
+
+import type { TelemetryHandle } from '../telemetry.ts'
 
 import { ADMIN_TOKEN_ENV } from '../web-admin.ts'
 import { resolveWebSettings } from './config.ts'
@@ -39,6 +42,11 @@ interface Probe {
 function makeRes(): { res: ServerResponse; probe: Probe } {
   const probe: Probe = { status: 0, headers: {}, body: '' }
   const res = {
+    writableEnded: false,
+    once(): unknown {
+      // 遥测包裹点会挂 `res.once('close')`；矩阵测试不关心 span 收尾。
+      return res
+    },
     get headersSent(): boolean {
       return probe.status !== 0
     },
@@ -134,8 +142,9 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
     ensureDriver: () => undefined,
     trySentry: () => undefined,
     tryHalt: () => undefined,
-    // 矩阵测试只关心闸的顺序：不给遥测（`startHttpSpan` 必须能判空后静默返回）
+    // 矩阵测试只关心闸的顺序：不给遥测 / SLO（两个读取器都必须能判空后静默返回）
     tryTelemetry: () => undefined,
+    trySlo: () => undefined,
     staticRoot: 'this-directory-does-not-exist',
     indexPath: 'this-directory-does-not-exist/index.html',
     ...overrides,
@@ -394,6 +403,12 @@ describe('W16 分派矩阵 · 有 Web 凭证', () => {
     })
     // 只出数字：事件里的工具名/内容不会原样进指标
     expect(probe.body).not.toContain('account_balance')
+    // 02：既有 10 键之外新增 9 段；cost 的整数口径与既有 usage 同源
+    for (const key of ['http', 'llm', 'cost', 'plan', 'slo', 'process', 'telemetry', 'logs', 'alerts']) {
+      expect(body, `缺少新段 ${key}`).toHaveProperty(key)
+    }
+    expect(body.cost).toMatchObject({ configured: false, currency: 'micro_yuan', total: 42 })
+    expect((body.cost as { budget: { turn: unknown } }).budget.turn).toBeNull()
 
     /**
      * 两种"空"必须能分开，且都不能伪装成数字 0：
@@ -419,6 +434,63 @@ describe('W16 分派矩阵 · 有 Web 凭证', () => {
       halted: false,
       reason: null,
     })
+  })
+
+  it('?format=prometheus 走文本出口；xml 明确 400', async () => {
+    const prom = await call('GET', '/api/metrics?format=prometheus', { headers: AUTHED })
+    expect(prom.status).toBe(200)
+    expect(String(prom.headers['content-type'])).toContain('text/plain')
+    expect(prom.body.startsWith('# HELP bah_up ')).toBe(true)
+
+    const bad = await call('GET', '/api/metrics?format=xml', { headers: AUTHED })
+    expect(bad.status).toBe(400)
+    expect(codeOf(bad)).toBe('metrics-format-unsupported')
+  })
+
+  it('/api/trace：未装遥测 503；JSON 森林 / Chrome 裸数组 / 非法 limit 400', async () => {
+    const unavailable = await call('GET', '/api/trace', { headers: AUTHED })
+    expect(unavailable.status).toBe(503)
+    expect(codeOf(unavailable)).toBe('trace-unavailable')
+
+    const span: TelemetrySpan = {
+      traceId: 't'.repeat(32),
+      spanId: 's'.repeat(16),
+      parentSpanId: null,
+      name: 'turn',
+      startMs: 1,
+      endMs: 2,
+      status: 'ok',
+      attributes: { turn: 1 },
+      source: 'derived',
+    }
+    const handle = {
+      recorder: createRecorder({ sessionId: 's-trace', now: () => 1 }),
+      stats: { size: 1, dropped: 0, droppedErrors: 0, exportErrors: 0, attributeErrors: 0, sampledOut: 0 },
+      derive: () => ({ spans: [span], roots: [], clockTrusted: false }),
+    } as unknown as TelemetryHandle
+
+    const json = await call('GET', '/api/trace', {
+      headers: AUTHED,
+      deps: makeDeps({ tryTelemetry: () => handle }),
+    })
+    expect(json.status).toBe(200)
+    const body = JSON.parse(json.body) as { clock: string; stats: { spans: number } }
+    expect(body.clock).toBe('frozen')
+    expect(body.stats.spans).toBe(1)
+
+    const chrome = await call('GET', '/api/trace?format=chrome', {
+      headers: AUTHED,
+      deps: makeDeps({ tryTelemetry: () => handle }),
+    })
+    expect(chrome.status).toBe(200)
+    expect(Array.isArray(JSON.parse(chrome.body))).toBe(true)
+
+    const badLimit = await call('GET', '/api/trace?limit=0', {
+      headers: AUTHED,
+      deps: makeDeps({ tryTelemetry: () => handle }),
+    })
+    expect(badLimit.status).toBe(400)
+    expect(codeOf(badLimit)).toBe('trace-limit-invalid')
   })
 
   it('管理面 default 分支：路由表外的路径 → 404（将来新增路径不会静默成功）', async () => {

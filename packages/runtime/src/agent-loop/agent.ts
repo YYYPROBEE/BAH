@@ -27,7 +27,7 @@
  *    `assistant/message`（工具调用的承载消息），最后把错抛出去。
  */
 
-import { BahError, assertNever, reasonOf } from '@bah/util'
+import { BahError, assertNever, logJson, reasonOf } from '@bah/util'
 import { UsageLedger, assembleStream } from '@bah/llm'
 
 import type { ContentBlock, Context, SessionId, TicketId } from '@bah/core'
@@ -806,7 +806,10 @@ export class AgentLoop implements Agent {
           at: this.now(),
         })
       } catch (auditError) {
-        console.error('bah-agent: tools/result 广播失败且审计落账失败', auditError)
+        logJson('error', 'runtime.result-broadcast-failed', {
+          callId: result.callId,
+          reason: reasonOf(auditError),
+        })
       }
     })
   }

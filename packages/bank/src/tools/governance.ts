@@ -12,7 +12,7 @@
  * 本包只负责**五绑定组装与核销边界**，不持有跨 turn 的待审批状态（R90）。
  */
 
-import { BahError, assertNever, errorCodeOf, reasonOf } from '@bah/util'
+import { BahError, assertNever, errorCodeOf, logJson, reasonOf } from '@bah/util'
 
 import type { Context, SessionId, TicketDraft, TicketId, ToolTierLevel } from '@bah/core'
 import type { BankTierInput } from '@bah/policy'
@@ -243,7 +243,7 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
     try {
       deps.audit.append('tier/decided', data)
     } catch (error) {
-      console.warn(`[bank] tier/decided 写入失败（判决不变）：${reasonOf(error)}`)
+      logJson('warn', 'bank.tier-persist-failed', { reason: reasonOf(error) })
     }
   }
 

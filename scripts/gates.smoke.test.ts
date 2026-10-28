@@ -3,7 +3,7 @@
  *
  * ## 为什么需要这一层
  *
- * 41 个 `verify-*.ts` 是其他所有断言的"安全网"，但它们自己此前既不在 `typecheck`
+ * 42 个 `verify-*.ts` 是其他所有断言的"安全网"，但它们自己此前既不在 `typecheck`
  * 里（C2 已补 `tsconfig.scripts.json`）、也没有任何用例覆盖。两个具体失效模式：
  * * 1. **静默少跑**：`verify-foo.ts` 被改名成 `check-foo.ts`（或删掉），`run-gates`
  *    照样打印"全部通过（34/34）"——分母跟着变小，红事变绿。所以这里钉住"数量下限"
@@ -39,12 +39,12 @@ function source(file: string): string {
 }
 
 describe('门禁自身冒烟', () => {
-  // 超时放宽到 60s：本用例要**逐个 import** 41 个门禁脚本（每个都由 tsx 现场编译），
+  // 超时放宽到 60s：本用例要**逐个 import** 42 个门禁脚本（每个都由 tsx 现场编译），
   // 全量并发跑（`pnpm test` / 覆盖率面）时 5s 默认值不够，会假红成"门禁导入失败"。
   it('每个 verify-*.ts 都能导入并导出 gate；name 是 kebab-case、全局唯一、与文件名对应', async () => {
-    // 2026-10-28 实测 41 项（S4 新增 4 条策略门禁 + 可观测性 01 新增 verify-telemetry）。
+    // 2026-10-28 实测 42 项（S4 + 可观测性 01 verify-telemetry + 02 verify-observability）。
     // 地板就是当前数：删掉任何一条都必须同步改这里，不能靠"少几条也过线"静默变绿。
-    expect(gateFiles.length).toBeGreaterThanOrEqual(41)
+    expect(gateFiles.length).toBeGreaterThanOrEqual(42)
 
     const seen = new Map<string, string>()
     for (const file of gateFiles) {

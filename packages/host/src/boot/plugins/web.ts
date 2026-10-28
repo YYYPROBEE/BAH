@@ -45,6 +45,7 @@ import { tryService, type WebDeps } from './web/deps.ts'
 import { createDispatcher } from './web/dispatch.ts'
 import { createHandoff } from './web/handoff.ts'
 import { sendThrown } from './web/http.ts'
+import { sloReader } from './web/slo.ts'
 import { bindPort } from './web/listen.ts'
 import { createSseHub } from './web/sse.ts'
 
@@ -157,6 +158,7 @@ export const webPlugin: HostPlugin<WebSettings> = {
         trySentry: () => tryService(ctx, SENTRY_SERVICE),
         tryHalt: () => tryService(ctx, HALT_SERVICE),
         tryTelemetry: () => tryService(ctx, TELEMETRY),
+        trySlo: sloReader(ctx),
         staticRoot,
         indexPath: join(staticRoot, 'index.html'),
       }

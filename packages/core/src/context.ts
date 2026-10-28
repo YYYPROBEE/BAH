@@ -12,7 +12,7 @@
  * 测试只通过公开 API 验证行为（施工单 02 §2 要点 + §12 覆盖率说明）。
  */
 
-import { BahError } from '@bah/util'
+import { BahError, logJson } from '@bah/util'
 
 import type {
   AgentScope,
@@ -312,10 +312,10 @@ export class BahContext implements Context {
   private readonly reportRollbackFailure = (failure: RollbackFailure): void => {
     try {
       this.source.emitIsolated('context/rollback-failed', failure, (error) => {
-        console.error(`bah-core: rollback-listener-failed: ${describeThrown(error)}`)
+        logJson('error', 'core.rollback-listener-failed', { reason: describeThrown(error) })
       })
     } catch (error) {
-      console.error(`bah-core: rollback-report-failed: ${describeThrown(error)}`)
+      logJson('error', 'core.rollback-report-failed', { reason: describeThrown(error) })
     }
   }
 

@@ -55,7 +55,7 @@ import {
 } from '@bah/saga'
 import { SESSION_SERVICE, TOOLS_SERVICE } from '@bah/runtime'
 import { traceIdOfSession } from '@bah/telemetry'
-import { BahError } from '@bah/util'
+import { BahError, logJson } from '@bah/util'
 
 import type { Context } from '@bah/core'
 import type { CompensationDeps, CompTemplate, PlannedStep, SagaSettings, SideEffectClass, TargetSystem } from '@bah/saga'
@@ -419,8 +419,11 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
             }
           },
         }).catch((error: unknown) => {
+          /* v8 ignore start —— 防御性收尾：`runSaga` 的业务失败以 `failure` 返回（有测试），
+             reject 只在内部不变量破坏时发生，没有公开触发路径；保留是为了不让 span 悬挂。 */
           sagaSpan?.end('error', codeOf(error))
           throw error
+          /* v8 ignore stop */
         })
 
         if (failure !== undefined) {
@@ -460,8 +463,9 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
               dueJobs: ['janitor', 'recon', 'anchor'],
             })
             .catch((error: unknown) => {
-              // 定时器里抛错没人接：只能落 stderr；job 自身失败另有告警汇。
-              console.error(`bah-saga-bridge: tick-failed: ${codeOf(error)}`)
+              // 定时器里抛错没人接：只能落日志；job 自身失败另有告警汇。
+              // 字段名用 `reason` 而不是 `code`：`code` 是事件名，同名会被字段覆盖。
+              logJson('error', 'host.saga-tick-failed', { reason: codeOf(error) })
             })
         }
         const timer = setInterval(tick, settings.tickIntervalMs)

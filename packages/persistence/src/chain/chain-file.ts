@@ -26,6 +26,7 @@ import {
   BahError,
   encodeJsonLine,
   isLastNonEmptyLine,
+  logJson,
   parseJsonValue,
   splitLogLines,
 } from '@bah/util'
@@ -95,7 +96,8 @@ export class ChainFile {
   constructor(options: ChainFileOptions = {}) {
     this.rootDir = options.rootDir
     this.fsync = options.fsync ?? true
-    this.warn = options.warn ?? ((message) => console.warn(message))
+    this.warn =
+      options.warn ?? ((message) => logJson('warn', 'persistence.chain-tail-dropped', { message }))
   }
 
   /** 追加一行；sagaId 会做路径安全校验。 */
