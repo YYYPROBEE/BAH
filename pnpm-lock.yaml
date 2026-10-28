@@ -250,6 +250,15 @@ importers:
         specifier: workspace:*
         version: link:../test-support
 
+  packages/policy:
+    dependencies:
+      '@bah/util':
+        specifier: workspace:*
+        version: link:../util
+      yaml:
+        specifier: ^2
+        version: 2.9.1
+
   packages/runtime:
     dependencies:
       '@bah/core':
