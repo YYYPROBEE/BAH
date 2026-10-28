@@ -15,6 +15,7 @@ import type { WebChannelAdapter } from '@bah/channels'
 import type { Context, ServiceKey } from '@bah/core'
 import type { Agent, SessionApi } from '@bah/runtime'
 import type { HaltHandle, SentryHandle } from '@bah/safety'
+import type { TenantId } from '@bah/util'
 
 import type { HandoffHandle } from './handoff.ts'
 import type { TelemetryHandle } from '../telemetry.ts'
@@ -28,6 +29,13 @@ export type RateLimiter = ReturnType<typeof createRateLimiter>
 export interface WebDeps {
   /** 会话服务（读 `sessionId` / `lastSeq` / `events`）。 */
   readonly session: SessionApi
+  /**
+   * 本进程服务的租户（来自 `RunContext.tenantId`，01 TA-16）。
+   *
+   * 处理器只**读**它（`/api/metrics` 的返回体、跨租户判定），不许从请求头/查询参数取租户：
+   * 客户端声明的租户永远不可信（`verify-tenant-scope` 判据 3）。
+   */
+  readonly tenantId: TenantId
   /** 审批 / 强验证的传输层（归属校验在适配器里）。 */
   readonly adapter: WebChannelAdapter
   /** SSE 广播与连接管理。 */

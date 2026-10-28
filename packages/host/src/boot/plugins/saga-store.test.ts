@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest'
 
 import { SESSION_FILES } from './persistence.ts'
 import { sagaStorePlugin } from './saga-store.ts'
+import { DEFAULT_TENANT_ID } from '@bah/util'
 
 describe('bank:saga-store 配置校验', () => {
   it('未写 dbPath 时落缺省文件名', () => {
@@ -36,6 +37,8 @@ describe('bank:saga-store 装配', () => {
     try {
       ctx.provide(SESSION_FILES, {
         root,
+        baseRoot: root,
+        tenantId: DEFAULT_TENANT_ID,
         fileOf: (session) => join(root, String(session), 'session.jsonl'),
       })
       await ctx.use(sagaStorePlugin.plugin, sagaStorePlugin.validate({}))

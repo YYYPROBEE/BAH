@@ -24,7 +24,7 @@
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { SESSION_FILES, boot, createCatalog } from '@bah/host'
+import { SESSION_FILES, boot, createCatalog, testRunContext } from '@bah/host'
 import { AGENTS_SERVICE } from '@bah/runtime'
 import { SAGA_STORE } from '@bah/saga'
 
@@ -63,7 +63,7 @@ const gate: Gate = {
       bundles,
       layers,
       catalog: createCatalog(),
-      run: { sessionId: SESSION_ID as never, now: () => Date.now(), jsonlDir: JSONL_DIR },
+      run: testRunContext({ sessionId: SESSION_ID as never, now: () => Date.now(), jsonlDir: JSONL_DIR }),
     })
 
     try {

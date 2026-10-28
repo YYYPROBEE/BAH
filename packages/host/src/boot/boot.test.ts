@@ -16,6 +16,7 @@ import type { HostPlugin } from '../plugin-manager/index.ts'
 import { BOOT_PREFIX, bootError, readString, rejectUnknownKeys } from './config.ts'
 import { boot, RUN_SERVICE, type BootOptions, type ProfileSummary } from './boot.ts'
 import { createCatalog } from './plugins/index.ts'
+import { testRunContext } from './test-run-context.ts'
 import type { Bundle, ConfigLayer } from './profile-plugins.ts'
 
 /** 装配过程的探针（顺序、回滚、apply 次数）。 */
@@ -101,7 +102,7 @@ function options(recorder: Recorder, overrides: Partial<BootOptions> = {}): Boot
       recorderPlugin(recorder, 'fx:b'),
       recorderPlugin(recorder, 'fx:c'),
     ]),
-    run: { sessionId: 's-boot' as BootOptions['run']['sessionId'], now: () => 1_000 },
+    run: testRunContext({ sessionId: 's-boot' as BootOptions['run']['sessionId'], now: () => 1_000 }),
     ...overrides,
   }
 }
@@ -164,7 +165,7 @@ describe('boot · 装配', () => {
       options(recorder, {
         bundles: [{ name: 'fx', rows: [{ id: 'fx:run' }] }],
         catalog: createCatalog([runAwarePlugin(recorder, seen)]),
-        run: { sessionId: 's-run' as BootOptions['run']['sessionId'], now: () => 2 },
+        run: testRunContext({ sessionId: 's-run' as BootOptions['run']['sessionId'], now: () => 2 }),
       }),
     )
     try {

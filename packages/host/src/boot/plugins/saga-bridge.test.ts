@@ -44,6 +44,7 @@ import type { ToolCallInput } from '@bah/runtime'
 import type { Bundle, PluginRow } from '../profile-plugins.ts'
 import type { BootedApp } from '../boot.ts'
 import type { SagaBridgeSettings } from './saga-bridge.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 const PROFILE: ProfileSummary = { name: 'fx-saga', bundles: ['fx-saga'], hmr: false }
 
@@ -124,7 +125,7 @@ async function bootWith(
     bundles: [bundle],
     layers: [],
     catalog: createCatalog(),
-    run: { sessionId: asSessionId('s-saga-bridge'), now: () => 1_000, jsonlDir: dir },
+    run: testRunContext({ sessionId: asSessionId('s-saga-bridge'), now: () => 1_000, jsonlDir: dir }),
   }
   const app = await boot(options)
   return {

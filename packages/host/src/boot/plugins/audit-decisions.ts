@@ -164,6 +164,9 @@ export const auditDecisionsPlugin: HostPlugin<AuditDecisionsSettings> = {
       const audit = createSagaAudit({
         now: run.now,
         rootDir: root,
+        // 租户在建链时给一次：四类 append（tool/call、tool/result、sentry/decision、
+        // approval/decided）因此全部带租户，不存在"漏传一处"的可能（TA-15）
+        tenant: String(run.tenantId),
         // 密钥在 boot 期判定：存在 → 对白名单全量签名；缺钥 → 空集（unsigned）
         signedTypes: keyExists ? SESSION_SIGNED_TYPES : [],
         ...(keyExists ? { signingKeyPath: settings.signingKeyPath } : {}),

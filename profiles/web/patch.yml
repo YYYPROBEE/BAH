@@ -128,14 +128,15 @@
 # 三条接线（写入 `turn/end` / 召回 `agent/pre-step` / 注入提示词段）见
 # `packages/host/src/boot/plugins/memory.ts` 的模块注释。
 #
-# dbPath 放在会话根下（与 `core:persistence.root` 同根）：换 `--jsonl` 目录时记忆跟着走，
-# 不会出现"日志在 A 目录、记忆在 B 目录"的分裂。
-# 诚实边界：单租户（tenant 写死 demo）、影子核验未接（记忆不会被银行权威状态覆盖）。
+# dbPath 是**相对租户根的单段文件名**（TA-13 / AR-08）：实际落点
+# `<core:persistence.root>/<tenant>/memory.db`，换 `--jsonl` 或 `--tenant` 时记忆跟着走。
+# 写 `sessions/memory.db` 或绝对路径会在 boot 期 fail-loud（"相对谁"说不清 = 共库事故）。
+# 租户**不在**这里写：它只来自 `--tenant` / `BAH_TENANT`（写 `tenant:` 会被当成未知键拒绝）。
+# 诚实边界：影子核验未接（记忆不会被银行权威状态覆盖）。
 - id: bah:memory-store
   use: bah:memory-store
   config:
-    dbPath: sessions/memory.db
-    tenant: demo
+    dbPath: memory.db
     userId: u-1
     sensitivityCeiling: 2
 

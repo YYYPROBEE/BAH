@@ -225,7 +225,7 @@ describe('policy:shadow（真实证据重放）', () => {
 
 describe('policy:explain · 真实 host 会话（S3 闭环）', () => {
   it('bundle 判决 → tier/decided.evidence → policy/decision 链 → explain 复现', async () => {
-    const { boot, createCatalog } = await import('../packages/host/src/index.ts')
+    const { boot, createCatalog, testRunContext } = await import('../packages/host/src/index.ts')
     const { asSessionId } = await import('../packages/test-support/src/index.ts')
     const { AGENTS_SERVICE, SESSION_SERVICE } = await import('../packages/runtime/src/index.ts')
 
@@ -281,12 +281,12 @@ describe('policy:explain · 真实 host 会话（S3 闭环）', () => {
       ],
       layers: [],
       catalog: createCatalog(),
-      run: {
+      run: testRunContext({
         sessionId: asSessionId(SESSION),
         now: () => NOW,
         probe: true,
         jsonlDir: sessions,
-      },
+      }),
     })
     try {
       const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
@@ -301,7 +301,7 @@ describe('policy:explain · 真实 host 会话（S3 闭环）', () => {
 
       const result = explainDecision({
         session: SESSION,
-        sessionsDir: sessions,
+        sessionsDir: join(sessions, 'demo'),
         callId: 'call-transfer',
         paths: adminPaths(),
         requireChain: true,

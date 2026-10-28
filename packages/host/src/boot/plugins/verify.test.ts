@@ -20,6 +20,7 @@ import { createCatalog } from './index.ts'
 
 import type { AnySessionEvent } from '@bah/runtime'
 import type { Bundle, PluginRow } from '../profile-plugins.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 const PROFILE: ProfileSummary = { name: 'fx', bundles: ['fx'], hmr: false }
 
@@ -67,7 +68,7 @@ async function bootWith(
     bundles: [bundle],
     layers: [],
     catalog: createCatalog(),
-    run: { sessionId: asSessionId(sessionId), now: () => 1_000, jsonlDir: dir },
+    run: testRunContext({ sessionId: asSessionId(sessionId), now: () => 1_000, jsonlDir: dir }),
   }
   return { app: await boot(options), dir }
 }
@@ -269,7 +270,7 @@ describe('safety:verify · 装配与出站文本', () => {
         bundles: [{ name: 'fx', rows: rowsWith({ nope: 1 }) }],
         layers: [],
         catalog: createCatalog(),
-        run: { sessionId: asSessionId('s-config'), now: () => 1_000 },
+        run: testRunContext({ sessionId: asSessionId('s-config'), now: () => 1_000 }),
       } satisfies BootOptions),
     )
     expect(unknown.code).toBe('unknown-config-key')
@@ -280,7 +281,7 @@ describe('safety:verify · 装配与出站文本', () => {
         bundles: [{ name: 'fx', rows: rowsWith({ enabled: 'yes' }) }],
         layers: [],
         catalog: createCatalog(),
-        run: { sessionId: asSessionId('s-config-2'), now: () => 1_000 },
+        run: testRunContext({ sessionId: asSessionId('s-config-2'), now: () => 1_000 }),
       } satisfies BootOptions),
     )
     expect(bad.code).toBe('invalid-config')

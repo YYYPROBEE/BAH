@@ -14,6 +14,7 @@ import { createContext, defineService, describeThrown } from '@bah/core'
 import { BahError } from '@bah/util'
 
 import type { BahContext, SessionId, TicketId } from '@bah/core'
+import type { TenantId } from '@bah/util'
 
 import { PluginManager } from '../plugin-manager/index.ts'
 import type { PluginCatalog, ValidatedRow } from '../plugin-manager/index.ts'
@@ -36,6 +37,17 @@ import {
 export interface RunContext {
   /** 本次运行的会话 ID。 */
   readonly sessionId: SessionId
+  /**
+   * 本进程服务的租户（**启动期确定、运行期不可变**）。
+   *
+   * 与 `sessionId` 同一类东西：它是"这次进程为谁服务"的事实，不是配置。
+   * 写进 patch 会让 `--patch` / `--home` 三层覆盖搞出第二真相源，而且 8 个 profile
+   * 要各改一遍；所以由 CLI 的 `--tenant` / `BAH_TENANT` 注入（缺省 `demo`）。
+   *
+   * 全仓**唯一**的租户注入点：会话目录段、记忆库、审计链行、指标返回体、
+   * 知识库令牌、数据集盐都从这里派生，不许再从配置或请求里读第二份。
+   */
+  readonly tenantId: TenantId
   /** 会话目录覆盖（`--jsonl`）；缺省时用 `core:persistence` 的 `root`。 */
   readonly jsonlDir?: string
   /** 时钟（落账时间戳与落盘 header 都用它）。 */

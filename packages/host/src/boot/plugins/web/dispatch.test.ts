@@ -22,6 +22,7 @@ import type { RateLimiter, WebDeps, WebRequest } from './deps.ts'
 import { createDispatcher } from './dispatch.ts'
 import { handleAdmin } from './handlers/admin.ts'
 import type { SseHub } from './sse.ts'
+import { DEFAULT_TENANT_ID } from '@bah/util'
 
 /** 测试固定的凭证（生产未配置时随机生成）。 */
 const WEB_TOKEN = 'tok-web'
@@ -110,6 +111,7 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
   const session = { sessionId: 's-matrix', lastSeq: () => 0, events: () => [] }
   return {
     session: session as unknown as SessionApi,
+    tenantId: DEFAULT_TENANT_ID,
     adapter: adapter as unknown as WebChannelAdapter,
     hub,
     // C5：矩阵测试只关心闸的顺序，接管状态给一个"永不接管"的桩

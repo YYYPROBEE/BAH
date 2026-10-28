@@ -23,7 +23,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { loadBundles, readLayers, readProfile } from '@bah/cli'
-import { boot, createCatalog, PLAN_SERVICE } from '@bah/host'
+import { boot, createCatalog, PLAN_SERVICE, testRunContext } from '@bah/host'
 import { LLM_ADAPTERS } from '@bah/llm'
 import { SESSION_SERVICE, type Plan } from '@bah/runtime'
 import { asSessionId, fixedClock } from '@bah/test-support'
@@ -114,12 +114,12 @@ export async function runRecord(): Promise<{
     bundles,
     layers,
     catalog: createCatalog(),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId(CASE.sessionId),
       now: clock.now,
       mintTicketId: snapshotTicketId,
       jsonlDir: scratch,
-    },
+    }),
   })
 
   try {
@@ -170,12 +170,12 @@ export async function runReplay(snapshot: LoadedSnapshot): Promise<readonly Sess
     bundles: [{ name: 'snapshot', rows: snapshot.meta.rows }],
     layers: [],
     catalog: createCatalog(),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId(snapshot.meta.sessionId),
       now: clock.now,
       mintTicketId: snapshotTicketId,
       jsonlDir: scratch,
-    },
+    }),
   })
 
   try {

@@ -7,8 +7,9 @@
  *    重启、回放、fork 之后两个数必然对不上，而"哪个对"没人说得清。
  * 2. **不出原文**——只出数字：turn 数、工具成功/失败、审批分布、token、成本、耗时分位、
  *    SSE 连接数。prompt / 工具结果 / 用户输入一律不进这个端点。
- * 3. **不是分布式监控**——这是单进程数字，没有聚合、没有推送、没有保留。要跨实例看指标
- *    得先有实例标识与汇聚层（D4 多租户之后的事）。
+ * 3. **不是分布式监控**——这是单进程、**单租户**的数字：没有聚合、没有推送、没有保留。
+ *    跨实例汇聚仍是 D4 之后的事；本进程只报本租户（返回体第一层就是 `tenant`，
+ *    所以"这个数是谁的"不用猜）。
  *
  * 成本口径：`costMicroYuan` 只在 `core:model` 配了 `pricing` 时非 0。**本地 provider
  * （mock / router）恒为 0 是正确的**——它们没有上游账单，不是"没配好"。
@@ -133,6 +134,8 @@ export async function handleMetrics(
 
   const halt = deps.tryHalt()
   sendJson(res, 200, {
+    // 租户在第一层（01 TA-16）：没有它，"这是谁的指标"要靠会话 ID 去猜
+    tenant: String(deps.tenantId),
     sessionId: String(deps.session.sessionId),
     lastSeq: deps.session.lastSeq(),
     at: deps.now(),

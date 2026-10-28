@@ -18,6 +18,7 @@ import { boot, type BootOptions } from '../boot.ts'
 import { createCatalog } from './index.ts'
 import { DEFAULT_APPROVAL, approvalPlugin, type ApprovalSettings } from './approval.ts'
 import type { PluginRow } from '../profile-plugins.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 /** 王建国转账的工具调用脚本。 */
 function transferStep(amount: number): readonly PluginRow[] {
@@ -73,7 +74,7 @@ async function run(
     bundles: [{ name: 'fx', rows: rows(options) }],
     layers: [],
     catalog: createCatalog(),
-    run: { sessionId: asSessionId('s-approval-e2e'), now: () => 1_792_000_000_000, jsonlDir: dir },
+    run: testRunContext({ sessionId: asSessionId('s-approval-e2e'), now: () => 1_792_000_000_000, jsonlDir: dir }),
   }
   const app = await boot(bootOptions)
   const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!

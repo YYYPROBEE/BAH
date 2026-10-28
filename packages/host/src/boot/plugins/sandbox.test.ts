@@ -15,6 +15,7 @@ import {
   sandboxPlugin,
   unwrapOutcome,
 } from './sandbox.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 describe('safety:sandbox 配置', () => {
   it('缺省值来自档位规格；非法值 fail-loud', () => {
@@ -28,7 +29,7 @@ describe('safety:sandbox 接线', () => {
   it('提供 BANK_COMPUTE：经 worker 求值并落 sandbox 审计事件', async () => {
     const ctx = createContext()
     const sessionId = asSessionId('s-sandbox')
-    ctx.provide(RUN_SERVICE, { sessionId, now: () => 0 })
+    ctx.provide(RUN_SERVICE, testRunContext({ sessionId, now: () => 0 }))
     provideSession(ctx, { sessionId, now: () => 0 })
     await ctx.use(
       sandboxPlugin.plugin,
@@ -56,7 +57,7 @@ describe('safety:sandbox 接线', () => {
     const sandboxClock = fixedClock({ start: 1_000, step: 4_096 })
     const ctx = createContext()
     const sessionId = asSessionId('s-sandbox-clock')
-    ctx.provide(RUN_SERVICE, { sessionId, now: () => 0, sandboxNow: sandboxClock.tick })
+    ctx.provide(RUN_SERVICE, testRunContext({ sessionId, now: () => 0, sandboxNow: sandboxClock.tick }))
     provideSession(ctx, { sessionId, now: () => 0 })
     await ctx.use(
       sandboxPlugin.plugin,

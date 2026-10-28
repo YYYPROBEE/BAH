@@ -16,11 +16,12 @@ import { join } from 'node:path'
 import { describeThrown } from '@bah/core'
 import { bootError, createCatalog, boot, SESSION_FILES, startConfigHmr } from '@bah/host'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
-import { BahError, assertNever, assertSafePathSegment } from '@bah/util'
+import { BahError, DEFAULT_TENANT_ID, assertNever, assertSafePathSegment, parseTenantId } from '@bah/util'
 
 import type { ConfigHmr } from '@bah/host'
 import type { Agent, AgentRegistry, AnySessionEvent, TurnEndReason } from '@bah/runtime'
 import type { Context, SessionId } from '@bah/core'
+import type { TenantId } from '@bah/util'
 
 import { loadBundles } from '../bundles.ts'
 import { renderDumpConfig } from '../dump-config.ts'
@@ -75,7 +76,8 @@ export const HELP = [
   '  --serve            启动 profile 后常驻（渠道插件自己开端口；Ctrl+C 退出）',
   '  --patch <file>     叠加一层 patch（可重复；层序最外）',
   '  --home <dir>       home patch 目录（缺省 $BAH_HOME 或 ~/.bah）',
-  '  --jsonl <dir>      会话目录（覆盖 core:persistence.root）',
+  '  --jsonl <dir>      会话目录（覆盖 core:persistence.root；租户段仍然在它下面）',
+  '  --tenant <id>      租户（缺省 $BAH_TENANT，再缺省 demo；优先级 CLI > env > 缺省）',
   '  --session <id>     会话 ID（缺省按时钟生成）',
   '  -h, --help         显示本帮助',
   '',
@@ -96,6 +98,8 @@ interface Args {
   readonly patch: readonly string[]
   readonly home?: string
   readonly jsonl?: string
+  /** 租户（`--tenant`）。缺省读 `BAH_TENANT`，再缺省 `demo`。 */
+  readonly tenant?: string
   readonly session?: string
   readonly help: boolean
 }
@@ -155,12 +159,43 @@ export async function runCli(
   const now = options.now ?? (() => Date.now())
   const env = options.env ?? process.env
 
+  // 租户是**用法输入**：非法值是退出码 2（用法错误），不是 1（运行期失败）。
+  // 也绝不静默回落到 demo——"以为在演示租户，其实在为 acme 记账"是不可接受的。
+  let tenantId: TenantId
   try {
-    return await runProfile(parsed.args, io, root, now, env, options.signals ?? process)
+    tenantId = resolveTenantId(parsed.args.tenant, env)
+  } catch (error) {
+    // 用法错误必须点名理由码：`tenant-id-invalid` 是运维要搜的那个词
+    // （`describeThrown` 只给 message，而 message 是中文文案）
+    const code = error instanceof BahError ? `${error.code}: ` : ''
+    io.err(`bah: ${code}${describeThrown(error)}`)
+    io.err(USAGE)
+    return 2
+  }
+
+  try {
+    return await runProfile(parsed.args, io, root, now, env, options.signals ?? process, tenantId)
   } catch (error) {
     io.err(`bah: ${describeThrown(error)}`)
     return 1
   }
+}
+
+/**
+ * 解析生效租户：`--tenant` > `$BAH_TENANT` > `demo`。
+ *
+ * 空串与空白按"未设置"处理（`--tenant ""` 是 shell 展开事故，不该变成"租户是空字符串"）。
+ *
+ * @throws `BahError('tenant-id-invalid')` 非法值
+ */
+export function resolveTenantId(
+  flag: string | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+): TenantId {
+  const fromFlag = flag === undefined || flag.trim().length === 0 ? undefined : flag
+  const fromEnvRaw = env['BAH_TENANT']
+  const fromEnv = fromEnvRaw === undefined || fromEnvRaw.trim().length === 0 ? undefined : fromEnvRaw
+  return parseTenantId(fromFlag ?? fromEnv ?? String(DEFAULT_TENANT_ID))
 }
 
 /** 启动 profile（`--dump-config` / `--serve` 或跑一个 turn）。 */
@@ -171,6 +206,7 @@ async function runProfile(
   now: () => number,
   env: Readonly<Record<string, string | undefined>>,
   signals: SignalSource,
+  tenantId: TenantId,
 ): Promise<number> {
   const name = args.profile ?? readDefaultProfile(root)
   if (name === undefined) {
@@ -196,6 +232,7 @@ async function runProfile(
     catalog: createCatalog(),
     run: {
       sessionId,
+      tenantId,
       now,
       // `--dump-config` 只看不跑：关掉启动期外部探活，保证零网络、不被 1s 超时拖慢。
       probe: !args.dumpConfig,
@@ -207,7 +244,7 @@ async function runProfile(
   let hmr: ConfigHmr | undefined
   try {
     if (args.dumpConfig) {
-      io.out(renderDumpConfig(app.profile, app.rows()))
+      io.out(renderDumpConfig(app.profile, app.rows(), { tenantId }))
       return 0
     }
 
@@ -270,6 +307,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   let prompt: string | undefined
   let home: string | undefined
   let jsonl: string | undefined
+  let tenant: string | undefined
   let session: string | undefined
   let help = false
   const patch: string[] = []
@@ -325,6 +363,12 @@ export function parseArgs(argv: readonly string[]): ParseResult {
         session = read
         break
       }
+      case '--tenant': {
+        const read = value()
+        if (read === undefined) return failure(`${flag} 需要一个值`)
+        tenant = read
+        break
+      }
       case '--dump-config':
         if (inline !== undefined) return failure(`${flag} 不接受值（写成 ${flag}）`)
         dumpConfig = true
@@ -354,6 +398,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       ...(prompt === undefined ? {} : { prompt }),
       ...(home === undefined ? {} : { home }),
       ...(jsonl === undefined ? {} : { jsonl }),
+      ...(tenant === undefined ? {} : { tenant }),
       ...(session === undefined ? {} : { session }),
     },
   }

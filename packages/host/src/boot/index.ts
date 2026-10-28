@@ -38,7 +38,10 @@ export {
 } from './plugins/index.ts'
 // 编排原语的服务键：消费方（快照场景 / 上层插件）按键取 `PlanApi`，不碰插件实现
 export { PLAN_SERVICE, SAGA_BRIDGE_RECIPES } from './plugins/index.ts'
-export { SESSION_FILES, type SessionFiles } from './plugins/persistence.ts'
+export { DEFAULT_ROOT, SESSION_FILES, tenantRootOf, type SessionFiles } from './plugins/persistence.ts'
+// 测试夹具：`RunContext` 工厂（租户与鉴权 01 TA-11）。与 `RunContext` 类型同包，
+// 避免 @bah/test-support 反向依赖 host 造成 project references 成环。
+export { testRunContext } from './test-run-context.ts'
 // 管理面的两个常量给 `bah sentry unfreeze` 用：环境变量名与缺省理由只能有一份，
 // 各写一份迟早会漂（改了 host 忘了 cli，命令就静默读错变量）
 export { ADMIN_TOKEN_ENV, DEFAULT_UNFREEZE_REASON } from './plugins/web-admin.ts'

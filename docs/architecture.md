@@ -44,7 +44,7 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **23 项 / 41 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
+| 注册表 / 门禁 | **23 项 / 42 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
 | 覆盖率 | **91.14%（行口径，31233/34270 行，实测 2026-10-28）；15/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
@@ -125,6 +125,7 @@ graph LR
   p21 --> host["宿主运行时 boot()"]
   p21 --> p0
   p21 --> p3
+  p21 --> p6
   p22 --> host["宿主运行时 boot()"]
   p22 --> p0
   p22 --> p12
@@ -174,7 +175,7 @@ graph LR
 | bank:saga-audit | `bah:saga-clock`、`bah:session-files` | `bank:saga`、`core:persistence` |
 | bank:saga-bridge | —（无依赖） | — |
 | plan:dag | —（无依赖） | — |
-| bah:memory-store | `bah:run`、`runtime:session`、`runtime:system-prompt` | 宿主运行时 boot()、`core:session`、`core:prompt` |
+| bah:memory-store | `bah:run`、`runtime:session`、`runtime:system-prompt`、`bah:session-files` | 宿主运行时 boot()、`core:session`、`core:prompt`、`core:persistence` |
 | channel:web | `bah:run`、`runtime:session`、`runtime:agents`、`interaction:approval` | 宿主运行时 boot()、`core:session`、`core:agent`、`interaction:approval` |
 <!-- END GENERATED:dependencies -->
 
@@ -331,5 +332,56 @@ MERMAID_JS=.tmp-w19/mermaid.min.js npx tsx scripts/render-diagrams.ts
    `runtime:context-source`（实体槽位数据源，由 `bank:tools` 提供、`core:agent`
    每 step 懒取）都属这一类。它们的存在由对应插件/端口文档说明；
    `SERVICE_OWNER` 只服务 `inject` 解析，不是全量服务清单。
-4. **本文不含部署拓扑**：单进程、无外部中间件（除可选的 RAG sidecar），
-   所以没有"部署图"这一层可画。
+4. **部署拓扑只有一条**：单进程、无外部中间件（除可选的 RAG sidecar）。
+   "多租户"在这条拓扑上是**多个这样的进程**并存，不是一进程多租户——见 §8。
+
+## 8. 租户边界（部署拓扑）
+
+> 决策与被否掉的替代方案见 `docs/adr/0004-tenant-as-deployment-boundary.md`；
+> 契约（标识、主体、隔离边界表）见 `docs/contracts/tenant-model.md`。
+> 本节只讲**装配**上看得见的东西。
+
+**租户 = 部署边界**：一个进程只服务一个租户。多租户 = 同一台机器上 N 个进程，
+靠"目录 / 端口 / 令牌 / 密钥"四道物理隔离分开。这不是省事：
+`Context.isolate()` 只做键屏蔽、事件总线是全进程共享、`runtime:session` 是单例，
+所以"一进程多租户"在本仓的装配图上**画不出来**（画出来就是错的）。
+
+### 8.1 六个注入点（每个平面唯一）
+
+| 平面 | 注入点 | 装配位置 |
+|---|---|---|
+| 会话目录 | `RunContext.tenantId` → `SessionFiles.root` | `packages/host/src/boot/plugins/persistence.ts` |
+| 记忆库 | `RunContext.tenantId`（配置键 `tenant` 已删） | `packages/host/src/boot/plugins/memory.ts` |
+| 审计链 | 链句柄的 `tenant`（建链时给一次） | `packages/host/src/boot/plugins/audit-decisions.ts` |
+| 指标 | `WebDeps.tenantId` | `packages/host/src/boot/plugins/web.ts` |
+| 知识库令牌 | `BAH_KNOWLEDGE_TOKEN_<TENANT>`（回退共享令牌仅 demo） | `packages/host/src/boot/plugins/knowledge.ts` |
+| 仿真数据集 | `tenantSaltOf(tenantId)`（demo 零偏移） | `packages/bank/src/forge/index.ts` |
+
+租户来自**启动输入**（`--tenant` > `BAH_TENANT` > `demo`），不来自请求。
+`scripts/verify-tenant-scope.ts` 的判据 3 机械检查"没有哪条路径从请求里取租户"。
+
+### 8.2 目录布局（一条命令列全）
+
+```
+<config.root>/                 ← 部署根（core:persistence.root 或 --jsonl）
+  <tenant>/                    ← 租户根（SessionFiles.root）
+    <sessionId>/session.jsonl
+    <sessionId>/audit.jsonl
+    memory.db
+    halt.json
+    anchors.json
+    saga-<uuid>/audit.jsonl
+  saga.sqlite                  ← 部署根上：saga 库**不按租户分库**（01 §5 的裁剪决策）
+```
+
+判据只有一句：**能不能用一条命令把这个租户的全部持久痕迹列出来**。
+`ls <config.root>/<tenant>` 就是答案。
+
+### 8.3 三个"看起来可以、实际不行"的做法
+
+1. **按请求头分租户**：内核没有事件作用域，两个租户会互相收到 `session/event`；
+   而且没有任何门禁能证明它错了（`isolate` 的断言钉死了事件总线是同一个）。
+2. **只给会话目录加租户段、忘给审计链加**：`chainIds(root)` 只扫一层，
+   漏拼之后"扫不到 = 没问题"，断链检测静默失效（AR-01 的形态）。
+3. **让每个插件自己拼 `<root>/<tenant>/...`**：同一件事有五处实现，
+   至少一处会漏（这就是 `tenantRootOf` 存在的理由）。

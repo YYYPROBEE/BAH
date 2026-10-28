@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { boot, createCatalog, type BootedApp } from '@bah/host'
+import { boot, createCatalog, testRunContext, type BootedApp } from '@bah/host'
 import { AGENTS_SERVICE } from '@bah/runtime'
 import { asSessionId, fixedClock } from '@bah/test-support'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -55,11 +55,11 @@ async function bootProfile(name: 'headless' | 'plan' | 'web'): Promise<BootedApp
     bundles,
     layers,
     catalog: createCatalog(),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId(`s-w08-boot-${name}`),
       now: clock.now,
       jsonlDir: tempDir(name),
-    },
+    }),
   })
 }
 

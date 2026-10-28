@@ -1,4 +1,4 @@
-# BAH 施工进度
+﻿# BAH 施工进度
 
 > **本文件是历史累计台账**（约 429 KB、§0–§96 逐单施工记录）：正文里的门禁数 / 用例数 /
 > 覆盖率是**当时**的快照，随施工推进必然过时。**当前数字一律以 [facts.md](facts.md) 为准**
@@ -5923,3 +5923,28 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 - A/B：A1–A10、B1–B15 全部 ✔（A6 真实样本 1 条列 P2）；**0 P0/P1**；
 - 残余 P2：explain 真实样本、sentry 未激活（R10）、覆盖台账待 CI、semver major 门禁；
 - 口径：S0–S5 完成，S6 复审通过（P2 已登记）；生产 sentry 仍 legacy、生产签名未启用。
+
+## 96.35 租户与鉴权 01：租户模型与全平面贯通（2026-10-29 00:5x）
+
+- 前置：主工作树被**可观测性/策略外置**并行会话占着（113 项在制改动，开工前 2 分钟仍在写盘），
+  本单在独立 worktree `BAH/TENANT-01-WT`（分支 `tenant-01-core`，基于 `6af6d64`）施工，
+  提交只含本单（对照：开工时仓库里已有 `HANDOFF-01-WT` / `HANDOFF-02-WT` 两个同形态 worktree）。
+- 交付：`TenantId` / `Principal`（`packages/util/src/tenant.ts`、`principal.ts`）+
+  `RunContext.tenantId` 必填（`--tenant` > `BAH_TENANT` > `demo`，非法值退出码 2）+
+  六个注入点（会话目录 / 记忆库 / 审计链 / 指标 / 知识库令牌 / 数据集盐）+
+  门禁 `verify-tenant-scope`（4 判据 + `--self-test`）。
+- 布局：`<config.root>/<tenant>/<sessionId>/{session,audit}.jsonl`、`<tenant>/memory.db`、
+  `<tenant>/halt.json`；迁移脚本默认 dry-run、幂等、不覆盖；`saga.sqlite` 按 01 §5 **不**分库
+  （`SessionFiles.baseRoot` 的唯一用途）。
+- 审计链：`ChainRecord.tenant` 可选且**有则入哈希**（历史行照常可验，改租户字段必断链）；
+  `bah audit --tenant` 拼租户目录并对账"链行租户 vs 目录租户"。
+- 实测：`pnpm test` **242 文件 / 2715 例全绿**（开工 230 文件 / 2637 例，+78 例）；
+  `pnpm gate` **42/42**（开工 41 项、2 条陈旧红）；`pnpm test:snapshot` 34/34、
+  `snapshot:reverify` 写入 6 份（**会话快照字节零 diff**）；`pnpm typecheck` 通过。
+- 开工时的两条红（`architecture` / `assertions`）是**陈旧基线**（`6af6d64` 上就红）：
+  本单同批重生成生成块 + `--update` 重登记断言基线（7887 → 8009 条 / 256 文件）。
+- 偏差 12 条见 `docs/evidence/2026-10-28-tenant-auth/01-t1.md` §4。最值得记住的三条：
+  ① `identity/bound` 载荷**不**写租户（会让 7 份快照字节变化，且在同租户目录内是同义反复）；
+  ② `demo` 档数据集盐无效（固定脚本、无随机源）——"两个租户数据不同"只对 `stress`/`adversarial` 成立；
+  ③ 非 demo 租户用共享知识库令牌 = **启动失败**（过渡期只允许 demo 回退）。
+- 待办（转 02）：`RequestIdentity` / 登录路由 / 会话级 CSRF；`policy:explain --dir` 需指到租户根（未改该工具）。

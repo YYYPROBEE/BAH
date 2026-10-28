@@ -34,6 +34,7 @@ import { boot, type BootOptions, type BootedApp } from '../boot.ts'
 import { createCatalog } from './index.ts'
 import { PLAN_SERVICE } from './plan.ts'
 import type { PluginRow } from '../profile-plugins.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 let sessionDir = ''
 let bootSeq = 0
@@ -111,21 +112,21 @@ interface Booted {
 
 async function bootWith(options: BootWithOptions = {}): Promise<Booted> {
   bootSeq += 1
-  // C3 起 `safety:sentry` 会把停机状态落到 `jsonlDir/halt.json`；本文件的用例共用同一个
+  // C3 起 `safety:sentry` 会把停机状态落到租户根：`jsonlDir/<tenant>/halt.json`；本文件的用例共用同一个
   // 临时目录，所以**每次 boot 前必须清掉它**，否则"上一个用例停过机"会变成下一个用例的
   // 初始状态（跨重启恢复的语义由 `sentry.test.ts` 的 C3 组专门覆盖）。
-  rmSync(join(sessionDir, 'halt.json'), { force: true })
+  rmSync(join(sessionDir, 'demo', 'halt.json'), { force: true })
   let now = 1_792_000_000_000
   const bootOptions: BootOptions = {
     profile: { name: 'fx-halt', bundles: ['fx-halt'], hmr: false },
     bundles: [{ name: 'fx-halt', rows: rows(options) }],
     layers: [],
     catalog: createCatalog(),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId(`s-halt-${String(bootSeq)}`),
       now: () => now,
       jsonlDir: sessionDir,
-    },
+    }),
   }
   const app = await boot(bootOptions)
   return {

@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { HOST_PLUGINS, boot, createCatalog, type BootedApp, type HostPlugin } from '@bah/host'
+import { HOST_PLUGINS, boot, createCatalog, type BootedApp, type HostPlugin , testRunContext } from '@bah/host'
 import { BANK_TOOL_NAME_SET } from '@bah/bank'
 import { loadBundle, loadRuleBundle, writeLockFile, writeRuleLockFile } from '@bah/policy'
 import {
@@ -175,11 +175,11 @@ async function bootPolicy(args: BootArgs): Promise<BootedApp> {
     ],
     layers: [],
     catalog: createCatalog(),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId('s-policy-test'),
       now: () => FIXED_NOW,
       probe: args.probe ?? true,
-    },
+    }),
   })
 }
 
@@ -418,7 +418,7 @@ describe('policy:rules · 载入与判决', () => {
         ],
         layers: [],
         catalog: createCatalog([...HOST_PLUGINS, brokenSession]),
-        run: { sessionId: asSessionId('s-policy-emit'), now: () => FIXED_NOW, probe: true },
+        run: testRunContext({ sessionId: asSessionId('s-policy-emit'), now: () => FIXED_NOW, probe: true }),
       })
       try {
         // 观测失败不改判决：快照照常建立，`policy/bundle-loaded` 的写入失败只落 stderr
@@ -944,11 +944,11 @@ async function bootBank(
     ],
     layers: [],
     catalog: createCatalog(),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId('s-policy-bank'),
       now: () => FIXED_NOW,
       probe: true,
-    },
+    }),
   })
 }
 
@@ -1117,7 +1117,7 @@ describe('policy:rules · 链上身份（S3）', () => {
       agent.send('转账 800 元给王建国')
       await agent.run()
 
-      const chain = readFileSync(join(sessions, 's-policy-bank', 'audit.jsonl'), 'utf8')
+      const chain = readFileSync(join(sessions, 'demo', 's-policy-bank', 'audit.jsonl'), 'utf8')
         .trim()
         .split('\n')
         .map((line) => JSON.parse(line) as Record<string, unknown>)
@@ -1249,7 +1249,7 @@ describe('policy:rules · 重载参数绑定（S3）', () => {
       ],
       layers: [],
       catalog: createCatalog([...HOST_PLUGINS, guard]),
-      run: { sessionId: asSessionId('s-policy-test'), now: () => FIXED_NOW, probe: true },
+      run: testRunContext({ sessionId: asSessionId('s-policy-test'), now: () => FIXED_NOW, probe: true }),
     })
     try {
       writeState(root, { 'bank.tier': { active: 'bank-tier-demo/1.0.0' } })

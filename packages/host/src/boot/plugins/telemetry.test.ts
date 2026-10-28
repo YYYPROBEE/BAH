@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { RUN_SERVICE } from '../boot.ts'
 import { TELEMETRY, telemetryPlugin } from './telemetry.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 const T = 1_700_000_000_000
 
@@ -52,11 +53,11 @@ async function boot(options: {
   jsonlDir?: string
 } = {}) {
   const ctx = createContext()
-  ctx.provide(RUN_SERVICE, {
+  ctx.provide(RUN_SERVICE, testRunContext({
     sessionId: 's-telemetry' as never,
     now: () => T,
     ...(options.jsonlDir === undefined ? {} : { jsonlDir: options.jsonlDir }),
-  })
+  }))
   ctx.provide(SESSION_SERVICE, fakeSession(options.events ?? []))
   await ctx.use(telemetryPlugin.plugin, telemetryPlugin.validate(options.config ?? {}))
   await ctx.start()
