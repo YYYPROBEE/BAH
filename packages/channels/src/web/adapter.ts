@@ -56,6 +56,8 @@ export interface ChannelAdapter {
 /** 审批视图（仲裁器 `ApprovalView` 的结构面；不 import interaction，避免渠道包依赖审批实现）。 */
 export interface ApprovalViewLike {
   readonly ticketId: string
+  /** 票据所属会话（W04 归属校验；与适配器绑定的 sessionId 不一致即拒绝）。 */
+  readonly sessionId: string
   readonly callId: string
   readonly name: string
   readonly signal: AbortSignal
@@ -78,7 +80,13 @@ export type DecideResult =
   | { readonly ok: true }
   | {
       readonly ok: false
-      readonly code: 'unknown-ticket' | 'invalid-decision' | 'reason-required' | 'already-decided' | 'expired'
+      readonly code:
+        | 'unknown-ticket'
+        | 'foreign-ticket'
+        | 'invalid-decision'
+        | 'reason-required'
+        | 'already-decided'
+        | 'expired'
       readonly reason: string
     }
 
@@ -118,8 +126,20 @@ const WEB_CAPABILITIES: ChannelCapabilities = {
 }
 
 /** 造一个 Web 渠道适配器。 */
-export function createWebChannelAdapter(): WebChannelAdapter {
+export function createWebChannelAdapter(options: {
+  /**
+   * 本渠道所属会话（缺省 = 不校验归属）。
+   *
+   * 生产必须传：审批视图来自 `ApprovalService`，它的 `sessionId` 必须与这里一致；
+   * 否则一个有效 token 就能拿别的会话的票据 ID 去批钱（W04 TC-02）。
+   */
+  readonly sessionId?: string
+} = {}): WebChannelAdapter {
   const pending = new Map<string, ApprovalViewLike>()
+
+  /** 归属校验：适配器未绑定会话时保持旧行为（单测 / 纯投影场景）。 */
+  const ownedByThisSession = (view: ApprovalViewLike): boolean =>
+    options.sessionId === undefined || view.sessionId === options.sessionId
 
   return {
     id: 'web',
@@ -154,6 +174,10 @@ export function createWebChannelAdapter(): WebChannelAdapter {
       const view = pending.get(ticketId)
       if (view === undefined) {
         return { ok: false, code: 'unknown-ticket', reason: `没有待应答的票据 ${ticketId}` }
+      }
+      if (!ownedByThisSession(view)) {
+        // 404 与 403 的响应体形状一致（`{error:{code,reason}}`），不泄露"票存在但你没权限"
+        return { ok: false, code: 'foreign-ticket', reason: '票据不属于当前会话' }
       }
 
       const decision = body.decision
@@ -190,6 +214,9 @@ export function createWebChannelAdapter(): WebChannelAdapter {
       const view = pending.get(ticketId)
       if (view === undefined) {
         return { ok: false, code: 'unknown-ticket', reason: `没有待应答的票据 ${ticketId}` }
+      }
+      if (!ownedByThisSession(view)) {
+        return { ok: false, code: 'foreign-ticket', reason: '票据不属于当前会话' }
       }
       if (view.challenge === undefined) {
         return { ok: false, code: 'no-challenge', reason: '该票据不需要强验证' }

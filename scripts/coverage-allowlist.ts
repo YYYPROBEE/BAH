@@ -30,6 +30,11 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
     why: '主循环：turn/step 状态机、失败补记、max-tokens 粘性（施工单 04）',
   },
   {
+    package: 'policy',
+    scope: '',
+    why: '策略编译器与求值器：类型检查、静态分析、内容寻址——判决语义的唯一定义处（策略外置 S1）',
+  },
+  {
     package: 'runtime',
     scope: 'tools/',
     why: '工具七段管线与判决顺序——顺序错了就是安全事故（施工单 03）',

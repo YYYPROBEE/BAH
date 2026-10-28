@@ -123,6 +123,8 @@ export type AnswerReceipt =
 export interface ApprovalView {
   /** 票据 ID。 */
   readonly ticketId: string
+  /** 票据所属会话（W04 的归属校验：渠道必须只应答本会话的票据）。 */
+  readonly sessionId: SessionId
   /** 调用 ID。 */
   readonly callId: string
   /** 工具名。 */

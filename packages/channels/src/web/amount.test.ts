@@ -6,7 +6,13 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { amountFromArgs, extractDisclaimer, payeeFromArgs } from './amount.ts'
+import {
+  amountFromArgs,
+  extractDisclaimer,
+  maskedPayeePhoneFromArgs,
+  maskPhone,
+  payeeFromArgs,
+} from './amount.ts'
 import { buildCard } from './cards.ts'
 import { formatCents, shortId, timeText, yuanToCents } from './format.ts'
 
@@ -32,6 +38,19 @@ describe('金额提取', () => {
     expect(payeeFromArgs({ payee: { name: '  ' } })).toBeUndefined()
     expect(payeeFromArgs({ payee: '王建国' })).toBeUndefined()
     expect(payeeFromArgs({})).toBeUndefined()
+  })
+
+  it('收款人手机只从 payee.phone 取，且返回时已脱敏', () => {
+    expect(maskedPayeePhoneFromArgs({ payee: { phone: '13900002222' } })).toBe('139****2222')
+    expect(maskedPayeePhoneFromArgs({ payee: { phone: ' 13900002222 ' } })).toBe('139****2222')
+    expect(maskedPayeePhoneFromArgs({ payee: { phone: '' } })).toBeUndefined()
+    expect(maskedPayeePhoneFromArgs({ payee: { phone: 139_0000_2222 } })).toBeUndefined()
+    expect(maskedPayeePhoneFromArgs({ phone: '13900002222' })).toBeUndefined()
+  })
+
+  it('短号码整段遮掉（不猜"保留几位才安全"）', () => {
+    expect(maskPhone('123456')).toBe('****')
+    expect(maskPhone('1234567')).toBe('123****4567')
   })
 })
 

@@ -10,6 +10,7 @@ export {
   DEFAULT_MAX_K,
   DEFAULT_SENSITIVITY_CEILING,
   MEMORY_CONTEXT_DECLARATION,
+  NULL_BANK_QUERY,
 } from './layer.ts'
 export type { MemoryLayer, MemoryLayerOptions } from './layer.ts'
 

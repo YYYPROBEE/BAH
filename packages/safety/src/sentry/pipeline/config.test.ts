@@ -9,18 +9,43 @@ import { describe, expect, it } from 'vitest'
 import { CROSS_SCENARIO_RULES, DEFAULT_SENTRY_SETTINGS, resolveSentrySettings } from './config.ts'
 
 describe('sentry 配置（fail-loud）', () => {
-  it('T-SNT-CFG-001 空配置 = 全默认（演示主线不被误冻）', () => {
-    expect(resolveSentrySettings()).toEqual(DEFAULT_SENTRY_SETTINGS)
+  it('T-SNT-CFG-001 空配置缺 trace.sink → fail-loud；其余默认不被误冻', () => {
+    // W08：trace.sink 没有缺省值，空配置必须载入失败
+    expect(codeOf(() => resolveSentrySettings())).toBe('sentry-trace-sink-required')
+
+    const settings = resolveSentrySettings({ trace: { sink: 'session' } })
+    expect(settings).toEqual({
+      ...DEFAULT_SENTRY_SETTINGS,
+      trace: { ...DEFAULT_SENTRY_SETTINGS.trace, sink: 'session' },
+    })
     expect(DEFAULT_SENTRY_SETTINGS.breaker.denyThreshold).toBe(5)
     expect(DEFAULT_SENTRY_SETTINGS.breaker.windowSeconds).toBe(600)
     // XSC 是部署侧追加规则：默认关，演示/压测 profile 显式打开
     expect(DEFAULT_SENTRY_SETTINGS.rules.crossScenario).toBe(false)
+    // HALT 默认开启：它是"全系统停机"面，默认关闭等于没有（W07）
+    expect(DEFAULT_SENTRY_SETTINGS.halt).toEqual({ enabled: true, ticketTtlSeconds: 120 })
+    // W09：高风险会话默认拒绝非绿工具（读工具不受影响）
+    expect(DEFAULT_SENTRY_SETTINGS.riskScore).toEqual({ enforce: true })
+    // 默认值里刻意不存在 sink（防止将来被顺手塞回 memory）
+    expect('sink' in DEFAULT_SENTRY_SETTINGS.trace).toBe(false)
+  })
+
+  it('T-SNT-CFG-016 trace.sink 缺失 / trace 段为空 → 特定错误码（TC-W08-05）', () => {
+    expect(codeOf(() => resolveSentrySettings({ trace: {} }))).toBe('sentry-trace-sink-required')
+    expect(codeOf(() => resolveSentrySettings({ trace: { ringSize: 10 } }))).toBe(
+      'sentry-trace-sink-required',
+    )
+    // 三种合法值都必须显式写；`memory` 是合法选择，但不能再由默认值代劳
+    for (const sink of ['memory', 'stderr', 'session'] as const) {
+      expect(resolveSentrySettings({ trace: { sink } }).trace.sink).toBe(sink)
+    }
   })
 
   it('T-SNT-CFG-002 逐层覆盖（阈值 / 窗口 / 白名单 / 预算 / 降级 / 开关）', () => {
     const settings = resolveSentrySettings({
       detector: { warnThreshold: 0.3, highThreshold: 0.9 },
       rules: {
+        engine: 'bundle',
         disabled: ['CMD-001'],
         demoWhitelist: false,
         crossScenario: false,
@@ -31,9 +56,12 @@ describe('sentry 配置（fail-loud）', () => {
       degrade: { invalidArgsThreshold: 1 },
       guard: { maxToolsPerTurn: 2 },
       honesty: { numeric: false, noResult: false },
+      riskScore: { enforce: false },
+      halt: { enabled: false, ticketTtlSeconds: 60 },
       trace: { ringSize: 10, flushThreshold: 2, sink: 'stderr' },
     })
     expect(settings.detector).toEqual({ warnThreshold: 0.3, highThreshold: 0.9 })
+    expect(settings.rules.engine).toBe('bundle')
     expect(settings.rules.disabled).toEqual(['CMD-001'])
     expect(settings.rules.demoWhitelist).toBe(false)
     expect(settings.rules.crossScenario).toBe(false)
@@ -45,7 +73,21 @@ describe('sentry 配置（fail-loud）', () => {
     expect(settings.degrade.invalidArgsThreshold).toBe(1)
     expect(settings.guard.maxToolsPerTurn).toBe(2)
     expect(settings.honesty).toEqual({ numeric: false, noResult: false })
+    expect(settings.riskScore).toEqual({ enforce: false })
+    expect(settings.halt).toEqual({ enabled: false, ticketTtlSeconds: 60 })
     expect(settings.trace).toEqual({ ringSize: 10, flushThreshold: 2, sink: 'stderr' })
+  })
+
+  it('T-SNT-CFG-015 halt 子键未知 / 类型错 / TTL 非正 → 载入即抛', () => {
+    expect(codeOf(() => resolveSentrySettings({ halt: { enabled: 'yes' } }))).toBe(
+      'sentry-invalid-config',
+    )
+    expect(codeOf(() => resolveSentrySettings({ halt: { ticketTtlSeconds: 0 } }))).toBe(
+      'sentry-invalid-config',
+    )
+    expect(codeOf(() => resolveSentrySettings({ halt: { force: true } }))).toBe(
+      'sentry-unknown-config-key',
+    )
   })
 
   it('T-SNT-CFG-014 trace.sink 支持 session（durable 回放）', () => {
@@ -87,6 +129,7 @@ describe('sentry 配置（fail-loud）', () => {
       ['正整数非整数', { budget: { riskyCalls: 1.5 } }, 'sentry-invalid-config'],
       ['窗口非整数', { breaker: { windowSeconds: 1.2 } }, 'sentry-invalid-config'],
       ['sink 枚举非法', { trace: { sink: 'file' } }, 'sentry-invalid-config'],
+      ['engine 非法', { rules: { engine: 'opa' } }, 'sentry-invalid-config'],
       ['disabled 非数组', { rules: { disabled: 'CMD-001' } }, 'sentry-invalid-config'],
       ['disabled 含空串', { rules: { disabled: [''] } }, 'sentry-invalid-config'],
     ]

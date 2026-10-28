@@ -31,9 +31,10 @@
  * - **`maxAttempts` 必须是 1**（见 base bundle 本行的配置）：幂等键只存在于
  *   `saga_step.idempotency_key`，**没有传给银行核心**；重试一次就是真的多扣一次钱。
  *   核心支持请求级幂等键之后才允许开重试。
- * - **补偿只到"决策"为止**：`MockBankCore` 没有冲正接口（`packages/bank/src/core` 里的
- *   `refund` 是**交易分类**，不是可调用操作），所以本插件不注入 `CompensationDeps`。
- *   按 `runSaga` 的契约，失败步骤只 CAS 到 `COMPENSATING` 而**不假装补偿成功**。
+ * - **补偿经窄端口真冲正**（W12）：`MockBankCore.reverse(txnId)` 落原交易 + 冲正两条流水，
+ *   幂等键 = `txnId`；补偿成功 → `COMPENSATED`、失败 → `COMPENSATION_DLQ`。
+ *   把 `compensation.enabled` 设为 false 才退回"止于决策"的旧行为。
+ *   注意：这是 Mock 的账本冲正语义，生产必须接银行核心的冲正/退款接口。
  * - **sub-step 不继承 turn 的取消信号**：`tools/execute` 的包裹函数只拿到 `call`，
  *   拿不到 turn 的 `AbortSignal`。这里给一个永不过期的信号，并接受"turn 被取消后
  *   已进入的中段步骤仍会跑完"——这比伪造取消（半途中断会让状态停在 `CALLING`）安全。
@@ -41,15 +42,27 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 
-import { makeKey, makeNonce, parseSagaSettings, planSaga, runSaga, SAGA_CLOCK } from '@bah/saga'
+import { BANK_COMPENSATION } from '@bah/bank'
+import {
+  makeKey,
+  makeNonce,
+  parseSagaSettings,
+  planSaga,
+  registerTemplate,
+  runSaga,
+  SAGA_CLOCK,
+  SAGA_STORE,
+} from '@bah/saga'
 import { SESSION_SERVICE, TOOLS_SERVICE } from '@bah/runtime'
 import { BahError } from '@bah/util'
 
-import type { PlannedStep, SagaSettings, SideEffectClass } from '@bah/saga'
+import type { Context } from '@bah/core'
+import type { CompensationDeps, CompTemplate, PlannedStep, SagaSettings, SideEffectClass, TargetSystem } from '@bah/saga'
 import type { ToolCallInput, ToolRegistry } from '@bah/runtime'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import {
+  asRecord,
   bootError,
   readBoolean,
   readPositiveInteger,
@@ -110,6 +123,52 @@ export interface SagaBridgeSettings {
   readonly tickIntervalMs: number
   /** 协调器设置（与 `bank:saga` 同一个解析面）。 */
   readonly saga: SagaSettings
+  /**
+   * 补偿通道（W12）。
+   *
+   * `false` = 不注入 `CompensationDeps`，失败只 CAS 到 `COMPENSATING`（旧行为）。
+   * 与 `enabled` **正交**：`enabled` 控"桥接是否装配"，本键控"补偿依赖是否注入"。
+   */
+  readonly compensation: {
+    readonly enabled: boolean
+  }
+}
+
+/**
+ * `transfer_create` 的补偿模板（计划期冻结版本）。
+ *
+ * `payloadProjection` 只投确定性字段；真正用于冲正的 `txnId` 由桥接在自己的执行结果里
+ * 取（`stepOutputs`），不进事件、不进审计链——金额与流水号不落明文载荷。
+ */
+const TRANSFER_REVERSE_TEMPLATE: CompTemplate = {
+  templateId: 'bank.transfer.reverse',
+  templateVersion: 1,
+  targetTool: 'transfer_create',
+  compKind: 'FULL_REFUND',
+  compEndpoint: 'bank://compensation/reverse',
+  compIdempotent: true,
+  residualRules: [],
+  approvalRequired: false,
+  payloadProjection: JSON.stringify({
+    fields: [
+      { from: 'sagaId', to: 'sagaId' },
+      { from: 'stepId', to: 'stepId' },
+      { from: 'requestDigest', to: 'requestDigest', default: '' },
+    ],
+  }),
+  status: 'ACTIVE',
+}
+
+/** 目标登记：`transfer_create` 可探诊（补偿前置事实；缺了会 `unknown-target` → DLQ）。 */
+function transferTarget(registeredAt: number): TargetSystem {
+  return {
+    targetSystem: 'transfer_create',
+    idempotencySupport: 'STRONG',
+    idempotencyTtlS: 600,
+    probeEndpoint: 'bank://compensation/reverse/probe',
+    lagSeconds: 0,
+    registeredAt,
+  }
 }
 
 const WHERE = 'bank:saga-bridge'
@@ -133,6 +192,56 @@ function codeOf(error: unknown): string {
   return error instanceof BahError ? error.code : 'tool-failed'
 }
 
+/** 从正向结果里取流水号（`TransferCreatedResult.txnId`；形状不符返回 `undefined`）。 */
+function txnIdOf(payload: unknown): string | undefined {
+  if (typeof payload !== 'object' || payload === null) return undefined
+  const value = (payload as Readonly<Record<string, unknown>>)['txnId']
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+/**
+ * 补偿通道（每个 saga 一份闭包）：
+ * - `stepOutputs`：全局 stepId → 正向结果（冲正需要 `txnId`，它不在事件载荷里）；
+ * - `txnOfComp`：补偿主键 → 原交易 ID（探诊用，`ref.stepId` 就是 compId）。
+ *
+ * 单独导出是为了能直接测"拿不到流水号 / 探诊读失败"这类只有在真实冲正中段才出现的分支；
+ * 生产调用点仍按 saga 作用域各建一份 Map。
+ */
+export function compensationDepsFor(
+  ctx: Pick<Context, 'get'>,
+  stepOutputs: ReadonlyMap<string, unknown>,
+  txnOfComp: Map<string, string>,
+): CompensationDeps {
+  return {
+    invoke: async (input) => {
+      const txnId = txnIdOf(stepOutputs.get(input.stepId))
+      if (txnId === undefined) {
+        // 正向结果里没有流水号：不能猜、不能空退；按失败收敛到 DLQ。
+        return { kind: 'err', code: 'reverse-source-missing' }
+      }
+      txnOfComp.set(input.compId, txnId)
+      try {
+        const result = await ctx.get(BANK_COMPENSATION).reverse(txnId)
+        return { kind: 'ok', responseDigest: digestOf(result) }
+      } catch (error) {
+        return { kind: 'err', code: codeOf(error) }
+      }
+    },
+    probe: async (_endpoint, ref) => {
+      const txnId = txnOfComp.get(ref.stepId)
+      if (txnId === undefined) return { kind: 'failed' }
+      try {
+        const result = ctx.get(BANK_COMPENSATION).reversalOf(txnId)
+        return result === undefined
+          ? { kind: 'not-executed' }
+          : { kind: 'executed', responseDigest: digestOf(result) }
+      } catch {
+        return { kind: 'failed' }
+      }
+    },
+  }
+}
+
 export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
   id: 'bank:saga-bridge',
 
@@ -145,17 +254,64 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
       // "行顺序"变成隐性契约，而换行顺序不该让系统起不来。
       const registry = (): ToolRegistry => ctx.get(TOOLS_SERVICE)
       const sessionId = (): string => ctx.get(SESSION_SERVICE).sessionId
+      const compensationEnabled = settings.compensation.enabled
+
+      /**
+       * 补偿前置事实：模板 + 目标登记（幂等）。
+       *
+       * 实测（W12 开工）：全仓此前**从未注册**过 `comp_template` / `target_system_registry`，
+       * 只注入 deps 会让 `issueComp` 在 `no-template` / `unknown-target` 处失败。
+       * 不登记 = 补偿永远空转，所以这一笔必须补上。
+       *
+       * **首次编排时**登记，不在 `apply` 期：apply 期取 `SAGA_STORE` 会把插件行顺序
+       * 变成隐性契约（本文件头已声明这条原则）。到了 `runSagaFor`，`planSaga` 必然
+       * 需要 store，缺服务会以更准确的错误暴露。
+       */
+      let compensationFactsReady = false
+      const ensureCompensationFacts = (): void => {
+        if (compensationFactsReady) return
+        const store = ctx.get(SAGA_STORE)
+        const at = ctx.get(SAGA_CLOCK).now()
+        if (
+          store.readTemplate(
+            TRANSFER_REVERSE_TEMPLATE.templateId,
+            TRANSFER_REVERSE_TEMPLATE.templateVersion,
+          ) === undefined
+        ) {
+          registerTemplate(ctx, TRANSFER_REVERSE_TEMPLATE)
+        }
+        if (store.readTarget('transfer_create') === undefined) {
+          store.upsertTarget(transferTarget(at))
+        }
+        compensationFactsReady = true
+      }
+
+      /** 计划期冻结补偿绑定：只有真实写工具 `transfer_create` 有模板。 */
+      const bindCompensationSteps = (sagaId: string, planned: readonly PlannedStep[]): void => {
+        const bound = planned.filter(
+          (step) => step.toolName === 'transfer_create' && step.sideEffectClass !== 'NONE',
+        )
+        if (bound.length === 0) return
+        ctx.get(SAGA_STORE).tx((tx) => {
+          for (const step of bound) {
+            tx.bindCompensation(sagaId, step.stepId, TRANSFER_REVERSE_TEMPLATE)
+          }
+        })
+      }
 
       /** 直接取工具定义执行：**不**经过七段管线（审批已在最外层发生过一次）。 */
       const executeTool = async (
         name: string,
         args: Readonly<Record<string, unknown>>,
         callId: string,
+        ticketId?: ToolCallInput['ticketId'],
       ): Promise<unknown> =>
         registry().get(name).execute(args, {
           sessionId: sessionId() as never,
           callId,
           signal: NEVER_ABORT,
+          // 票据是随机 UUID，sub-step 必须沿用它，自己去拼 `ticket:${callId}` 会核销失败
+          ...(ticketId === undefined ? {} : { ticketId }),
         })
 
       const runSagaFor = async (call: ToolCallInput): Promise<unknown> => {
@@ -165,6 +321,11 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
         const sagaId = `saga-${randomUUID()}`
         let lastPayload: unknown
         let failure: { code: string } | undefined
+        const stepOutputs = new Map<string, unknown>()
+        const txnOfComp = new Map<string, string>()
+        const compensation = compensationEnabled
+          ? compensationDepsFor(ctx, stepOutputs, txnOfComp)
+          : undefined
 
         // `saga_step.step_id` 是**全局主键**（不是 `(saga_id, step_id)` 复合键）：
         // 固定名字（`preview` / `execute`）会在第二次运行时撞上历史行，
@@ -205,6 +366,7 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
         })
 
         const lastStepId = planned[planned.length - 1]!.stepId
+        if (compensationEnabled) ensureCompensationFacts()
 
         planSaga(
           ctx,
@@ -218,9 +380,11 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
           },
           settings.saga,
         )
+        if (compensationEnabled) bindCompensationSteps(sagaId, planned)
 
         await runSaga(ctx, sagaId, {
           settings: settings.saga,
+          ...(compensation === undefined ? {} : { compensation }),
           dispatch: async (step) => {
             // 回查配方：`step.stepId` 已是全局唯一值，靠 `localToGlobal` 反查本地名。
             const spec = specs.find((item) => localToGlobal.get(item.stepId) === step.stepId)
@@ -229,7 +393,8 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
               return { kind: 'err', code: 'recipe-missing' }
             }
             try {
-              const payload = await executeTool(spec.toolName, spec.args, call.callId)
+              const payload = await executeTool(spec.toolName, spec.args, call.callId, call.ticketId)
+              stepOutputs.set(step.stepId, payload)
               // 外层工具的结果必须是**最后一步**的产出（预检的返回值不能顶包扣款结果）
               if (step.stepId === lastStepId) lastPayload = payload
               return { kind: 'ok', responseDigest: digestOf(payload) }
@@ -288,7 +453,11 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
   },
 
   validate(config) {
-    rejectUnknownKeys(config, ['enabled', 'eligible', 'tickIntervalMs', 'saga'], WHERE)
+    rejectUnknownKeys(
+      config,
+      ['enabled', 'eligible', 'tickIntervalMs', 'saga', 'compensation'],
+      WHERE,
+    )
 
     const eligible = readStringArray(config, 'eligible', WHERE) ?? ['transfer_create']
     for (const name of eligible) {
@@ -307,6 +476,13 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
       rawSaga === undefined || rawSaga === null ? {} : (rawSaga as Readonly<Record<string, unknown>>),
     )
 
+    const rawComp = config['compensation']
+    const compensation =
+      rawComp === undefined || rawComp === null
+        ? {}
+        : asRecord(rawComp, `${WHERE}.compensation`)
+    rejectUnknownKeys(compensation, ['enabled'], `${WHERE}.compensation`)
+
     return {
       enabled: readBoolean(config, 'enabled', WHERE, true),
       eligible,
@@ -314,6 +490,9 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
       // 所以"关掉 tick"的正确写法是**不写这个键**。
       tickIntervalMs: readPositiveInteger(config, 'tickIntervalMs', WHERE) ?? 0,
       saga,
+      compensation: {
+        enabled: readBoolean(compensation, 'enabled', `${WHERE}.compensation`, true),
+      },
     }
   },
 }

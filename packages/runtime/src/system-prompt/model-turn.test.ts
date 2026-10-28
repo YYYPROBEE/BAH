@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 模型层参与的完整 turn（集成：会话 + 工具管线 + 提示词装配 + llm-mock）。
  *
  * **本文件的"驱动"是脚本化的**：阶段 5 落地主循环后，同样的断言改由
@@ -248,12 +248,31 @@ describe('T-LLM-004 usage 记账落审计', () => {
       if (event?.type !== 'usage/summary') throw new Error('unreachable')
 
       // 两步各一次调用，步骤用量累加（mock 每步上报 100/20）
-      expect(event.data).toEqual({ turn: 1, input: 200, output: 40, calls: 2 })
+      expect(event.data).toEqual({
+        turn: 1,
+        input: 200,
+        output: 40,
+        calls: 2,
+        cachedInput: 0,
+        costMicroYuan: 0,
+      })
       expect(deps.ledger.get(1)).toEqual(event.data)
-      expect(deps.ledger.totals()).toEqual({ input: 200, output: 40 })
+      expect(deps.ledger.totals()).toEqual({
+        input: 200,
+        output: 40,
+        cachedInput: 0,
+        costMicroYuan: 0,
+      })
 
       // 与 @bah/llm 的 TurnUsage 同形（两处形状一旦漂移，这里编译失败）
-      const typed: UsageSummaryData = { turn: 1, input: 200, output: 40, calls: 2 }
+      const typed: UsageSummaryData = {
+        turn: 1,
+        input: 200,
+        output: 40,
+        calls: 2,
+        cachedInput: 0,
+        costMicroYuan: 0,
+      }
       expect(event.data).toEqual(typed)
     })
   })

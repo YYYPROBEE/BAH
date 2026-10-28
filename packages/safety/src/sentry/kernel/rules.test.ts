@@ -87,6 +87,28 @@ describe('scanToolArgs·NET-001 演示白名单校准', () => {
   })
 })
 
+describe('scanToolArgs·外置规则集（S5 baseRules）', () => {
+  it('baseRules 替换内置 13 条：旧规则不再命中，新规则直接生效', () => {
+    const base = [
+      { id: 'CMD-001', pattern: /never-match-anything/i, family: 'destructive', note: '替换后的规则' },
+    ] as const
+    // 同一输入在 legacy 下命中 CMD-001；bundle 模式下规则被替换 → 干净
+    expect(scanToolArgs({ command: 'rm -rf /x' }, { baseRules: base })).toEqual([])
+    expect(scanToolArgs({ command: 'never-match-anything' }, { baseRules: base })).toEqual([
+      { id: 'CMD-001', family: 'destructive', hit: 'never-match-anything', note: '替换后的规则' },
+    ])
+  })
+
+  it('baseRules 与 extraRules 叠加：顺序仍是 base 在前', () => {
+    const base = [{ id: 'CMD-001', pattern: /omega/i, family: 'destructive', note: '外置' }] as const
+    const extra = [{ id: 'EXTRA-1', pattern: /omega/i, family: 'custom', note: '追加' }] as const
+    expect(scanToolArgs({ text: 'omega' }, { baseRules: base, extraRules: extra })).toEqual([
+      { id: 'CMD-001', family: 'destructive', hit: 'omega', note: '外置' },
+      { id: 'EXTRA-1', family: 'custom', hit: 'omega', note: '追加' },
+    ])
+  })
+})
+
 describe('scanToolArgs·停用位与追加规则', () => {
   it('disabledIds 停用内置规则后干净', () => {
     expect(scanToolArgs({ command: 'rm -rf /x' }, { disabledIds: ['CMD-001'] })).toEqual([])

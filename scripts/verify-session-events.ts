@@ -133,8 +133,12 @@ function checkPlatformTable(root: string): string[] {
       node.initializer !== undefined &&
       ts.isArrayLiteralExpression(unwrapExpression(node.initializer))
     ) {
-      for (const element of unwrapExpression(node.initializer).elements) {
-        if (ts.isStringLiteral(element)) arrayKeys.add(element.text)
+      // 同 verify-plan-events：`unwrapExpression()` 调用两次会丢窄化，先取一次。
+      const literal = unwrapExpression(node.initializer)
+      if (ts.isArrayLiteralExpression(literal)) {
+        for (const element of literal.elements) {
+          if (ts.isStringLiteral(element)) arrayKeys.add(element.text)
+        }
       }
     }
     if (ts.isInterfaceDeclaration(node) && node.name.text === 'SessionEventMap') {

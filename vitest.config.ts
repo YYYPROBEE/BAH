@@ -25,9 +25,19 @@ const allowlistedSources = COVERAGE_ALLOWLIST.map(({ package: pkg, scope }) =>
 export default defineConfig({
   resolve: { alias: bahSourceAlias },
   test: {
-    include: ['packages/*/src/**/*.test.ts'],
+    // `scripts/**/*.test.ts`：门禁与运维脚本的冒烟面（C2）。
+    // 这类用例**不覆盖**源码，只钉"安全网自身"的形状（35 个 gate 可导入、步骤表不重复、
+    // 用例地板是正整数），所以与 unit 面同跑、不单开 config。
+    include: ['packages/*/src/**/*.test.ts', 'scripts/**/*.test.ts'],
     exclude: ['packages/*/src/**/*.e2e.test.ts'],
     passWithNoTests: true,
+    /**
+     * W06：签名门的固定测试密钥。
+     *
+     * 这是**完整性测试密钥**（公开、非机密）；运行时仍要求显式注入
+     * `BAH_KNOWLEDGE_KEY`，库代码里没有任何默认密钥。
+     */
+    env: { BAH_KNOWLEDGE_KEY: 'demo-key-not-for-prod' },
     coverage: {
       provider: 'v8',
       include: allowlistedSources,

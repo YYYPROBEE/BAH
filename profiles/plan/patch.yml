@@ -1,0 +1,70 @@
+# plan profile patch（层 2：profile patch）
+#
+# 语义是**整块替换**：下面每行的 config 一旦出现，就完全取代 base 那一行——
+# 没写的字段走插件默认值，而不是与旧值深合并。
+
+- id: core:model
+  config:
+    # 确定性模型：plan 的执行不经过模型，但 `core:agent` 要有一个可装配的 provider，
+    # 且这条 profile 不该在演示时依赖网络与密钥。
+    provider: router
+    model: router-chat
+    chunkSize: 4
+
+- id: core:agent
+  config:
+    channel: headless
+    loop:
+      model: router:router-chat
+      maxSteps: 8
+
+- id: bank:tools
+  config:
+    # 不写 demoUserId 则所有业务工具 deny no-identity（plan 的节点一样会被拒）
+    demoUserId: u-1
+    seed: 7
+    datasetTier: demo
+    policy: { engine: bundle }
+
+- id: interaction:approval
+  config:
+    # headless 没有弹窗：显式开自动应答者。plan 的每个节点**各走一次**审批，
+    # 所以这条应答者会被调用多次（不是"外层批一次"）
+    responder: headless
+    autoDecision: allow
+    autoVerify: true
+
+- id: safety:sentry
+  config:
+    # W08：plan 是答辩主演示，trace 必须显式落 durable 会话事件；
+    # 漏写这一行会让 plan profile 在载入期 fail-loud（TC-W08-07 专门钉它）。
+    trace:
+      sink: session
+
+# ★ 关掉 saga-bridge：避免 `transfer_create` 被双层展开（方案 §3.6 方案 B）
+#
+# 为什么是 `enabled: false` 而不是 `eligible: []`：后者只让桥接"不接管任何工具"，
+# 但 tick 定时器还挂着，`saga/tick` 仍会派发——那是"看起来关了、其实还在跑"。
+#
+# 代价（README 也写了）：plan 里的 `transfer_create` **失去补偿能力**，只有前向执行。
+# 需要"第 3 步失败、第 2 步已扣款要退"时，正确做法是让 plan 编排一个整笔 saga
+# （节点 = 一笔 saga），而不是让 saga 藏在某个节点里。这条留给 P2。
+- id: bank:saga-bridge
+  config:
+    enabled: false
+
+# ★ 插入新行：id 不在任何 bundle 里，必须写 use 指向依赖清单里的插件
+- id: plan:dag
+  use: plan:dag
+  config:
+    enabled: true
+    maxNodes: 32
+    maxEdges: 128
+    # 必须 < 票据 TTL（默认 120000ms）：排队排过票据有效期还去核销 = 拿过期批准扣款。
+    # validate 里 fail-loud 校验这一条，v1 没有 lease 可以兜住它。
+    planTimeoutMs: 30000
+    dryRunDefault: false
+    # B1：把 plan_propose / plan_execute 暴露给模型。只有本 profile 打开；
+    # 默认 web / headless 的工具面不变（生产 profile 不因为多了个能力就放宽）。
+    modelTools: true
+    modelMaxNodes: 8

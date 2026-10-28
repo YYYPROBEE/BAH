@@ -18,37 +18,43 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       CI: "true"
+      # W06：知识库签名门的固定**完整性测试密钥**（公开、非机密；生产用独立密钥重签）。
+      # 库代码没有任何默认密钥——缺失时启动 fail-loud。
+      BAH_KNOWLEDGE_KEY: "demo-key-not-for-prod"
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-      # 端点与模型属于非敏感配置，直接写在此处；换回官方端点时删掉这两行即可
-      # （readDeepSeekEnv 对空字符串回退 https://api.deepseek.com + deepseek-chat）。
-      DEEPSEEK_BASE_URL: https://maas.qianwenaiapi.com/compatible-mode/v1
-      DEEPSEEK_MODEL: deepseek-v4.1-flash-1017
+      # 默认值是比赛期的兼容端点；生产/公开仓请在仓库 Variables 里覆盖为
+      # 官方端点或经批准的模型网关（readDeepSeekEnv 对空字符串回退官方端点）。
+      DEEPSEEK_BASE_URL: ${{ vars.DEEPSEEK_BASE_URL || 'https://maas.qianwenaiapi.com/compatible-mode/v1' }}
+      DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-v4.1-flash-1017' }}
 
     steps:
       - name: Checkout（完整历史，用于快照基线）
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10.34.7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: pnpm
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
           cache: pip
@@ -67,6 +73,10 @@ jobs:
             BASE="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
           fi
           echo "BAH_SNAPSHOT_BASE=$BASE" >> "$GITHUB_ENV"
+
+      - name: Verify knowledge signature manifest
+        # 一致性检查（W06）：清单必须与语料索引 / fixture 逐字节一致；不改文件。
+        run: pnpm knowledge:sign --check
 
       - name: Run full check
         # 严格模式：未执行面（如无密钥的 e2e）不得算绿。用 `pnpm check` 会 SKIP 后退出 0，

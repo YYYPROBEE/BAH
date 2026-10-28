@@ -13,15 +13,18 @@
  * 需要时再作为可选增强（本阶段不做，见 PROGRESS 偏离记录）。
  */
 
-import { BahError } from '@bah/util'
+import { BahError, assertNever } from '@bah/util'
 
 import type { ContentBlock, TicketId } from '@bah/core'
+import type { ContentBlock as ModelBlock, LlmRequest } from '@bah/llm'
 
 import type {
   AnySessionEvent,
   CompactionSummaryData,
   DerivedMessage,
+  FinancialExecution,
   FinancialSummaryEntry,
+  ToolResultData,
 } from '../session/types.ts'
 import type {
   CollapsedEvents,
@@ -29,10 +32,22 @@ import type {
   CompactionThresholds,
   PlanCompactionInput,
   SummaryTextInput,
+  SummaryToolHighlight,
+  SummaryToolStatus,
+  SummaryTurnHighlight,
 } from './types.ts'
 
 /** 估算用的字符/token 比（ASCII 混排的保守值；只用于阈值判定，不参与计费）。 */
 const CHARS_PER_TOKEN = 4
+
+/** 摘要引述的单条文本上限（字符；截断保证摘要不会反向膨胀）。 */
+const QUOTE_MAX_CHARS = 160
+const TOOL_ARGS_MAX_CHARS = 80
+const TOOL_RESULT_MAX_CHARS = 140
+/** 单轮最多逐条展示的工具调用数（超出只留计数，避免一次批量查询淹没摘要）。 */
+const TOOLS_PER_TURN = 8
+/** 对话要点的字符预算：从最近轮次往前装，更早的轮次只保留在"共 N 轮"计数里。 */
+const HIGHLIGHT_BUDGET_CHARS = 4000
 
 /** CJK 字符按 1 token/字估算（中文 provider 的实际 tokenizer 接近 0.6–1）。 */
 function isCjk(codePoint: number): boolean {
@@ -159,6 +174,46 @@ export function estimateEventTokens(event: AnySessionEvent): number {
   }
 }
 
+/**
+ * 一次**请求**的 token 估算：消息正文 + 工具 schema。
+ *
+ * 为什么不能只看会话事件：工具定义不在事件里（每次请求由注册表现算），
+ * 只按事件估水位会漏掉 16 个工具的 name / description / JSON schema。
+ * 图片与推理块不计（与 `estimateEventTokens` 同口径：图片不折算文本，推理块不回放）。
+ */
+export function estimateRequestTokens(request: LlmRequest): number {
+  let tokens = 0
+  for (const message of request.messages) {
+    for (const block of message.content) {
+      tokens += estimateModelBlockTokens(block)
+    }
+  }
+  for (const tool of request.tools ?? []) {
+    tokens += estimateTokens(tool.name)
+    tokens += estimateTokens(tool.description)
+    tokens += estimateTokens(compactJson(tool.schema))
+  }
+  return tokens
+}
+
+/** 模型内容块的 token 估算（文本与工具调用计，其余不计）。 */
+function estimateModelBlockTokens(block: ModelBlock): number {
+  switch (block.kind) {
+    case 'text':
+      return estimateTokens(block.text)
+    case 'tool-call':
+      return estimateTokens(block.name) + estimateTokens(compactJson(block.args))
+    case 'reasoning':
+    case 'image':
+    case 'file':
+    case 'tool-addition':
+    case 'tool-removal':
+      return 0
+    default:
+      return assertNever(block, 'model-content-block')
+  }
+}
+
 /** 完整 turn 的数量（有 `turn/end` 才算完整：未闭合的 turn 不折叠）。 */
 export function countCompleteTurns(events: readonly AnySessionEvent[]): number {
   return completeTurns(events).length
@@ -181,9 +236,19 @@ export function analyzeSession(events: readonly AnySessionEvent[]): SessionMetri
   const owner = new Map<number, number>()
   let current: number | undefined
   let tokens = 0
+  /** 已计入的 system 头 token（下一次装配覆盖它，不累加）。 */
+  let lastSystemTokens = 0
 
   for (const event of events) {
-    tokens += estimateEventTokens(event)
+    const eventTokens = estimateEventTokens(event)
+    if (event.type === 'system/message') {
+      // 真实请求只有一份 system：每次 attempt 都能落一条，但旧的那些只是
+      // "当时装配过"的审计痕迹。全计入会把水位按 step 数倍系统性高估（§5.2）。
+      tokens += eventTokens - lastSystemTokens
+      lastSystemTokens = eventTokens
+    } else {
+      tokens += eventTokens
+    }
     if (event.type === 'turn/start') {
       current = event.data.turn
       owner.set(event.seq, current)
@@ -204,9 +269,16 @@ export function analyzeSession(events: readonly AnySessionEvent[]): SessionMetri
 function shouldCompactMetrics(
   metrics: SessionMetrics,
   thresholds: CompactionThresholds,
+  overheadTokens = 0,
 ): boolean {
   if (metrics.turns.length <= thresholds.keepRecentTurns) return false
-  if (thresholds.maxTokens !== undefined && metrics.tokens >= thresholds.maxTokens) return true
+  // 水位是"下一次请求"的大小：事件里的历史 + 请求恒定开销（工具 schema 不在事件里）。
+  if (
+    thresholds.maxTokens !== undefined &&
+    metrics.tokens + overheadTokens >= thresholds.maxTokens
+  ) {
+    return true
+  }
   return thresholds.maxTurns !== undefined && metrics.turns.length > thresholds.maxTurns
 }
 
@@ -220,8 +292,9 @@ function shouldCompactMetrics(
 export function shouldCompact(
   events: readonly AnySessionEvent[],
   thresholds: CompactionThresholds,
+  overheadTokens = 0,
 ): boolean {
-  return shouldCompactMetrics(analyzeSession(events), thresholds)
+  return shouldCompactMetrics(analyzeSession(events), thresholds, overheadTokens)
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -275,7 +348,7 @@ export function planCompaction(input: PlanCompactionInput): CompactionPlan {
   const collapsed = collapseEvents(input.events)
   const metrics = analyzeSession(collapsed.kept)
 
-  if (!shouldCompactMetrics(metrics, input.thresholds)) {
+  if (!shouldCompactMetrics(metrics, input.thresholds, input.overheadTokens ?? 0)) {
     return { needed: false, droppedSeqs: [], collapsedTurns: [] }
   }
 
@@ -310,6 +383,7 @@ export function planCompaction(input: PlanCompactionInput): CompactionPlan {
       toTurn,
       turns: targets.length,
       droppedMessages,
+      highlights: extractHighlights(collapsedEvents),
       toolCalls: countToolCalls(collapsedEvents),
       financial,
     }),
@@ -324,15 +398,18 @@ export function planCompaction(input: PlanCompactionInput): CompactionPlan {
 /**
  * 抽取金融特例字段（施工单 05 §5：涉及金额 / 收款人 / 审批的条目必须结构化保留）。
  *
- * 数据来源两条：
+ * 数据来源三条：
  * - `tool/call.args` 里的 `amount` / `payee`（模型要求动多少钱、给谁）；
- * - `approval/asked` + `approval/decided`（票据与结论）。
+ * - `approval/asked` + `approval/decided`（票据与**审批结论**）；
+ * - `tool/result`（**执行结果**——审批通过不等于执行成功）。
  *
  * 绿色直通调用没有票据：`ticketId` 缺省、`decision = 'not-required'`——不伪造票号。
+ * 金额未知时 `amount` 缺省，绝不以 0 代替。
  */
 export function extractFinancial(events: readonly AnySessionEvent[]): FinancialSummaryEntry[] {
   const tickets = new Map<string, { readonly ticketId: TicketId; readonly amount?: number }>()
-  const decisions = new Map<TicketId, string>()
+  const decisions = new Map<TicketId, FinancialSummaryEntry['decision']>()
+  const results = indexToolResults(events)
 
   for (const event of events) {
     if (event.type === 'approval/asked') {
@@ -358,33 +435,115 @@ export function extractFinancial(events: readonly AnySessionEvent[]): FinancialS
     if (amount === undefined && payee === undefined && ticket === undefined) continue
 
     const ticketId = ticket?.ticketId
+    const result = results.get(event.data.callId)
+    const resolvedAmount = amount ?? ticket?.amount
+    const tier = event.data.tier.level
+    const decision =
+      ticketId !== undefined
+        ? (decisions.get(ticketId) ?? 'pending')
+        : tier === 'green' || tier === undefined
+          ? 'not-required'
+          : 'not-requested'
     entries.push({
-      amount: amount ?? ticket?.amount ?? 0,
+      ...(resolvedAmount === undefined ? {} : { amount: resolvedAmount }),
       payee: payee ?? '（未提供）',
       ...(ticketId === undefined ? {} : { ticketId }),
-      decision: ticketId === undefined ? 'not-required' : (decisions.get(ticketId) ?? 'pending'),
+      decision,
+      tier,
+      execution: executionOf(decision, result, tier),
+      ...(result?.code === undefined ? {} : { code: result.code }),
     })
   }
 
   return entries
 }
 
+/**
+ * 抽取每个被折叠轮次的对话要点。
+ *
+ * 目的不是复刻原文，而是保住**指代解析**所需的最小事实：
+ * 用户说了什么、助手最后怎么答、工具拿什么参数查到了什么。
+ * 只有模型可见消息参与；`runtime-context` 等每次重渲染的派生消息不算用户原话。
+ */
+export function extractHighlights(events: readonly AnySessionEvent[]): SummaryTurnHighlight[] {
+  const owner = turnOwnership(events)
+  const results = indexToolResults(events)
+  const turns = new Map<number, MutableTurnHighlight>()
+
+  for (const event of events) {
+    const turn = owner.get(event.seq)
+    if (turn === undefined) continue
+
+    switch (event.type) {
+      case 'user/message': {
+        if (event.data.source !== undefined && event.data.source !== 'user') continue
+        const text = oneLine(event.data.content)
+        if (text === '') continue
+        turnBuilder(turns, turn).user.push(text)
+        continue
+      }
+      case 'assistant/message': {
+        const text = oneLine(textOfBlocks(event.data.content))
+        if (text === '') continue
+        turnBuilder(turns, turn).assistant = text
+        continue
+      }
+      case 'tool/call': {
+        const result = results.get(event.data.callId)
+        turnBuilder(turns, turn).tools.push({
+          name: event.data.name,
+          args: clip(compactJson(event.data.args), TOOL_ARGS_MAX_CHARS),
+          status: result === undefined ? 'pending' : toolStatusOf(result),
+          ...(result?.code === undefined ? {} : { code: result.code }),
+          result:
+            result === undefined
+              ? ''
+              : clip(oneLine(textOfBlocks(result.content)), TOOL_RESULT_MAX_CHARS),
+        })
+        continue
+      }
+      default:
+        continue
+    }
+  }
+
+  return [...turns.values()]
+    .sort((left, right) => left.turn - right.turn)
+    .map((turn) => {
+      const omittedTools = Math.max(0, turn.tools.length - TOOLS_PER_TURN)
+      return {
+        turn: turn.turn,
+        user: clip(turn.user.join('；'), QUOTE_MAX_CHARS),
+        assistant: clip(turn.assistant, QUOTE_MAX_CHARS),
+        tools: turn.tools.slice(-TOOLS_PER_TURN),
+        omittedTools,
+      }
+    })
+}
+
 /** 摘要文本（确定性：同样的折叠内容永远得到同样的字符串，快照可逐字比对）。 */
 export function renderSummaryText(input: SummaryTextInput): string {
   const lines = [
-    `[已压缩历史] 第 ${input.fromTurn}–${input.toTurn} 轮（共 ${input.turns} 轮、${input.droppedMessages} 条消息）已折叠为摘要；原文仍在会话日志中（见 refs）。`,
+    `[已压缩历史] 第 ${input.fromTurn}–${input.toTurn} 轮（共 ${input.turns} 轮、${input.droppedMessages} 条消息）已折叠；以下为压缩时保留的对话要点与资金记录。`,
+    ...renderHighlights(input.highlights),
   ]
   if (input.toolCalls.length > 0) {
-    lines.push(`- 工具调用：${input.toolCalls.map((item) => `${item.name}×${item.count}`).join('、')}`)
+    lines.push(
+      `- 工具调用合计：${input.toolCalls.map((item) => `${item.name}×${item.count}`).join('、')}`,
+    )
   }
   if (input.financial.length > 0) {
     lines.push('- 资金动作（结构化保留）：')
     for (const entry of input.financial) {
       const ticket = entry.ticketId === undefined ? '' : `，票据 ${entry.ticketId}`
-      lines.push(`  · ¥${entry.amount.toFixed(2)} → ${entry.payee}（${entry.decision}${ticket}）`)
+      lines.push(
+        `  · ${moneyText(entry.amount)} → ${entry.payee}（${approvalText(entry)}${ticket}；${executionText(entry)}）`,
+      )
     }
   }
-  lines.push('后续轮次请把以上摘要当作已知背景；不要假设更早的对话原文仍在上下文中。')
+  lines.push(
+    '后续轮次请把以上摘要当作此前对话的可用记录：用户提到更早的账户、金额或结论时，先按摘要补全指代；摘要未覆盖的细节，向用户确认后再行动，不要凭空编造。',
+  )
   return lines.join('\n')
 }
 
@@ -417,6 +576,164 @@ export function turnOwnership(events: readonly AnySessionEvent[]): Map<number, n
   }
 
   return owner
+}
+
+/** 抽取期的可变轮次（渲染前才冻结成 `SummaryTurnHighlight`）。 */
+interface MutableTurnHighlight {
+  readonly turn: number
+  readonly user: string[]
+  assistant: string
+  readonly tools: SummaryToolHighlight[]
+}
+
+/** 取（或建）一个轮次的可变要点。 */
+function turnBuilder(turns: Map<number, MutableTurnHighlight>, turn: number): MutableTurnHighlight {
+  const existing = turns.get(turn)
+  if (existing !== undefined) return existing
+  const created: MutableTurnHighlight = { turn, user: [], assistant: '', tools: [] }
+  turns.set(turn, created)
+  return created
+}
+
+/** 同一 `callId` 的权威结果（后落的覆盖先落的：重试以最后一次为准）。 */
+function indexToolResults(events: readonly AnySessionEvent[]): Map<string, ToolResultData> {
+  const results = new Map<string, ToolResultData>()
+  for (const event of events) {
+    if (event.type === 'tool/result') results.set(event.data.callId, event.data)
+  }
+  return results
+}
+
+/**
+ * 审批结论 + 工具结果 → 执行结果。
+ *
+ * 优先级：成功的工具结果是唯一的"已执行"证据；审批拒绝/取消/不可用一律 `blocked`（未执行）；
+ * 黄/红级没有票据且结果是错误 = 审批前就被策略/前置校验拦下，同样是 `blocked`；
+ * 其余有结果才算 `failed`；没有结果就是 `pending`，不猜。
+ */
+function executionOf(
+  decision: FinancialSummaryEntry['decision'],
+  result: ToolResultData | undefined,
+  tier: FinancialSummaryEntry['tier'],
+): FinancialExecution {
+  if (result !== undefined && !result.isError) return 'succeeded'
+  if (decision === 'rejected' || decision === 'cancelled' || decision === 'unavailable') {
+    return 'blocked'
+  }
+  if (result?.code?.startsWith('approval-') === true) return 'blocked'
+  // 黄/红级没有票据（decision = not-requested）= 还没走到审批就被策略 / 前置校验拦下，
+  // 工具一次都没跑。绿色调用没有这道闸，错误就是真执行失败。
+  if (decision === 'not-requested' && result !== undefined && result.isError) {
+    return 'blocked'
+  }
+  return result === undefined ? 'pending' : 'failed'
+}
+
+/** 工具调用在摘要里的状态（只看 `tool/result`）。 */
+function toolStatusOf(result: ToolResultData): SummaryToolStatus {
+  if (!result.isError) return 'succeeded'
+  return result.code?.startsWith('approval-') === true ? 'blocked' : 'failed'
+}
+
+const TOOL_STATUS_LABELS: Readonly<Record<SummaryToolStatus, string>> = {
+  succeeded: '成功',
+  failed: '失败',
+  blocked: '未执行',
+  pending: '结果未落账',
+}
+
+const EXECUTION_LABELS: Readonly<Record<FinancialExecution, string>> = {
+  succeeded: '执行成功',
+  failed: '执行失败',
+  blocked: '未执行',
+  pending: '执行未完成（无结果）',
+}
+
+/** 对话要点段落：从最近轮次往前装，超出字符预算的较早轮次只保留计数。 */
+function renderHighlights(highlights: readonly SummaryTurnHighlight[]): string[] {
+  if (highlights.length === 0) return []
+
+  const blocks = highlights.map(renderTurnHighlight)
+  const kept: string[] = []
+  let used = 0
+  let omitted = 0
+
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    const block = blocks[index] ?? ''
+    if (kept.length > 0 && used + block.length + 1 > HIGHLIGHT_BUDGET_CHARS) {
+      omitted = index + 1
+      break
+    }
+    kept.push(block)
+    used += block.length + 1
+  }
+
+  kept.reverse()
+  return [...(omitted === 0 ? [] : [`- 更早的 ${omitted} 轮细节已省略（轮次与工具计数见上行）`]), ...kept]
+}
+
+/** 单轮要点块。 */
+function renderTurnHighlight(highlight: SummaryTurnHighlight): string {
+  const parts: string[] = []
+  if (highlight.user !== '') parts.push(`用户：「${highlight.user}」`)
+  if (highlight.assistant !== '') parts.push(`助手：「${highlight.assistant}」`)
+  const lines =
+    parts.length === 0 ? [`- 第 ${highlight.turn} 轮`] : [`- 第 ${highlight.turn} 轮｜${parts.join(' → ')}`]
+
+  for (const tool of highlight.tools) {
+    const detail = tool.result === '' ? '' : `：${tool.result}`
+    lines.push(`  工具 ${tool.name}(${tool.args}) → ${toolStatusText(tool)}${detail}`)
+  }
+  if (highlight.omittedTools > 0) {
+    lines.push(`  …另有 ${highlight.omittedTools} 次工具调用（计数见合计）`)
+  }
+  return lines.join('\n')
+}
+
+function toolStatusText(tool: SummaryToolHighlight): string {
+  const label = TOOL_STATUS_LABELS[tool.status]
+  return tool.status === 'succeeded' || tool.code === undefined ? label : `${label}（${tool.code}）`
+}
+
+function moneyText(amount: number | undefined): string {
+  return amount === undefined ? '金额未知' : `¥${amount.toFixed(2)}`
+}
+
+function approvalText(entry: FinancialSummaryEntry): string {
+  if (entry.ticketId !== undefined) return `审批 ${entry.decision}`
+  if (entry.decision === 'not-requested') {
+    return entry.tier === undefined ? '未进入审批' : `未进入审批（${entry.tier} 级调用被前置拦截）`
+  }
+  if (entry.tier === 'green') return '无审批（绿色直通）'
+  return '无票据记录'
+}
+
+function executionText(entry: FinancialSummaryEntry): string {
+  const label = EXECUTION_LABELS[entry.execution]
+  if (entry.execution === 'succeeded' || entry.code === undefined) return label
+  return `${label}，理由码 ${entry.code}`
+}
+
+/** 参数的单行 JSON（不可序列化时显式标注，不吞错）。 */
+function compactJson(value: unknown): string {
+  try {
+    const text = JSON.stringify(value)
+    return text === undefined ? '' : text
+  } catch {
+    return '（参数无法序列化）'
+  }
+}
+
+/** 多行文本压成单行（摘要里的引述不保留排版）。 */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+/** 按字符（code point）截断，超出部分以省略号收尾。 */
+function clip(text: string, max: number): string {
+  const chars = [...text]
+  if (chars.length <= max) return text
+  return `${chars.slice(0, max - 1).join('')}…`
 }
 
 /** 有 `turn/end` 的 turn（升序、去重）。 */

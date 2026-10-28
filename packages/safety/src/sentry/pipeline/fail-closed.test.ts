@@ -14,11 +14,14 @@ import { TraceLog } from '../kernel/index.ts'
 import {
   createSentryPostExecuteListener,
   failClosedPostExecute,
+  failClosedTurnStopping,
   provideSentry,
   resolveSentrySettings,
   SentryState,
+  TURN_STOPPING_BLOCK_REASON,
   VERIFIER_UNAVAILABLE,
   type PostExecuteListener,
+  type TurnStoppingListener,
 } from './index.ts'
 
 /** 一条 post-execute 载荷（形状与七段管线一致）。 */
@@ -186,11 +189,156 @@ describe('fail-closed：落账与去敏（HP0-03）', () => {
   })
 })
 
+describe('fail-closed：turn-stopping（S-1）', () => {
+  function turnHarness(inner: TurnStoppingListener): {
+    readonly trace: TraceLog
+    readonly recorded: { type: string; data: Record<string, unknown> }[]
+    readonly listener: TurnStoppingListener
+    readonly stopped: string[]
+  } {
+    const trace = new TraceLog({ now: () => 1_000 })
+    const recorded: { type: string; data: Record<string, unknown> }[] = []
+    const stopped: string[] = []
+    let now = 1_000
+    const listener = failClosedTurnStopping(inner, {
+      sessionId: 's-fail-closed',
+      trace,
+      record: (type, data) => recorded.push({ type, data: data as Record<string, unknown> }),
+      now: () => {
+        now += 1
+        return now
+      },
+    })
+    return {
+      trace,
+      recorded,
+      listener: (payload) =>
+        listener({
+          ...(payload as Record<string, unknown>),
+          stop: (reason?: string) => stopped.push(reason ?? 'stopped'),
+        }),
+      stopped,
+    }
+  }
+
+  it('核验监听器抛错 → stop 固定话术 + sentry/verifier-failed，且不向上抛', () => {
+    const test = turnHarness(() => {
+      throw new Error('核验崩了')
+    })
+
+    expect(() => test.listener({ agent: { id: 'a-1' }, turn: 1 })).not.toThrow()
+
+    expect(test.stopped).toEqual([TURN_STOPPING_BLOCK_REASON])
+    expect(test.recorded[0]).toMatchObject({
+      type: 'sentry/verifier-failed',
+      data: {
+        listener: 'agent/turn-stopping',
+        code: VERIFIER_UNAVAILABLE,
+        message: '核验崩了',
+      },
+    })
+    expect(test.trace.recent(10)[0]).toMatchObject({
+      session: 's-fail-closed',
+      kind: 'honesty-verifier-failed',
+    })
+  })
+
+  it('正常路径不判停、不落 verifier-failed', () => {
+    const test = turnHarness(() => undefined)
+
+    test.listener({ agent: { id: 'a-1' }, turn: 1 })
+
+    expect(test.stopped).toEqual([])
+    expect(test.recorded).toEqual([])
+  })
+
+  /**
+   * 兜底的兜底：`stop()` 自己也抛错（宿主注入通道断掉 / inbox 已关闭）。
+   *
+   * 守的不变量是**静默但不丢证据**：
+   * 1. 绝不向外抛——抛出去会污染 serial 派发面，让同一个 turn 的其他收尾钩子收不到判决；
+   * 2. 原始核验异常的详情必须已经在审计里（`sentry/verifier-failed` + TraceLog），
+   *    因为此刻之后没有更强的兜底可用了；
+   * 3. `stop` 的异常不追记（那是本层刻意放弃的部分），所以审计里只应看到**一条**事件、
+   *    且只有核验异常，不会被 stop 的错误串污染。
+   */
+  it('内层抛错 + stop 再抛错 → 不向外抛、不改落账（判停坏掉时证据仍完整）', () => {
+    const trace = new TraceLog({ now: () => 1_000 })
+    const recorded: { type: string; data: Record<string, unknown> }[] = []
+    let stopAttempts = 0
+    const listener = failClosedTurnStopping(
+      () => {
+        throw new Error('核验组件崩了')
+      },
+      {
+        sessionId: 's-stop-failed',
+        trace,
+        record: (type, data) => recorded.push({ type, data: data as Record<string, unknown> }),
+        now: () => 2_000,
+      },
+    )
+
+    const payload = {
+      agent: { id: 'a-1' },
+      turn: 7,
+      stop: () => {
+        stopAttempts += 1
+        throw new Error('宿主注入通道也断了')
+      },
+    }
+
+    expect(() => listener(payload)).not.toThrow()
+    // 确实走到过"调用 stop"这一步（不是被 typeof 检查提前跳过）
+    expect(stopAttempts).toBe(1)
+
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0]).toMatchObject({
+      type: 'sentry/verifier-failed',
+      data: {
+        listener: 'agent/turn-stopping',
+        code: VERIFIER_UNAVAILABLE,
+        message: '核验组件崩了',
+        at: 2_000,
+      },
+    })
+    expect(trace.recent(10)).toHaveLength(1)
+    expect(trace.recent(10)[0]).toMatchObject({
+      session: 's-stop-failed',
+      kind: 'honesty-verifier-failed',
+      message: '核验组件崩了',
+    })
+    // 审计里不得出现 stop 的错误文本：空 catch 放弃的只是"再记一笔"，不是把两条错误混成一条
+    expect(JSON.stringify(recorded) + JSON.stringify(trace.recent(10))).not.toContain(
+      '宿主注入通道也断了',
+    )
+  })
+
+  it('非对象载荷（连 stop 都取不到）→ 同样静默兜住，证据照落', () => {
+    const trace = new TraceLog({ now: () => 1_000 })
+    const recorded: { type: string; data: Record<string, unknown> }[] = []
+    const listener = failClosedTurnStopping(
+      () => {
+        throw new Error('核验组件崩了')
+      },
+      {
+        sessionId: 's-no-stop',
+        trace,
+        record: (type, data) => recorded.push({ type, data: data as Record<string, unknown> }),
+        now: () => 2_000,
+      },
+    )
+
+    expect(() => listener(undefined)).not.toThrow()
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0]?.data['message']).toBe('核验组件崩了')
+  })
+})
+
 describe('fail-closed：sentry 集成（HP0-04）', () => {
   it('downstream 监听器抛错 → sentry 包装器把它转成 block，结果不进模型可信内容', async () => {
     const ctx: Context = createContext()
     const recorded: { type: string; data: Record<string, unknown> }[] = []
-    provideSentry(ctx, resolveSentrySettings({}), {
+    provideSentry(ctx, resolveSentrySettings({ trace: { sink: 'memory' } }), {
       sessionId: 's-integration' as SessionId,
       now: () => 1_000,
       record: (type, data) => recorded.push({ type, data: data as Record<string, unknown> }),
@@ -230,7 +378,7 @@ describe('fail-closed：sentry 集成（HP0-04）', () => {
     const trace = new TraceLog({ now: () => 1_000 })
     const listener = createSentryPostExecuteListener({
       sessionId: 's-compose',
-      settings: resolveSentrySettings({}),
+      settings: resolveSentrySettings({ trace: { sink: 'memory' } }),
       state: new SentryState(),
       trace,
       record: () => undefined,

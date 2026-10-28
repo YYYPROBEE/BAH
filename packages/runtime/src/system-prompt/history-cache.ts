@@ -12,7 +12,7 @@
 
 import { BahError } from '@bah/util'
 
-import { assistantMessageOf, toolMessageOf } from '../session/derive.ts'
+import { assistantMessageOf, planCallIdOf, toolMessageOf } from '../session/derive.ts'
 import { KNOWN_SESSION_EVENT_TYPES } from '../session/types.ts'
 import type { AnySessionEvent, DerivedMessage } from '../session/types.ts'
 import { buildModelHistory } from './reconcile.ts'
@@ -27,6 +27,8 @@ class ModelHistoryProjection {
   private readonly openCalls = new Map<string, string>()
   private readonly emittedCalls = new Set<string>()
   private readonly pendingResults: ToolResultEvent[] = []
+  /** 系统编排（`plan/*`）产生的 callId：与 `deriveMessages` 同一判据，结果不进 wire。 */
+  private readonly planCallIds = new Set<string>()
   private systemMessage: DerivedMessage | undefined
   private lastSeq = 0
 
@@ -34,6 +36,10 @@ class ModelHistoryProjection {
     if (event.seq <= this.lastSeq) return
     this.lastSeq = event.seq
     if (!KNOWN_SESSION_EVENT_TYPES.has(event.type)) {
+      if (String(event.type) === 'plan/node-started') {
+        const callId = planCallIdOf(event.data)
+        if (callId !== undefined) this.planCallIds.add(callId)
+      }
       if (event.ignorable === true) return
       throw new BahError(
         'session-unknown-event',
@@ -73,6 +79,8 @@ class ModelHistoryProjection {
 
       case 'tool/result': {
         this.openCalls.delete(event.data.callId)
+        // plan 节点：配对检查照做，但不进 wire（无承载消息，结论由 plan_execute 汇总）
+        if (this.planCallIds.has(event.data.callId)) return
         if (this.emittedCalls.has(event.data.callId)) {
           this.emittedCalls.delete(event.data.callId)
           this.messages.push(toolMessageOf(event.data))

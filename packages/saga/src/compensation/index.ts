@@ -40,6 +40,7 @@ import type {
   CompensatingAction,
   SagaSettings,
   SagaStep,
+  SagaTransaction,
   StateSnapshot,
 } from '../types.ts'
 
@@ -513,38 +514,106 @@ export async function runCompensation(
 ): Promise<void> {
   const store = ctx.get(SAGA_STORE)
   const maxAttempts = Math.max(1, settings.maxAttempts)
+  const steps = store.listSteps(sagaId)
+
+  // W12：已执行的副作用步骤却没有计划期冻结绑定 = 绑定缺口。
+  // 先落 DLQ 工单（幂等），再从调度里摘掉——`issueComp` 对无模板步骤会抛 no-template，
+  // 让它炸穿会把整笔 saga 永远留在 COMPENSATING，反而没有人工入口。
+  const scheduled = reverseLayers(steps)
+    .flat()
+    .filter((step) => step.sideEffectClass !== 'NONE')
+  const missing = scheduled.filter((step) => readComp(ctx, sagaId, step.stepId) === undefined)
+  const missingIds = new Set(missing.map((step) => step.stepId))
+  if (missing.length > 0) {
+    const at = ctx.get(SAGA_CLOCK).now()
+    for (const step of missing) {
+      escalateToDlq(ctx, {
+        sagaId,
+        stepId: step.stepId,
+        source: 'comp',
+        reason: 'comp-binding-missing',
+        slaDeadline: at + settings.hardSlaMs,
+      })
+    }
+  }
+
   try {
-    for (const layer of reverseLayers(store.listSteps(sagaId))) {
-      // `NONE` 步骤无补偿绑定，不进入补偿调度。
-      const scheduled = layer.filter((step) => step.sideEffectClass !== 'NONE')
-      if (scheduled.length === 0) continue
-      await runLayer(ctx, sagaId, scheduled, settings, deps, maxAttempts)
+    for (const layer of reverseLayers(steps)) {
+      // `NONE` 步骤无补偿绑定，不进入补偿调度；绑定缺口步骤已落 DLQ，不再发射。
+      const runnable = layer.filter(
+        (step) => step.sideEffectClass !== 'NONE' && !missingIds.has(step.stepId),
+      )
+      if (runnable.length === 0) continue
+      await runLayer(ctx, sagaId, runnable, settings, deps, maxAttempts)
     }
   } catch (error) {
     // 下游已 DLQ 时上游屏障必拒绝发射：这不是异常吞掉，而是结构性停止。
-    // 状态收敛为 PARTIALLY_COMPENSATED，余下人工处置（DLQ 工单已落账）。
+    // 状态按"已有失败项"收敛（全失败 → COMPENSATION_DLQ；有成功项 → PARTIALLY_COMPENSATED），
+    // 余下人工处置（DLQ 工单已落账）。
     if (!(error instanceof BahError) || error.code !== 'barrier-violation') throw error
     // 先收敛可判定的终态，再把结构性拦截原样抛给调用方（不静默吞错）。
-    finalizeCompensation(ctx, sagaId, true)
+    finalizeCompensation(ctx, sagaId, settings, true, missing.length > 0)
     throw error
   }
-  finalizeCompensation(ctx, sagaId)
+  finalizeCompensation(ctx, sagaId, settings, false, missing.length > 0)
 }
 
 /**
- * 补偿终态收敛：全部 OK → COMPENSATED；存在 DLQ/ERR/UNKNOWN → PARTIALLY_COMPENSATED。
+ * 补偿终态收敛（W12 口径）。
+ *
+ * - 全部 `OK` → `COMPENSATED`；
+ * - **全失败（无一条 OK）→ `COMPENSATION_DLQ`**（整笔补偿进入人工处置）；
+ * - 部分 OK + 部分失败 → `PARTIALLY_COMPENSATED`；
+ * - 没有可补偿的副作用步骤（失败发生在任何副作用之前）→ `COMPENSATED`（没有可退的东西）；
+ * - **没有补偿行却有已执行的副作用步骤** → 绑定缺口，fail-closed 到 `COMPENSATION_DLQ`
+ *   （绝不把"没绑定"静默说成"补偿成功"）。
  *
  * 只从 `COMPENSATING` 出发（`advance` 先校验合法出边，再 CAS）。
- * 注意：冻结事件表里没有「补偿完成」事件，本批只推进存储状态；
- * `saga/dlq-escalated` 仍按既有语义折叠为 `COMPENSATION_DLQ`，投影口径留待批 6 对齐。
  */
-function finalizeCompensation(ctx: Context, sagaId: string, barrierStopped = false): void {
+function finalizeCompensation(
+  ctx: Context,
+  sagaId: string,
+  settings: SagaSettings,
+  barrierStopped = false,
+  bindingHole = false,
+): void {
   const store = ctx.get(SAGA_STORE)
   const saga = store.loadTransaction(sagaId)
   if (saga === undefined || saga.state !== 'COMPENSATING') return
 
+  // 绑定缺口：即使其他步骤全 OK，也有一笔副作用没进补偿面——必须人工处置。
+  if (bindingHole) {
+    commitFinalState(ctx, sagaId, saga, 'COMPENSATION_DLQ')
+    return
+  }
+
   const comps = store.tx((tx) => tx.listCompensations(sagaId))
-  if (comps.length === 0) return
+  if (comps.length === 0) {
+    const executed = store
+      .listSteps(sagaId)
+      .filter(
+        (step) =>
+          step.sideEffectClass !== 'NONE' &&
+          (step.state === 'EXECUTED' || step.state === 'COMP_ISSUED'),
+      )
+    if (executed.length === 0) {
+      commitFinalState(ctx, sagaId, saga, 'COMPENSATED')
+      return
+    }
+    // 有已执行的副作用却没有补偿行 = 计划期绑定缺失（或模板注册被跳过）。
+    // 这不是"可退但没有退"的含糊态，必须人工介入；按既有 DLQ 语义落账。
+    const at = ctx.get(SAGA_CLOCK).now()
+    escalateToDlq(ctx, {
+      sagaId,
+      stepId: executed[0]!.stepId,
+      source: 'comp',
+      reason: 'comp-binding-missing',
+      slaDeadline: at + settings.hardSlaMs,
+    })
+    commitFinalState(ctx, sagaId, saga, 'COMPENSATION_DLQ')
+    return
+  }
+
   const failed = comps.some(
     (comp) => comp.state === 'DLQ' || comp.state === 'ERR' || comp.state === 'UNKNOWN',
   )
@@ -554,12 +623,29 @@ function finalizeCompensation(ctx: Context, sagaId: string, barrierStopped = fal
   // 屏障停止时上游可能仍为 PENDING；只要已有失败项，即按部分补偿收敛。
   if (!settled && !(barrierStopped && failed)) return
 
-  const to =
-    comps.every((comp) => comp.state === 'OK') ? 'COMPENSATED' : 'PARTIALLY_COMPENSATED'
+  const allOk = comps.every((comp) => comp.state === 'OK')
+  const anyOk = comps.some((comp) => comp.state === 'OK')
+  const to = allOk
+    ? 'COMPENSATED'
+    : failed && !anyOk
+      ? 'COMPENSATION_DLQ'
+      : 'PARTIALLY_COMPENSATED'
+  commitFinalState(ctx, sagaId, saga, to)
+}
+
+/**
+ * 终态 CAS + 链记录同提交段。
+ *
+ * 冻结事件表无独立"补偿完成"事件：以既有 `saga/comp-result` 的保留 subjectRef
+ * （`$final:<STATE>`）承载终态，回放据此从 CREATED 全量折叠到与运行时一致。
+ */
+function commitFinalState(
+  ctx: Context,
+  sagaId: string,
+  saga: SagaTransaction,
+  to: 'COMPENSATED' | 'PARTIALLY_COMPENSATED' | 'COMPENSATION_DLQ',
+): void {
   const at = ctx.get(SAGA_CLOCK).now()
-  // 状态收敛与「补偿完成」链记录同提交段：冻结事件表无独立完成事件，
-  // 以既有 `saga/comp-result` 的保留 subjectRef（`$final:<STATE>`）承载终态，
-  // 回放据此从 CREATED 全量折叠到与运行时一致（SA-16 §8 批 6 对齐）。
   commitSegment(ctx, (tx) => {
     if (!tx.casState(sagaId, 'COMPENSATING', to, saga.version, at)) {
       throw new BahError('version-conflict', `bah-saga: version-conflict: ${sagaId}@v${saga.version}`, {

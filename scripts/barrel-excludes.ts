@@ -65,6 +65,10 @@ export const BARREL_EXCLUSIONS: readonly BarrelExclusion[] = [
     why: 'JSONL 后端入口：只 re-export 分代/发布/读取实现',
   },
   {
+    path: 'packages/policy/src/index.ts',
+    why: '策略包入口：只 re-export 编译器/求值器/语料的实现文件（策略外置 S1）',
+  },
+  {
     path: 'packages/runtime/src/agent-loop/index.ts',
     why: '主循环模块入口：只 re-export agent/config/request/tool-calls 实现',
   },

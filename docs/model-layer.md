@@ -139,16 +139,24 @@ buildModelHistory()
 
 ```ts
 const thresholds = resolveCompactionConfig({ maxTurns: 18, keepRecentTurns: 4 })  // fail-loud
-const { plan, event } = runCompaction(session, thresholds)   // plan.needed=false 时不落事件
+const { plan, event } = runCompaction(session, thresholds, overheadTokens)   // plan.needed=false 时不落事件
 ```
 
-- 触发：token 估算 ≥ `maxTokens` 或完整 turn 数 > `maxTurns`，且折叠后仍能留下 `keepRecentTurns` 个 turn。
+- 触发：token 水位（事件估算 + 请求恒定开销）≥ `maxTokens` 或完整 turn 数 > `maxTurns`，且折叠后仍能留下 `keepRecentTurns` 个 turn。
+- **水位口径**：`system/message` 只计最后一条（每次 attempt 都落一条，真实请求只有一份 system）；
+  工具定义不在事件里，由 `estimateRequestTokens` 现算 `tools` schema 作为 `overheadTokens` 传入。
+  未配置压缩时不计算该开销。
 - **判定时机**：主循环在**每次请求装配前**判一次、turn 收尾再兜一次（阶段 8）。两处都只折叠
   **已完整结束**的 turn——当前 turn 永不折叠，否则会拆散 `tool/call ↔ tool/result` 配对并丢掉本轮用户问题；
   因此重复判定幂等（已折叠的 turn 在 `collapseEvents` 阶段就被剔除）。
-- 摘要**确定性生成**（结构化统计 + 金融字段），不调模型：可回放、零成本、可逐字比对。
-- 摘要落账为 `compaction/summary`（带 `refs` 事件引用），**不改写历史**；折叠只发生在投影层。
-- 金融特例：涉及金额/收款人/票据/结论的条目保留结构化字段 `{ amount, payee, ticketId, decision }`；绿色直通调用没有票据时**不伪造票号**（`ticketId` 缺省、`decision: 'not-required'`）。
+- 摘要**确定性生成**（结构化统计 + 每轮对话要点 + 工具结果要点 + 金融字段），不调模型：可回放、零成本、可逐字比对。
+- 摘要必须**自足**：被折叠的原文模型读不到，摘要里不得写"原文可取回（见 refs）"，也不得宣告"更早的对话已失忆"。
+  对话要点保留用户原话、最后一条助手结论、工具参数与结果（按字符预算截断），用于解析"刚才那个账户"这类指代。
+- 摘要落账为 `compaction/summary`（`refs` 仅供审计回跳，模型不可读取），**不改写历史**；折叠只发生在投影层。
+- 金融特例：涉及金额/收款人/票据/审批的条目保留结构化字段 `{ amount?, payee, ticketId?, decision, tier?, execution, code? }`。
+  **审批结论 ≠ 执行结果**：`decision` 只回答批没批（绿色 `not-required`、黄/红级审批前被拦截 `not-requested`、未结论 `pending`），`execution` 只认同一 `callId` 的 `tool/result`
+  （`succeeded` / `failed` / `blocked` / `pending`）；审批拒绝记 `blocked`（未执行），不是 `failed`。
+  金额未知时 `amount` 缺省、渲染为"金额未知"，不得补成 `¥0.00`；绿色直通调用没有票据时不伪造票号。
 - 幂等：已折叠的 turn 不会重复摘要。
 - 长 turn（多 step）内不会折叠**当前** turn：安全性与可审计性优先（配对不拆、本轮问题不丢）。
   若单 turn 本身就超过窗口，应在插件线用"工具结果裁剪 / 预算 guard"处理，而不是折叠当前 turn。

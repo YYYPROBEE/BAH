@@ -1,0 +1,24 @@
+tables:
+  - id: transfer-escalation
+    appliesTo: [transfer_create]
+    requires: [preview]
+    hit: first
+    rows:
+      - id: F-001-over-limit
+        when: preview.dailyUsedCents + preview.amountCents > limits.dailyLimitCents
+        raise: red
+        reason: daily-limit
+      - id: F-002-default
+        when: true
+        keep: true
+
+  - id: risky-calls-reason
+    hit: first
+    rows:
+      - id: F-003-risky
+        when: reason == "declared" && level != "green" && state.riskyCallsInTurn >= params.nope
+        keep: true
+        reason: risky-calls
+      - id: F-004-default
+        when: true
+        keep: true

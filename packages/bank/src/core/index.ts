@@ -11,5 +11,7 @@
 export * from './mock.ts'
 export * from './model.ts'
 export * from './provider.ts'
+export * from './compensation.ts'
 export * from './ticket.ts'
 export * from './time.ts'
+export * from './verify-gateway.ts'

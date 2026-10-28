@@ -19,6 +19,8 @@
  * - 判决顺序改动 = 破坏性变更（施工单 03 硬约束 3）。
  */
 
+import { randomUUID } from 'node:crypto'
+
 import { BahError, assertNever, errorCodeOf, reasonOf } from '@bah/util'
 
 import type {
@@ -36,6 +38,8 @@ import type { ApprovalInput, PostExecuteInput, PreExecuteInput, ToolExecutor } f
 import type { SessionId } from '@bah/core'
 import type { ApprovalChallenge, ToolResultData } from '../session/types.ts'
 import type { SessionSink } from '../session/service.ts'
+import { checkToolArgs, checkToolResult, findToolContracts } from './contracts.ts'
+import type { ToolContractViolation } from '@bah/util'
 import type { ContentRenderer, ToolCallInput, ToolExecution } from './types.ts'
 import { fingerprintOf, ToolGuard, type DenyVerdict } from './guard.ts'
 import type { ToolRegistry } from './registry.ts'
@@ -63,6 +67,14 @@ export interface ToolPipelineOptions {
   readonly renderContent?: ContentRenderer
   /** `tools/result` 的派发出口（并行批次用它先缓冲，默认直接 emit）。 */
   readonly emitResult?: (result: ToolResultData) => void
+  /**
+   * 票据 ID 生成器（缺省 `ticket:<randomUUID>`）。
+   *
+   * **生产不要传**：票号会出现在审批 URL 与审计里，必须不可预测。
+   * 只给验收面（快照回放）注入按 `callId` 派生的确定性 ID，让"两次回放全等"
+   * 这条断言成立——「不可预测属生产、可复现属验收」。
+   */
+  readonly mintTicketId?: (callId: string) => TicketId
 }
 
 export class ToolPipeline {
@@ -75,6 +87,7 @@ export class ToolPipeline {
   private readonly signal: AbortSignal
   private readonly renderContent: ContentRenderer
   private readonly emitResult: (result: ToolResultData) => void
+  private readonly mintTicketId: (callId: string) => TicketId
 
   constructor(options: ToolPipelineOptions) {
     this.ctx = options.ctx
@@ -93,6 +106,8 @@ export class ToolPipeline {
           this.auditCallbackFailure('emit-result', result.callId, error)
         })
       })
+    this.mintTicketId =
+      options.mintTicketId ?? ((_callId) => `ticket:${randomUUID()}` as TicketId)
   }
 
   /**
@@ -212,6 +227,17 @@ export class ToolPipeline {
       undefined,
     )
 
+    // ②e 入参契约校验（W03）
+    //
+    // **必须夹在 ① 与 ③ 中间**：
+    // - 放到 ① 之前 → `tool/call` 里就没有"模型发了什么非法参数"，审计失去线索（TC-W03-09）；
+    // - 放到 ③ 之后 → 票据可能已签发，等于"批了才发现参数错"（TC-W03-01）。
+    const contracts = findToolContracts(this.ctx)
+    const argsViolation = checkToolArgs(contracts, call.name, call.args)
+    if (argsViolation !== undefined) {
+      return this.invalid(call, argsViolation, 'tool-args-invalid', callCard)
+    }
+
     // ③ 执行前判决（默认 allow；唯一阻断点）
     const pre: PreExecuteInput = await this.ctx.events.waterfall('tools/pre-execute', {
       call,
@@ -224,9 +250,17 @@ export class ToolPipeline {
     if (guarded === undefined && verdict.kind === 'deny') this.guard.deny(fingerprint, verdict)
 
     // ③e ask：签票据 → 走审批（无人应答 = unavailable = deny）
-    if (verdict.kind === 'ask') verdict = await this.approve(call, verdict, definition)
+    // 票据 ID 是随机 UUID：**必须显式往下传**，否则工具体只能自己"算"一个（算不出来）。
+    let ticketId: TicketId | undefined
+    let approvalWaitedMs: number | undefined
+    if (verdict.kind === 'ask') {
+      const approved = await this.approve(call, verdict, definition)
+      verdict = approved.verdict
+      ticketId = approved.ticketId
+      approvalWaitedMs = approved.waitedMs
+    }
 
-    if (verdict.kind === 'deny') return this.reject(call, verdict, callCard)
+    if (verdict.kind === 'deny') return this.reject(call, verdict, callCard, approvalWaitedMs)
 
     // ⑤ 执行环绕 → 工具体（抛错归一化，不冒泡）
     let payload: unknown
@@ -234,12 +268,27 @@ export class ToolPipeline {
     let code: string | undefined
     let reason: string | undefined
     try {
-      payload = await this.invoke(call, definition)
+      payload = await this.invoke(call, definition, ticketId)
     } catch (error) {
       isError = true
       // 保留工具体抛出的结构化理由码：`tool-failed` 会把审计与自愈都变成瞎子
       code = errorCodeOf(error, 'tool-failed')
       reason = reasonOf(error)
+    }
+
+    // ⑤e 出参契约校验（W03）
+    //
+    // 挂在 ⑥ 之前：一旦判定不合格，下面 `content` 的分支就会走"错误文案"，
+    // 落账的 `tool/result` 自然带 `isError: true`（TC-W03-04）。
+    // 为什么必须有这一步：出参不合格的"成功"是全仓最危险的形状——
+    // 模型会拿着假数据继续决策，而审计里只看得到一条成功的 `tool/result`。
+    if (!isError) {
+      const resultViolation = checkToolResult(contracts, call.name, payload)
+      if (resultViolation !== undefined) {
+        isError = true
+        code = 'tool-result-invalid'
+        reason = describeViolation(resultViolation)
+      }
     }
 
     // ⑥ 预置内容 → 后置判决
@@ -322,26 +371,42 @@ export class ToolPipeline {
           () => definition.presentResult?.(call.args, payload),
           undefined,
         )
-    return { result, callCard, resultCard, additionalContexts }
+    return {
+      result,
+      callCard,
+      resultCard,
+      additionalContexts,
+      // 结构化原值只随成功返回：失败没有"结果原文"，而调用方（plan 动态 args）只该读成功的那份
+      ...(isError ? {} : { value: payload }),
+      ...(approvalWaitedMs === undefined ? {} : { approvalWaitedMs }),
+    }
   }
 
   /** ⑤ 环绕分发：最内层是工具体执行，外层包裹由 `tools/execute` listener 提供。 */
   private async invoke(
     call: ToolCallInput,
     definition: ToolDefinition<unknown, unknown>,
+    ticketId?: TicketId,
   ): Promise<unknown> {
     const innermost: ToolExecutor = async (target) =>
-      definition.execute(target.args, this.execContext(target.callId))
+      definition.execute(target.args, this.execContext(target.callId, ticketId))
     const executor = await this.ctx.events.waterfall('tools/execute', innermost)
-    return executor(call)
+    // 把票据 ID 挂到 call 上再交给包裹层：`tools/execute` 的 listener 只拿得到 call，
+    // 票据是随机 UUID，不给它就等于逼包裹层去猜（saga 桥接正是需要它的那个包裹层）
+    return executor(ticketId === undefined ? call : { ...call, ticketId })
   }
 
-  /** ③e 审批：签票据 → `approval/request` → 结论落账。 */
+  /**
+   * ③e 审批：签票据 → `approval/request` → 结论落账。
+   *
+   * 返回里带上 `ticketId`：票据 ID 是随机 UUID，执行期必须**由管线传下去**，
+   * 工具体才能拿着它去核销（以前靠 `ticket:${callId}` 反推，改 UUID 后就推不出来了）。
+   */
   private async approve(
     call: ToolCallInput,
     ask: AskVerdict,
     definition: ToolDefinition<unknown, unknown>,
-  ): Promise<PreExecuteVerdict> {
+  ): Promise<{ verdict: PreExecuteVerdict; ticketId: TicketId; waitedMs: number }> {
     const ticket = this.mintTicket(call, ask)
     const challenge: ApprovalChallenge | undefined = ask.challenge
 
@@ -363,7 +428,11 @@ export class ToolPipeline {
       decision: { decision: 'unavailable' },
     }
 
+    // ★ 等待时长用**注入钟**测：它是 `plan/node-waiting.waitedMs` 的唯一来源，
+    //   换成 `Date.now()` 会让快照回放的这个数每次都不一样（`verify-plan-determinism` 会红）。
+    const askedAt = this.now()
     const answered = await this.ctx.events.waterfall('approval/request', input)
+    const waitedMs = this.now() - askedAt
     const decision = answered.decision
 
     this.session.append('approval/decided', {
@@ -373,11 +442,16 @@ export class ToolPipeline {
       code: decision.decision === 'allowed-once' ? undefined : `approval-${decision.decision}`,
     })
 
-    if (decision.decision === 'allowed-once') return { kind: 'allow' }
+    if (decision.decision === 'allowed-once')
+      return { verdict: { kind: 'allow' }, ticketId: ticket.ticketId, waitedMs }
     return {
-      kind: 'deny',
-      code: `approval-${decision.decision}`,
-      reason: decision.reason ?? `审批未通过（${decision.decision}）`,
+      verdict: {
+        kind: 'deny',
+        code: `approval-${decision.decision}`,
+        reason: decision.reason ?? `审批未通过（${decision.decision}）`,
+      },
+      ticketId: ticket.ticketId,
+      waitedMs,
     }
   }
 
@@ -400,7 +474,12 @@ export class ToolPipeline {
   }
 
   /** 拒执行：工具体一次都不跑，结果带结构化理由码落账。 */
-  private reject(call: ToolCallInput, verdict: DenyVerdict, callCard?: UiCard): ToolExecution {
+  private reject(
+    call: ToolCallInput,
+    verdict: DenyVerdict,
+    callCard?: UiCard,
+    approvalWaitedMs?: number,
+  ): ToolExecution {
     const result: ToolResultData = {
       callId: call.callId,
       name: call.name,
@@ -412,6 +491,40 @@ export class ToolPipeline {
     }
     this.session.append('tool/result', result)
     this.emitResultSafely(result)
+    return {
+      result,
+      callCard,
+      additionalContexts: [],
+      // 被拒也是一次"等过审批"：plan 的 `node-waiting` 要能说出"人看过、拒了"，不只是"人来过"
+      ...(approvalWaitedMs === undefined ? {} : { approvalWaitedMs }),
+    }
+  }
+
+  /**
+   * 契约校验失败的结果（W03）。
+   *
+   * **为什么不复用 `reject`**：`reject` 的语义是"治理面判了 deny"，会进 guard 与 deny 统计；
+   * 契约不合法是**模型发错了参数**，不是治理结论。混在一起会让"越权拦截率"这个指标失真
+   * ——它是赛题要看的数，不能掺进格式错误。
+   */
+  private invalid(
+    call: ToolCallInput,
+    violation: ToolContractViolation,
+    code: string,
+    callCard?: UiCard,
+  ): ToolExecution {
+    const reason = describeViolation(violation)
+    const result: ToolResultData = {
+      callId: call.callId,
+      name: call.name,
+      isError: true,
+      content: [{ type: 'text', text: reason }],
+      code,
+      reason,
+      durationMs: 0,
+    }
+    this.session.append('tool/result', result)
+    this.emitResultSafely(result)
     return { result, callCard, additionalContexts: [] }
   }
 
@@ -419,17 +532,31 @@ export class ToolPipeline {
   private mintTicket(call: ToolCallInput, ask: AskVerdict): TicketRef {
     const draft = ask.ticket
     return {
-      // 票据 ID 的唯一铸造点：由调用 ID 派生，保证（会话, 调用）→ 票据一一对应
-      ticketId: `ticket:${call.callId}` as TicketId,
+      /**
+       * 票据 ID 默认必须**不可预测**。
+       *
+       * 原先由调用 ID 派生（`ticket:${callId}`）：票据 ID 会出现在审批 URL
+       * `/api/approval/:ticketId` 与审计里，能读到上一张票就猜得出下一张。
+       * 「（会话, 调用）→ 票据」的一一对应由仲裁器的账本维护，不靠字符串形状——
+       * 把可预测性当身份，是拿 URL 当权限。
+       *
+       * 验收面（快照回放）通过 `mintTicketId` 注入确定性派生，生产不传，走的仍是随机 UUID。
+       */
+      ticketId: this.mintTicketId(call.callId),
       fingerprint: draft.fingerprint,
       amount: draft.amount,
       expiresAt: this.now() + draft.ttlMs,
     }
   }
 
-  /** 工具体可见的执行上下文（最小冻结面：会话 / 调用 ID / 取消信号）。 */
-  private execContext(callId: string): ToolExecContext {
-    return { sessionId: this.sessionId, callId, signal: this.signal }
+  /** 工具体可见的执行上下文（最小冻结面：会话 / 调用 ID / 票据 / 取消信号）。 */
+  private execContext(callId: string, ticketId?: TicketId): ToolExecContext {
+    return {
+      sessionId: this.sessionId,
+      callId,
+      signal: this.signal,
+      ...(ticketId === undefined ? {} : { ticketId }),
+    }
   }
 }
 
@@ -456,6 +583,17 @@ function fallbackContent(payload: unknown): readonly ContentBlock[] {
     // fall through
   }
   return [{ type: 'text', text: '工具已执行成功，但结果无法渲染为文本（callback-failed 已审计）。' }]
+}
+
+/**
+ * 把契约违规项翻成人读文案（W03）。
+ *
+ * **只拼 `path` 与 `detail`，绝不回显值本体**：这条文案会进 `tool/result` 的 content，
+ * 也就是会进模型上下文和审计日志。金额、卡号原文进了这里就删不掉了（宪法 §4 PII 纪律）。
+ */
+function describeViolation(violation: ToolContractViolation): string {
+  const where = violation.path === '' ? '' : `（${violation.path}）`
+  return `契约校验失败${where}：${violation.detail}`
 }
 
 

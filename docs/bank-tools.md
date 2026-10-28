@@ -83,6 +83,26 @@ tools/result → ticket/redeemed + ticket/consumed（成功）或 ticket/blocked
 指纹由 `fingerprintOf(tool, args)`（键序无关）重算，审批后改参数会在
 `TicketStore.redeem()` 处被拒（`ticket-binding-mismatch`），不是靠工具自觉。
 
+### 3.1 可替换的策略引擎（W04）
+
+判定矩阵的**接口**在 `packages/runtime/src/policy/index.ts`（`PolicyEngine` +
+`POLICY_ENGINE` 服务键），**默认实现**在 `packages/bank/src/tools/policy.ts`
+（`createTierPolicy`，直接调用 `tier.ts` 的 `decide()`，不复制规则）。
+
+装配优先级：`provideBankGovernance({ policy })` > 宿主注入的 `runtime:policy` >
+`createTierPolicy`。宿主 `bank:tools` 在 apply 时 `findPolicyEngine(ctx)`，有就传下去。
+
+组合规则是**取严不取宽**：
+
+| 策略意见 | 对黄/红工具的效果 | 对绿级工具 |
+|---|---|---|
+| `deny` | 拒（`code = policy-denied`，不签票据） | 不咨询策略，照常放行 |
+| `ask` | 不额外加码（黄/红本来就要审批） | 不咨询 |
+| `allow` | **不能**把黄/红降成免审批 | — |
+
+> 绿级不咨询策略是刻意的：读操作不该被写策略误伤（TC-W04-06）。
+> 策略若想拒绝读操作，属于新的需求，必须改接口语义并出 ADR。
+
 ### 09 的落地情况
 
 | 能力 | 落点 |
@@ -130,8 +150,24 @@ session.append('identity/bound', { userId, method: 'mock-login', at: now }, { ig
     dailyTransferLimit: 5000 # 元；生效值 = min(账本日限额, 本值)
     riskyOps: [transfer_create, wealth_purchase]  # 组合风险计数对象
     riskyCallThreshold: 3    # 同 turn 风险调用上限；超过后非绿一律 ask
-    verify: { successAfter: 1, maxAttempts: 3, lockMinutes: 30 }
+    verify: { provider: gateway, successAfter: 1, maxAttempts: 3, lockMinutes: 30 }
+    ticketLease: { enforce: true, ttlSeconds: 120 }  # W12；缺省 = ticketTtlSeconds
 ```
+
+W09：`verify.provider=gateway`（默认）是**测试网关适配器**，接口与 mock 一致但保留
+`VerifyGatewayClient` 注入点；`mock` 是回滚开关。失败计数/锁定仍在 `VerifyService` 内存，
+**重启丢失**；未接真实短信/人脸/U 盾供应商。
+
+W12：`ticketLease.ttlSeconds` 是票据 TTL 内的**执行 lease** 窗口，缺省等于 `ticketTtlSeconds`
+（行为与 W12 之前等价）；`ttlSeconds > ticketTtlSeconds` 启动即 `invalid-config`；
+`enforce: false` 回滚到"只用票据 TTL"。lease 到期时刻会写进 bank-core 五绑定的 `expiresAt`，
+过期后核销直接 `ticket-expired`，不产生转账。`bank:tools` 同时提供 `bank:compensation`
+窄端口（`reverse` / `reversalOf`），供 `bank:saga-bridge` 的补偿通道调用。
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `ticketLease.enforce` | `true` | `false` = 回滚到只用票据 TTL（W12 的第一刀） |
+| `ticketLease.ttlSeconds` | `ticketTtlSeconds` | lease 窗口；必须 ≤ 票据 TTL，否则启动即 `invalid-config` |
 
 账户归属在工具边界复核：`bankCore.balance(accountId)` 本身不校验用户，
 工具先用 `listAccounts(userId)` 过滤，越权返回 `account-forbidden`（不泄露账户存在性）。

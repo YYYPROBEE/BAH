@@ -73,21 +73,30 @@ interface PluginRow {
 }
 ```
 
-### 本仓的 base bundle（十一行）
+### 本仓的 base bundle（节选；实际 17 行）
+
+> 下表只列与业务/安全面直接相关的 12 行；`interaction:approval`、`safety:*`、
+> `bank:saga-bridge` 等其余行见 `packages/cli/bundles/base/index.ts`。
 
 | 行 id | 插件实现 | 提供 | inject |
 |---|---|---|---|
 | `core:session` | `provideSession` | `runtime:session` | `bah:run` |
 | `core:tools` | `provideTools` | `runtime:tools` | — |
 | `core:prompt` | `provideSystemPrompt` | `runtime:system-prompt` | — |
-| `core:model` | mock / deepseek 适配器 | `llm:adapters` | — |
+| `core:model` | mock / router / deepseek 适配器 | `llm:adapters` | — |
 | `core:agent` | `AgentLoop` + 注册表 | `runtime:agents` | `bah:run`、`runtime:session`、`llm:adapters` |
 | `core:persistence` | `JsonlPersistence` | `bah:session-files` | `bah:run` |
-| `bank:tools` | 14 个银行工具 + 治理平面 | （注册工具；默认未绑定身份） | `bah:run`、`runtime:session`、`runtime:tools` |
+| `policy:rules` | 策略载入 / 编译 / 灰度 / 影子（`@bah/policy` + `@bah/runtime` 端口） | `runtime:policy`、`runtime:policy-meta` | `bah:run`、`runtime:session` |
+| `bank:tools` | 16 个银行工具 + 治理平面 | （注册工具；默认未绑定身份） | `bah:run`、`runtime:session`、`runtime:tools` |
 | `bank:saga-store` | Saga 存储 | `bah:saga-store` | — |
 | `bank:saga` | Saga 协调器 | `bah:saga-clock` 等 | `bah:saga-store`、`bah:saga-audit` |
 | `bank:saga-audit` | 审计链 | `bah:saga-audit` | `bah:saga-clock` |
 | `demo:echo` | 示例工具 | （注册 `echo` 工具） | `runtime:tools` |
+
+> **行序是安全边界**：`policy:rules` 必须排在 `bank:tools` 之前。`bank:tools` 在 `apply()`
+> 里查找 `runtime:policy`，后置的行它看不到；`validateComposition` 会把顺序反了做成
+> 启动错误 `policy-row-order`。patch 插入的新行一律**追加到末尾**，所以不要用 patch
+> "新增"策略行——base 里已经有它，patch 只能按 id 整块覆盖 `config`。
 
 `bah:run` 是**boot injection**（不是可 patch 的行）：`{ sessionId, jsonlDir?, now }` 是"这次进程启动的输入"，
 写进 YAML 会让两次运行撞同一个会话，也让测试无法注入确定性时钟。
@@ -120,6 +129,18 @@ interface PluginRow {
     demoUserId: u-1       # 显式演示身份；不写 = 未绑定
     seed: 7
     datasetTier: demo
+    # 策略外置 S3：判决走内容寻址的外置规则；回退改成 legacy 即可
+    policy: { engine: bundle }
+
+# 可选：切 active 版本 / 打开热重载。base 行不写 config 时用插件默认
+# （root: policies, active: { bank.tier: bank-tier/1.0.0 }, hotReload: false）。
+- id: policy:rules
+  config:
+    root: policies
+    active: { bank.tier: bank-tier/1.0.0 }
+    hotReload: false
+    requireSignature: false
+    shadow: { bank.tier: null }
 
 - id: interaction:approval
   config:

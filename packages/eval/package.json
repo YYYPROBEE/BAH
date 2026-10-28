@@ -5,9 +5,21 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --config vitest.config.ts",
-    "test:coverage": "vitest run --config vitest.config.ts --coverage"
+    "test:coverage": "vitest run --config vitest.config.ts --coverage",
+    "eval": "tsx scripts/eval.ts"
   },
   "devDependencies": {
     "vitest": "^3"
+  },
+  "dependencies": {
+    "@bah/cli": "workspace:*",
+    "@bah/core": "workspace:*",
+    "@bah/host": "workspace:*",
+    "@bah/llm": "workspace:*",
+    "@bah/runtime": "workspace:*",
+    "@bah/saga": "workspace:*",
+    "@bah/util": "workspace:*",
+    "@bah/knowledge": "workspace:*",
+    "@bah/persistence": "workspace:*"
   }
 }

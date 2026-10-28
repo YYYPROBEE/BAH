@@ -1,9 +1,15 @@
-import { BahError } from '@bah/util'
+﻿import { BahError } from '@bah/util'
 import { describe, expect, it } from 'vitest'
 
 import { assembleStream } from '../llm/assemble.ts'
 import type { StreamChunk } from '../llm/types.ts'
-import { DEEPSEEK_MODELS, DeepSeekAdapter, createDeepSeekAdapter, type FetchLike } from './adapter.ts'
+import {
+  DEEPSEEK_MODELS,
+  DeepSeekAdapter,
+  createDeepSeekAdapter,
+  type FetchLike,
+  type RetryInfo,
+} from './adapter.ts'
 
 /** 把若干字符串片段封成 SSE 响应体（模拟网络分片边界）。 */
 function sseBody(parts: readonly string[]): ReadableStream<Uint8Array> {
@@ -130,6 +136,64 @@ describe('DeepSeekAdapter（施工单 05 §2.1，注入假 fetch）', () => {
     )
   })
 
+  it('配了计价表 → usage 分片带 costMicroYuan；缓存部分按缓存单价计', async () => {
+    const { fetch } = recordingFetch(
+      () =>
+        new Response(
+          sseBody([
+            'data: {"choices":[{"delta":{"content":"好"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000000,"completion_tokens":0,"prompt_cache_hit_tokens":400000}}\n\n',
+          ]),
+          { status: 200 },
+        ),
+    )
+    const adapter = new DeepSeekAdapter({
+      apiKey: 'sk-test',
+      fetch,
+      models: [
+        {
+          id: 'deepseek-chat',
+          providerId: 'deepseek',
+          capabilities: { toolCall: true, image: false, reasoning: false },
+          // 1 ¥/Mtok 输入、0.1 ¥/Mtok 缓存命中、2 ¥/Mtok 输出（单位：微分）
+          pricing: { inputPerMTok: 1_000_000, cachedInputPerMTok: 100_000, outputPerMTok: 2_000_000 },
+        },
+      ],
+    })
+    const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+    const chunks = await collect(adapter.stream(prepared, new AbortController().signal))
+
+    const usage = chunks.find((chunk) => chunk.kind === 'usage')
+    // 未命中 60 万 × 1 ¥ + 命中 40 万 × 0.1 ¥ = 0.64 ¥ = 640000 微分
+    expect(usage).toEqual({
+      kind: 'usage',
+      input: 1_000_000,
+      output: 0,
+      cachedInput: 400_000,
+      costMicroYuan: 640_000,
+    })
+  })
+
+  it('未配计价表 → 不报价（costMicroYuan 缺省，不编 0 冒充"免费"）', async () => {
+    const { fetch } = recordingFetch(
+      () =>
+        new Response(
+          sseBody([
+            'data: {"choices":[{"delta":{"content":"好"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2}}\n\n',
+          ]),
+          { status: 200 },
+        ),
+    )
+    const adapter = new DeepSeekAdapter({ apiKey: 'sk-test', fetch })
+    const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+    const chunks = await collect(adapter.stream(prepared, new AbortController().signal))
+
+    expect(chunks.find((chunk) => chunk.kind === 'usage')).toEqual({
+      kind: 'usage',
+      input: 10,
+      output: 2,
+    })
+  })
+
   it('进入前已取消 → llm-aborted，且不发请求', async () => {
     const { fetch, calls } = recordingFetch(() => new Response(sseBody([]), { status: 200 }))
     const adapter = new DeepSeekAdapter({ apiKey: 'sk-test', fetch })
@@ -242,6 +306,162 @@ describe('DeepSeekAdapter（施工单 05 §2.1，注入假 fetch）', () => {
       displayName: 'DeepSeek（OpenAI 兼容）',
       capabilities: { toolCall: true, image: false, reasoning: true },
     })
+  })
+})
+
+/** 按序列返回响应（末项重复）；返回已调用次数。 */
+function sequenceFetch(
+  responses: readonly (() => Response)[],
+): { fetch: FetchLike; calls: () => number } {
+  let index = 0
+  const fetchImpl: FetchLike = () => {
+    const respond = responses[Math.min(index, responses.length - 1)]!
+    index += 1
+    return Promise.resolve(respond())
+  }
+  return { fetch: fetchImpl, calls: () => index }
+}
+
+describe('DeepSeekAdapter · 429 / 5xx 同模型退避（C04 判据二）', () => {
+  const okBody = (): Response =>
+    new Response(
+      sseBody(['data: {"choices":[{"delta":{"content":"稳"},"finish_reason":"stop"}]}\n\n']),
+      { status: 200 },
+    )
+
+  it('429 → 优先按 retry-after 退避后成功（只重试一次）', async () => {
+    const delays: number[] = []
+    const retries: RetryInfo[] = []
+    const { fetch, calls } = sequenceFetch([
+      () => new Response('slow down', { status: 429, headers: { 'retry-after': '1' } }),
+      okBody,
+    ])
+    const adapter = new DeepSeekAdapter({
+      apiKey: 'sk-test',
+      fetch,
+      retryMax: 2,
+      retryBaseMs: 10,
+      sleep: (ms) => {
+        delays.push(ms)
+        return Promise.resolve()
+      },
+      onRetry: (info) => retries.push(info),
+    })
+    const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+    const chunks = await collect(adapter.stream(prepared, new AbortController().signal))
+
+    expect(chunks).toEqual([
+      { kind: 'text-delta', index: 0, text: '稳' },
+      { kind: 'finish', reason: 'stop' },
+    ])
+    expect(calls()).toBe(2)
+    expect(delays).toEqual([1_000])
+    expect(retries).toEqual([{ attempt: 1, status: 429, delayMs: 1_000 }])
+  })
+
+  it('5xx 指数退避并受单次上限约束；耗尽 retryMax 后抛 llm-http-error', async () => {
+    const delays: number[] = []
+    const { fetch, calls } = sequenceFetch([() => new Response('boom', { status: 503 })])
+    const adapter = new DeepSeekAdapter({
+      apiKey: 'sk-test',
+      fetch,
+      retryMax: 2,
+      retryBaseMs: 10,
+      retryMaxDelayMs: 15,
+      sleep: (ms) => {
+        delays.push(ms)
+        return Promise.resolve()
+      },
+    })
+    const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+    const error = await collect(adapter.stream(prepared, new AbortController().signal)).catch(
+      (thrown: unknown) => thrown,
+    )
+
+    expect(calls()).toBe(3)
+    expect(delays).toEqual([10, 15])
+    expect(error).toMatchObject({ code: 'llm-http-error', detail: { status: 503 } })
+  })
+
+  it('401 是确定性失败：一次就抛，不重试', async () => {
+    const delays: number[] = []
+    const { fetch, calls } = sequenceFetch([() => new Response('bad key', { status: 401 })])
+    const adapter = new DeepSeekAdapter({
+      apiKey: 'sk-bad',
+      fetch,
+      retryMax: 2,
+      sleep: (ms) => {
+        delays.push(ms)
+        return Promise.resolve()
+      },
+    })
+    const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+    const error = await collect(adapter.stream(prepared, new AbortController().signal)).catch(
+      (thrown: unknown) => thrown,
+    )
+
+    expect(calls()).toBe(1)
+    expect(delays).toEqual([])
+    expect(error).toMatchObject({ code: 'llm-http-error', detail: { status: 401 } })
+  })
+
+  it('retryMax=0：显式关闭重试', async () => {
+    const { fetch, calls } = sequenceFetch([() => new Response('busy', { status: 429 })])
+    const adapter = new DeepSeekAdapter({ apiKey: 'sk-test', fetch, retryMax: 0 })
+    const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+
+    await expect(collect(adapter.stream(prepared, new AbortController().signal))).rejects.toThrow(
+      /HTTP 429/,
+    )
+    expect(calls()).toBe(1)
+  })
+
+  /**
+   * 为什么补：取消有两个时点——进入 `stream()` 之前（已有用例）与**退避等待期间**。
+   * 后者此前没有覆盖：用户在退避里按下取消，若循环顶部不复检信号，就会再发一次
+   * 已经无人等待的请求（计费/审计上多一条，重试预算也被烧掉）。
+   */
+  it('退避期间被取消 → 不再发第二次请求，抛 llm-aborted', async () => {
+    const controller = new AbortController()
+    let calls = 0
+    const fetchImpl: FetchLike = () => {
+      calls += 1
+      return Promise.resolve(new Response('slow down', { status: 429, headers: { 'retry-after': '0' } }))
+    }
+    const adapter = new DeepSeekAdapter({
+      apiKey: 'sk-test',
+      fetch: fetchImpl,
+      retryMax: 2,
+      retryBaseMs: 10,
+      sleep: () => Promise.resolve(),
+      // 退避回调正是"第一次响应已到、第二次请求未发"的那一刻
+      onRetry: () => controller.abort(),
+    })
+    const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+    const error = await collect(adapter.stream(prepared, controller.signal)).catch(
+      (thrown: unknown) => thrown,
+    )
+
+    expect(calls).toBe(1)
+    expect(error).toMatchObject({ code: 'llm-aborted' })
+  })
+
+  /**
+   * 为什么补：生产装配不注入 `sleep`，走的是 `setTimeout` 缺省实现；
+   * 此前所有重试用例都替换了 `sleep`，这条**唯一在线上生效**的等待分支从未执行。
+   * `retry-after: 0` 让它以零延迟跑完，不拖慢用例。
+   */
+  it('未注入 sleep 时走默认退避实现（retry-after=0 不挂进程）', async () => {
+    const { fetch, calls } = sequenceFetch([
+      () => new Response('slow down', { status: 429, headers: { 'retry-after': '0' } }),
+      okBody,
+    ])
+    const adapter = new DeepSeekAdapter({ apiKey: 'sk-test', fetch, retryMax: 2, retryBaseMs: 10 })
+    const prepared = await adapter.prepareCall({ modelId: 'deepseek-chat', messages: [] })
+    const chunks = await collect(adapter.stream(prepared, new AbortController().signal))
+
+    expect(calls()).toBe(2)
+    expect(chunks.at(-1)).toEqual({ kind: 'finish', reason: 'stop' })
   })
 })
 

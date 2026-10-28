@@ -2,10 +2,11 @@ import { BahError } from '@bah/util'
 import { describe, expect, it } from 'vitest'
 
 import { assembleStream } from '../llm/assemble.ts'
-import type { StreamChunk } from '../llm/types.ts'
+import type { LlmMessage, StreamChunk } from '../llm/types.ts'
 import { MOCK_MODEL, MOCK_USAGE, MockLlmAdapter } from './adapter.ts'
 import {
   outcomeStep,
+  reflectStep,
   resolveOutcome,
   resolveStep,
   resolveStepContent,
@@ -261,5 +262,81 @@ describe('条件收尾步（文案由本 turn 的工具结局决定）', () => {
     await expect(
       collect(adapter.stream(prepared, new AbortController().signal)),
     ).rejects.toThrowError(BahError)
+  })
+})
+
+/** 复述步（`reflect`）：把工具结果正文原样引用，adapter 与 outcome 共用同一注入读口。 */
+describe('复述步走 resolveReflect（adapter.stream）', () => {
+  it('第 0 步即复述：把注入的工具结果正文一字不改地吐出来', async () => {
+    const results: MockToolOutcome[] = [
+      { name: 'account_balance', isError: false, text: '活期余额 1,234.56 元' },
+    ]
+    const adapter = new MockLlmAdapter({
+      script: { steps: [reflectStep({ tool: 'account_balance', fallback: '没查到' })] },
+      toolOutcomes: () => results,
+      chunkSize: 100,
+    })
+    const assembled = await assembleStream(
+      adapter.stream(await adapter.prepareCall({ modelId: 'mock-chat', messages: [] }), new AbortController().signal),
+    )
+    expect(assembled.content).toEqual([{ kind: 'text', text: '活期余额 1,234.56 元' }])
+  })
+})
+
+/** 构造缺省项校验：既不写死脚本来源，也不允许 plan 悄悄退化成"没规划"。 */
+describe('构造与 plan 模式的两条错误/步进路径', () => {
+  const user = (text: string): LlmMessage => ({ role: 'user', content: [{ kind: 'text', text }] })
+  const assistant = (): LlmMessage => ({ role: 'assistant', content: [{ kind: 'text', text: '……' }] })
+
+  async function firstText(adapter: MockLlmAdapter, messages: readonly LlmMessage[]): Promise<string> {
+    const assembled = await assembleStream(
+      adapter.stream(await adapter.prepareCall({ modelId: 'mock-chat', messages }), new AbortController().signal),
+    )
+    const block = assembled.content[0]
+    return block?.kind === 'text' ? block.text : ''
+  }
+
+  it('既不给 script 也不给 plan → 抛 mock-source-missing（构造期即拒，不留半残适配器）', () => {
+    let caught: unknown
+    try {
+      new MockLlmAdapter({})
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(BahError)
+    expect((caught as BahError).code).toBe('mock-source-missing')
+  })
+
+  it('plan 没规划出任何步骤 → 抛 mock-plan-empty（空步骤不是"沉默的合法回复"）', async () => {
+    const adapter = new MockLlmAdapter({ plan: () => [] })
+    const prepared = await adapter.prepareCall({ modelId: 'mock-chat', messages: [user('随便')] })
+    let caught: unknown
+    try {
+      await collect(adapter.stream(prepared, new AbortController().signal))
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(BahError)
+    expect((caught as BahError).code).toBe('mock-plan-empty')
+  })
+
+  it('plan 步号按 assistantTurnsSinceUser 推进：本轮第几条 assistant 就出第几步', async () => {
+    const adapter = new MockLlmAdapter({
+      plan: () => [textStep('第一步'), textStep('第二步')],
+      chunkSize: 100,
+    })
+    // 真实用户消息之后 0 条 assistant → 第 0 步
+    expect(await firstText(adapter, [user('查下余额')])).toBe('第一步')
+    // 已产生 1 条 assistant → 第 1 步
+    expect(await firstText(adapter, [user('查下余额'), assistant()])).toBe('第二步')
+  })
+
+  it('plan 越界夹在末步：一次 turn 多被叫一次不该让演示崩掉', async () => {
+    const adapter = new MockLlmAdapter({
+      plan: () => [textStep('唯一一步')],
+      chunkSize: 100,
+    })
+    // 3 条 assistant 远超步数，仍取最后一步而不是抛错（plan 模式有意比固定脚本宽容）
+    expect(await firstText(adapter, [user('查下余额'), assistant(), assistant(), assistant()])).toBe('唯一一步')
   })
 })

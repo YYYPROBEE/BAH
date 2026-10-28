@@ -1,0 +1,25 @@
+# policy-externalized 快照场景的层 4 overlay（策略外置 S4）。
+#
+# 目的：在 **headless 底座**上把 active 策略切到演示 bundle，证明
+# `tier/decided` 的级别与规则 ID 真的来自 `policies/**`，而不是 `tier.ts` 的分支。
+#
+# 为什么必须抄全 bank:tools：patch / overlay 的层语义是**整块替换**，不是深合并；
+# 少写 `demoUserId` 会退回未绑定身份，少写 `datasetTier` 会换造数档位。
+#
+# `statePath` 指向一个**不存在**的文件：快照不读开发机上的灰度状态，
+# 否则一次本地 promote 就会让快照随环境漂移。
+- id: policy:rules
+  config:
+    root: policies
+    active: { bank.tier: bank-tier-demo/1.1.0 }
+    statePath: snapshots/policy-externalized/.no-runtime-state.json
+    hotReload: false
+    requireSignature: false
+    shadow: { bank.tier: null }
+
+- id: bank:tools
+  config:
+    demoUserId: u-1
+    seed: 7
+    datasetTier: demo
+    policy: { engine: bundle }

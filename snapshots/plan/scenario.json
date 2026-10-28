@@ -1,0 +1,158 @@
+{
+  "name": "plan",
+  "profile": "plan",
+  "prompts": [],
+  "sessionId": "s-snapshot-plan",
+  "clock": {
+    "start": 1700000000000,
+    "step": 1
+  },
+  "randomSeed": 7,
+  "rows": [
+    {
+      "id": "core:session",
+      "use": "core:session",
+      "config": {}
+    },
+    {
+      "id": "core:tools",
+      "use": "core:tools",
+      "config": {}
+    },
+    {
+      "id": "core:prompt",
+      "use": "core:prompt",
+      "config": {}
+    },
+    {
+      "id": "core:model",
+      "use": "core:model",
+      "config": {
+        "provider": "router",
+        "model": "router-chat",
+        "chunkSize": 4
+      }
+    },
+    {
+      "id": "core:agent",
+      "use": "core:agent",
+      "config": {
+        "channel": "headless",
+        "loop": {
+          "model": "router:router-chat",
+          "maxSteps": 8
+        }
+      }
+    },
+    {
+      "id": "core:persistence",
+      "use": "core:persistence",
+      "config": {
+        "root": "sessions"
+      }
+    },
+    {
+      "id": "audit:decisions",
+      "use": "audit:decisions",
+      "config": {}
+    },
+    {
+      "id": "policy:rules",
+      "use": "policy:rules",
+      "config": {}
+    },
+    {
+      "id": "bank:tools",
+      "use": "bank:tools",
+      "config": {
+        "demoUserId": "u-1",
+        "seed": 7,
+        "datasetTier": "demo",
+        "policy": {
+          "engine": "bundle"
+        }
+      }
+    },
+    {
+      "id": "interaction:approval",
+      "use": "interaction:approval",
+      "config": {
+        "responder": "headless",
+        "autoDecision": "allow",
+        "autoVerify": true
+      }
+    },
+    {
+      "id": "safety:sentry",
+      "use": "safety:sentry",
+      "config": {
+        "trace": {
+          "sink": "session"
+        }
+      }
+    },
+    {
+      "id": "safety:verify",
+      "use": "safety:verify",
+      "config": {}
+    },
+    {
+      "id": "safety:sandbox",
+      "use": "safety:sandbox",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-store",
+      "use": "bank:saga-store",
+      "config": {}
+    },
+    {
+      "id": "bank:saga",
+      "use": "bank:saga",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-audit",
+      "use": "bank:saga-audit",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-bridge",
+      "use": "bank:saga-bridge",
+      "config": {
+        "enabled": false
+      }
+    },
+    {
+      "id": "plan:dag",
+      "use": "plan:dag",
+      "config": {
+        "enabled": true,
+        "maxNodes": 32,
+        "maxEdges": 128,
+        "planTimeoutMs": 30000,
+        "dryRunDefault": false,
+        "modelTools": true,
+        "modelMaxNodes": 8
+      }
+    }
+  ],
+  "model": {
+    "provider": "router",
+    "spec": {
+      "id": "router-chat",
+      "providerId": "router",
+      "displayName": "Demo Router（离线意图路由，非磁带）",
+      "capabilities": {
+        "toolCall": true,
+        "image": false,
+        "reasoning": true
+      },
+      "contextWindow": 32000
+    }
+  },
+  "coveredSources": [
+    "packages/runtime/src/plan/",
+    "packages/runtime/src/index.ts"
+  ]
+}

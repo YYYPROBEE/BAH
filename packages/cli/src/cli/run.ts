@@ -27,6 +27,8 @@ import { renderDumpConfig } from '../dump-config.ts'
 import { readDefaultProfile, readLayers, readProfile, type LayerOptions } from '../profile.ts'
 import { runAudit } from './audit.ts'
 import { parseCommand } from './command.ts'
+import { runHalt, runUnfreeze } from './halt.ts'
+import { runSentryUnfreeze } from './sentry.ts'
 
 /** 输出出口（测试注入收集器；生产是 console）。 */
 export interface CliIo {
@@ -76,6 +78,12 @@ export const HELP = [
   '  --jsonl <dir>      会话目录（覆盖 core:persistence.root）',
   '  --session <id>     会话 ID（缺省按时钟生成）',
   '  -h, --help         显示本帮助',
+  '',
+  '子命令：',
+  '  bah audit [dir]            审计链校验与投影对账',
+  '  bah sentry unfreeze       人工解冻断路器（需运行中的 web 宿主 + BAH_ADMIN_TOKEN）',
+  '  bah halt                  人工进入 HALT（全系统停机；需运行中的 web 宿主）',
+  '  bah unfreeze              凭会话内 MFA 票据解除 HALT（没有 --force）',
 ].join('\n')
 
 /** 解析后的命令行。 */
@@ -111,6 +119,20 @@ export async function runCli(
   switch (command.kind) {
     case 'audit':
       return runAudit(argv.slice(1), io, options)
+    case 'sentry':
+      // 只是 HTTP 客户端：不 boot app（解不了别的进程里的断路器）
+      return runSentryUnfreeze(argv.slice(1), io, {
+        ...(options.env === undefined ? {} : { env: options.env }),
+      })
+    case 'halt':
+      // 同上：HALT 是进程级状态，只能命令运行中的宿主（W07）
+      return runHalt(argv.slice(1), io, {
+        ...(options.env === undefined ? {} : { env: options.env }),
+      })
+    case 'unfreeze':
+      return runUnfreeze(argv.slice(1), io, {
+        ...(options.env === undefined ? {} : { env: options.env }),
+      })
     case 'run':
       break
     default:
@@ -172,7 +194,13 @@ async function runProfile(
     bundles,
     layers,
     catalog: createCatalog(),
-    run: { sessionId, now, ...(args.jsonl === undefined ? {} : { jsonlDir: args.jsonl }) },
+    run: {
+      sessionId,
+      now,
+      // `--dump-config` 只看不跑：关掉启动期外部探活，保证零网络、不被 1s 超时拖慢。
+      probe: !args.dumpConfig,
+      ...(args.jsonl === undefined ? {} : { jsonlDir: args.jsonl }),
+    },
     warn: (message) => io.err(`bah: ${message}`),
   })
 

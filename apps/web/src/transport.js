@@ -7,16 +7,53 @@
  */
 
 /**
+ * 从页面读取服务端注入的访问 token。
+ *
+ * 服务端每个进程生成/读取一个 token 并写进 index.html 的 meta；
+ * 跨源页面读不到这个响应体，所以它同时充当最小 CSRF 边界。
+ *
+ * @returns {string} 没有 meta 时返回空串（测试装置与桌面壳可注入自己的 api）
+ */
+function readWebToken() {
+  if (typeof document === 'undefined') return ''
+  const meta = document.querySelector('meta[name="bah-web-token"]')
+  return meta?.getAttribute('content') ?? ''
+}
+
+/**
+ * 从 cookie 读 CSRF 令牌（W09 double-submit）。
+ *
+ * 服务端在 index.html 响应里下发 `bah_csrf`（非 HttpOnly），前端把它回填到
+ * `x-bah-csrf` 请求头；跨站脚本既读不到同源响应体，也读不到这条 cookie。
+ *
+ * @param {string} name
+ * @returns {string} 没有 cookie 时返回空串
+ */
+function readCookie(name) {
+  if (typeof document === 'undefined') return ''
+  for (const part of String(document.cookie ?? '').split(';')) {
+    const index = part.indexOf('=')
+    if (index < 0) continue
+    if (part.slice(0, index).trim() === name) return decodeURIComponent(part.slice(index + 1).trim())
+  }
+  return ''
+}
+
+/**
  * HTTP 客户端。
  *
- * @param {{ base?: string }} [options]
+ * @param {{ base?: string, token?: string }} [options]
  */
 export function createHttpApi(options = {}) {
   const base = options.base ?? ''
+  const token = options.token ?? readWebToken()
+  const csrfToken = options.csrfToken ?? readCookie('bah_csrf')
 
   /** 发一个 JSON 请求；非 2xx 不抛，返回结构化结果（界面按 `code` 决定文案）。 */
   async function request(method, path, body) {
     const init = { method, headers: {} }
+    if (token !== '') init.headers.authorization = `Bearer ${token}`
+    if (method !== 'GET' && csrfToken !== '') init.headers['x-bah-csrf'] = csrfToken
     if (body !== undefined) {
       init.headers['content-type'] = 'application/json'
       init.body = JSON.stringify(body)
@@ -63,8 +100,11 @@ export function createHttpApi(options = {}) {
  * 断线由浏览器 `EventSource` 自动重连（同一 URL）。服务端每次连接都先发**全量快照**，
  * 所以"重连后 since 过期"不会造成半新半旧——快照整体替换。
  *
+ * `EventSource` 不能自定义请求头，token 只能走查询参数（仅本接口接受）。
+ *
  * @param {{
  *   since?: number,
+ *   token?: string,
  *   onFrame: (frame: unknown) => void,
  *   onFault?: (fault: { code: string, reason: string }) => void,
  *   onStatus?: (status: 'online'|'offline') => void,
@@ -72,7 +112,9 @@ export function createHttpApi(options = {}) {
  */
 export function connectEvents(options) {
   const since = options.since ?? 0
-  const source = new EventSource(`/api/events?since=${String(since)}`)
+  const token = options.token ?? readWebToken()
+  const query = token === '' ? '' : `&token=${encodeURIComponent(token)}`
+  const source = new EventSource(`/api/events?since=${String(since)}${query}`)
 
   const handleFrame = (event) => {
     try {

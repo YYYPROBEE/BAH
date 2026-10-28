@@ -11,11 +11,12 @@ import { EventEmitter } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { ADMIN_TOKEN_ENV } from '@bah/host'
 import { captureThrown } from '@bah/test-support'
 import { deriveMessages } from '@bah/runtime'
 import { AGENTS_SERVICE, AgentRegistry } from '@bah/runtime'
 import { createContext } from '@bah/core'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { AnySessionEvent, TurnEndReason } from '@bah/runtime'
 import type { Context } from '@bah/core'
@@ -561,5 +562,89 @@ describe('事件流辅助函数（补充用例）', () => {  it('lastAssistantTe
       },
     } as unknown as Context
     expect(() => onlyAgent(broken)).toThrow('意料之外的失败')
+  })
+})
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * `bah sentry` 分发（runCli 的 sentry 分支：只是 HTTP 客户端，绝不 boot）
+ *
+ * 为什么这些用例值钱：解冻断路器必须打在**那个正在跑的进程**上。若 CLI 误把
+ * sentry 子命令走回 run 路径去 boot 一个新 app，解的是本进程的假断路器——
+ * 最危险的"看起来能用"。"没 boot"用三件事钉死：boot 路径的特征输出（会话/常驻/
+ * 回复）一条都不许出现；给了完整临时仓库 root 也绝不退 0 去读 profile；
+ * 错误文案只来自 sentry 自己的路径。
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+describe('sentry 子命令分发（只是客户端，不 boot 宿主）', () => {
+  it('用法错误直接退 2：不出现任何 boot 痕迹（root 是完整仓库也不许去读 profile）', async () => {
+    const root = makeRepo()
+    try {
+      for (const argv of [['sentry'], ['sentry', 'thaw'], ['sentry', 'unfreeze']]) {
+        const { io, out } = capture()
+        expect(await runCli(argv, io, { root, env: {} })).toBe(2)
+        // boot 路径会打印 profile/会话/常驻/回复——一条都不许出现
+        expect(out).toEqual([])
+      }
+      const { io, err } = capture()
+      expect(await runCli(['sentry', 'unfreeze'], io, { root, env: {} })).toBe(2)
+      expect(err.join('\n')).toContain('bah sentry unfreeze')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('token 只认 CliOptions.env：process.env 配了也不许"顺路"借它发真请求（网络防火墙）', async () => {
+    // 为什么测这个：分发若把 env 透传漏掉、退回 process.env，CI 机器上恰有
+    // BAH_ADMIN_TOKEN 时单测就会真的向 7331 发起解冻——这条用例同时钉住
+    // "透传生效"与"不触网"两个不变量。
+    const saved = process.env[ADMIN_TOKEN_ENV]
+    process.env[ADMIN_TOKEN_ENV] = 'token-in-process-env'
+    try {
+      const { io, out, err } = capture()
+      expect(await runCli(['sentry', 'unfreeze', '--by', 'ops'], io, { env: {} })).toBe(2)
+      expect(err.join('\n')).toContain(ADMIN_TOKEN_ENV)
+      expect(err.join('\n')).not.toContain('token-in-process-env')
+      expect(out).toEqual([])
+    } finally {
+      if (saved === undefined) delete process.env[ADMIN_TOKEN_ENV]
+      else process.env[ADMIN_TOKEN_ENV] = saved
+    }
+  })
+
+  it('argv 切片与 env 原样交给 HTTP 客户端（stubGlobal 是唯一例外：该分发路径没有 fetchImpl 注入口）', async () => {
+    // 为什么要 vi.stubGlobal：CliOptions 不暴露 fetchImpl（生产 CLI 就应真用全局 fetch），
+    // 所以从 runCli 入口进不到 sentry.ts 自己的 SentryFetch 注入口。stub 掉全局 fetch
+    // 后既不触真网络，又完整验证了"分发确实把参数与环境传了下去且没 boot 宿主"。
+    const seen: Array<{ url: string; init: RequestInit | undefined }> = []
+    vi.stubGlobal(
+      'fetch',
+      (input: string | URL, init?: RequestInit) => {
+        seen.push({ url: String(input), init })
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, unfrozen: true }), { status: 200 }),
+        )
+      },
+    )
+    try {
+      const { io, out, err } = capture()
+      const code = await runCli(
+        ['sentry', 'unfreeze', '--by', 'ops-9', '--reason', '复核放行'],
+        io,
+        { env: { BAH_ADMIN_TOKEN: 'cli-test-token' } },
+      )
+      expect(code).toBe(0)
+      expect(err).toEqual([])
+      expect(out.join('\n')).toContain('已解冻（by=ops-9）')
+      expect(out.join('\n')).not.toContain('会话')
+      expect(out.join('\n')).not.toContain('常驻')
+
+      expect(seen).toHaveLength(1)
+      expect(seen[0]!.url).toBe('http://127.0.0.1:7331/api/admin/sentry/unfreeze')
+      const headers = seen[0]!.init?.headers as Record<string, string>
+      expect(headers['authorization']).toBe('Bearer cli-test-token')
+      expect(JSON.parse(String(seen[0]!.init?.body))).toEqual({ by: 'ops-9', reason: '复核放行' })
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

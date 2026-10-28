@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@bah/core": "workspace:*",
+    "@bah/policy": "workspace:*",
     "@bah/safety": "workspace:*",
     "@bah/util": "workspace:*"
   },

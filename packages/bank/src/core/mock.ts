@@ -11,6 +11,9 @@
 
 import { BahError } from '@bah/util'
 
+import type { CardLostResult, SubscriptionCancelled } from './provider.ts'
+import type { ReversalResult } from './compensation.ts'
+
 import type { BankDataset } from '../forge/index.ts'
 import { checkTransferRisks, isNight } from '../forge/risk.ts'
 import type {
@@ -19,10 +22,14 @@ import type {
   BankLimits,
   BillAnomaly,
   Card,
+  CardId,
   Holding,
   Payee,
+  Subscription,
+  SubscriptionId,
   Transaction,
   TxnCategory,
+  User,
   UserId,
   WealthProduct,
 } from './model.ts'
@@ -66,8 +73,11 @@ export class MockBankCore implements BankCoreProvider {
 
   private readonly now: () => number
   private readonly limitsConfig: BankLimits
+  /** 主体（只读；`getUser` 返回副本，账本不被外部改动）。 */
+  private readonly users: ReadonlyMap<UserId, User>
   private accounts: Account[]
   private cards: Card[]
+  private subscriptions: Subscription[]
   private transactions: Transaction[]
   private payees: Payee[]
   private holdings: Holding[]
@@ -80,6 +90,8 @@ export class MockBankCore implements BankCoreProvider {
     string,
     { readonly fingerprint: string; readonly result: TransferResult; readonly expiresAt: number }
   >()
+  /** 原交易 `txnId` → 冲正结果（幂等：同 txnId 只生效一次）。 */
+  private readonly reversals = new Map<string, ReversalResult>()
   private static readonly IDEMPOTENCY_TTL_MS = 10 * 60_000
 
   constructor(options: MockBankCoreOptions) {
@@ -87,8 +99,10 @@ export class MockBankCore implements BankCoreProvider {
     this.now = options.now ?? (() => data.now)
     this.limitsConfig = options.limits ?? data.limits
     this.tickets = options.tickets ?? new TicketStore()
+    this.users = new Map(data.users.map((user) => [user.id, user]))
     this.accounts = data.accounts.map((item) => ({ ...item }))
     this.cards = [...data.cards]
+    this.subscriptions = [...data.subscriptions]
     this.transactions = data.transactions.map((item) => ({ ...item }))
     this.payees = data.payees.map((item) => ({ ...item }))
     this.holdings = data.holdings.map((item) => ({ ...item }))
@@ -102,6 +116,52 @@ export class MockBankCore implements BankCoreProvider {
 
   limits(): BankLimits {
     return this.limitsConfig
+  }
+
+  /**
+   * 读用户（只读；不存在返回 `undefined`，不抛）。
+   *
+   * 返回**副本**：调用方（实体槽位适配器）改字段不能污染账本主体。
+   */
+  async getUser(userId: UserId): Promise<User | undefined> {
+    const user = this.users.get(userId)
+    return user === undefined ? undefined : { ...user }
+  }
+
+  async reportCardLost(userId: UserId, cardId: CardId): Promise<CardLostResult> {
+    const card = this.cards.find((item) => item.id === cardId)
+    if (card === undefined) {
+      throw new BahError('card-unknown', `bank: 未知银行卡：${cardId}`, { cardId })
+    }
+    const account = this.requireAccount(card.accountId)
+    if (account.userId !== userId) {
+      throw new BahError('card-not-owned', 'bank: 该卡不属于当前用户', { cardId })
+    }
+    if (card.status !== 'lost') {
+      this.cards = this.cards.map((item) =>
+        item.id === cardId ? { ...item, status: 'lost' as const } : item,
+      )
+    }
+    return { cardId, tail: card.tail, status: 'lost' }
+  }
+
+  async cancelSubscription(
+    userId: UserId,
+    subscriptionId: SubscriptionId,
+  ): Promise<SubscriptionCancelled> {
+    const found = this.subscriptions.find((item) => item.id === subscriptionId)
+    if (found === undefined) {
+      throw new BahError('subscription-unknown', `bank: 未知订阅：${subscriptionId}`, {
+        subscriptionId,
+      })
+    }
+    if (found.userId !== userId) {
+      throw new BahError('subscription-not-owned', 'bank: 该订阅不属于当前用户', { subscriptionId })
+    }
+    this.subscriptions = this.subscriptions.map((item) =>
+      item.id === subscriptionId ? { ...item, status: 'cancelled' as const } : item,
+    )
+    return { subscriptionId, merchant: found.merchant }
   }
 
   async listAccounts(userId: UserId): Promise<Account[]> {
@@ -323,6 +383,80 @@ export class MockBankCore implements BankCoreProvider {
     return result
   }
 
+  /**
+   * 冲正一笔转账（W12 补偿回读）。
+   *
+   * 三条硬约束：
+   * 1. **两条流水**：原交易保留，新增一条 `in / refund / reversalOf` 的冲正流水——对账要看得出
+   *    "发生过、又退回来了"，不能删原记录；
+   * 2. **幂等键 = 原 `txnId`**：重复调用返回首次结果，不落第二条冲正、不重复回补余额；
+   * 3. **只冲成功的转出转账**：其他形态（已退款 / 入账 / 理财）一律 fail-loud，宁可人工处理。
+   *
+   * 注意：这是 Mock 的账本冲正语义，不是银行核心的真实撤销接口；生产需接核心的冲正/退款能力。
+   *
+   * @throws `BahError('txn-unknown')` / `BahError('txn-not-reversible')`
+   */
+  async reverse(txnId: string): Promise<ReversalResult> {
+    const existing = this.reversals.get(txnId)
+    if (existing !== undefined) return existing
+
+    const original = this.transactions.find((item) => item.id === txnId)
+    if (original === undefined) {
+      throw new BahError('txn-unknown', `bank: 未知交易：${txnId}`, { txnId })
+    }
+    if (
+      original.direction !== 'out' ||
+      original.category !== 'transfer' ||
+      original.status !== 'success'
+    ) {
+      throw new BahError('txn-not-reversible', `bank: 交易不可冲正：${txnId}`, {
+        txnId,
+        direction: original.direction,
+        category: original.category,
+        status: original.status,
+      })
+    }
+
+    const account = this.requireAccount(original.accountId)
+    const at = this.now()
+    const reversal: Transaction = {
+      id: this.nextTxnId(),
+      accountId: original.accountId,
+      at,
+      amountCents: original.amountCents,
+      direction: 'in',
+      counterparty: original.counterparty,
+      category: 'refund',
+      channel: original.channel,
+      status: 'success',
+      reversalOf: original.id,
+    }
+    this.transactions = [...this.transactions, reversal]
+    const balanceCents = account.balanceCents + original.amountCents
+    const availableCents = account.availableCents + original.amountCents
+    this.replaceAccount(account.id, { balanceCents, availableCents })
+
+    const dailyUsedCents = this.dailyUsedCents(account.id, at)
+    const dailyLimitCents = this.dailyLimitOf(account.id)
+    const result: ReversalResult = {
+      txnId: original.id,
+      reversalTxnId: reversal.id,
+      amountCents: original.amountCents,
+      balanceCents,
+      availableCents,
+      dailyUsedCents,
+      dailyLimitCents,
+      at,
+    }
+    this.reversals.set(original.id, result)
+    return result
+  }
+
+  /** 查询冲正结果（探诊用；未冲正返回 `undefined`）。 */
+  reversalOf(txnId: string): ReversalResult | undefined {
+    return this.reversals.get(txnId)
+  }
+
   private pruneIdempotency(now: number): void {
     if (this.idempotency.size < 1024) return
     for (const [key, entry] of this.idempotency) {
@@ -426,14 +560,25 @@ export class MockBankCore implements BankCoreProvider {
       .reduce((sum, item) => sum + item.amountCents, 0)
   }
 
-  /** 当日已累计转出（权威口径：账本里同账户、同 UTC 日、成功的 transfer）。 */
+  /**
+   * 当日已累计转出（权威口径：账本里同账户、同 UTC 日、成功的 transfer **减去当日冲正**）。
+   *
+   * W12 裁决：额度回退（冲正 = 该笔业务未发生），但两条流水都在——对账要看得见
+   * "发生过、又退回来了"。只减带 `reversalOf` 的 refund 流水，不误伤造数里的普通退款。
+   */
   private dailyUsedCents(accountId: AccountId, at: number): number {
     const today = dayKey(at)
-    return this.transactions
-      .filter((item) => item.accountId === accountId)
-      .filter((item) => item.direction === 'out' && item.category === 'transfer' && item.status === 'success')
-      .filter((item) => dayKey(item.at) === today)
-      .reduce((sum, item) => sum + item.amountCents, 0)
+    let outCents = 0
+    let reversedCents = 0
+    for (const item of this.transactions) {
+      if (item.accountId !== accountId || item.status !== 'success') continue
+      if (dayKey(item.at) !== today) continue
+      if (item.direction === 'out' && item.category === 'transfer') outCents += item.amountCents
+      if (item.direction === 'in' && item.category === 'refund' && item.reversalOf !== undefined) {
+        reversedCents += item.amountCents
+      }
+    }
+    return Math.max(0, outCents - reversedCents)
   }
 
   /** 短时窗口内已成功的转出笔数（不含本笔）。 */

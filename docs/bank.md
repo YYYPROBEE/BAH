@@ -113,6 +113,27 @@ const ref = {
 审批票据的 `issued → approved / blocked` 生命周期由 `tools/governance.ts` 的 `approval/request`
 桥接同步（详见 [bank-tools.md](bank-tools.md) §3）。
 
+### 4.1 冲正与执行 lease（W12）
+
+**冲正**（`MockBankCore.reverse(txnId)`，不是 `BankCoreProvider` 的方法）：
+
+- 落**两条流水**：原 `out / transfer` 保留，新增 `in / refund / reversalOf = 原 txnId`；
+- 幂等键 = 原 `txnId`：重复调用返回首次结果，不重复回补余额；
+- 只允许冲正"成功 + 转出 + transfer"的交易，其余 `txn-not-reversible`（宁可人工处理）；
+- 当日额度口径改为**净转出**：当日 `out transfer` 之和 − 当日冲正 `refund` 之和（下限 0）。
+  风控速度窗口与重复检测仍按原始流水计数（保守口径：发生过就先算上；要一并回退需另立规则）。
+- 对 saga 暴露的是窄端口 `bank:compensation`（`BANK_COMPENSATION`，只含 `reverse` / `reversalOf`），
+  不暴露票据、审批或任意账本写入面。**生产需换成银行核心的冲正/退款接口**。
+
+**执行 lease**（`packages/runtime/src/policy/ticket.ts`）：
+
+- `TicketLease = { leaseId, ticketId, expiresAt }`，独立类型，不与两份 `TicketRef` 合并；
+- 治理桥接在 `approval/request` 签发时生成 `leaseId = lease:<ticketId>`，
+  并把 **`min(票据 TTL, 签发时刻 + lease TTL)`** 写进 bank-core 五绑定的 `expiresAt`——
+  核销点就是执行点，过期票据不会"钱先出去、账本再拦"；
+- `lease.expiresAt <= 票据 expiresAt` 在配置与账本两处 fail-loud；`renewLease()` 只前移、不动票据 TTL；
+- 回滚开关：`bank:tools.ticketLease.enforce: false`（退回只用票据 TTL）。
+
 ## 5. 造数三档
 
 ```ts
@@ -128,7 +149,7 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 
 | 项 | 值 |
 |---|---|
-| 用户 | 王建国（`u-1`，手机 13800001111） |
+| 用户 | 张三（`u-1`，手机 13800001111） |
 | 活期账户 | `a-1` 余额 **¥12,345.67**（可用同额） |
 | 定期 / 锁定 | `a-2` ¥50,000.00（不可用）；`a-3` ¥888.88 |
 | 卡 | `c-1` 尾号 1234，日限 ¥5,000 / 月限 ¥20,000；`c-2` 虚拟卡尾号 5678 |
@@ -175,7 +196,7 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 | T-BANK-006 未审批票据 | `core/ticket.test.ts` |
 | T-BANK-007 日累计权威口径 | `core/mock.test.ts` |
 | T-BANK-008 换会话不重置 | `core/mock.test.ts` |
-| T-BANK-009 demo 王建国 | `forge/index.test.ts` |
+| T-BANK-009 demo 主体与白名单收款人 | `forge/index.test.ts` |
 | T-BANK-010 adversarial 档 | `forge/index.test.ts` |
 | T-BANK-011 风控预检规则 | `forge/risk.test.ts` |
 | T-BANK-012 余额不足 | `core/mock.test.ts` |
@@ -189,7 +210,30 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 覆盖率：`bank/core/` 与 `bank/forge/` 进强制名单（逐文件行覆盖 100%），
 `core/provider.ts` 是纯类型模块、在 `vitest.config.ts` 中排除（与 `runtime/src/tools/types.ts` 同例）。
 
-## 8. 已知边界（不是遗漏，是记账）
+## 8. 策略外置（S2/S3）：判决从哪来
+
+`bank:tools.policy.engine` 有两个取值，缺省 `legacy`：
+
+| 取值 | 判决来源 | 用途 |
+|---|---|---|
+| `legacy` | `tools/tier.ts` 的 `decide()`（代码分支） | 整体回退开关；无需删 `policies/`、无需重启策略服务 |
+| `bundle` | `policies/bank-tier/1.0.0` 编译出的决策表（宿主 `policy:rules` 提供服务） | 生产默认（headless/web/web-plan/plan） |
+
+`engine: bundle` 时，治理平面的顺序不变：身份 → 预检 → 生效上限 `min(core, config)` →
+策略求值（只给 `level/reason`，作为 escalation）→ 硬规则（`no-identity` / `verify-locked` /
+红级挑战）→ 票据/审批。**策略不能把红降黄，也不能让锁定/未绑定放行**；策略 deny 覆盖
+allow，但绿级读工具不咨询策略（TC-W04-06）。
+
+审计口径：`tier/decided` 带 `engineSource / policyVersion / ruleIds / paramsDigest`，
+bundle 实际求值时还有 `evidence`（完整输入 + `inputDigest`）；链上镜像为
+`policy/decision`（v2 信封）。`policy:explain` 按记录 digest 找归档 bundle 复算，
+归档缺失显式失败，绝不用新策略重算历史。
+
+已知边界：`transfer_preview` 的 `effectiveTier` 仍是 legacy 展示口径（试算卡片只回答
+"执行时大概会是黄还是红"）；权威判决只来自治理平面。作者/运维手册见
+[policy.md](policy.md)。
+
+## 9. 已知边界（不是遗漏，是记账）
 
 | 项 | 现状 | 计划 |
 |---|---|---|

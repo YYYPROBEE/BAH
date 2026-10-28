@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 流式分片装配（施工单 05 §1 + §2.1 第 1 步）。
  *
  * 核心不变量：**工具参数只能在 `block-end` 时整体 parse**。分片阶段拿到的永远是半截 JSON，
@@ -71,6 +71,12 @@ export class StreamAssembler {
         this.usage = {
           input: Math.max(this.usage?.input ?? 0, chunk.input),
           output: Math.max(this.usage?.output ?? 0, chunk.output),
+          ...(chunk.cachedInput === undefined
+            ? {}
+            : { cachedInput: Math.max(this.usage?.cachedInput ?? 0, chunk.cachedInput) }),
+          ...(chunk.costMicroYuan === undefined
+            ? {}
+            : { costMicroYuan: Math.max(this.usage?.costMicroYuan ?? 0, chunk.costMicroYuan) }),
         }
         return
 

@@ -11,6 +11,7 @@ import { join, resolve } from 'node:path'
 import { reasonOf } from '@bah/util'
 import { ChainFile, buildChainAudit, createSagaAudit } from '@bah/persistence'
 
+import { runAuditReplay } from './audit-replay.ts'
 import { buildAnchorsAudit, type AnchorEntry } from './audit-anchors.ts'
 import {
   projectionDiffFor,
@@ -36,6 +37,8 @@ export const AUDIT_HELP = [
   '  --key <path>        验签私钥（缺省 keys/saga-ed25519.pem）',
   '  --format <fmt>      text | json（缺省 text）',
   '  --no-signature      跳过验签（只验链连续性）',
+  '  --session <id>      仅 audit replay：重放该会话（W15）',
+  '  --verify            仅 audit replay：校验链与序号（默认即校验）',
   '  -h, --help          显示本帮助',
 ].join('\n')
 
@@ -174,6 +177,7 @@ export async function runAudit(
   io: CliIo,
   options: CliOptions = {},
 ): Promise<number> {
+  if (argv[0] === 'replay') return runAuditReplay(argv.slice(1), io, options)
   const parsed = parseAuditArgs(argv)
   if (!parsed.ok) {
     io.err(`bah audit: ${parsed.error}`)
@@ -252,6 +256,16 @@ export async function runAudit(
   }
   const anchors = buildAnchorsAudit(anchorRows, dir)
   const report = makeReport(dir, dbPath, results, projection, anchors, errors)
+
+  // W08 §1.3：断链必须在 **stderr** 明确点名（事件名 + 链 + 条目），不能只藏在人读输出里。
+  // 退出码由 `exitCodeOf` 统一给出（断链 = 1）；这里只补告警面。
+  for (const chain of results) {
+    if (!chain.chainOk) {
+      io.err(
+        `bah audit: audit/chain-broken ${chain.sagaId} brokenAt=${String(chain.brokenAt)}`,
+      )
+    }
+  }
 
   if (parsed.args.format === 'json') {
     io.out(JSON.stringify(report, null, 2))
@@ -334,7 +348,15 @@ function exitCodeOf(
   ) {
     return 1
   }
-  if (chains.some((chain) => chain.signatureState === 'skipped-no-key')) return 2
+  // `unsigned`（零应签行）与 `skipped-no-key` 同级：什么都没验过，不能说"通过"。
+  // 退出码 2 = 审计未完成，比假绿安全。
+  if (
+    chains.some(
+      (chain) => chain.signatureState === 'skipped-no-key' || chain.signatureState === 'unsigned',
+    )
+  ) {
+    return 2
+  }
   if (projection.dbState === 'invalid') return 2
   return 0
 }

@@ -1,0 +1,32 @@
+.git
+.gitignore
+.github
+.githooks
+
+# 依赖与产物
+node_modules
+**/node_modules
+**/dist
+**/dist-types
+coverage
+**/coverage
+snapshots
+benchmarks
+
+# 运行期数据与临时文件
+sessions
+**/sessions
+*.log
+.tmp*
+**/.tmp*
+
+# 密钥：只允许示例文件进镜像
+.env
+.env.*
+!.env.example
+
+# 与运行无关
+docs
+design
+tests
+文档归档

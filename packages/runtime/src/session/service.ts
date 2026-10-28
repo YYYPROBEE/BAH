@@ -69,13 +69,67 @@ export interface ProvideSessionOptions {
 /**
  * 注册 `runtime:session` 服务。
  *
- * 每次 `append` 都会同步广播 `session/event`（`emit`，不阻塞）——
+ * 每次 `append` 都会同步广播 `session/event`（`emitIsolated`，不阻塞）——
  * 审计、失败补偿（`ToolCallRecovery`）、UI 跟随流都挂在这个口上。
+ * "同步"指**返回前一定派发完**；监听器在自己的回调里再 append 时，
+ * 那条嵌套事件排到队尾、由同一层循环派发完再返回（见下）。
+ *
+ * 为什么是 `emitIsolated` 而不是 `emit`：落账已经成功，一个记账监听器抛错
+ * 不能反过来中断落账、也不能让后面的观察者收不到这条事件。
+ *
+ * **广播必须按落账顺序到达每个监听器**（W18 修）：`emitIsolated` 是同步遍历，
+ * 而监听器**可以在自己的回调里再 `append`**（`safety:sentry` 的 `trace.sink='session'`
+ * 就是这么写 `sentry/trace` 的）。那次嵌套 `append` 会立刻重入广播，把 seq=N+1 先送给
+ * 排在写者**后面**的监听器；等外层继续走到它们时，seq=N 已经"过期"。
+ * 对按 seq 单调消费的监听器（`channel:web` 的投影器）就是这条事件被静默丢弃——
+ * 网页收不到 `tool` / `approval` 帧，审批弹窗永不出现。
+ * 因此这里用队列把嵌套事件排到队尾：一个事件派发完再派发下一个，
+ * 所有监听器看到的顺序恒等于落账顺序。
  */
 export function provideSession(ctx: Context, options: ProvideSessionOptions): Disposer {
   const store =
     options.store ??
     new SessionStore({ now: options.now, formatVersion: options.formatVersion })
+
+  /** 待派发队列（重入时只入队，由最外层派发循环统一消费）。 */
+  const pending: AnySessionEvent[] = []
+  let draining = false
+
+  const dispatch = (event: AnySessionEvent): void => {
+    ctx.events.emitIsolated(
+      'session/event',
+      { session: options.sessionId, event },
+      (error, name) => {
+        // 隔离后只留痕：这里再 append 一条审计会递归进同一个广播口
+        console.error(`bah-runtime: ${name} 监听器失败（已隔离，落账不受影响）`, error)
+      },
+    )
+  }
+
+  const broadcast = (event: AnySessionEvent): void => {
+    pending.push(event)
+    // 已经在派发循环里 ⇒ 只入队；否则由本次调用把队列排空
+    if (draining) return
+    draining = true
+    let failure: unknown
+    try {
+      while (pending.length > 0) {
+        const next = pending.shift()
+        if (next === undefined) break
+        try {
+          dispatch(next)
+        } catch (error) {
+          // `emitIsolated` 已隔离单个监听器的抛错；能到这里只剩"事件模式声明不一致"
+          // 这类装配错误。继续排空队列，最后再把首个错误抛给 append 的调用方。
+          failure ??= error
+        }
+      }
+    } finally {
+      pending.length = 0
+      draining = false
+    }
+    if (failure !== undefined) throw failure
+  }
 
   const api: SessionApi = {
     sessionId: options.sessionId,
@@ -101,7 +155,7 @@ export function provideSession(ctx: Context, options: ProvideSessionOptions): Di
       }
       const event = store.append(type, data, appendOptions)
       // 存储层按键取类型，广播面统一成判别联合（`AnySessionEvent`）
-      ctx.events.emit('session/event', { session: options.sessionId, event: event as AnySessionEvent })
+      broadcast(event as AnySessionEvent)
       return event
     },
 
@@ -119,7 +173,7 @@ export function provideSession(ctx: Context, options: ProvideSessionOptions): Di
         } as AnySessionEvent
       }
       const event = store.appendDomain(type, data, appendOptions)
-      ctx.events.emit('session/event', { session: options.sessionId, event })
+      broadcast(event)
       return event
     },
 

@@ -30,6 +30,7 @@ const DOMAIN_PACKAGES = new Set([
   '@bah/bank',
   '@bah/knowledge',
   '@bah/llm',
+  '@bah/policy',
   '@bah/persistence',
   '@bah/saga',
   '@bah/safety',

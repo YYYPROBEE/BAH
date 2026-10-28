@@ -59,8 +59,12 @@ export interface SentrySessionEventMap {
   /** 幻觉防护追加了纠正提示（turn-stopping 的旁路纠正；施工单 10 §4）。 */
   'sentry/honesty-corrected': {
     readonly turn: number
-    /** `no-result`：无工具结果却陈述账户事实；`numeric`：声明值与权威值不一致。 */
-    readonly kind: 'no-result' | 'numeric'
+    /**
+     * `no-result`：无工具结果却陈述账户事实；
+     * `numeric`：声明值与权威值不一致；
+     * `action-claim`：声称"已完成 / 已转账 / 已核销"但本 turn 工具结局不支持（S-1）。
+     */
+    readonly kind: 'no-result' | 'numeric' | 'action-claim'
     readonly detail: string
     readonly at: number
   }
@@ -73,7 +77,8 @@ export interface SentrySessionEventMap {
    * `message` 只留错误类型与 200 字内的消息，**不拼接工具参数 / 结果 / 用户原话**。
    */
   'sentry/verifier-failed': {
-    readonly listener: 'tools/post-execute'
+    /** 哪个判决件坏了：后置数值对账 / 收尾行动断言核验。 */
+    readonly listener: 'tools/post-execute' | 'agent/turn-stopping'
     readonly code: 'verifier-unavailable'
     readonly message: string
     readonly at: number

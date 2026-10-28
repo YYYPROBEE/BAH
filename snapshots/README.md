@@ -18,25 +18,38 @@
 
 ```text
 snapshots/
-├─ headless-basic/
-│  ├─ session.jsonl      录制的事件流（= 运行时会话日志格式，JsonlPersistence 能原样读回）
-│  ├─ llm.jsonl          每次 provider 调用的请求标识 + 响应分片（一行一次调用）
-│  ├─ scenario.json      场景输入：prompts / 会话 ID / 时钟 / 种子 / 生效行 / 模型规格
-│  ├─ scenario.ts        场景本体（录制与回放共用：怎么装应用、送哪几句话）
-│  └─ snapshot.test.ts   T-AUD-005（record→replay 全等）+ T-AUD-006（两次回放全等）
-├─ web-channel/
-│  ├─ session.jsonl / llm.jsonl / scenario.json
-│  ├─ overlay.yml        层 4：真起 Web 渠道（端口 0）
-│  └─ scenario.ts / snapshot.test.ts
-├─ sandbox-compute/
-│  ├─ session.jsonl / llm.jsonl / scenario.json
-│  ├─ overlay.yml        层 4：三面 mock 脚本 + stress 档
-│  └─ scenario.ts / snapshot.test.ts
-└─ fixtures.test.ts      快照通道冒烟（命名解析 + 代次选择）
+├─ headless-basic/      主链路基线（4 例）
+├─ web-channel/         渠道不扰动事件流（4 例）
+├─ compaction/          压缩触发（5 例）
+├─ sandbox-compute/     沙箱计算 + 转账（4 例，stress 档）
+├─ plan/                plan:dag 编排（4 例）
+├─ entity-slots/        实体槽位通电（5 例，overlay 打开 slots.source=bank）
+├─ fixtures.test.ts     快照通道冒烟（2 例：命名解析 + 代次选择）
+└─ README.md
 ```
 
-> `sandbox-compute` 背书此前无场景声明的 `packages/safety/src/sandbox-runtime/`、`packages/bank/src/forge/`、`packages/bank/src/verify/`。
-> 它用独立的 `RunContext.sandboxNow` 计数钟，`sandbox/done.elapsedMs` 恒为 5；会话事件 `at` 仍来自 `fixedClock`。
+每个用例目录里是同一套五件（`headless-basic` 为例）：
+
+```text
+snapshots/headless-basic/
+├─ session.jsonl      录制的事件流（= 运行时会话日志格式，JsonlPersistence 能原样读回）
+├─ llm.jsonl          每次 provider 调用的请求标识 + 响应分片（一行一次调用）
+├─ scenario.json      场景输入：prompts / 会话 ID / 时钟 / 种子 / 生效行 / 模型规格
+├─ scenario.ts        场景本体（录制与回放共用：怎么装应用、送哪几句话）
+└─ snapshot.test.ts   T-AUD-005（record→replay 全等）+ T-AUD-006（两次回放全等）
+```
+
+三个可选件：`overlay.yml`（层 4：在 profile 底座上开一个开关，如 `web-channel` 起 Web 渠道、
+`entity-slots` 开槽位）、`reverified.json`（`pnpm snapshot:reverify` 写入的源码摘要，
+给 `snapshot-fresh` 当"等价改动"的出海通道）、以及各用例自己的负控用例。
+
+> 覆盖归属（2026-10-28 更正）：`packages/bank/src/forge/` 由 **5 个 demo 档场景**
+> （headless-basic / web-channel / compaction / plan / entity-slots）背书——它们真的跑
+> `buildDemo`；`sandbox-compute` 跑 **stress 档**、不执行 `buildDemo`，所以它**不**声明 forge。
+> （此前本节写的是"`sandbox-compute` 背书 forge"，那是错的，正是被门禁抓到的倒挂。）
+> `sandbox-compute` 的独有价值是 `packages/safety/src/sandbox-runtime/` 与
+> `packages/bank/src/verify/`：它用独立的 `RunContext.sandboxNow` 计数钟，
+> `sandbox/done.elapsedMs` 恒为 5；会话事件 `at` 仍来自 `fixedClock`。
 
 ## 两条命令
 

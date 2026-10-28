@@ -10,7 +10,6 @@ import { captureThrown } from '@bah/test-support'
 
 import { TicketLedger, type TicketIssueInput } from './ticket-ledger.ts'
 import type { InteractionRecord } from './events.ts'
-
 /** 一条签发输入（默认 800 元、TTL 1s）。 */
 function issue(overrides: Partial<TicketIssueInput> = {}): TicketIssueInput {
   return {
@@ -69,6 +68,14 @@ describe('签发', () => {
     const ledger = new TicketLedger()
     ledger.issue(issue())
     expect(captureThrown(() => ledger.issue(issue())).code).toBe('ticket-duplicate')
+  })
+
+  it('lease 的 leaseId 空白 → lease-invalid（签发期就拒，不留半绑定票据）', () => {
+    const ledger = new TicketLedger()
+    expect(
+      captureThrown(() => ledger.issue(issue({ lease: { leaseId: '  ', expiresAt: 20 } }))).code,
+    ).toBe('lease-invalid')
+    expect(ledger.size).toBe(0)
   })
 
   it('缺省无审计出口也能工作（纯内存）', () => {
@@ -202,5 +209,119 @@ describe('票据账本软上限', () => {
     expect(ledger.size).toBeLessThan(2048)
     expect(ledger.forCall('c-0')).toBeUndefined()
     expect(ledger.forCall('c-active')?.ticketId).toBe('t-active')
+  })
+})
+
+describe('W12 执行 lease（宿主注入，账本只校验与记账）', () => {
+  /** 票据 TTL 到 1000；lease 窗口到 500。 */
+  function withLease(overrides: Partial<TicketIssueInput> = {}): TicketLedger {
+    const ledger = new TicketLedger()
+    ledger.issue(issue({ lease: { leaseId: 'lease:c1', expiresAt: 500 }, ...overrides }))
+    return ledger
+  }
+
+  it('TC-W12-01 lease 过期后核销 → ticket-expired，票据作废，不落 redeemed', () => {
+    const sink = recorder()
+    const ledger = new TicketLedger({ record: sink.record })
+    ledger.issue(issue({ lease: { leaseId: 'lease:c1', expiresAt: 500 } }))
+    expect(ledger.approve('ticket:c1', 20).status).toBe('approved')
+
+    expect(captureThrown(() => ledger.redeem('ticket:c1', 500)).code).toBe('ticket-expired')
+    expect(ledger.get('ticket:c1')).toMatchObject({
+      status: 'blocked',
+      blockedReason: 'ticket-expired',
+    })
+    expect(sink.list.map((item) => item.type)).toEqual([
+      'ticket/issued',
+      'ticket/approved',
+      'ticket/blocked',
+    ])
+  })
+
+  it('TC-W12-02 renew() 后同一 leaseId 可核销（前移且 ≤ 票据 TTL）', () => {
+    const sink = recorder()
+    const ledger = new TicketLedger({ record: sink.record })
+    ledger.issue(issue({ lease: { leaseId: 'lease:c1', expiresAt: 500 } }))
+    ledger.approve('ticket:c1', 20)
+
+    const renewed = ledger.renewLease('ticket:c1', 900, 400)
+    expect(renewed.leaseId).toBe('lease:c1')
+    expect(renewed.leaseExpiresAt).toBe(900)
+    expect(renewed.expiresAt).toBe(1_000)
+
+    const redeemed = ledger.redeem('ticket:c1', 899)
+    expect(redeemed.status).toBe('redeemed')
+    expect(sink.list.at(-2)).toEqual({
+      type: 'ticket/lease-renewed',
+      data: {
+        ticketId: 'ticket:c1',
+        callId: 'c1',
+        name: 'transfer_create',
+        leaseId: 'lease:c1',
+        previousExpiresAt: 500,
+        expiresAt: 900,
+        at: 400,
+      },
+    })
+  })
+
+  it('TC-W12-09 lease 越过票据 TTL → 签发期 fail-loud（不静默截断）', () => {
+    const ledger = new TicketLedger()
+    expect(
+      captureThrown(() =>
+        ledger.issue(issue({ lease: { leaseId: 'lease:c1', expiresAt: 1_001 } })),
+      ).code,
+    ).toBe('lease-outlives-ticket')
+
+    expect(
+      captureThrown(() =>
+        ledger.issue(
+          issue({ ticketId: 'ticket:c2', callId: 'c2', lease: { leaseId: 'lease:c2', expiresAt: 10 } }),
+        ),
+      ).code,
+    ).toBe('lease-invalid')
+    expect(ledger.size).toBe(0)
+  })
+
+  it('已过期的 lease 不能续租（重签 = 复活作废票据）', () => {
+    const ledger = withLease()
+    ledger.approve('ticket:c1', 20)
+    expect(captureThrown(() => ledger.renewLease('ticket:c1', 900, 500)).code).toBe('ticket-expired')
+    expect(ledger.get('ticket:c1')?.status).toBe('blocked')
+  })
+
+  it('续租只能前移且不越过票据 TTL；终态票据不能续租；无 lease 的票据续租 fail-loud', () => {
+    const ledger = withLease()
+    expect(captureThrown(() => ledger.renewLease('ticket:c1', 500, 30)).code).toBe(
+      'lease-renew-invalid',
+    )
+    expect(captureThrown(() => ledger.renewLease('ticket:c1', 1_001, 30)).code).toBe(
+      'lease-outlives-ticket',
+    )
+
+    ledger.approve('ticket:c1', 20)
+    ledger.redeem('ticket:c1', 30)
+    expect(captureThrown(() => ledger.renewLease('ticket:c1', 900, 40)).code).toBe('ticket-closed')
+
+    const plain = new TicketLedger()
+    plain.issue(issue({ ticketId: 'ticket:c9', callId: 'c9' }))
+    expect(captureThrown(() => plain.renewLease('ticket:c9', 500, 20)).code).toBe('lease-missing')
+  })
+
+  it('未注入 lease 的票据行为完全不变（缺省直通）', () => {
+    const ledger = new TicketLedger()
+    ledger.issue(issue())
+    ledger.approve('ticket:c1', 20)
+    expect(ledger.redeem('ticket:c1', 999).status).toBe('redeemed')
+  })
+})
+
+describe('TC-W12-10 interaction 不反向依赖 @bah/runtime', () => {
+  it('package.json 的 dependencies 只有 @bah/core 与 @bah/util（lease 由宿主注入）', async () => {
+    const { readFileSync } = await import('node:fs')
+    const manifest = JSON.parse(
+      readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+    ) as { dependencies?: Record<string, string> }
+    expect(Object.keys(manifest.dependencies ?? {}).sort()).toEqual(['@bah/core', '@bah/util'])
   })
 })

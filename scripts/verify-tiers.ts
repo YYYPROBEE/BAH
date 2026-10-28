@@ -192,7 +192,10 @@ function checkThresholdsOnlyInConfig(root: string, findings: string[]): number {
       }
       if (ts.isPropertyAssignment(node) && isNumeric(node.initializer)) {
         const property = node.name.getText(source).replace(/['"]/g, '')
-        if (isThresholdName(property)) {
+        const value = numericValue(node.initializer)
+        // 与变量分支同一口径：计数器（`riskyCallsInTurn: 0`）不是阈值；
+        // 非精确配置名要求金额级（≥100），`riskyCallThreshold: 3` 这类精确名仍然拦。
+        if (isThresholdName(property) && (value >= 100 || isExactThresholdName(property))) {
           report(node, `属性 ${property} 写死了资金阈值`)
         }
       }

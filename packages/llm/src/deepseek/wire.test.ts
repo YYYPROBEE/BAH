@@ -213,6 +213,22 @@ describe('SSE 解析', () => {
     ])
   })
 
+  it('usage 里带 prompt_cache_hit_tokens 时映射成 cachedInput；不带就不编 0', () => {
+    expect(
+      fromWireChunk({
+        choices: [],
+        usage: { prompt_tokens: 1_000, completion_tokens: 50, prompt_cache_hit_tokens: 800 },
+      }),
+    ).toEqual([{ kind: 'usage', input: 1_000, output: 50, cachedInput: 800 }])
+
+    // 老兼容端点不上报该字段：缺省 ≠ "命中 0"，计费层要能区分
+    const bare = fromWireChunk({
+      choices: [],
+      usage: { prompt_tokens: 10, completion_tokens: 2 },
+    })
+    expect(bare).toEqual([{ kind: 'usage', input: 10, output: 2 }])
+  })
+
   it('未知结束原因退化成 stop（不猜 error）；content_filter 判 error', () => {
     const reasonOf = (finish: string): unknown =>
       fromWireChunk({ choices: [{ delta: {}, finish_reason: finish }] })[0];

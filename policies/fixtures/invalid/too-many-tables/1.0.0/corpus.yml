@@ -1,0 +1,11 @@
+cases:
+  - id: F-C-001
+    note: 负例夹具只需形状合法，不追求覆盖
+    input:
+      subject: { userId: u-1, sessionId: s-1 }
+      action: { name: transfer_create, declared: yellow }
+      preview: { amountCents: 80000, dailyUsedCents: 0, dailyLimitCents: 500000, payee: { binding: whitelist } }
+      state: { riskyCallsInTurn: 0, verifyLocked: false }
+      limits: { dailyLimitCents: 500000 }
+      params: { riskyCallThreshold: 3 }
+    expect: { level: yellow, reason: declared }

@@ -38,6 +38,11 @@ export interface ScanToolArgsOptions {
   readonly disabledIds?: readonly string[]
   /** 是否启用 NET-001 演示校准（缺省 = 开，与源一致）。 */
   readonly demoWhitelist?: boolean
+  /**
+   * 基础规则集（策略外置 S5）：bundle 模式注入编译出的 13 条规则；
+   * 缺省 = 内核内置的 `BUILTIN_RULES`（legacy 模式零变化）。
+   */
+  readonly baseRules?: readonly ScanRule[]
   /** 追加规则。 */
   readonly extraRules?: readonly ExtraRule[]
 }
@@ -111,7 +116,7 @@ export function collectBlob(args: unknown): string {
 export function scanToolArgs(args: unknown, options: ScanToolArgsOptions = {}): RuleFinding[] {
   const disabled = new Set(options.disabledIds ?? [])
   const whitelistEnabled = options.demoWhitelist !== false
-  const rules: readonly ScanRule[] = [...BUILTIN_RULES, ...(options.extraRules ?? [])]
+  const rules: readonly ScanRule[] = [...(options.baseRules ?? BUILTIN_RULES), ...(options.extraRules ?? [])]
   const blob = collectBlob(args)
   const findings: RuleFinding[] = []
 

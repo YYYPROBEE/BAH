@@ -1,0 +1,10 @@
+tables:
+  - id: t
+    hit: first
+    rows:
+      - id: R-001-deep
+        when: ((((((((((((((((((((((((((((((((((((((((true))))))))))))))))))))))))))))))))))))))))
+        keep: true
+      - id: R-002-default
+        when: true
+        keep: true

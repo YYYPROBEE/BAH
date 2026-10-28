@@ -1,0 +1,18 @@
+# 生产签名 overlay（**不**被 profile.yml 自动引用；用法：`pnpm web --patch profiles/web/patch-signed.example.yml`）
+#
+# 前提：
+# 1) `pnpm policy:keygen --dir ~/.bah/keys --version 1`
+# 2) 每个 bundle 用 `pnpm policy:sign <dir> --key ... --key-version 1` 重签并入库 `bundle.sig`
+# 3) 公钥分发到部署机（路径替换下面的 publicKeyPath；私钥不进仓/不进镜像）
+#
+# 轮换：新密钥版本先加入 allowedKeyVersions（[1, 2]），全部重签后再收窄为 [2]（吊销旧钥）。
+- id: policy:rules
+  config:
+    root: policies
+    active: { bank.tier: bank-tier/1.0.0, sentry.rules: sentry-rules/1.0.0 }
+    hotReload: true
+    requireSignature: true
+    signature:
+      publicKeyPath: ~/.bah/keys/policy-ed25519-1.pub.pem
+      allowedKeyVersions: [1]
+    shadow: { bank.tier: null, sentry.rules: null }

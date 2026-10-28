@@ -1,0 +1,391 @@
+tables:
+  - id: t
+    hit: first
+    rows:
+      - id: R-0
+        when: state.riskyCallsInTurn > 0
+        keep: true
+      - id: R-1
+        when: state.riskyCallsInTurn > 1
+        keep: true
+      - id: R-2
+        when: state.riskyCallsInTurn > 2
+        keep: true
+      - id: R-3
+        when: state.riskyCallsInTurn > 3
+        keep: true
+      - id: R-4
+        when: state.riskyCallsInTurn > 4
+        keep: true
+      - id: R-5
+        when: state.riskyCallsInTurn > 5
+        keep: true
+      - id: R-6
+        when: state.riskyCallsInTurn > 6
+        keep: true
+      - id: R-7
+        when: state.riskyCallsInTurn > 7
+        keep: true
+      - id: R-8
+        when: state.riskyCallsInTurn > 8
+        keep: true
+      - id: R-9
+        when: state.riskyCallsInTurn > 9
+        keep: true
+      - id: R-10
+        when: state.riskyCallsInTurn > 10
+        keep: true
+      - id: R-11
+        when: state.riskyCallsInTurn > 11
+        keep: true
+      - id: R-12
+        when: state.riskyCallsInTurn > 12
+        keep: true
+      - id: R-13
+        when: state.riskyCallsInTurn > 13
+        keep: true
+      - id: R-14
+        when: state.riskyCallsInTurn > 14
+        keep: true
+      - id: R-15
+        when: state.riskyCallsInTurn > 15
+        keep: true
+      - id: R-16
+        when: state.riskyCallsInTurn > 16
+        keep: true
+      - id: R-17
+        when: state.riskyCallsInTurn > 17
+        keep: true
+      - id: R-18
+        when: state.riskyCallsInTurn > 18
+        keep: true
+      - id: R-19
+        when: state.riskyCallsInTurn > 19
+        keep: true
+      - id: R-20
+        when: state.riskyCallsInTurn > 20
+        keep: true
+      - id: R-21
+        when: state.riskyCallsInTurn > 21
+        keep: true
+      - id: R-22
+        when: state.riskyCallsInTurn > 22
+        keep: true
+      - id: R-23
+        when: state.riskyCallsInTurn > 23
+        keep: true
+      - id: R-24
+        when: state.riskyCallsInTurn > 24
+        keep: true
+      - id: R-25
+        when: state.riskyCallsInTurn > 25
+        keep: true
+      - id: R-26
+        when: state.riskyCallsInTurn > 26
+        keep: true
+      - id: R-27
+        when: state.riskyCallsInTurn > 27
+        keep: true
+      - id: R-28
+        when: state.riskyCallsInTurn > 28
+        keep: true
+      - id: R-29
+        when: state.riskyCallsInTurn > 29
+        keep: true
+      - id: R-30
+        when: state.riskyCallsInTurn > 30
+        keep: true
+      - id: R-31
+        when: state.riskyCallsInTurn > 31
+        keep: true
+      - id: R-32
+        when: state.riskyCallsInTurn > 32
+        keep: true
+      - id: R-33
+        when: state.riskyCallsInTurn > 33
+        keep: true
+      - id: R-34
+        when: state.riskyCallsInTurn > 34
+        keep: true
+      - id: R-35
+        when: state.riskyCallsInTurn > 35
+        keep: true
+      - id: R-36
+        when: state.riskyCallsInTurn > 36
+        keep: true
+      - id: R-37
+        when: state.riskyCallsInTurn > 37
+        keep: true
+      - id: R-38
+        when: state.riskyCallsInTurn > 38
+        keep: true
+      - id: R-39
+        when: state.riskyCallsInTurn > 39
+        keep: true
+      - id: R-40
+        when: state.riskyCallsInTurn > 40
+        keep: true
+      - id: R-41
+        when: state.riskyCallsInTurn > 41
+        keep: true
+      - id: R-42
+        when: state.riskyCallsInTurn > 42
+        keep: true
+      - id: R-43
+        when: state.riskyCallsInTurn > 43
+        keep: true
+      - id: R-44
+        when: state.riskyCallsInTurn > 44
+        keep: true
+      - id: R-45
+        when: state.riskyCallsInTurn > 45
+        keep: true
+      - id: R-46
+        when: state.riskyCallsInTurn > 46
+        keep: true
+      - id: R-47
+        when: state.riskyCallsInTurn > 47
+        keep: true
+      - id: R-48
+        when: state.riskyCallsInTurn > 48
+        keep: true
+      - id: R-49
+        when: state.riskyCallsInTurn > 49
+        keep: true
+      - id: R-50
+        when: state.riskyCallsInTurn > 50
+        keep: true
+      - id: R-51
+        when: state.riskyCallsInTurn > 51
+        keep: true
+      - id: R-52
+        when: state.riskyCallsInTurn > 52
+        keep: true
+      - id: R-53
+        when: state.riskyCallsInTurn > 53
+        keep: true
+      - id: R-54
+        when: state.riskyCallsInTurn > 54
+        keep: true
+      - id: R-55
+        when: state.riskyCallsInTurn > 55
+        keep: true
+      - id: R-56
+        when: state.riskyCallsInTurn > 56
+        keep: true
+      - id: R-57
+        when: state.riskyCallsInTurn > 57
+        keep: true
+      - id: R-58
+        when: state.riskyCallsInTurn > 58
+        keep: true
+      - id: R-59
+        when: state.riskyCallsInTurn > 59
+        keep: true
+      - id: R-60
+        when: state.riskyCallsInTurn > 60
+        keep: true
+      - id: R-61
+        when: state.riskyCallsInTurn > 61
+        keep: true
+      - id: R-62
+        when: state.riskyCallsInTurn > 62
+        keep: true
+      - id: R-63
+        when: state.riskyCallsInTurn > 63
+        keep: true
+      - id: R-64
+        when: state.riskyCallsInTurn > 64
+        keep: true
+      - id: R-65
+        when: state.riskyCallsInTurn > 65
+        keep: true
+      - id: R-66
+        when: state.riskyCallsInTurn > 66
+        keep: true
+      - id: R-67
+        when: state.riskyCallsInTurn > 67
+        keep: true
+      - id: R-68
+        when: state.riskyCallsInTurn > 68
+        keep: true
+      - id: R-69
+        when: state.riskyCallsInTurn > 69
+        keep: true
+      - id: R-70
+        when: state.riskyCallsInTurn > 70
+        keep: true
+      - id: R-71
+        when: state.riskyCallsInTurn > 71
+        keep: true
+      - id: R-72
+        when: state.riskyCallsInTurn > 72
+        keep: true
+      - id: R-73
+        when: state.riskyCallsInTurn > 73
+        keep: true
+      - id: R-74
+        when: state.riskyCallsInTurn > 74
+        keep: true
+      - id: R-75
+        when: state.riskyCallsInTurn > 75
+        keep: true
+      - id: R-76
+        when: state.riskyCallsInTurn > 76
+        keep: true
+      - id: R-77
+        when: state.riskyCallsInTurn > 77
+        keep: true
+      - id: R-78
+        when: state.riskyCallsInTurn > 78
+        keep: true
+      - id: R-79
+        when: state.riskyCallsInTurn > 79
+        keep: true
+      - id: R-80
+        when: state.riskyCallsInTurn > 80
+        keep: true
+      - id: R-81
+        when: state.riskyCallsInTurn > 81
+        keep: true
+      - id: R-82
+        when: state.riskyCallsInTurn > 82
+        keep: true
+      - id: R-83
+        when: state.riskyCallsInTurn > 83
+        keep: true
+      - id: R-84
+        when: state.riskyCallsInTurn > 84
+        keep: true
+      - id: R-85
+        when: state.riskyCallsInTurn > 85
+        keep: true
+      - id: R-86
+        when: state.riskyCallsInTurn > 86
+        keep: true
+      - id: R-87
+        when: state.riskyCallsInTurn > 87
+        keep: true
+      - id: R-88
+        when: state.riskyCallsInTurn > 88
+        keep: true
+      - id: R-89
+        when: state.riskyCallsInTurn > 89
+        keep: true
+      - id: R-90
+        when: state.riskyCallsInTurn > 90
+        keep: true
+      - id: R-91
+        when: state.riskyCallsInTurn > 91
+        keep: true
+      - id: R-92
+        when: state.riskyCallsInTurn > 92
+        keep: true
+      - id: R-93
+        when: state.riskyCallsInTurn > 93
+        keep: true
+      - id: R-94
+        when: state.riskyCallsInTurn > 94
+        keep: true
+      - id: R-95
+        when: state.riskyCallsInTurn > 95
+        keep: true
+      - id: R-96
+        when: state.riskyCallsInTurn > 96
+        keep: true
+      - id: R-97
+        when: state.riskyCallsInTurn > 97
+        keep: true
+      - id: R-98
+        when: state.riskyCallsInTurn > 98
+        keep: true
+      - id: R-99
+        when: state.riskyCallsInTurn > 99
+        keep: true
+      - id: R-100
+        when: state.riskyCallsInTurn > 100
+        keep: true
+      - id: R-101
+        when: state.riskyCallsInTurn > 101
+        keep: true
+      - id: R-102
+        when: state.riskyCallsInTurn > 102
+        keep: true
+      - id: R-103
+        when: state.riskyCallsInTurn > 103
+        keep: true
+      - id: R-104
+        when: state.riskyCallsInTurn > 104
+        keep: true
+      - id: R-105
+        when: state.riskyCallsInTurn > 105
+        keep: true
+      - id: R-106
+        when: state.riskyCallsInTurn > 106
+        keep: true
+      - id: R-107
+        when: state.riskyCallsInTurn > 107
+        keep: true
+      - id: R-108
+        when: state.riskyCallsInTurn > 108
+        keep: true
+      - id: R-109
+        when: state.riskyCallsInTurn > 109
+        keep: true
+      - id: R-110
+        when: state.riskyCallsInTurn > 110
+        keep: true
+      - id: R-111
+        when: state.riskyCallsInTurn > 111
+        keep: true
+      - id: R-112
+        when: state.riskyCallsInTurn > 112
+        keep: true
+      - id: R-113
+        when: state.riskyCallsInTurn > 113
+        keep: true
+      - id: R-114
+        when: state.riskyCallsInTurn > 114
+        keep: true
+      - id: R-115
+        when: state.riskyCallsInTurn > 115
+        keep: true
+      - id: R-116
+        when: state.riskyCallsInTurn > 116
+        keep: true
+      - id: R-117
+        when: state.riskyCallsInTurn > 117
+        keep: true
+      - id: R-118
+        when: state.riskyCallsInTurn > 118
+        keep: true
+      - id: R-119
+        when: state.riskyCallsInTurn > 119
+        keep: true
+      - id: R-120
+        when: state.riskyCallsInTurn > 120
+        keep: true
+      - id: R-121
+        when: state.riskyCallsInTurn > 121
+        keep: true
+      - id: R-122
+        when: state.riskyCallsInTurn > 122
+        keep: true
+      - id: R-123
+        when: state.riskyCallsInTurn > 123
+        keep: true
+      - id: R-124
+        when: state.riskyCallsInTurn > 124
+        keep: true
+      - id: R-125
+        when: state.riskyCallsInTurn > 125
+        keep: true
+      - id: R-126
+        when: state.riskyCallsInTurn > 126
+        keep: true
+      - id: R-127
+        when: state.riskyCallsInTurn > 127
+        keep: true
+      - id: R-default
+        when: true
+        keep: true

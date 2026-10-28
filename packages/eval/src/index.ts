@@ -76,6 +76,14 @@ export { flattenSagaProjection, flattenState } from './adapters/flattenState.ts'
 export type { FlattenOptions } from './adapters/flattenState.ts'
 export type { EventSourcePort, SeamListener, SeamNext, StateReader } from './adapters/ports.ts'
 
+export type {
+  ScenarioApproval,
+  ScenarioExpectation,
+  ScenarioFamily,
+  ScenarioMetric,
+  ScenarioSpec,
+} from './scenario/spec.ts'
+
 export {
   CheckpointConfigError,
   DEFAULT_CHECKPOINTS_PATH,
@@ -92,3 +100,53 @@ export type {
 
 export { deepClone } from './deepClone.ts'
 export { isPlainObject } from './plainObject.ts'
+
+// W13：场景 runner / 60 场景 / 四项指标（`scripts/eval.ts` 的公开面）
+export {
+  runEval,
+  runEvalReport,
+  renderSummary,
+  SCENARIO_TIMEOUT_MS,
+  runWithTimeout,
+  classifyEvalFailure,
+  evaluateExpectations,
+} from './scenario/runner.ts'
+export type { EvalReport, EvalTiming, EvalRunResult, RunEvalOptions } from './scenario/runner.ts'
+export { FAMILY_COUNTS, TOTAL_SCENARIOS, validateScenarios } from './scenario/validate.ts'
+export type { ValidationResult } from './scenario/validate.ts'
+export type { EvalScenario, ScenarioAction, SagaStepFixture } from './scenario/types.ts'
+export {
+  aggregateMetrics,
+  countsByFamily,
+  formatRate,
+  percentile95,
+} from './metrics/aggregate.ts'
+export type { Metrics, Rate, ScenarioOutcome } from './metrics/aggregate.ts'
+export { ALL_SCENARIOS } from './scenarios/index.ts'
+
+// W14：对抗集（45 例）
+export {
+  ADVERSARIAL_META,
+  ADVERSARIAL_SCENARIOS,
+  familyLabel,
+  validateAdversarial,
+  renderAdversarialSummary,
+  runAdversarial,
+} from './adversarial/index.ts'
+export type {
+  AdversarialAttribution,
+  AdversarialCaseResult,
+  AdversarialExpectation,
+  AdversarialFamily,
+  AdversarialMeta,
+  AdversarialReport,
+  AdversarialRunResult,
+  AdversarialSource,
+} from './adversarial/index.ts'
+
+// W15：监管证据包与 Merkle 包含证明
+export * from './evidence/SessionEvidencePack.ts'
+export * from './snapshot/merkle.ts'
+
+// W15：eval 基线与劣化比较
+export * from './baseline.ts'

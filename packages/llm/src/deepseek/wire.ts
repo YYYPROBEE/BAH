@@ -222,6 +222,10 @@ export function fromWireChunk(payload: unknown): StreamChunk[] {
       kind: 'usage',
       input: numberField(usage, 'prompt_tokens'),
       output: numberField(usage, 'completion_tokens'),
+      // 只在该 provider 真的上报缓存字段时才带：缺省 ≠ 0 命中
+      ...(Object.hasOwn(usage, 'prompt_cache_hit_tokens')
+        ? { cachedInput: numberField(usage, 'prompt_cache_hit_tokens') }
+        : {}),
     })
   }
 

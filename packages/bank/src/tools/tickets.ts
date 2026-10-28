@@ -20,13 +20,17 @@ import type { ToolExecContext } from '@bah/core'
 import { fingerprintOf } from './fingerprint.ts'
 import type { BankToolDeps } from './types.ts'
 
-/** 由调用 ID 派生票据 ID（与七段管线的 `mintTicket` 同一规则）。 */
+/** 由调用 ID 派生票据 ID（**只作为旧路径的兜底**：票据 ID 现在是随机 UUID）。 */
 export function ticketIdOfCall(callId: string): TicketId {
   return `ticket:${callId}` as TicketId
 }
 
 /**
  * 组装交给 bank-core 的票据引用。
+ *
+ * 票据 ID 优先取 `ctx.ticketId`（管线显式传下来的 UUID）。只有它缺位时才回退到
+ * `ticket:${callId}`——那条兜底只为兼容"没有走审批链"的旧测试装置，
+ * 生产路径上 `approval/asked` 一定先落过账，`ctx.ticketId` 必然存在。
  *
  * @throws `BahError('ticket-missing')` 治理平面没有为该调用签发票据
  */
@@ -37,7 +41,7 @@ export function ticketRefForCall(
   args: Readonly<Record<string, unknown>>,
   amountCents: number,
 ): TicketRef {
-  const ticketId = ticketIdOfCall(ctx.callId)
+  const ticketId = ctx.ticketId ?? ticketIdOfCall(ctx.callId)
   const record = deps.tickets.get(ticketId)
   if (record === undefined) {
     throw new BahError(

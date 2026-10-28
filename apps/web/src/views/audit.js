@@ -38,20 +38,45 @@ export function renderAudit(frame) {
 /**
  * 计数条（审批 / 拒绝 / 阻断）。
  *
+ * 判据的**唯一事实源是投影端** `packages/channels/src/web/audit.ts`：
+ * - 审批结论帧：`category='approval'` + `label='审批结论'`，summary 前缀取自
+ *   `DECISION_LABEL`（`已批准（一次性）` / `已拒绝` / `已取消` / `无人应答（视为拒绝）`）；
+ * - 票据阻断帧：`category='ticket'` + `label='票据已阻断'`（"已阻断"在 **label** 里，
+ *   summary 只是工具名，`code` 是 `approval-timeout` 这类理由码）。
+ *
+ * 这里曾经写成 `summary.startsWith('已拒绝')` 与 `summary.includes('已阻断')`：
+ * 超时未应答的那条结论 summary 是"无人应答（视为拒绝）…"、阻断那条的"已阻断"在 label 上，
+ * 于是时间线明明写着"票据已阻断 / 无人应答（视为拒绝）"，计数条却显示 `0 拒绝 0 阻断`。
+ * 显式点"拒绝"的路径反而计数正确——所以这个错只在**没人应答**时暴露，正好是最需要它说话的时候。
+ *
  * @param {Record<string, any>[]} frames
  */
 export function renderAuditSummary(frames) {
   const audits = frames.filter((frame) => frame.kind === 'audit')
   const approvals = audits.filter((frame) => frame.category === 'approval' && frame.label === '审批请求').length
+
+  // 拒绝 = 结论是"已拒绝"或"无人应答（视为拒绝）"。`已取消` 不计：那是本地关窗，不是判决被否。
   const rejected = audits.filter(
-    (frame) => frame.category === 'approval' && frame.summary.startsWith('已拒绝'),
+    (frame) =>
+      frame.category === 'approval' &&
+      frame.label === '审批结论' &&
+      (frame.summary.startsWith('已拒绝') || frame.summary.startsWith('无人应答')),
   ).length
-  const blocked = audits.filter((frame) => frame.code === 'blocked' || frame.summary.includes('已阻断')).length
+
+  // 阻断按票据去重：同一次事故既可能出"票据已阻断"，也可能让轮次以 `blocked` 收尾，
+  // 不能各记一笔（那样 1 次阻断会显示成 2）。
+  const blockedKeys = new Set()
+  for (const frame of audits) {
+    const isTicketBlock = frame.category === 'ticket' && frame.label === '票据已阻断'
+    const isTurnBlock = frame.code === 'blocked'
+    if (!isTicketBlock && !isTurnBlock) continue
+    blockedKeys.add(frame.ticketId ?? `${frame.category}:${String(frame.seq)}`)
+  }
 
   return el('div', { class: 'audit__summary' }, [
     chip('审批', approvals),
     chip('拒绝', rejected),
-    chip('阻断', blocked),
+    chip('阻断', blockedKeys.size),
   ])
 }
 

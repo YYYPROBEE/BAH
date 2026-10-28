@@ -40,8 +40,13 @@ export interface PersistenceSettings {
   readonly fsync: boolean
 }
 
-/** 默认会话根目录（相对进程 cwd）。 */
-const DEFAULT_ROOT = 'sessions'
+/**
+ * 默认会话根目录（相对进程 cwd）。
+ *
+ * 导出给 `safety:sentry` 用：HALT 停机状态与会话日志同根（`<root>/<sessionId>/halt.json`），
+ * 这样"停机证据跟着部署目录走"，而不是跟着进程或某个会话 ID 走。
+ */
+export const DEFAULT_ROOT = 'sessions'
 
 export const persistencePlugin: HostPlugin<PersistenceSettings> = {
   id: 'core:persistence',

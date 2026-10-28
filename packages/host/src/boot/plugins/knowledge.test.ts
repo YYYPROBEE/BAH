@@ -2,10 +2,11 @@
  * `bank:knowledge` 宿主插件：配置校验 + fixture 端到端 + 失败策略。
  */
 
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { buildManifest, collectFixtureEntries, requireKnowledgeKey } from '@bah/knowledge'
 import { asSessionId } from '@bah/test-support'
 import {
   AGENTS_SERVICE,
@@ -13,9 +14,9 @@ import {
   SESSION_SERVICE,
   TOOLS_SERVICE,
 } from '@bah/runtime'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { boot, type BootOptions, type ProfileSummary } from '../boot.ts'
+import { boot, type BootOptions, type ProfileSummary, type RunContext } from '../boot.ts'
 import { createCatalog } from '../index.ts'
 import { parseKnowledgeSettings } from './knowledge.ts'
 
@@ -81,7 +82,11 @@ function rows(overrides: {
 
 let bootSequence = 0
 
-async function bootWith(pluginRows: readonly PluginRow[]): Promise<Awaited<ReturnType<typeof boot>>> {
+async function bootWith(
+  pluginRows: readonly PluginRow[],
+  warn?: (message: string) => void,
+  run?: Partial<RunContext>,
+): Promise<Awaited<ReturnType<typeof boot>>> {
   const bundle: Bundle = { name: 'fx', rows: pluginRows }
   const options: BootOptions = {
     profile: PROFILE,
@@ -92,7 +97,9 @@ async function bootWith(pluginRows: readonly PluginRow[]): Promise<Awaited<Retur
       sessionId: asSessionId(`s-knowledge-${bootSequence}`),
       now: () => 1_000,
       jsonlDir: mkdtempSync(join(tmpdir(), 'bah-knowledge-')),
+      ...run,
     },
+    ...(warn === undefined ? {} : { warn }),
   }
   bootSequence += 1
   return boot(options)
@@ -129,6 +136,17 @@ describe('bank:knowledge 配置校验', () => {
       parseKnowledgeSettings({ claims: { users: { u1: undefined } } }),
     ).toThrow(/必填/)
     expect(() => parseKnowledgeSettings({ timeouts: { answer: 0 } })).toThrow(/正整数/)
+  })
+
+  it('W06 签名配置：默认启用 + 默认路径；未知键拒绝', () => {
+    const settings = parseKnowledgeSettings({})
+    expect(settings.signature).toEqual({
+      enabled: true,
+      manifestPath: 'packages/knowledge/fixtures/knowledge.manifest.json',
+      corpusPath: 'packages/knowledge/fixtures/corpus.json',
+    })
+    expect(() => parseKnowledgeSettings({ signature: { nope: 1 } })).toThrow(/未知配置键/)
+    expect(() => parseKnowledgeSettings({ signature: { enabled: 'yes' } })).toThrow(/布尔/)
   })
 })
 
@@ -222,8 +240,8 @@ describe('bank:knowledge 端到端（fixture）', () => {
   })
 })
 
-describe('bank:knowledge 失败策略', () => {
-  it('required=true 且 sidecar 不可达时拒绝启动', async () => {
+describe('bank:knowledge 失败策略', () => {  it('required=true 且 sidecar 不可达时拒绝启动', async () => {
+    const warnings: string[] = []
     const promise = bootWith(
       rows({
         knowledge: {
@@ -233,12 +251,16 @@ describe('bank:knowledge 失败策略', () => {
           claims: CLAIMS,
         },
       }),
+      (message) => warnings.push(message),
     )
     await expect(promise).rejects.toThrow(/健康检查失败/)
+    // 拒绝启动是异常路径，不走"告警后继续"
+    expect(warnings).toEqual([])
   })
 
-  it('required=false 且 sidecar 不可达时仍能启动（带 token）', async () => {
+  it('required=false 且 sidecar 不可达时仍能启动（带 token），并留下告警', async () => {
     process.env.TEST_KNOWLEDGE_TOKEN = 'secret'
+    const warnings: string[] = []
     try {
       const app = await bootWith(
         rows({
@@ -250,10 +272,42 @@ describe('bank:knowledge 失败策略', () => {
             claims: CLAIMS,
           },
         }),
+        (message) => warnings.push(message),
       )
       expect(app.ctx.get(TOOLS_SERVICE).has('knowledge_answer')).toBe(true)
+      // 告警必须可被 CLI 的 io.err 捕获（boot 把 options.warn 透传进 `bah:run`）
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]).toContain('bank:knowledge 健康检查失败')
+      expect(warnings[0]).toContain('http://127.0.0.1:1')
+      expect(warnings[0]).toContain('required=false')
+      expect(warnings[0]).toContain('knowledge-unavailable')
     } finally {
       delete process.env.TEST_KNOWLEDGE_TOKEN
+    }
+  })
+
+  it('probe=false（--dump-config）时不探活：零网络、零告警', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const warnings: string[] = []
+    try {
+      const app = await bootWith(
+        rows({
+          knowledge: {
+            mode: 'http',
+            baseUrl: 'http://127.0.0.1:1',
+            required: false,
+            claims: CLAIMS,
+          },
+        }),
+        (message) => warnings.push(message),
+        { probe: false },
+      )
+      // 工具照样注册（dump 要能看到生效树），但启动期完全不碰网络。
+      expect(app.ctx.get(TOOLS_SERVICE).has('knowledge_answer')).toBe(true)
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(warnings).toEqual([])
+    } finally {
+      fetchSpy.mockRestore()
     }
   })
 
@@ -265,5 +319,288 @@ describe('bank:knowledge 失败策略', () => {
         }),
       ),
     ).rejects.toThrow(/fixturePath 读取失败/)
+  })
+})
+
+describe('bank:knowledge http token（A3 启动冒烟）', () => {
+  const FIXTURE_RAW = JSON.parse(
+    readFileSync('packages/knowledge/fixtures/headless.json', 'utf8'),
+  ) as {
+    answers: { response: unknown }[]
+    health: unknown
+  }
+
+  function jsonResponse(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+
+  /** 只有带 `Bearer test-secret` 的 /v1/answer 才放行；/healthz 永远匿名 200。 */
+  function tokenAwareFetch(): ReturnType<typeof vi.fn> {
+    return vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/healthz')) return jsonResponse(FIXTURE_RAW.health)
+      if (url.endsWith('/v1/answer')) {
+        const headers = init.headers as Record<string, string>
+        if (headers['authorization'] !== 'Bearer test-secret') {
+          return jsonResponse({ detail: { code: 'UNAUTHORIZED' } }, 401)
+        }
+        return jsonResponse(FIXTURE_RAW.answers[0]!.response)
+      }
+      throw new Error(`unexpected url ${url}`)
+    })
+  }
+
+  it('有 token 时健康检查与工具调用都带 Bearer', async () => {
+    process.env.TEST_KNOWLEDGE_TOKEN = 'test-secret'
+    const fetchMock = tokenAwareFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const app = await bootWith(
+        rows({
+          knowledge: {
+            mode: 'http',
+            baseUrl: 'http://127.0.0.1:7801',
+            tokenEnv: 'TEST_KNOWLEDGE_TOKEN',
+            required: false,
+            claims: CLAIMS,
+          },
+        }),
+      )
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('稳盈90天赎回费率')
+      await agent.run()
+
+      const events = rawEvents(app.ctx.get(SESSION_SERVICE).events())
+      const result = events.find(
+        (event) =>
+          event.type === 'tool/result' &&
+          (event.data as { name?: string }).name === 'knowledge_answer',
+      ) as { data: { isError?: boolean } } | undefined
+      expect(result?.data.isError).toBe(false)
+
+      const answerCall = fetchMock.mock.calls.find((call) =>
+        String(call[0]).endsWith('/v1/answer'),
+      )
+      expect(answerCall).toBeDefined()
+      expect((answerCall![1] as RequestInit).headers).toMatchObject({
+        authorization: 'Bearer test-secret',
+      })
+    } finally {
+      delete process.env.TEST_KNOWLEDGE_TOKEN
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('无 token 时启动告警，工具以 knowledge-denied 明确拒绝', async () => {
+    delete process.env.TEST_KNOWLEDGE_TOKEN
+    const fetchMock = tokenAwareFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    const warnings: string[] = []
+    try {
+      const app = await bootWith(
+        rows({
+          knowledge: {
+            mode: 'http',
+            baseUrl: 'http://127.0.0.1:7801',
+            tokenEnv: 'TEST_KNOWLEDGE_TOKEN',
+            required: false,
+            claims: CLAIMS,
+          },
+        }),
+        (message) => warnings.push(message),
+      )
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('稳盈90天赎回费率')
+      await agent.run()
+
+      const events = rawEvents(app.ctx.get(SESSION_SERVICE).events())
+      const result = events.find(
+        (event) =>
+          event.type === 'tool/result' &&
+          (event.data as { name?: string }).name === 'knowledge_answer',
+      ) as { data: { isError?: boolean; code?: string } } | undefined
+      expect(result?.data.isError).toBe(true)
+      expect(result?.data.code).toBe('knowledge-denied')
+
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]).toContain('未设置 TEST_KNOWLEDGE_TOKEN')
+      expect(warnings[0]).toContain('knowledge-denied')
+    } finally {
+      delete process.env.TEST_KNOWLEDGE_TOKEN
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
+describe('W06 · 签名门启动校验', () => {
+  it('TC-W06-01 fixture 正常答案逐字不变（签名门是透明装饰）', async () => {
+    const app = await bootWith(rows())
+    const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+    agent.send('稳盈90天赎回费率')
+    await agent.run()
+    const events = rawEvents(app.ctx.get(SESSION_SERVICE).events())
+    const answered = events.find((event) => event.type === 'knowledge/answered')
+    expect(answered?.data).toMatchObject({ kind: 'answer', verdict: 'GREEN', reasonCode: null })
+    const result = events.find(
+      (event) =>
+        event.type === 'tool/result' &&
+        (event.data as { name?: string }).name === 'knowledge_answer',
+    )
+    expect(JSON.stringify(result?.data)).toContain('赎回费率（持有<7天）为1.50%')
+  })
+
+  it('清单缺失 → invalid-config（不是静默降级）', async () => {
+    await expect(
+      bootWith(
+        rows({
+          knowledge: {
+            mode: 'fixture',
+            fixturePath: FIXTURE,
+            claims: CLAIMS,
+            signature: { manifestPath: 'packages/knowledge/fixtures/no-such.json' },
+          },
+        }),
+      ),
+    ).rejects.toThrow(/清单不存在/)
+  })
+
+  it('密钥缺失 → invalid-config（不许默认密钥）', async () => {
+    const before = process.env['BAH_KNOWLEDGE_KEY']
+    try {
+      delete process.env['BAH_KNOWLEDGE_KEY']
+      await expect(bootWith(rows())).rejects.toThrow(/BAH_KNOWLEDGE_KEY/)
+    } finally {
+      if (before === undefined) delete process.env['BAH_KNOWLEDGE_KEY']
+      else process.env['BAH_KNOWLEDGE_KEY'] = before
+    }
+  })
+
+  it('fixture 文件不在签名清单里 → 启动失败并点名文件', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-w06-unsign-'))
+    const path = join(dir, 'fixture.json')
+    try {
+      writeFileSync(path, readFileSync(FIXTURE, 'utf8'), 'utf8')
+      await expect(
+        bootWith(
+          rows({
+            knowledge: {
+              mode: 'fixture',
+              fixturePath: path,
+              claims: CLAIMS,
+            },
+          }),
+        ),
+      ).rejects.toThrow(/签名清单缺少文件条目/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('清单文件条目齐全但缺 fixture 证据条目 → 启动失败并点名 docId#chunkId', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-w06-entry-'))
+    const fixturePath = join(dir, 'fixture.json')
+    const manifestPath = join(dir, 'manifest.json')
+    try {
+      const raw = JSON.parse(readFileSync(FIXTURE, 'utf8')) as {
+        answers: { response: { evidence: Record<string, unknown>[] } }[]
+      }
+      raw.answers[0]!.response.evidence.push({
+        marker: 'K2',
+        docId: 'FORGED-2025',
+        chunkId: 1,
+        title: '清单外证据',
+        clauseNo: '伪造',
+        tier: 1,
+        charStart: 0,
+        charEnd: 10,
+        text: '这条证据不在签名清单里。',
+      })
+      const bytes = Buffer.from(JSON.stringify(raw), 'utf8')
+      writeFileSync(fixturePath, bytes)
+
+      const corpusBytes = readFileSync('packages/knowledge/fixtures/corpus.json')
+      const manifest = buildManifest({
+        key: requireKnowledgeKey(),
+        signedAt: '2026-10-26T00:00:00.000Z',
+        files: [
+          { path: 'packages/knowledge/fixtures/corpus.json', bytes: corpusBytes },
+          { path: fixturePath, bytes },
+        ],
+        // 刻意不签 FORGED-2025：文件签名全对，只有条目覆盖有缺口
+        entries: collectFixtureEntries(raw).filter((entry) => entry.docId !== 'FORGED-2025'),
+      })
+      writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8')
+
+      await expect(
+        bootWith(
+          rows({
+            knowledge: {
+              mode: 'fixture',
+              fixturePath,
+              claims: CLAIMS,
+              signature: { manifestPath },
+            },
+          }),
+        ),
+      ).rejects.toThrow(/签名清单缺少 fixture 条目：FORGED-2025#1/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('http 模式签名清单缺语料条目 → 启动失败（先验文件、再验条目前置事实）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-w06-corpus-'))
+    const manifestPath = join(dir, 'manifest.json')
+    try {
+      const corpusPath = 'packages/knowledge/fixtures/corpus.json'
+      const manifest = buildManifest({
+        key: requireKnowledgeKey(),
+        signedAt: '2026-10-26T00:00:00.000Z',
+        files: [{ path: corpusPath, bytes: readFileSync(corpusPath) }],
+        entries: [],
+      })
+      writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8')
+
+      await expect(
+        bootWith(
+          rows({
+            knowledge: {
+              mode: 'http',
+              claims: CLAIMS,
+              signature: { manifestPath },
+            },
+          }),
+        ),
+      ).rejects.toThrow(/签名清单缺少语料条目/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('signature.enabled=false：不读清单也能起（显式关闭才允许的降级）', async () => {
+    const app = await bootWith(
+      rows({
+        knowledge: {
+          mode: 'fixture',
+          fixturePath: FIXTURE,
+          claims: CLAIMS,
+          // 路径刻意指向不存在：启用时必然启动失败，关闭时必须完全跳过
+          signature: { enabled: false, manifestPath: 'no/such-manifest.json' },
+        },
+      }),
+    )
+    try {
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('稳盈90天赎回费率')
+      await agent.run()
+      const answered = rawEvents(app.ctx.get(SESSION_SERVICE).events()).find(
+        (event) => event.type === 'knowledge/answered',
+      )
+      expect(answered?.data).toMatchObject({ kind: 'answer', verdict: 'GREEN' })
+    } finally {
+      await app.dispose('test-done')
+    }
   })
 })

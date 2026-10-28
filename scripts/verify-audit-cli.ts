@@ -62,7 +62,14 @@ const gate: Gate = {
 
     const docText = readText(root, 'docs/audit.md')
     const helpFlags = flagsOf(AUDIT_HELP)
-    const docFlags = flagsOf(docText)
+    // `scripts/replay.ts` 的 flag 不属于 `bah audit` 命令面；文档里这些行单独跳过
+    // （W15：独立重放脚本与 CLI 共享重放逻辑，但参数面不同）。
+    const docFlags = flagsOf(
+      docText
+        .split(String.fromCharCode(10))
+        .filter((line) => !line.includes('scripts/replay.ts'))
+        .join(String.fromCharCode(10)),
+    )
     for (const flag of helpFlags) {
       if (!docFlags.has(flag)) findings.push(`docs/audit.md 缺少 flag：${flag}`)
     }
@@ -73,8 +80,16 @@ const gate: Gate = {
 
     const commandSource = sourceOf(root, 'packages/cli/src/cli/command.ts')
     const kinds = commandKinds(commandSource)
-    if (kinds.join(',') !== 'audit,run') {
-      findings.push(`Command 联合成员应为 audit/run，实测：${kinds.join(',') || '<空>'}`)
+    // 契约会扩：HP-0 加了 `sentry`（人工解冻断路器），W07 加了 `halt` / `unfreeze`
+    // （全系统停机与 MFA 票据解除）。这里维护的是**允许集合**，新增子命令必须同步改这一行
+    // ——门禁不是"记住最早那两个"，是"别悄悄多出来一个"。
+    const EXPECTED_KINDS = ['audit', 'run', 'sentry', 'halt', 'unfreeze'] as const
+    const missing = EXPECTED_KINDS.filter((kind) => !kinds.includes(kind))
+    const extra = kinds.filter((kind) => !EXPECTED_KINDS.includes(kind as (typeof EXPECTED_KINDS)[number]))
+    if (missing.length > 0 || extra.length > 0) {
+      findings.push(
+        `Command 联合应为 {${EXPECTED_KINDS.join(',')}}，实测：{${kinds.join(',') || '<空>'}}`,
+      )
     }
     const runSource = sourceOf(root, 'packages/cli/src/cli/run.ts')
     const switchInfo = commandSwitch(runSource)

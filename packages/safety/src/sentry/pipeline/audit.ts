@@ -211,8 +211,12 @@ function noteOutcome(input: {
 }): void {
   const { state, breaker, data, at } = input
   const callId = stringField(data, 'callId')
+  const name = stringField(data, 'name')
   const isError = booleanField(data, 'isError') === true
   const code = stringField(data, 'code')
+
+  // 行动断言守卫的对账账本：按工具名记"成功过 / 失败过"，不看调用 ID
+  if (name !== undefined) state.noteToolOutcome(name, isError)
 
   if (!isError) {
     // 一次干净的成功结果说明模型已经回到正轨：连续计数清零

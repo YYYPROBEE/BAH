@@ -30,32 +30,9 @@
       "id": "core:model",
       "use": "core:model",
       "config": {
-        "provider": "mock",
-        "model": "mock-chat",
-        "chunkSize": 4,
-        "script": [
-          {
-            "tool": {
-              "id": "call-1",
-              "name": "transfer_create",
-              "args": {
-                "amount": 800,
-                "payee": {
-                  "name": "王建国",
-                  "phone": "13900002222"
-                },
-                "remark": "房租"
-              }
-            }
-          },
-          {
-            "outcome": {
-              "tool": "transfer_create",
-              "ok": "已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。",
-              "failed": "未执行：{reason}"
-            }
-          }
-        ]
+        "provider": "router",
+        "model": "router-chat",
+        "chunkSize": 4
       }
     },
     {
@@ -64,7 +41,7 @@
       "config": {
         "channel": "headless",
         "loop": {
-          "model": "mock:mock-chat",
+          "model": "router:router-chat",
           "maxSteps": 8,
           "compaction": {
             "maxTurns": 8,
@@ -90,12 +67,25 @@
       }
     },
     {
+      "id": "audit:decisions",
+      "use": "audit:decisions",
+      "config": {}
+    },
+    {
+      "id": "policy:rules",
+      "use": "policy:rules",
+      "config": {}
+    },
+    {
       "id": "bank:tools",
       "use": "bank:tools",
       "config": {
         "demoUserId": "u-1",
         "seed": 7,
-        "datasetTier": "demo"
+        "datasetTier": "demo",
+        "policy": {
+          "engine": "bundle"
+        }
       }
     },
     {
@@ -111,10 +101,18 @@
       "id": "safety:sentry",
       "use": "safety:sentry",
       "config": {
+        "trace": {
+          "sink": "session"
+        },
         "rules": {
           "crossScenario": true
         }
       }
+    },
+    {
+      "id": "safety:verify",
+      "use": "safety:verify",
+      "config": {}
     },
     {
       "id": "safety:sandbox",
@@ -124,9 +122,7 @@
     {
       "id": "bank:saga-store",
       "use": "bank:saga-store",
-      "config": {
-        "dbPath": "sessions/saga.sqlite"
-      }
+      "config": {}
     },
     {
       "id": "bank:saga",
@@ -161,11 +157,11 @@
     }
   ],
   "model": {
-    "provider": "mock",
+    "provider": "router",
     "spec": {
-      "id": "mock-chat",
-      "providerId": "mock",
-      "displayName": "Mock Chat（确定性脚本）",
+      "id": "router-chat",
+      "providerId": "router",
+      "displayName": "Demo Router（离线意图路由，非磁带）",
       "capabilities": {
         "toolCall": true,
         "image": false,
@@ -176,18 +172,23 @@
   },
   "coveredSources": [
     "packages/runtime/src/agent-loop/",
+    "packages/runtime/src/agent/",
     "packages/runtime/src/session/",
     "packages/runtime/src/system-prompt/",
     "packages/runtime/src/tools/",
+    "packages/runtime/src/policy/",
     "packages/runtime/src/seams.ts",
     "packages/llm/src/llm/",
     "packages/llm/src/mock/",
+    "packages/llm/src/demo/",
     "packages/bank/src/core/",
     "packages/bank/src/tools/",
     "packages/host/src/boot/",
     "packages/persistence/src/jsonl/",
+    "packages/persistence/src/chain/",
     "packages/persistence/src/saga-store/",
     "packages/safety/src/sentry/",
+    "packages/safety/src/verify/",
     "packages/interaction/src/approval/",
     "packages/saga/src/recovery/",
     "packages/saga/src/index.ts",

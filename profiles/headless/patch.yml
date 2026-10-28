@@ -6,34 +6,22 @@
 
 - id: core:model
   config:
-    provider: mock
-    model: mock-chat
+    # headless 不出演示，但要给门禁与快照一个**确定性**模型：
+    # - 不用 mock 的固定脚本：那份脚本只认"给王建国转 800 元"，问别的就答非所问；
+    # - 不用 deepseek：快照必须无网络、无密钥也能复现。
+    # `router` 读消息现规划步骤，同样是纯函数，但不会答非所问（见 packages/llm/src/demo）。
+    provider: router
+    model: router-chat
     chunkSize: 4
-    # 脚本化对话：幕 3「给王建国转 800 元」——黄级审批 → 批准 → 核销 → 文本收尾。
-    # demo 档的王建国是白名单收款人、首笔早于演示，所以 800 元走黄级（不升红）。
-    script:
-      - tool:
-          id: call-1
-          name: transfer_create
-          args:
-            amount: 800
-            payee:
-              name: 王建国
-              phone: '13900002222'
-            remark: 房租
-      # 收尾文案由本 turn 的 tool/result 结局决定（与 web 同一口径）：审批被拒 / 工具失败时
-      # 出"未执行：<原因>"，不写死"已完成"。
-      - outcome:
-          tool: transfer_create
-          ok: 已为你在模拟环境完成 800 元转账（黄色级别，已审批并核销）。
-          failed: 未执行：{reason}
 
 - id: bank:tools
   config:
-    # headless 显式绑定 demo 用户（王建国）；不写则所有业务工具 deny no-identity
+    # headless 显式绑定 demo 用户（张三）；不写则所有业务工具 deny no-identity
     demoUserId: u-1
     seed: 7
     datasetTier: demo
+    # 策略外置 S3：判决走内容寻址的外置规则（1.0.0 与 legacy 穷举等价）
+    policy: { engine: bundle }
 
 - id: interaction:approval
   config:
@@ -44,6 +32,10 @@
 
 - id: safety:sentry
   config:
+    # W08：审计 trace 必须显式选落盘口（W08 起缺省不再退化为内存环，缺配置即载入失败）。
+    # `session` = 逐条落 durable 会话事件（可回放）；`memory` 只用于确认不需要留证的场景。
+    trace:
+      sink: session
     # XSC-001/002 默认关（生产先用真实语料统计误报）；演示/压测 profile 显式打开
     rules:
       crossScenario: true
@@ -52,7 +44,7 @@
   config:
     channel: headless
     loop:
-      model: mock:mock-chat
+      model: router:router-chat
       maxSteps: 8
       # 上下文压缩（施工单 05 §5）：超过 8 个完整 turn 折叠更早的历史，保留最近 3 个原文。
       # 缺省（不写 compaction）= 本 agent 永不压缩（`config.ts` 里 `compaction?:` 可缺省），

@@ -8,6 +8,7 @@
  * 否则会与后装的审计插件互等）。
  */
 
+import { appendFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { describeThrown } from '@bah/core'
@@ -27,6 +28,7 @@ import type { Context } from '@bah/core'
 import type { ChainRow } from '@bah/saga'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
+import { logJson } from './log.ts'
 import { SESSION_FILES } from './persistence.ts'
 
 /**
@@ -86,9 +88,15 @@ export const sagaPlugin: HostPlugin<ReturnType<typeof parseSagaSettings>> = {
             chain.read(sagaId).map((row) => ({ q: row.q, t: row.t, sub: row.sub, hb: row.hb })),
         },
         // DLQ 升级等常规告警进进程内汇；邮件/webhook 由渠道适配器消费。
+        //
+        // D2：进程内汇**没有默认出口**——没人 `registerAlertSink` 时告警会静默消失。
+        // 所以在这里固定补两路：① 结构化日志（stderr 单行 JSON，永远在）；
+        // ② 可选文件出口（`BAH_ALERT_LOG` 指到路径才开，用于赛后/现场留证）。
         (level, message) => {
           const sink = legacyAlertSink()
           sink(level, message)
+          logJson(level === 'P0' ? 'error' : 'warn', 'saga-alert', { level, message })
+          appendAlertLine(process.env['BAH_ALERT_LOG'], level, message)
         },
       )
 
@@ -104,7 +112,8 @@ export const sagaPlugin: HostPlugin<ReturnType<typeof parseSagaSettings>> = {
         .catch((error: unknown) => {
           // 内核不提供 start 钩子；启动恢复失败必须可见，不能静默吞错。
           const reason = describeThrown(error)
-          console.error(`bah-saga: recovery-failed: ${reason}`)
+          // D2：改成单行 JSON（code 可枚举），不再是拼接串
+          logJson('error', 'saga-recovery-failed', { reason })
           // B-6：stderr 不可审计、不可篡改检测。同一事实补一条链上记录。
           recordRecoveryFailure(ctx, reason)
         })
@@ -117,4 +126,26 @@ export const sagaPlugin: HostPlugin<ReturnType<typeof parseSagaSettings>> = {
   validate(config) {
     return parseSagaSettings(config)
   },
+}
+
+/**
+ * 可选的告警文件出口（D2）。
+ *
+ * 只在 `BAH_ALERT_LOG` 指向一个路径时启用：每次告警追加一行 JSON。
+ * 用同步写：告警是稀疏事件（DLQ 升级/补偿失败），这里丢掉一行的代价比阻塞一次大。
+ * **不建目录**——路径写错要立刻暴露，而不是悄悄写到别处。
+ */
+function appendAlertLine(file: string | undefined, level: string, message: string): void {
+  if (file === undefined || file.trim().length === 0) return
+  try {
+    appendFileSync(
+      file,
+      `${JSON.stringify({ ts: new Date().toISOString(), kind: 'saga-alert', level, message })}
+`,
+      'utf8',
+    )
+  } catch (error) {
+    // 文件出口失败不能反过来打断业务；但必须可见
+    logJson('warn', 'saga-alert-file-failed', { file, reason: describeThrown(error) })
+  }
 }

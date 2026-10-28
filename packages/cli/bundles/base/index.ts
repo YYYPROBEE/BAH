@@ -21,8 +21,15 @@ export const bundle: Bundle = {
     { id: 'core:model', config: { provider: 'deepseek', model: 'deepseek-chat' } },
     { id: 'core:agent', config: { loop: { model: 'deepseek:deepseek-chat' } } },
     { id: 'core:persistence', config: { root: 'sessions' } },
+    // 会话级证据链（W08）：工具调用 + sentry 判决 + 审批结论落 `<会话>/audit.jsonl`。
+    // 排在持久化之后：链根与 `SESSION_FILES.root` 同源，`--jsonl` 换目录时一起走。
+    { id: 'audit:decisions' },
     // 银行工具族（施工单 08）：默认不带身份（会话绑定由 profile 显式写 demoUserId）；
     // headless / 演示 profile 用 patch 显式引导
+    // 策略外置 S2：**必须排在 bank:tools 之前**——bank 在 apply() 里 `findPolicyEngine`，
+    // 后置的行它看不到（`policy:rules.validateComposition` 会把这个顺序做成启动错误）。
+    // 行本身不启用判决：`bank:tools.policy.engine` 缺省 `legacy`，行为逐字不变。
+    { id: 'policy:rules' },
     { id: 'bank:tools' },
     // 审批服务（施工单 09）：必须排在 bank:tools 之后——bank 的桥接先签五绑定票据，
     // 再把「找谁应答」交给本行的仲裁器（waterfall 的注册顺序 = 外层顺序）
@@ -30,10 +37,15 @@ export const bundle: Bundle = {
     // 安全防护层（施工单 10）：也在 bank:tools 之后（要 bank:ticket-guard 做熔断吊销）；
     // 只做四接缝接线 + 幻觉防护，判决阈值全部走 safety:sentry 配置
     { id: 'safety:sentry' },
+    // W05 断言核验门：回复落账前逐条核验高影响断言（金额/余额/费率/日期/账号尾号）。
+    // 排在最前的好处见 `packages/host/src/boot/plugins/verify.ts` 的模块注释：
+    // waterfall 的注册顺序 = 外层顺序，核验门在外层才能看到下游改写后的文本。
+    { id: 'safety:verify' },
     // 沙箱执行（施工单 11）：给 analysis_calc 提供 `bank:compute` seam（worker + 硬杀）
     { id: 'safety:sandbox' },
     // Saga 补偿与审计层（SA-07）：存储底座 → 协调器（提供时钟）→ 审计链（等时钟就绪）
-    { id: 'bank:saga-store', config: { dbPath: 'sessions/saga.sqlite' } },
+    // dbPath 缺省 = 会话根下的 saga.sqlite（随 --jsonl / demo 独立目录一起走）
+    { id: 'bank:saga-store' },
     { id: 'bank:saga' },
     { id: 'bank:saga-audit' },
     // 接线层（施工单 SA-07 的缺口补丁）：把"写工具"接进协调器。

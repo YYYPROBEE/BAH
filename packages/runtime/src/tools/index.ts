@@ -11,6 +11,7 @@ import type { Context, Disposer, ServiceKey } from '@bah/core'
 
 import { ToolRegistry } from './registry.ts'
 
+export * from './contracts.ts'
 export * from './guard.ts'
 export * from './pipeline.ts'
 export * from './recovery.ts'

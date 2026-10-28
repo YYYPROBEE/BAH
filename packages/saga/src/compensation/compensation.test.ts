@@ -13,6 +13,7 @@ import { installIdempotency } from '../idempotency/index.ts'
 import { mustDeadLetter } from '../probe/classify.ts'
 import { SAGA_AUDIT, SAGA_CLOCK, SAGA_STORE, TARGET_REGISTRY } from '../seams.ts'
 import { parseSagaSettings } from '../settings.ts'
+import { advance } from '../state-machine/index.ts'
 import { installTemplates, registerTemplate } from '../templates/index.ts'
 import {
   barrierCheck,
@@ -454,5 +455,86 @@ describe('反向屏障补偿调度（SA-10 执行面）', () => {
       source: 'COMP',
       reason: 'unknown-target',
     })
+  })
+})
+
+describe('W12 补偿终态（真通道注入后的落定口径）', () => {
+  it('TC-W12-05 单步补偿失败（maxAttempts=1）→ 不重试，终态 COMPENSATION_DLQ，可 MANUALLY_CLOSED', async () => {
+    const h = harness([target('pay.charge', '/probe/pay')])
+    seedSaga(h.store, 'saga-w12-dlq', [{ stepId: 's1' }])
+    bindComps(h, 'saga-w12-dlq', ['s1'])
+    const settings = parseSagaSettings({
+      maxAttempts: 1,
+      compBackoff: { baseMs: 1, maxMs: 1, jitter: 0 },
+    })
+    let calls = 0
+    await runCompensation(h.ctx, 'saga-w12-dlq', settings, {
+      invoke: async () => {
+        calls += 1
+        return { kind: 'err', code: 'HTTP_500' }
+      },
+      probe: async () => ({ kind: 'not-executed' }),
+    })
+
+    expect(calls).toBe(1)
+    expect(compOf(h, 'saga-w12-dlq', 's1')?.state).toBe('DLQ')
+    const saga = h.store.loadTransaction('saga-w12-dlq')!
+    expect(saga.state).toBe('COMPENSATION_DLQ')
+    expect(h.store.tx((tx) => tx.readDlq('dlq:saga-w12-dlq:s1'))?.reason).toBe('max-attempts')
+
+    // 不是死状态：人工可关闭（出口路径与 11 态转移表一致）
+    advance(h.store, 'saga-w12-dlq', 'COMPENSATION_DLQ', 'MANUALLY_CLOSED', saga.version, 30_000)
+    expect(h.store.loadTransaction('saga-w12-dlq')?.state).toBe('MANUALLY_CLOSED')
+  })
+
+  it('无可补偿步骤（失败发生在任何副作用之前）→ COMPENSATED，而不是永远停在 COMPENSATING', async () => {
+    const h = harness([target('pay.charge', '/probe/pay')])
+    seedSaga(h.store, 'saga-w12-empty', [
+      { stepId: 's1', state: 'FAILED' },
+    ])
+    await runCompensation(h.ctx, 'saga-w12-empty', parseSagaSettings({ maxAttempts: 1 }), {
+      invoke: async () => ({ kind: 'ok', responseDigest: 'never' }),
+      probe: async () => ({ kind: 'not-executed' }),
+    })
+    expect(h.store.loadTransaction('saga-w12-empty')?.state).toBe('COMPENSATED')
+  })
+
+  it('已执行副作用却没有补偿绑定 → fail-closed 到 COMPENSATION_DLQ（绝不静默报成功）', async () => {
+    const h = harness([target('pay.charge', '/probe/pay')])
+    seedSaga(h.store, 'saga-w12-hole', [{ stepId: 's1' }])
+    // 刻意不 bindComps：模拟"模板注册/计划期绑定被跳过"
+    await runCompensation(h.ctx, 'saga-w12-hole', parseSagaSettings({ maxAttempts: 1 }), {
+      invoke: async () => ({ kind: 'ok', responseDigest: 'never' }),
+      probe: async () => ({ kind: 'not-executed' }),
+    })
+
+    expect(h.store.loadTransaction('saga-w12-hole')?.state).toBe('COMPENSATION_DLQ')
+    expect(h.store.tx((tx) => tx.readDlq('dlq:saga-w12-hole:s1'))?.reason).toBe(
+      'comp-binding-missing',
+    )
+  })
+
+  it('部分 OK + 部分失败仍收敛为 PARTIALLY_COMPENSATED（与全失败区分）', async () => {
+    const h = harness([target('pay.charge', '/probe/pay')])
+    seedSaga(h.store, 'saga-w12-partial', [
+      { stepId: 's1', topologyDeps: [] },
+      { stepId: 's2', topologyDeps: ['s1'] },
+    ])
+    bindComps(h, 'saga-w12-partial', ['s1', 's2'])
+    const settings = parseSagaSettings({
+      maxAttempts: 1,
+      compBackoff: { baseMs: 1, maxMs: 1, jitter: 0 },
+    })
+    await runCompensation(h.ctx, 'saga-w12-partial', settings, {
+      invoke: async (input) =>
+        input.stepId === 's1'
+          ? { kind: 'err', code: 'HTTP_500' }
+          : { kind: 'ok', responseDigest: 'ok' },
+      probe: async () => ({ kind: 'not-executed' }),
+    })
+
+    expect(compOf(h, 'saga-w12-partial', 's1')?.state).toBe('DLQ')
+    expect(compOf(h, 'saga-w12-partial', 's2')?.state).toBe('OK')
+    expect(h.store.loadTransaction('saga-w12-partial')?.state).toBe('PARTIALLY_COMPENSATED')
   })
 })

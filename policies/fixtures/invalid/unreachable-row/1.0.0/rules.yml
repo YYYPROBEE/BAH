@@ -1,0 +1,16 @@
+tables:
+  - id: t
+    requires: [preview]
+    hit: first
+    rows:
+      - id: F-001-wide
+        when: preview.dailyUsedCents > 5
+        raise: red
+        reason: daily-limit
+      - id: F-002-narrow
+        when: preview.dailyUsedCents > 10
+        raise: red
+        reason: daily-limit
+      - id: F-003-default
+        when: true
+        keep: true

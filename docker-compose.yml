@@ -1,0 +1,71 @@
+# BAH 单机演示编排（D3）
+#
+# 用法：
+#   docker compose up -d web                     # 只起 Web（7331）
+#   docker compose --profile rag up -d           # Web + RAG sidecar（7801）
+#   docker compose logs -f web
+#   docker compose down
+#
+# 边界（与 docs/deploy.md 一致）：
+# - **单机演示编排，不是生产高可用**：没有多副本、没有负载均衡、没有 K8s。
+# - 密钥**只从环境变量/.env 注入**，不写进镜像、不写进本文件。
+# - `sessions/` 用命名卷挂出去：容器重建不丢会话与审计链（那是证据）。
+# - RAG 的 `models/` 用**只读绑定**挂进去（约 182MB，不进镜像也不进卷）；
+#   干净 clone 里没有这个目录时 rag 会启动失败——这是有意的 fail-loud，
+#   不要为了"起得来"塞一个空目录。
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bah-web:local
+    ports:
+      - "127.0.0.1:7331:7331"
+    environment:
+      # 演示主路径是 router（离线），不设密钥也能起；要切真实模型再给下面两个。
+      BAH_MODEL_KEY: ${BAH_MODEL_KEY:-}
+      # RAG 在场时必须与 sidecar 用**同一个** token（sidecar 无 token 直接拒启）。
+      BAH_KNOWLEDGE_TOKEN: ${BAH_KNOWLEDGE_TOKEN:-}
+      # 可选：把 saga 告警落成 JSON lines（见 docs/observability.md）
+      BAH_ALERT_LOG: ${BAH_ALERT_LOG:-}
+    volumes:
+      - sessions:/app/sessions
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:7331/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  rag:
+    profiles: ["rag"]
+    build:
+      context: services/rag
+      dockerfile: Dockerfile
+    image: bah-rag:local
+    ports:
+      - "127.0.0.1:7801:7801"
+    environment:
+      # 同一份 token：sidecar 没配就拒绝启动（fail-loud，不是"演示时关掉认证"）
+      BAH_KNOWLEDGE_TOKEN: ${BAH_KNOWLEDGE_TOKEN:-}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      # 语料与索引（只读）；模型目录单独挂，别把 182MB 打进镜像
+      - ./services/rag/data:/app/data:ro
+      - ./services/rag/models:/app/models:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7801/healthz').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+
+volumes:
+  sessions:

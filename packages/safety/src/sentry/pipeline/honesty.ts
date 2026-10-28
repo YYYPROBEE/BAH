@@ -6,12 +6,18 @@
  * 1. `tools/post-execute` 数值对账：声明值 vs `tool/result` 权威值，不一致 → `block`，
  *    纠正文本由七段管线自动追加进上下文（`additionalContexts`）；
  * 2. `agent/turn-stopping` 无工具结果不陈述：本 turn 没有任何工具结果却陈述账户事实 → 纠正；
- * 3. `agent/turn-stopping` 全 turn 数值复核：声明金额与权威金额无交集 → 纠正。
+ * 3. `agent/turn-stopping` 全 turn 数值复核：声明金额与权威金额无交集 → 纠正；
+ * 4. `agent/turn-stopping` **行动断言对账（S-1）**：声称"已完成 / 已转账 / 已核销 /
+ *    办理成功 / 已到账"，但本 turn 的工具结局不支持 → 纠正；纠正过一次仍不改口 → 判停。
  *
  * 纠正为什么走 `nudge`（宿主注入）而不是直接 append：turn-stopping 的纠正必须作为
  * **下一条 next-step 用户消息**回到模型，才能真的改变下一次生成（施工单 04 §2.1 的注释）。
+ * `nudge` 会让主循环在本 turn 内再跑一个 step——这就是"block 掉正常收尾"的实现方式。
  */
 
+import { assertNever } from '@bah/util'
+
+import type { Listener } from '@bah/core'
 import type { TraceLog } from '../kernel/index.ts'
 
 import type { SentrySettings } from './config.ts'
@@ -59,6 +65,83 @@ export interface SentryHonestyOptions {
 const ACCOUNT_FACT =
   /(余额|可用余额|账户|尾号|卡号|交易|流水|到账|收益|持仓|额度)[^。！？\n]{0,16}(是|为|有|¥|￥|\d)/
 
+/** 成功行动断言的类别（S-1 只认这几类"办成了"的说法，不猜意图）。 */
+export type ActionClaim = 'transfer' | 'redeem' | 'complete'
+
+/**
+ * 行动断言的特征（按分句匹配；否定语境在 `NON_SUCCESS` 里排除）。
+ *
+ * 三类都用**动作名词 + 完成词**的必要组合判定，而不是只匹配"已完成"：
+ * - `我已完成查询` 是**查询**完成，不是办理完成；把它当断言会让守卫整天纠正正确回答，
+ *   所以 `complete` 带 `skip`，查询类动词一律不算；
+ * - `转账已完成` 是最自然的转账成功说法，早期规则只认"已转账 / 转账成功"，
+ *   结果这句最可能出现在演示里的话反而不被识别（复审实测：返回 `['complete']`，
+ *   而 `complete` 在"有任一成功工具"时不拦，等于放过）。
+ */
+const ACTION_CLAIM_RULES: readonly {
+  readonly kind: ActionClaim
+  readonly pattern: RegExp
+  /** 命中后仍要跳过的语境（如"查询操作成功"不是办事成功）。 */
+  readonly skip?: RegExp
+}[] = [
+  {
+    kind: 'transfer',
+    // ①「已转账 / 已为您转账」②「转账已完成 / 转账成功」③「完成 800 元转账」④「已到账」
+    pattern:
+      /已(?:经)?(?:为[您你])?(?:转账|转出|汇款|支付)|(?:转账|转出|汇款|支付)(?:已|已经)?(?:完成|成功|办妥)|(?:完成|成功|办妥)(?:了)?[^，。；\n]{0,10}(?:转账|汇款|支付|转出)|已(?:经)?到账/,
+  },
+  {
+    kind: 'redeem',
+    pattern: /(?:已|已经)?核销|核销(?:已|已经)?(?:完成|成功)/,
+  },
+  {
+    kind: 'complete',
+    // 只认"办理 / 操作 / 交易 / 申购…"这类**办事**动词
+    pattern:
+      /(?:办理|操作|交易|业务|申请|申购|赎回)[^，。；\n]{0,6}(?:完成|成功|办妥|完毕)|(?:完成|办妥)[^，。；\n]{0,6}(?:办理|申购|赎回)/,
+    skip: /(查询|查看|检索|读取|搜索|咨询)/,
+  },
+]
+
+/**
+ * 否定 / 未完成语境（**按分句判定**，不跨句）。
+ *
+ * 只收真正的否定词：`待` / `需` / `须` 不是否定——「已完成转账，待您确认收款」陈述的是
+ * 既成事实；以前把它们当否定词，等于放过了一句假话（复审实测：返回 `[]`）。
+ */
+const NON_SUCCESS = /(未|没有|没|尚未|还没|无法|失败|拒绝|取消|不成功|不能|不可)/
+
+/**
+ * 分句符：句读 + 转折连词。
+ *
+ * 必须在「但 / 不过 / 然而」处切开：「审批被拒绝，但转账已完成」讲的是两件事，
+ * 整句判定会因为前半句的"拒绝"把后半句的真假一起放掉（复审实测：返回 `[]`）。
+ */
+const CLAUSE_SEP = /[。！？!?；;\n，,]|但(?:是)?|不过|然而|可是|却/u
+
+/** 写操作工具（"已核销 / 已办理"必须有它们之一成功过）。 */
+const WRITE_TOOLS = ['transfer_create', 'wealth_purchase'] as const
+
+/**
+ * 从 assistant 文本里识别"成功行动断言"。
+ *
+ * @param texts 本 turn 的 assistant 文本（按落账顺序）
+ * @returns 去重后的断言类别（空数组 = 没有断言）
+ */
+export function detectActionClaims(texts: readonly string[]): ActionClaim[] {
+  const found = new Set<ActionClaim>()
+  for (const text of texts) {
+    for (const clause of text.split(CLAUSE_SEP)) {
+      if (NON_SUCCESS.test(clause)) continue
+      for (const rule of ACTION_CLAIM_RULES) {
+        if (rule.skip?.test(clause) === true) continue
+        if (rule.pattern.test(clause)) found.add(rule.kind)
+      }
+    }
+  }
+  return [...found]
+}
+
 /**
  * 造 `tools/post-execute` 监听器（数值对账 → `block` + 纠正文本）。
  *
@@ -66,7 +149,7 @@ const ACCOUNT_FACT =
  */
 export function createNumericListener(
   options: SentryHonestyOptions,
-): (payload: unknown, next: (value: unknown) => Promise<unknown>) => Promise<unknown> {
+): Listener<'tools/post-execute'> {
   const { sessionId, settings, state, trace, record, now } = options
 
   return async (payload, next) => {
@@ -144,7 +227,45 @@ export function createTurnStoppingListener(
       return
     }
 
-    // ② 无工具结果却陈述账户事实
+    // ② 行动断言对账（S-1）：只认"办成了"的说法，与工具结局逐类核对
+    const claims = detectActionClaims(state.assistantTexts)
+    if (claims.length > 0) {
+      const unsupported = claims.filter((claim) => {
+        if (claim === 'transfer') return !state.hasSuccessfulTool('transfer_create')
+        if (claim === 'redeem') return !WRITE_TOOLS.some((tool) => state.hasSuccessfulTool(tool))
+        return state.successfulToolCount() === 0
+      })
+      if (unsupported.length > 0) {
+        const labels = unsupported.map(actionLabel)
+        const detail =
+          `【行动断言】本 turn 的工具结局不支持你声称的「${labels.join('、')}」：` +
+          `${unsupported.map(unsupportedReason).join('；')}。` +
+          '请据实说明未执行或失败的原因，不得声称已完成。'
+        trace.append({
+          session: sessionId,
+          kind: 'honesty-action-claim',
+          turn,
+          claims: unsupported,
+          succeeded: state.successfulToolCount(),
+          failed: state.failedToolNames(),
+          at,
+        })
+        // 第一次纠正：nudge 会让主循环再跑一个 step，正常收尾被"卡住"。
+        // 第二次仍不改口：继续 nudge 只会把同一条假话留在日志里，直接判停。
+        if (!state.markActionCorrected(turn)) {
+          trace.append({ session: sessionId, kind: 'turn-stopped', turn, reason: 'action-claim', at })
+          input.stop(
+            `行动断言与工具结局不一致（${labels.join('、')}），已纠正过一次仍不改口，本轮停止。`,
+          )
+          return
+        }
+        record('sentry/honesty-corrected', { turn, kind: 'action-claim', detail, at })
+        nudge(input.agent.id, detail)
+        return
+      }
+    }
+
+    // ③ 无工具结果却陈述账户事实
     if (
       settings.honesty.noResult &&
       state.toolResults === 0 &&
@@ -160,7 +281,7 @@ export function createTurnStoppingListener(
       return
     }
 
-    // ③ 全 turn 数值复核（assistant 文本 vs 本 turn 权威金额）
+    // ④ 全 turn 数值复核（assistant 文本 vs 本 turn 权威金额）
     if (!settings.honesty.numeric) return
     const declared = declaredInTurn(state.assistantTexts, {})
     const authoritative = state.resultAmounts()
@@ -184,6 +305,40 @@ export function createTurnStoppingListener(
  */
 export function detectAccountFacts(texts: readonly string[]): boolean {
   return texts.some((text) => ACCOUNT_FACT.test(text))
+}
+
+/** 断言类别的中文标签（进模型可见的纠正文案）。 */
+function actionLabel(claim: ActionClaim): string {
+  switch (claim) {
+    case 'transfer':
+      return '转账成功'
+    case 'redeem':
+      return '核销完成'
+    case 'complete':
+      return '办理完成'
+    default:
+      // 构造不可达：封闭联合已穷尽（纪律 6 要求收尾）
+      /* v8 ignore next */
+      return assertNever(claim, 'action-claim')
+  }
+}
+
+/** "为什么这条断言不成立"的短句（只讲工具结局，不讲内部实现）。 */
+function unsupportedReason(claim: ActionClaim): string {
+  switch (claim) {
+    case 'transfer':
+      return '没有成功的转账结果'
+    case 'redeem':
+      return '没有成功的写操作可供核销'
+    case 'complete':
+      return '没有任何成功的工具结果'
+    default:
+      // 构造不可达：封闭联合已穷尽（纪律 6 要求收尾）。
+      // 且 `unsupportedReason` 总在 `actionLabel` 之后对同一数组求值，
+      // 非法标签会先在上面那个 switch 抛掉——这里连注入路径都不是首个抛点。
+      /* v8 ignore next */
+      return assertNever(claim, 'action-claim')
+  }
 }
 
 /** 本 turn 的"声明金额"：assistant 已落账文本 + 工具参数字符串里的金额。 */

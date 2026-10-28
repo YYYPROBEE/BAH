@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   detectAccountFacts,
+  detectActionClaims,
   provideSentry,
   resolveSentrySettings,
   type SentryHandle,
@@ -32,7 +33,8 @@ function harness(overrides: Readonly<Record<string, unknown>> = {}): {
   const stopped: string[] = []
   let now = 1_000
   let seq = 0
-  const settings = resolveSentrySettings(overrides)
+  // W08：trace.sink 无缺省值；单测不必落盘，显式选 memory
+  const settings = resolveSentrySettings({ trace: { sink: 'memory' }, ...overrides })
   const handle = provideSentry(ctx, settings, {
     sessionId: 's-honesty' as SessionId,
     now: () => {
@@ -224,6 +226,191 @@ describe('honesty（turn-stopping：无工具结果不陈述）', () => {
     })
     await test.turnStopping(1)
     expect(test.nudges).toEqual([])
+  })
+
+  it('S-1 拒绝后仍称完成 → 行动断言纠正（不是数值纠正）', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    test.emit('tool/result', {
+      callId: 'c-1',
+      name: 'transfer_create',
+      isError: true,
+      code: 'approval-rejected',
+      content: [{ type: 'text', text: '未执行：审批被拒绝' }],
+    })
+    say(test, '已为您完成 800 元转账，已审批并核销。')
+
+    await test.turnStopping(1)
+
+    expect(test.nudges).toHaveLength(1)
+    expect(test.nudges[0]?.text).toContain('行动断言')
+    expect(test.nudges[0]?.text).toContain('核销完成')
+    const corrected = test.events.filter((event) => event.type === 'sentry/honesty-corrected')
+    expect(corrected).toHaveLength(1)
+    expect(corrected[0]?.data['kind']).toBe('action-claim')
+    expect(test.stopped).toEqual([])
+  })
+
+  it('S-1 只有读结果却称"已转账" → 纠正（转账必须有 transfer_create 成功）', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    test.emit('tool/result', {
+      callId: 'c-1',
+      name: 'account_balance',
+      isError: false,
+      content: [{ type: 'text', text: '余额 ¥12,345.67' }],
+    })
+    say(test, '已转账成功，800 元已经到账。')
+
+    await test.turnStopping(1)
+
+    expect(test.nudges).toHaveLength(1)
+    expect(test.nudges[0]?.text).toContain('没有成功的转账结果')
+    expect(test.stopped).toEqual([])
+  })
+
+  it('S-1 转账真的成功 → 不纠正', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    test.emit('tool/result', {
+      callId: 'c-1',
+      name: 'transfer_create',
+      isError: false,
+      content: [{ type: 'text', text: '转账成功：¥800.00 → 王建国' }],
+    })
+    say(test, '已转账 800 元。')
+
+    await test.turnStopping(1)
+
+    expect(test.nudges).toEqual([])
+    expect(test.stopped).toEqual([])
+  })
+
+  it('S-1 纠正过一次仍不改口 → 判停（同一 turn 不再重复 nudge）', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    test.emit('tool/result', {
+      callId: 'c-1',
+      name: 'transfer_create',
+      isError: true,
+      code: 'approval-rejected',
+      content: [{ type: 'text', text: '未执行：审批被拒绝' }],
+    })
+    say(test, '已转账成功。')
+
+    await test.turnStopping(1)
+    await test.turnStopping(1)
+
+    expect(test.nudges).toHaveLength(1)
+    expect(test.stopped).toHaveLength(1)
+    expect(test.stopped[0]).toContain('已纠正过一次')
+  })
+
+  /**
+   * `complete` 这一类的两句文案是**给用户看的诚实陈述**（「办理完成」/「没有任何成功的工具结果」），
+   * 既有 3 个类别里只有它没被断过。这里断**完整字符串**而不是 `toContain`：
+   * 改一个字就红，防止有人把"没有任何成功的工具结果"润色成"尚未执行"这类失真说法。
+   */
+  it('S-1 没有任何成功工具却称"操作成功" → 纠正文案逐字钉死（办理完成 / 没有任何成功的工具结果）', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    say(test, '您的业务已受理，操作成功。')
+
+    await test.turnStopping(1)
+
+    expect(test.nudges).toHaveLength(1)
+    expect(test.nudges[0]?.agentId).toBe('a-1')
+    expect(test.nudges[0]?.text).toBe(
+      '【行动断言】本 turn 的工具结局不支持你声称的「办理完成」：没有任何成功的工具结果。' +
+        '请据实说明未执行或失败的原因，不得声称已完成。',
+    )
+    const corrected = test.events.filter((event) => event.type === 'sentry/honesty-corrected')
+    expect(corrected).toHaveLength(1)
+    expect(corrected[0]?.data['kind']).toBe('action-claim')
+    expect(test.stopped).toEqual([])
+  })
+
+  /**
+   * "有结果但全失败"与"一个结果都没有"对 `complete` 断言来说是同一个结局：
+   * 核对的是**成功工具数**（`successfulToolCount()`），不是结果条数。
+   */
+  it('S-1 只有失败结果却称"已处理" → 同一句 complete 文案（成功数为 0 即不支持）', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    test.emit('tool/result', {
+      callId: 'c-1',
+      name: 'wealth_purchase',
+      isError: true,
+      code: 'approval-rejected',
+      content: [{ type: 'text', text: '未执行：审批被拒绝' }],
+    })
+    say(test, '您的申购已处理完毕。')
+
+    await test.turnStopping(1)
+
+    expect(test.nudges).toHaveLength(1)
+    expect(test.nudges[0]?.text).toBe(
+      '【行动断言】本 turn 的工具结局不支持你声称的「办理完成」：没有任何成功的工具结果。' +
+        '请据实说明未执行或失败的原因，不得声称已完成。',
+    )
+  })
+
+  /**
+   * 复审实测（2026-10-23）暴露的漏判，正是**演示主路径上最可能出现的说法**：
+   * 预览成功、创建被拒（用户点了拒绝）之后，模型说"转账已完成"——
+   * 旧规则只把它归到 `complete`，而 `complete` 在"有任一成功工具"时不拦，
+   * 于是这句假话不会被纠正。这条用例钉住"transfer 必须由 transfer_create 背书"。
+   */
+  it('S-1 预览成功但创建被拒 → "转账已完成"必须纠正（complete 不替 transfer 兜底）', async () => {
+    const test = harness()
+    test.emit('turn/start', { turn: 1 })
+    test.emit('tool/result', {
+      callId: 'c-preview',
+      name: 'transfer_preview',
+      isError: false,
+      content: [{ type: 'text', text: '试算结果：转账 800 元，手续费 ¥0.00' }],
+    })
+    test.emit('tool/result', {
+      callId: 'c-create',
+      name: 'transfer_create',
+      isError: true,
+      code: 'approval-rejected',
+      content: [{ type: 'text', text: '未执行：审批被拒绝' }],
+    })
+    say(test, '审批被拒绝，但转账已完成。')
+
+    await test.turnStopping(1)
+
+    expect(test.nudges).toHaveLength(1)
+    expect(test.nudges[0]?.text).toContain('没有成功的转账结果')
+    expect(test.stopped).toEqual([])
+  })
+
+  /**
+   * 分句判定与否定词的边界。
+   *
+   * 三条都是"整句判定会判错"的样本，改动 `CLAUSE_SEP` / `NON_SUCCESS` 前先看这里。
+   */
+  it('S-1 断言识别：转折句 / "待确认" / 办事动词各自按分句判定', () => {
+    // 转折连词处切断：前半句的"拒绝"不能把后半句的真假一起放掉
+    expect(detectActionClaims(['审批被拒绝，但转账已完成。'])).toEqual(['transfer'])
+    expect(detectActionClaims(['转账已完成，请注意查收。'])).toEqual(['transfer'])
+    // `待` 不是否定词：钱已经动了，"待确认收款"说的是后续动作
+    expect(detectActionClaims(['已完成转账，待您确认收款。'])).toEqual(['transfer'])
+    expect(detectActionClaims(['已为您办理成功，无需再次确认。'])).toEqual(['complete'])
+    // 未执行 / 查询类完成，都不是行动断言
+    expect(detectActionClaims(['本次转账未执行：审批被拒绝。'])).toEqual([])
+    expect(detectActionClaims(['我已完成查询，您的余额为 1,234.56 元。'])).toEqual([])
+    expect(detectActionClaims(['查询操作成功，余额 ¥1.00。'])).toEqual([])
+    // "已提交"不是"已完成"：提交只进了审批队列
+    expect(detectActionClaims(['已提交转账申请，请等待审批。'])).toEqual([])
+  })
+
+  it('S-1 断言识别：否定 / 将来语境不算断言', () => {
+    expect(detectActionClaims(['预计 2 小时内到账，请耐心等待。'])).toEqual([])
+    expect(detectActionClaims(['转账未成功，已拒绝。'])).toEqual([])
+    expect(detectActionClaims(['已核销。'])).toEqual(['redeem'])
+    expect(detectActionClaims(['已转账 800 元。'])).toEqual(['transfer'])
   })
 
   it('T-SNT-011 同 turn 工具数超限 → stop + guard/repeat-tool', async () => {

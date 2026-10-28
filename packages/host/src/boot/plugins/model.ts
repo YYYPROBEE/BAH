@@ -10,7 +10,8 @@
 
 import { describeThrown } from '@bah/core'
 import { LlmAdapterRegistry, provideLlm } from '@bah/llm'
-import { DeepSeekAdapter } from '@bah/llm/deepseek'
+import { DeepSeekAdapter, DEEPSEEK_MODELS } from '@bah/llm/deepseek'
+import { createDemoRouter } from '@bah/llm/demo'
 import {
   MockLlmAdapter,
   outcomeStep,
@@ -21,13 +22,15 @@ import {
 } from '@bah/llm/mock'
 
 import type { Context } from '@bah/core'
-import type { LlmAdapter } from '@bah/llm'
+import type { LlmAdapter, ModelPricing } from '@bah/llm'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
+import { logJson } from './log.ts'
 import {
   asRecord,
   bootError,
   describeValue,
+  readBoolean,
   readEnum,
   readPositiveInteger,
   readRequiredString,
@@ -61,7 +64,12 @@ export type MockStepSettings =
 
 /** `core:model` 的配置。 */
 export interface ModelSettings {
-  readonly provider: 'mock' | 'deepseek'
+  /**
+   * - `mock`：固定脚本出队（回放与用例）；
+   * - `router`：**读消息现规划**（离线演示兜底，不会答非所问）；
+   * - `deepseek`：真实模型（OpenAI 兼容协议，`baseUrl` 可指向任何兼容端点）。
+   */
+  readonly provider: 'mock' | 'router' | 'deepseek'
   /** provider 侧的模型 id（不含 `provider:` 前缀）。 */
   readonly model: string
   readonly baseUrl?: string
@@ -71,15 +79,49 @@ export interface ModelSettings {
   readonly script?: readonly MockStepSettings[]
   /** 密钥所在的环境变量名（默认 `DEEPSEEK_API_KEY`；随部署变化，不写死在代码里）。 */
   readonly apiKeyEnv?: string
+  /**
+   * 自定义模型的规格（只在模型不在内置表里时需要）。
+   *
+   * 为什么要有：`deepseek` 适配器实现的是 **OpenAI 兼容协议**，可以指向任何兼容端点
+   * （DashScope / 自建网关 / vLLM）。但内置模型表只有 DeepSeek 官方两个模型，
+   * 换个端点就会报"不认识模型"。这里让部署方**显式声明**能力位，
+   * 而不是由代码猜——猜错会连带裁错提示词段（工具段、推理段）。
+   */
+  readonly modelSpec?: {
+    readonly displayName?: string
+    readonly contextWindow?: number
+    /** 是否支持 function calling（缺省 true；关掉会裁掉工具段）。 */
+    readonly toolCall?: boolean
+    readonly reasoning?: boolean
+    readonly image?: boolean
+  }
   /** 单次请求硬上限（ms；默认 120s）——上游挂起时绝不无限等待。 */
   readonly requestTimeoutMs?: number
+  /**
+   * 计价（D2）：每百万 token 的**微元**单价。
+   *
+   * 不写就等于"不记价"：`usage/summary.costMicroYuan` 恒为 0，成本看板看不出东西。
+   * 写了就必须是部署方自己核过的价——仓库里不硬编码任何官方报价（会过期，也会被当成账单）。
+   */
+  readonly pricing?: ModelPricing
+  /** 429 / 5xx 的同模型重试次数（默认 2）。 */
+  readonly retryMax?: number
+  /** 首次退避基数（ms；默认 300）。 */
+  readonly retryBaseMs?: number
 }
 
 /** 各 provider 的默认模型（不猜能力位：默认值只选各自最通用的对话模型）。 */
-const DEFAULT_MODELS = { mock: 'mock-chat', deepseek: 'deepseek-chat' } as const
+const DEFAULT_MODELS = {
+  mock: 'mock-chat',
+  router: 'router-chat',
+  deepseek: 'deepseek-chat',
+} as const
 
-/** 只对 mock 有意义的键（写错 provider 时不许静默忽略）。 */
-const MOCK_ONLY_KEYS = ['chunkSize', 'script'] as const
+/** 只对「本地生成」provider（mock / router）有意义的键。 */
+const LOCAL_KEYS = ['chunkSize'] as const
+
+/** 只对 mock（固定脚本）有意义的键：`router` 的步骤由请求现算，不读脚本。 */
+const SCRIPT_ONLY_KEYS = ['script'] as const
 
 export const modelPlugin: HostPlugin<ModelSettings> = {
   id: 'core:model',
@@ -108,42 +150,68 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
   validate(config) {
     rejectUnknownKeys(
       config,
-      ['provider', 'model', 'baseUrl', 'apiKeyEnv', 'requestTimeoutMs', ...MOCK_ONLY_KEYS],
+      [
+        'provider',
+        'model',
+        'baseUrl',
+        'apiKeyEnv',
+        'requestTimeoutMs',
+        'retryMax',
+        'retryBaseMs',
+        'modelSpec',
+        'pricing',
+        ...LOCAL_KEYS,
+        ...SCRIPT_ONLY_KEYS,
+      ],
       'core:model',
     )
 
-    const provider = readEnum(config, 'provider', 'core:model', ['mock', 'deepseek'] as const) ?? 'mock'
+    const provider =
+      readEnum(config, 'provider', 'core:model', ['mock', 'router', 'deepseek'] as const) ?? 'mock'
     const model = readString(config, 'model', 'core:model') ?? DEFAULT_MODELS[provider]
     const baseUrl = readString(config, 'baseUrl', 'core:model')
     const chunkSize = readPositiveInteger(config, 'chunkSize', 'core:model')
     const script = readScript(config['script'], provider)
     const apiKeyEnv = readString(config, 'apiKeyEnv', 'core:model')
     const requestTimeoutMs = readPositiveInteger(config, 'requestTimeoutMs', 'core:model')
+    const retryMax = readPositiveInteger(config, 'retryMax', 'core:model')
+    const retryBaseMs = readPositiveInteger(config, 'retryBaseMs', 'core:model')
+    const modelSpec = readModelSpec(config['modelSpec'])
+    const pricing = readPricing(config['pricing'])
 
-    if (provider === 'mock') {
-      const wrong = ['apiKeyEnv', 'requestTimeoutMs'].filter((key) => config[key] !== undefined)
+    if (provider !== 'deepseek') {
+      const wrong = [
+        'apiKeyEnv',
+        'requestTimeoutMs',
+        'retryMax',
+        'retryBaseMs',
+        'baseUrl',
+        'modelSpec',
+        'pricing',
+      ].filter((key) => config[key] !== undefined)
       if (wrong.length > 0) {
         throw bootError(
           'mock-only-config',
-          `core:model 的 ${wrong.join(' / ')} 只对 provider=deepseek 有意义（当前 provider=mock）`,
+          `core:model 的 ${wrong.join(' / ')} 只对 provider=deepseek 有意义（当前 provider=${provider}）`,
           { provider, keys: wrong },
         )
       }
     }
 
-    if (provider !== 'mock') {
-      const wrong = MOCK_ONLY_KEYS.filter((key) => config[key] !== undefined)
+    if (provider === 'deepseek') {
+      const wrong = [...LOCAL_KEYS, ...SCRIPT_ONLY_KEYS].filter((key) => config[key] !== undefined)
       if (wrong.length > 0) {
         throw bootError(
-          'mock-only-config',
-          `core:model 的 ${wrong.join(' / ')} 只对 provider=mock 有意义（当前 provider=${provider}）`,
+          'local-only-config',
+          `core:model 的 ${wrong.join(' / ')} 只对 provider=mock / router 有意义（当前 provider=deepseek）`,
           { provider, keys: wrong },
         )
       }
-    } else if (script === undefined) {
+    } else if (provider === 'mock' && script === undefined) {
       throw bootError(
         'mock-script-missing',
-        'core:model 用 provider=mock 时必须写 script（mock 没有真实模型，回复只能来自脚本）',
+        'core:model 用 provider=mock 时必须写 script（mock 没有真实模型，回复只能来自脚本）；' +
+          '不想写脚本就用 provider=router（按消息现规划步骤）',
         { provider },
       )
     }
@@ -156,60 +224,189 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
       ...(script === undefined ? {} : { script }),
       ...(apiKeyEnv === undefined ? {} : { apiKeyEnv }),
       ...(requestTimeoutMs === undefined ? {} : { requestTimeoutMs }),
+      ...(retryMax === undefined ? {} : { retryMax }),
+      ...(retryBaseMs === undefined ? {} : { retryBaseMs }),
+      ...(modelSpec === undefined ? {} : { modelSpec }),
+      ...(pricing === undefined ? {} : { pricing }),
     }
   },
 }
 
-/** 按配置造适配器（mock / deepseek 二选一）。 */
+/**
+ * 读计价（只对 deepseek 有意义）。
+ *
+ * 单价是**微元/百万 token**，用整数：金额一律不碰浮点（宪法 R-5 的同一条理由，
+ * 虽然单价不直接参与扣款，但乘出来的 `costMicroYuan` 会进审计）。
+ */
+function readPricing(value: unknown): ModelPricing | undefined {
+  if (value === undefined) return undefined
+  const record = asRecord(value, 'core:model.pricing')
+  rejectUnknownKeys(record, ['inputPerMTok', 'cachedInputPerMTok', 'outputPerMTok'], 'core:model.pricing')
+
+  const readRate = (key: string): number | undefined => {
+    const raw = record[key]
+    if (raw === undefined) return undefined
+    if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0) {
+      throw bootError(
+        'invalid-config',
+        `core:model.pricing.${key} 必须是非负整数（微元/百万 token，收到 ${describeValue(raw)}）`,
+        { key, value: raw },
+      )
+    }
+    return raw
+  }
+
+  const inputPerMTok = readRate('inputPerMTok')
+  const outputPerMTok = readRate('outputPerMTok')
+  const cachedInputPerMTok = readRate('cachedInputPerMTok')
+  if (inputPerMTok === undefined || outputPerMTok === undefined) {
+    throw bootError(
+      'invalid-config',
+      'core:model.pricing 必须同时写 inputPerMTok 与 outputPerMTok（只写一半会让成本算成半个数）',
+      { keys: Object.keys(record) },
+    )
+  }
+  return {
+    inputPerMTok,
+    outputPerMTok,
+    ...(cachedInputPerMTok === undefined ? {} : { cachedInputPerMTok }),
+  }
+}
+
+/** 读自定义模型规格（只对 deepseek 有意义；形状不对直接拒绝）。 */
+function readModelSpec(value: unknown): ModelSettings['modelSpec'] {
+  if (value === undefined) return undefined
+  const record = asRecord(value, 'core:model.modelSpec')
+  rejectUnknownKeys(
+    record,
+    ['displayName', 'contextWindow', 'toolCall', 'reasoning', 'image'],
+    'core:model.modelSpec',
+  )
+  const displayName = readString(record, 'displayName', 'core:model.modelSpec')
+  const contextWindow = readPositiveInteger(record, 'contextWindow', 'core:model.modelSpec')
+  // `readBoolean` 需要 fallback：只在该键存在时才读，未写就是"未声明"
+  const flag = (key: string, fallback: boolean): boolean | undefined =>
+    record[key] === undefined ? undefined : readBoolean(record, key, 'core:model.modelSpec', fallback)
+  const toolCall = flag('toolCall', true)
+  const reasoning = flag('reasoning', false)
+  const image = flag('image', false)
+  return {
+    ...(displayName === undefined ? {} : { displayName }),
+    ...(contextWindow === undefined ? {} : { contextWindow }),
+    ...(toolCall === undefined ? {} : { toolCall }),
+    ...(reasoning === undefined ? {} : { reasoning }),
+    ...(image === undefined ? {} : { image }),
+  }
+}
+
+/** 按配置造适配器（mock / router / deepseek 三选一）。 */
 function createAdapter(
   config: ModelSettings,
-  toolOutcomes: () => readonly MockToolOutcome[],
+  toolOutcomes: (() => readonly MockToolOutcome[]) | undefined,
 ): LlmAdapter {
   if (config.provider === 'mock') {
     return new MockLlmAdapter({
       script: { steps: (config.script ?? []).map(toMockStep) },
       ...(config.chunkSize === undefined ? {} : { chunkSize: config.chunkSize }),
-      toolOutcomes,
+      ...(toolOutcomes === undefined ? {} : { toolOutcomes }),
+    })
+  }
+  if (config.provider === 'router') {
+    // 与 mock 共用同一个适配器实现，只是步骤由请求现算（读 messages，不看游标）
+    return createDemoRouter({
+      ...(config.chunkSize === undefined ? {} : { chunkSize: config.chunkSize }),
+      ...(toolOutcomes === undefined ? {} : { toolOutcomes }),
     })
   }
   // 密钥来源名是配置项：换 vault / 网关注入时不需要改代码
   const apiKey = process.env[config.apiKeyEnv ?? 'DEEPSEEK_API_KEY']
+  // 声明了 modelSpec 就只用它：指向非 DeepSeek 端点时，内置表里的 id 一定对不上
+  const declared =
+    config.modelSpec === undefined
+      ? undefined
+      : [
+          {
+            id: config.model,
+            providerId: config.provider,
+            displayName: config.modelSpec.displayName ?? config.model,
+            capabilities: {
+              toolCall: config.modelSpec.toolCall ?? true,
+              image: config.modelSpec.image ?? false,
+              reasoning: config.modelSpec.reasoning ?? false,
+            },
+            contextWindow: config.modelSpec.contextWindow ?? 32_000,
+          },
+        ]
+  // D2：计价挂在**模型条目**上（适配器从 `call.model.pricing` 读）。
+  // 没声明 modelSpec 时用内置表打补丁——这样内置模型也能记价，不必为了记价编一份 modelSpec。
+  const models =
+    config.pricing === undefined
+      ? declared
+      : (declared ?? DEEPSEEK_MODELS).map((model) =>
+          model.id === config.model ? { ...model, pricing: config.pricing } : model,
+        )
   return new DeepSeekAdapter({
     ...(apiKey === undefined ? {} : { apiKey }),
     ...(config.baseUrl === undefined ? {} : { baseUrl: config.baseUrl }),
     ...(config.requestTimeoutMs === undefined
       ? {}
       : { requestTimeoutMs: config.requestTimeoutMs }),
+    ...(config.retryMax === undefined ? {} : { retryMax: config.retryMax }),
+    ...(config.retryBaseMs === undefined ? {} : { retryBaseMs: config.retryBaseMs }),
+    // 重试不能静默：一次 429 退避要能在演示现场 stderr 里看到
+    onRetry: (info) =>
+      logJson('warn', 'model-retry', {
+        status: info.status,
+        attempt: info.attempt,
+        delayMs: info.delayMs,
+      }),
+    ...(models === undefined ? {} : { models }),
   })
 }
 
 /**
- * 给 mock 的条件收尾步供一个"本会话见过的工具结局"读口。
+ * 给本地 provider（mock / router）的条件收尾步供一个"本会话见过的工具结局"读口。
  *
  * 只订阅不改写（`session/event` 是 emit 语义，落账方是 session service），注册即可逆。
- * 非 mock provider 不订阅：真实模型的收尾文案由模型自己看着工具结果写，不该由脚本代劳。
+ * 真实模型不订阅：它的收尾文案由模型自己看着工具结果写，不该由本进程代劳。
  */
 function observeToolOutcomes(
   ctx: Context,
   config: ModelSettings,
-): () => readonly MockToolOutcome[] {
-  if (config.provider !== 'mock') return () => []
+): (() => readonly MockToolOutcome[]) | undefined {
+  // 真实模型不订阅，也不给它造一个"永远读不到东西"的假读口：
+  // 那样既没人调用（白占一个闭包），又会在类型上假装"deepseek 也有工具结局视图"。
+  if (config.provider === 'deepseek') return undefined
 
   const outcomes: MockToolOutcome[] = []
   ctx.effect(
     ctx.events.on('session/event', (envelope) => {
       const event = envelope.event
       if (event.type !== 'tool/result') return
-      const { name, isError, code, reason } = event.data
+      const { name, isError, code, reason, content } = event.data
       outcomes.push({
         name,
         isError,
         ...(code === undefined ? {} : { code }),
         ...(reason === undefined ? {} : { reason }),
+        ...(firstTextOf(content) === undefined ? {} : { text: firstTextOf(content)! }),
       })
     }),
   )
   return () => outcomes
+}
+
+/** 工具结果里的第一段正文（复述步用它把权威数字说回给人）。 */
+function firstTextOf(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined
+  for (const block of content) {
+    if (typeof block !== 'object' || block === null) continue
+    const record = block as Record<string, unknown>
+    if (record['type'] !== 'text') continue
+    const text = record['text']
+    if (typeof text === 'string' && text.trim().length > 0) return text
+  }
+  return undefined
 }
 
 /** 脚本项 → mock 的一步（`tool` 步骤缺省结束原因为 `tool-calls`）。 */

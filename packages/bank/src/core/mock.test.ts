@@ -88,7 +88,7 @@ describe('T-BANK-002 合法核销', () => {
     expect(result.ticketId).toBe(ref.ticketId)
     expect(result.balanceCents).toBe(before.balanceCents - 80_000)
     expect(result.dailyUsedCents).toBe(80_000)
-    expect(result.remainingCents).toBe(500_000 - 80_000)
+    expect(result.remainingCents).toBe(100_000 - 80_000)
 
     const after = await core.balance(ACCOUNT)
     expect(after.balanceCents).toBe(before.balanceCents - 80_000)
@@ -114,26 +114,26 @@ describe('T-BANK-003 票据重放', () => {
 describe('T-BANK-007 日累计权威口径', () => {
   it('T-BANK-007 当日两笔成功后，preview 的剩余额度正确扣减', async () => {
     const core = setup()
-    await core.createTransfer(transfer({ amountCents: 100_000 }), ticket(core, { amountCents: 100_000 }))
-    await core.createTransfer(transfer({ amountCents: 100_000 }), ticket(core, { amountCents: 100_000 }))
+    await core.createTransfer(transfer({ amountCents: 30_000 }), ticket(core, { amountCents: 30_000 }))
+    await core.createTransfer(transfer({ amountCents: 30_000 }), ticket(core, { amountCents: 30_000 }))
 
-    const preview = await core.previewTransfer(transfer({ amountCents: 100_000 }))
-    expect(preview.dailyUsedCents).toBe(200_000)
-    expect(preview.dailyLimitCents).toBe(500_000)
-    expect(preview.remainingCents).toBe(300_000)
+    const preview = await core.previewTransfer(transfer({ amountCents: 30_000 }))
+    expect(preview.dailyUsedCents).toBe(60_000)
+    expect(preview.dailyLimitCents).toBe(100_000)
+    expect(preview.remainingCents).toBe(40_000)
     // 同一收款人、同一金额在 2 分钟内重复 → 疑似重复提交（warn，不阻断）
     expect(preview.verdict).toBe('warn')
     expect(preview.risks.map((risk) => risk.code)).toContain('duplicate-transfer')
   })
 
-  it('卡片限额与全局阈值取更紧者：配置降到 1000 元 → 预览剩余额度同源下降', async () => {
-    // demo 的卡限额是 5000 元（500_000 分），全局阈值压到 1000 元。
-    // 若只取卡片值，判决层按 1000 升红、预览层却显示"还可转 5000"——口径分裂。
-    const core = setup({}, { ...DEFAULT_LIMITS, dailyTransferLimitCents: 100_000 })
+  it('卡片限额与全局阈值取更紧者：配置降到 500 元 → 预览剩余额度同源下降', async () => {
+    // demo 的卡与全局缺省都是 1000 元（100_000 分）；这里把配置再压到 500 元。
+    // 若只取卡片值，判决层按 500 升红、预览层却显示"还可转 1000"——口径分裂。
+    const core = setup({}, { ...DEFAULT_LIMITS, dailyTransferLimitCents: 50_000 })
     const preview = await core.previewTransfer(transfer({ amountCents: 80_000 }))
 
-    expect(preview.dailyLimitCents).toBe(100_000)
-    expect(preview.remainingCents).toBe(100_000)
+    expect(preview.dailyLimitCents).toBe(50_000)
+    expect(preview.remainingCents).toBe(50_000)
   })
 })
 
@@ -231,8 +231,8 @@ describe('previewTransfer（试算 + 五规则预检）', () => {
     expect(codes).toContain('payee-new')
     expect(codes).toContain('night-large-amount')
     expect(codes).toContain('velocity-high')
-    // 490,000 + 5 × 10,000 已用；本笔 120,000 超出剩余额度
-    expect(preview.dailyUsedCents).toBe(540_000)
+    // 99,000 + 5 × 10,000 已用（只计 transfer 类）；本笔 120,000 超出剩余额度
+    expect(preview.dailyUsedCents).toBe(149_000)
     expect(preview.remainingCents).toBe(0)
   })
 
@@ -585,5 +585,130 @@ describe('幂等表软上限', () => {
       ticketAt(1),
     )
     expect((await core.balance(ACCOUNT)).balanceCents).toBeLessThan(NOW)
+  })
+})
+
+describe('W12 冲正（补偿回读的账本面）', () => {
+  it('reverse 保留原交易并新增冲正流水：余额回补、额度回退、对账看得见两条', async () => {
+    const core = setup()
+    const before = await core.balance(ACCOUNT)
+    const created = await core.createTransfer(transfer(), ticket(core))
+
+    const reversal = await core.reverse(created.txnId)
+
+    expect(reversal.txnId).toBe(created.txnId)
+    expect(reversal.reversalTxnId).not.toBe(created.txnId)
+    expect(reversal.amountCents).toBe(80_000)
+
+    const after = await core.balance(ACCOUNT)
+    expect(after.balanceCents).toBe(before.balanceCents)
+    expect(after.availableCents).toBe(before.availableCents)
+    expect(reversal.dailyUsedCents).toBe(0)
+
+    const page = await core.queryTransactions({
+      userId: USER,
+      accountId: ACCOUNT,
+      from: NOW - 1_000,
+      to: NOW + 1_000,
+    })
+    const flows = page.items.filter((item) => item.id === created.txnId || item.id === reversal.reversalTxnId)
+    expect(flows).toHaveLength(2)
+    expect(flows.find((item) => item.id === created.txnId)).toMatchObject({
+      direction: 'out',
+      category: 'transfer',
+      status: 'success',
+    })
+    expect(flows.find((item) => item.id === reversal.reversalTxnId)).toMatchObject({
+      direction: 'in',
+      category: 'refund',
+      status: 'success',
+      reversalOf: created.txnId,
+    })
+  })
+
+  it('TC-W12-04 同一 txnId 冲正两次只生效一次（幂等，不重复回补）', async () => {
+    const core = setup()
+    const created = await core.createTransfer(transfer(), ticket(core))
+    const first = await core.reverse(created.txnId)
+    const afterFirst = await core.balance(ACCOUNT)
+
+    const second = await core.reverse(created.txnId)
+    const afterSecond = await core.balance(ACCOUNT)
+
+    expect(second).toEqual(first)
+    expect(afterSecond).toEqual(afterFirst)
+    expect(core.reversalOf(created.txnId)).toEqual(first)
+
+    const page = await core.queryTransactions({ userId: USER, accountId: ACCOUNT })
+    const reversals = page.items.filter((item) => item.reversalOf === created.txnId)
+    expect(reversals).toHaveLength(1)
+  })
+
+  it('只允许冲正“成功 + 转出 + transfer”：其余 fail-loud，不静默跳过', async () => {
+    const core = setup()
+    expect((await captureThrownAsync(() => core.reverse('txn:missing'))).code).toBe('txn-unknown')
+
+    const created = await core.createTransfer(transfer(), ticket(core))
+    const reversal = await core.reverse(created.txnId)
+    expect((await captureThrownAsync(() => core.reverse(reversal.reversalTxnId))).code).toBe(
+      'txn-not-reversible',
+    )
+  })
+})
+
+describe('银行卡 / 订阅的归属校验', () => {
+  it('未知卡 / 非本人卡 / 未知订阅 / 非本人订阅 → fail-loud，绝不静默改状态', async () => {
+    const core = setup()
+    const stranger = bankIds.user('u-999')
+
+    expect((await captureThrownAsync(() => core.reportCardLost(USER, bankIds.card('c-missing')))).code).toBe(
+      'card-unknown',
+    )
+    expect((await captureThrownAsync(() => core.reportCardLost(stranger, bankIds.card('c-1')))).code).toBe(
+      'card-not-owned',
+    )
+    expect(
+      (await captureThrownAsync(() => core.cancelSubscription(USER, bankIds.subscription('s-missing')))).code,
+    ).toBe('subscription-unknown')
+    expect(
+      (await captureThrownAsync(() => core.cancelSubscription(stranger, bankIds.subscription('s-1')))).code,
+    ).toBe('subscription-not-owned')
+  })
+})
+
+/** 异步抛错捕获（本文件其余用例用同步 rejection；冲正是 Promise）。 */
+async function captureThrownAsync(run: () => Promise<unknown>): Promise<{ readonly code?: string }> {
+  try {
+    await run()
+  } catch (error) {
+    return error as { readonly code?: string }
+  }
+  throw new Error('预期应抛错，但调用成功了')
+}
+
+/* ── 主体读取（实体槽位的数据来源） ───────────────────────────────────────── */
+
+describe('getUser（只读主体，实体槽位用它校验"是谁"）', () => {
+  it('存在 → 返回主体（S0 后 demo u-1 是张三）', async () => {
+    const core = setup()
+    const user = await core.getUser(USER)
+    expect(user?.id).toBe(USER)
+    expect(user?.name).toBe('张三')
+    expect(user?.phone).toBe('13800001111')
+  })
+
+  it('不存在 → undefined（"查无此人"是业务结果，不是异常）', async () => {
+    const core = setup()
+    await expect(core.getUser(bankIds.user('u-404'))).resolves.toBeUndefined()
+  })
+
+  it('返回副本：调用方改字段不污染账本主体', async () => {
+    const core = setup()
+    const first = await core.getUser(USER)
+    if (first === undefined) throw new Error('demo 数据集缺少 u-1')
+    Object.assign(first, { name: '李四' })
+    const second = await core.getUser(USER)
+    expect(second?.name).toBe('张三')
+    expect(first.name).toBe('李四')
   })
 })

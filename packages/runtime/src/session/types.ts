@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 会话事件的**唯一格式**与其耐久事件表（施工单 03 §1.1 / §1.2）。
  *
  * envelope 本身由 `@bah/core` 的 `api.ts` 冻结（阶段 1 签审），本文件只做两件事：
@@ -39,6 +39,7 @@ export const SESSION_EVENT_TYPES = [
   'tool/callback-failed',
   'approval/asked',
   'approval/decided',
+  'safety/assertion',
   'usage/summary',
   'compaction/summary',
 ] as const
@@ -107,6 +108,21 @@ declare module '@bah/core' {
       code?: string
     }
     /**
+     * 断言核验门的一次判决（W05；载荷与事件表 v1.0.1 逐字一致）。
+     *
+     * 四个计数必须满足 `verified + needsEvidence + rejected = total`（门禁用例钉住）。
+     * 这是"拦截与否"的可审计证据：日志里记的是最终事实，模型原话不单独留。
+     */
+    'safety/assertion': {
+      readonly planId?: string
+      readonly turnId: string
+      readonly total: number
+      readonly verified: number
+      readonly needsEvidence: number
+      readonly rejected: number
+      readonly at: number
+    }
+    /**
      * 一个 turn 的成本汇总（施工单 05 §3：按 turn 汇总 tokens，进审计导出）。
      *
      * 不产生模型消息，但**必须**落账——否则"资源可控"没有可出示的证据。
@@ -130,9 +146,19 @@ declare module '@bah/core' {
  */
 export type UserMessageSource = 'user' | 'context' | 'tool-recovery' | 'runtime-context'
 
-/** 压缩后保留的金融结构化字段（施工单 05 §5：涉及金额/收款人/审批的条目不得只留摘要）。 */
+/**
+ * 压缩后保留的金融结构化字段（施工单 05 §5：涉及金额/收款人/审批的条目不得只留摘要）。
+ *
+ * **审批结论 ≠ 执行结果**：`decision` 只回答"批没批"，`execution` 只认 `tool/result`。
+ * 二者混写会让压缩后的模型把"只批准了"当成"已转账成功"。
+ */
 export interface FinancialSummaryEntry {
-  readonly amount: number
+  /**
+   * 金额（元）。
+   *
+   * 缺省表示**未知**——不是 0 元。渲染时必须写"金额未知"，不得补成 `¥0.00` 伪造金融事实。
+   */
+  readonly amount?: number
   readonly payee: string
   /**
    * 审批票据 ID。
@@ -140,8 +166,30 @@ export interface FinancialSummaryEntry {
    * 绿色直通调用**没有票据**（不伪造编号）：此时字段缺省、`decision = 'not-required'`。
    */
   readonly ticketId?: TicketId
-  readonly decision: string
+  /**
+   * 审批结论（不是执行结果）。
+   *
+   * 绿色直通无票据 = `not-required`；黄/红级在审批前就被拦截 = `not-requested`；
+   * 票据已签但没结论 = `pending`。
+   */
+  readonly decision: FinancialApproval
+  /**
+   * 调用声明的权限级别（来自 `tool/call.tier`，旧数据可能缺省）。
+   *
+   * 只用于解释"为什么没有票据"：绿色直通 vs 黄/红级在审批前就被前置拦截。
+   */
+  readonly tier?: 'green' | 'yellow' | 'red'
+  /** 执行结果，只由同一 `callId` 的 `tool/result` 证明（审批拒绝 / 前置拦截 = `blocked`，不是 `failed`）。 */
+  readonly execution: FinancialExecution
+  /** 失败/拒绝的结构化理由码（来自 `tool/result.code`）。 */
+  readonly code?: string
 }
+
+/** 审批结论的完整取值（含两种“没有审批结论”的原因）。 */
+export type FinancialApproval = ApprovalDecision | 'not-required' | 'not-requested' | 'pending'
+
+/** 金融动作的执行结果（与审批结论分开：批准不等于执行成功）。 */
+export type FinancialExecution = 'succeeded' | 'failed' | 'blocked' | 'pending'
 
 /** `compaction/summary` 的载荷。 */
 export interface CompactionSummaryData {
@@ -151,9 +199,13 @@ export interface CompactionSummaryData {
   readonly toTurn: number
   /** 被折叠的 turn 数。 */
   readonly turns: number
-  /** 结构化摘要文本（确定性生成，不含模型调用）。 */
+  /**
+   * 模型可见的结构化摘要文本（确定性生成，不含模型调用）。
+   *
+   * 必须**自足**：模型读不到被折叠的原文，摘要不得声称"原文可取回"。
+   */
   readonly summary: string
-  /** 被折叠事件的 `seq` 引用（审计可回跳到原文）。 */
+  /** 被折叠事件的 `seq`（仅供审计回跳；模型不可读取，不得在摘要里承诺可取回原文）。 */
   readonly refs: readonly number[]
   /** 金融特例字段（结构化保留）。 */
   readonly financial: readonly FinancialSummaryEntry[]
@@ -167,6 +219,10 @@ export interface UsageSummaryData {
   readonly input: number
   readonly output: number
   readonly calls: number
+  /** 缓存命中的输入 tokens（provider 未上报时 0）。 */
+  readonly cachedInput: number
+  /** 本 turn 的费用（微元，1 元 = 1e6 微元；计价未配置时 0）。 */
+  readonly costMicroYuan: number
 }
 
 /**

@@ -31,6 +31,8 @@ const SENSITIVE = [
   /^packages\/runtime\/src\//,
   /^packages\/llm\/src\//,
   /^packages\/bank\/src\//,
+  // 策略编译器/求值器：判决语义的唯一执行形态；改了它必须由快照背书。
+  /^packages\/policy\/src\//,
   /^packages\/saga\/src\//,
   /^packages\/persistence\/src\//,
   /^packages\/safety\/src\//,
@@ -39,6 +41,88 @@ const SENSITIVE = [
 
 /** 测试文件不算“行为改动”。 */
 const TEST_FILE = /\.test\.ts$/
+
+/**
+ * 在治理平面里、但**没有任何快照场景能观测**的例外。
+ *
+ * 与 `SENSITIVE` 的区别是语义，不是目录：这些文件在治理平面内，但它们的行为
+ * **不出现在 `session.jsonl` / `llm.jsonl` 里**，于是"重录一个场景"证明不了任何事——
+ * 把它们挂到某个场景的 `coveredSources` 上才是真正的假仪式（声称覆盖，对话根本没跑到）。
+ *
+ * 三类，各自的判据不同：
+ * - `barrel`：纯再导出。**结构性校验**（`isPureBarrel`）：一旦往里写逻辑，门禁立刻红，
+ *   豁免自动失效——不靠人记着；
+ * - `offline`：离线读取器。只被 CLI 子命令与脚本调用，不进主循环（先例 `chain/audit-report.ts`）；
+ * - `unreachable`：在治理平面内，但当前装配下没有确定性路径能触发它。
+ *
+ * 后两类必须给 `backing`：**存在的**测试文件，且文件里至少有一条 `expect(`。
+ * 豁免可以存在，但必须有人真的为它写断言；删测试或清空断言会让门禁红，而不是静默降级。
+ *
+ * 名单必须一条一条写清理由，不按目录通配：`persistence/src/chain/` 里还有**写链**的代码，
+ * `packages/saga/src/` 里还有正向编排，那些都是真行为面。
+ */
+interface Exemption {
+  /** 精确路径（不按目录通配：同目录里往往还有真行为面）。 */
+  readonly file: string
+  readonly kind: 'barrel' | 'offline' | 'unreachable'
+  readonly reason: string
+  /** 背书面（测试文件相对路径）；`barrel` 不需要——它的判据是结构，不是断言。 */
+  readonly backing?: string
+}
+
+const EXEMPT: readonly Exemption[] = [
+  {
+    file: 'packages/persistence/src/chain/audit-report.ts',
+    kind: 'offline',
+    reason:
+      '只被 `bah audit` 与脚本调用：读已落盘的链做只读审计，不参与模型可见内容、不影响资金动作',
+    backing: 'packages/persistence/src/chain/audit-report.test.ts',
+  },
+  {
+    file: 'packages/persistence/src/replay/index.ts',
+    kind: 'offline',
+    reason:
+      '离线重放读取器：入口只有 `scripts/replay.ts` 与 `bah audit --replay`，会话主循环不引用它',
+    backing: 'packages/eval/tests/replay/replay.test.ts',
+  },
+  {
+    file: 'packages/persistence/src/index.ts',
+    kind: 'barrel',
+    reason: '纯再导出（`export * from`），自身零逻辑',
+  },
+  {
+    file: 'packages/safety/src/index.ts',
+    kind: 'barrel',
+    reason: '纯再导出（`export * from`），自身零逻辑',
+  },
+  {
+    file: 'packages/saga/src/compensation/index.ts',
+    kind: 'unreachable',
+    reason:
+      '补偿调度只在"saga 步骤在 preflight 之后失败"时进入；当前唯一配方（transfer_create = ' +
+      'preview + create）的失败一律先被 `safety:sentry` 在 `tools/pre-execute` 拦下（实测：' +
+      '超限金额那笔 `transfer_create` 根本没到 `tools/execute`，saga 事务不会创建），' +
+      '所以任何快照场景都到不了这段代码',
+    backing: 'packages/saga/src/compensation/compensation.test.ts',
+  },
+  {
+    file: 'packages/llm/src/deepseek/adapter.ts',
+    kind: 'unreachable',
+    reason:
+      '快照场景一律装配 mock provider（确定性、零外呼）；deepseek 适配器的行为只能在真实网络下观察，' +
+      '录制阶段没有确定性路径能触发它。把 deepseek/ 挂进 coveredSources 属于假覆盖——会话根本没走到这里。' +
+      '背书面是 adapter.test.ts 的 21 条断言（429/5xx 退避、超时两相位、取消、计价、SSE 边界）',
+    backing: 'packages/llm/src/deepseek/adapter.test.ts',
+  },
+  {
+    file: 'packages/llm/src/deepseek/wire.ts',
+    kind: 'unreachable',
+    reason:
+      '同上：SSE/wire 编解码只被 deepseek 适配器在真实外呼里调用，快照装配走 mock provider 不经过它；' +
+      '背书面是 wire.test.ts 的逐分片映射断言（含缓存命中字段缺省语义）',
+    backing: 'packages/llm/src/deepseek/wire.test.ts',
+  },
+]
 
 interface SnapshotCase {
   readonly name: string
@@ -60,6 +144,12 @@ const gate: Gate = {
 
     const notes = [`基线：${baseline.source}；改动 ${changed.files.length} 个文件（含未跟踪）`]
 
+    // 豁免名单自己也要被审：barrel 必须仍是 barrel，其余必须真有测试兜着。
+    // 放在最前面是有意的——名单坏了比快照过期更严重（它会让后面所有判定都失去意义）。
+    const audit = auditExemptions(root)
+    if (audit.findings.length > 0) return { ok: false, findings: audit.findings, notes }
+    for (const line of audit.notes) notes.push(line)
+
     if (changed.files.length === 0) {
       if (allowSkip && !isCi) {
         notes.push('工作树干净；BAH_ALLOW_NO_SNAPSHOT=1 显式放行（仅本地）')
@@ -76,7 +166,10 @@ const gate: Gate = {
     }
 
     const sensitive = changed.files.filter(
-      (file) => !TEST_FILE.test(file) && SENSITIVE.some((pattern) => pattern.test(file)),
+      (file) =>
+        !TEST_FILE.test(file) &&
+        SENSITIVE.some((pattern) => pattern.test(file)) &&
+        !EXEMPT.some((entry) => entry.file === file),
     )
     if (sensitive.length === 0) {
       notes.push('未触及治理平面，无需快照')
@@ -158,6 +251,90 @@ const gate: Gate = {
 
     return { ok: true, findings: [], notes }
   },
+}
+
+/**
+ * 审一遍豁免名单本身。
+ *
+ * 三条判据，都是**可判红**的：
+ * 1. 被豁免的文件必须真的存在（删了/改名了就红，不留死条目）；
+ * 2. `barrel` 必须仍只含再导出（往 barrel 里写逻辑 → 红，豁免失效）；
+ * 3. `offline` / `unreachable` 必须给出存在且含 `expect(` 的测试文件。
+ *
+ * 每次跑门禁都会把整份名单打进 notes：它是一份**公开的账**，不是暗门。
+ */
+function auditExemptions(root: string): { findings: string[]; notes: string[] } {
+  const findings: string[] = []
+  const notes: string[] = [`豁免名单 ${EXEMPT.length} 条（逐条带理由，见 scripts/verify-snapshot-fresh.ts）：`]
+
+  for (const entry of EXEMPT) {
+    const absolute = join(root, entry.file)
+    if (!existsSync(absolute)) {
+      findings.push(`豁免条目指向不存在的文件：${entry.file}（删掉该条或改对路径）`)
+      continue
+    }
+
+    if (entry.kind === 'barrel') {
+      const source = readText(absolute) ?? ''
+      if (!isPureBarrel(source)) {
+        findings.push(
+          `${entry.file}: 声明为 barrel 豁免，但文件里出现了再导出之外的代码 —— ` +
+            '豁免失效，请补 `coveredSources` 与重录',
+        )
+        continue
+      }
+      notes.push(`· [barrel] ${entry.file}`)
+      continue
+    }
+
+    if (entry.backing === undefined) {
+      findings.push(`${entry.file}: ${entry.kind} 豁免必须给 backing（背书面测试文件）`)
+      continue
+    }
+    const backingPath = join(root, entry.backing)
+    if (!existsSync(backingPath)) {
+      findings.push(`${entry.file}: backing 不存在 —— ${entry.backing}`)
+      continue
+    }
+    const backingSource = readText(backingPath) ?? ''
+    if (!/expect\s*\(/.test(backingSource)) {
+      findings.push(`${entry.file}: backing ${entry.backing} 里没有 expect(，等于没人为它断言`)
+      continue
+    }
+    notes.push(`· [${entry.kind}] ${entry.file} ← ${entry.backing}`)
+  }
+
+  return { findings, notes }
+}
+
+/**
+ * 是否只做再导出。
+ *
+ * 取向保守：只认 `export …` 开头的语句（含 `export *` / `export type {…} from`），
+ * 其余任何一行（含 `const` / `function` / `if` / 裸调用）都判"不是 barrel"——
+ * 宁可让 barrel 豁免失效，不可放行一个偷偷带逻辑的入口。
+ */
+function isPureBarrel(source: string): boolean {
+  let inExportBlock = false
+  for (const raw of source.split('\n')) {
+    const line = raw.trim()
+    if (line === '' || line.startsWith('//') || line.startsWith('*') || line.startsWith('/*')) continue
+    // `export { … } from` 可以跨行：块内除了收尾的 `}` 之外不要求带 `export`。
+    if (inExportBlock) {
+      if (line.includes('}')) inExportBlock = false
+      continue
+    }
+    if (!line.startsWith('export ')) return false
+    // 只认三种再导出形态：`export *`、`export {…}`、`export type {…}`。
+    // `export const/function/class/default` 都算逻辑，一律判"不是 barrel"
+    // —— 负例实测：`export const sneak = 1` 必须让这条豁免当场失效。
+    const rest = line.slice('export '.length).trim()
+    if (!(rest.startsWith('*') || rest.startsWith('{') || rest.startsWith('type {'))) return false
+    const open = line.split('{').length - 1
+    const close = line.split('}').length - 1
+    if (open > close) inExportBlock = true
+  }
+  return true
 }
 
 /**

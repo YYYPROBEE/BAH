@@ -26,6 +26,8 @@ export interface AnyHostPluginInput {
   readonly id: string
   readonly plugin: unknown
   readonly validate: (config: Readonly<Record<string, unknown>>) => unknown
+  /** 全部行完成单行校验后，再校验跨插件配置组合（例如 plan 预算与银行票据 TTL）。 */
+  readonly validateComposition?: (rows: readonly ValidatedRow[]) => void
 }
 
 /** 依赖清单里实际存储的擦除形态。 */
@@ -33,13 +35,21 @@ export interface AnyHostPlugin {
   readonly id: string
   readonly plugin: ErasedPlugin
   readonly validate: (config: Readonly<Record<string, unknown>>) => unknown
+  readonly validateComposition?: (rows: readonly ValidatedRow[]) => void
 }
 
 /** 把具体插件擦除成清单可存储的形态（幂等）。 */
 export function toAnyHostPlugin(input: AnyHostPluginInput | AnyHostPlugin): AnyHostPlugin {
   const plugin = input.plugin
   const erased = isErased(plugin) ? plugin : erasePlugin(plugin as PluginV2<never>)
-  return { id: input.id, plugin: erased, validate: input.validate }
+  return {
+    id: input.id,
+    plugin: erased,
+    validate: input.validate,
+    ...(input.validateComposition === undefined
+      ? {}
+      : { validateComposition: input.validateComposition }),
+  }
 }
 
 function isErased(plugin: unknown): plugin is ErasedPlugin {
@@ -65,6 +75,11 @@ export interface HostPlugin<P = unknown> {
    * @throws `BahError`（`bah-boot: ` 前缀）配置非法
    */
   readonly validate: (config: Readonly<Record<string, unknown>>) => P
+  /**
+   * 可选的跨行组合校验。只在所有行的 `validate` 都成功后执行，仍在创建 ctx 之前。
+   * 实现必须抛 `bah-boot: ` 错误；不得读环境或产生副作用。
+   */
+  readonly validateComposition?: (rows: readonly ValidatedRow[]) => void
 }
 
 /** 依赖清单：`use` → 插件项。 */
@@ -153,6 +168,9 @@ export class PluginManager {
         settings: this.validateConfig(row, host),
       })
     }
+
+    // 单行配置全部合法后再做组合校验：此时读取到的是最终生效值，而不是 patch 原文或手工镜像。
+    for (const row of validated) this.get(row.use).validateComposition?.(validated)
 
     return validated
   }

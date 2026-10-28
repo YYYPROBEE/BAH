@@ -31,7 +31,7 @@ function auditPayloads(h: PipelineHarness, type: string): Record<string, unknown
 }
 
 describe('T-TIER-005 跨 turn 累计', () => {
-  it('turn 2 的第二笔按账本累计（800 + 4400 > 5000）→ 升红', async () => {
+  it('turn 2 的第二笔按账本累计（800 + 300 > 1000）→ 升红', async () => {
     const h = createPipelineHarness({ approval: 'allowed-once' })
     try {
       h.session.append('turn/start', { turn: 1 })
@@ -39,7 +39,7 @@ describe('T-TIER-005 跨 turn 累计', () => {
       expect(first.result.isError).toBe(false)
 
       h.session.append('turn/start', { turn: 2 })
-      const second = await h.run('transfer_create', transfer(4_400))
+      const second = await h.run('transfer_create', transfer(300))
       expect(second.result.isError).toBe(false)
 
       const asked = payloads(h, 'approval/asked')
@@ -57,7 +57,7 @@ describe('T-TIER-005 跨 turn 累计', () => {
 })
 
 describe('T-TIER-006 换会话不重置', () => {
-  it('新会话的第二笔仍按同一本账累计（2000 + 3100 > 5000）→ 升红', async () => {
+  it('新会话的第二笔仍按同一本账累计（600 + 500 > 1000）→ 升红', async () => {
     const first = createPipelineHarness({
       approval: 'allowed-once',
       sessionId: 's-account-a',
@@ -70,10 +70,10 @@ describe('T-TIER-006 换会话不重置', () => {
       core: first.core,
     })
     try {
-      const one = await first.run('transfer_create', transfer(2_000))
+      const one = await first.run('transfer_create', transfer(600))
       expect(one.result.isError).toBe(false)
 
-      const two = await second.run('transfer_create', transfer(3_100))
+      const two = await second.run('transfer_create', transfer(500))
       expect(two.result.isError).toBe(false)
 
       const asked = payloads(second, 'approval/asked')

@@ -27,21 +27,21 @@ import type { AccountStatus, AccountType, TxnCategory } from '../core/model.ts'
 import { formatYuan, yuanToCents } from '../core/model.ts'
 
 /** 账户类型文案。 */
-const ACCOUNT_TYPE_LABEL: Readonly<Record<AccountType, string>> = {
+export const ACCOUNT_TYPE_LABEL: Readonly<Record<AccountType, string>> = {
   current: '活期',
   fixed: '定期',
   locked: '锁定',
 }
 
 /** 账户状态文案。 */
-const ACCOUNT_STATUS_LABEL: Readonly<Record<AccountStatus, string>> = {
+export const ACCOUNT_STATUS_LABEL: Readonly<Record<AccountStatus, string>> = {
   active: '正常',
   frozen: '冻结',
   closed: '销户',
 }
 
 /** 交易分类文案。 */
-const CATEGORY_LABEL: Readonly<Record<TxnCategory, string>> = {
+export const CATEGORY_LABEL: Readonly<Record<TxnCategory, string>> = {
   transfer: '转账',
   salary: '工资',
   consumption: '消费',

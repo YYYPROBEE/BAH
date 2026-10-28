@@ -54,26 +54,30 @@ CLI（headless）
 | GET | `/v1/breaker/{sessionId}` | 会话熔断状态与事件流 |
 | GET | `/panel/` | 证据面板（React 构建产物；未构建时 404，不影响 API） |
 
-鉴权：设置 `BAH_KNOWLEDGE_TOKEN` 后，所有 `/v1/*` 需要 `Authorization: Bearer <token>`；`/healthz` 不鉴权。默认只绑 `127.0.0.1`。
+鉴权（**fail-loud，没有匿名模式**）：`/healthz` 匿名；其余 `/v1/*` 一律要求
+`Authorization: Bearer <token>`。sidecar 启动时必须能拿到 `BAH_RAG_TOKEN_SECRET`（签名模式）
+或 `BAH_RAG_TOKEN` / `BAH_KNOWLEDGE_TOKEN`（演示模式）之一，否则**直接拒绝启动**
+（`RuntimeError: 认证未配置`），不会静默降级为匿名。默认只绑 `127.0.0.1`。
+
+> 演示用 `pnpm rag:dev`：未配置 token 时脚本会生成**一次性**演示 token（不落盘）并打印；
+> 同一个 token 要交给 host（`bank:knowledge` 默认读 `BAH_KNOWLEDGE_TOKEN`）。
+> `pnpm demo:rag` 会解析一次 token 并同时注入 sidecar 与 host，不需要手工复制。
 
 ### 示例
 
 ```bash
+# 若用 pnpm rag:dev 启动：把它打印的 token 导出到当前 shell；用 demo:rag 则无需手工步骤。
 curl -s http://127.0.0.1:7801/v1/answer \
+  -H "authorization: Bearer $BAH_KNOWLEDGE_TOKEN" \
   -H 'content-type: application/json' \
   -d '{
     "schemaVersion": "knowledge.v1",
-    "sessionId": "s-demo",
-    "query": "稳盈90天持有不满7天赎回费率是多少？",
-    "principal": {
-      "role": "retail",
-      "audience": "standard",
-      "channel": "headless",
-      "region": "CN-SH",
-      "now": "2026-10-19T12:00:00+08:00"
-    }
+    "query": "稳盈90天持有不满7天赎回费率是多少？"
   }'
 ```
+
+请求体**不能**带 `sessionId` / `principal` / `traceId`：身份、会话与 trace 全部由服务端
+从 Bearer token 的 claims 派生（`ApiModel` 是 `extra="forbid"`，多一个字段就是 422）。
 
 返回：
 
@@ -119,18 +123,21 @@ cd ../..
 pnpm rag:ingest
 
 # 3) 启动 sidecar（DeepSeek 生成需要 key；无 key 自动降级抽取式）
+#    认证是 fail-loud：脚本会生成一次性演示 token 并打印（不落盘）。
 DEEPSEEK_API_KEY=sk-... pnpm rag:dev
 # 浏览器打开 http://127.0.0.1:7801/panel/
+# host 在另一个终端时必须使用同一 token：export BAH_KNOWLEDGE_TOKEN=<rag:dev 打印的值>
 
 # 4) 另一个终端跑 CLI
 pnpm bah --profile headless --patch profiles/headless/patch-knowledge.yml \
   --prompt "稳盈90天持有不满7天赎回费率是多少？" --session s-rag-demo --jsonl .tmp-rag
 
-# 或一条命令（自动起停 sidecar）
+# 或一条命令（自动起停 sidecar，并给 sidecar 与 host 注入同一 token）
 pnpm demo:rag
 
 # 拒绝演示（VIP 产品对普通客群 → SCOPE_EMPTY）
-DEMO_PATCH=profiles/headless/patch-knowledge-refusal.yml DEMO_SESSION=s-rag-refusal pnpm demo:rag
+# 不写死 DEMO_SESSION：会话目录已存在时 JSONL 会拒绝覆写（demo:rag 默认按时间戳新建）
+DEMO_PATCH=profiles/headless/patch-knowledge-refusal.yml pnpm demo:rag
 ```
 
 预期输出：
@@ -165,7 +172,53 @@ bah: 知识卡
 
 - `mode: fixture` 时必填 `fixturePath`，指向 `packages/knowledge/fixtures/*.json`；不启 Python，用于快照/单测。
 - `required: false`：sidecar 不可达时只告警，工具返回 `knowledge-unavailable`；`required: true`：启动即失败。
+  告警走宿主 `bah:run` 的 `warn` 出口（CLI 接到 `io.err`），内容含 `baseUrl`、失败原因与"继续启动"的后果。
+  `--dump-config` 是"只看不跑"：CLI 传 `RunContext.probe=false`，连健康检查都不发（零网络、零 stderr）；
+  要确认 sidecar 是否真的在，用真实启动（`--serve` / `--prompt`）看告警，或直接 `curl <baseUrl>/healthz`。
+  `required: true` 属异常路径，不告警、直接拒启。
+- **token 必须两端一致**：`tokenEnv`（默认 `BAH_KNOWLEDGE_TOKEN`）为空时，`/healthz` 仍能过
+  （它匿名），但 `/v1/*` 会 401；宿主在探活成功后额外告警，工具以 `knowledge-denied` 明确拒绝，
+  不会静默返回空证据。空字符串按"未设置"处理。
+- **签名模式边界**：宿主目前只支持**静态 demo token**；设置 `BAH_RAG_TOKEN_SECRET` 会让
+  sidecar 要求签名 token，而宿主无法自签。`pnpm demo:rag` 遇到该变量会拒绝启动并说明原因；
+  `pnpm rag:dev` 只告警（sidecar 本身可用签名 token 联调）。生产签名链路需另行接入宿主签发。
 - `claims` 是演示档的权限映射；生产应由登录凭证绑定，插件只消费 `BANK_IDENTITY` 的 userId。
+
+### 4.1 签名门（W06）
+
+```yaml
+    signature:
+      enabled: true            # false = 关掉签名门（仅演示回滚；必须在 PROGRESS 登记）
+      manifestPath: packages/knowledge/fixtures/knowledge.manifest.json
+      corpusPath: packages/knowledge/fixtures/corpus.json
+```
+
+- **清单形状**：`{ schemaVersion, keyId, signedAt, files: [{ path, sha256, hmac, keyId, signedAt }], entries: [{ source, docId, chunkId, textSha256, hmac }] }`；
+  `files` 覆盖语料索引与 fixture，`entries` 覆盖 10 个 chunk（`source: corpus`）与 fixture 证据（`source: fixture`）。
+- **两级验签**：启动时校验文件 sha256 + HMAC（语料被整体替换 / 改了忘重签 → `invalid-config`，
+  错误点名文件）；每次检索命中逐条校验 `(docId, chunkId, text)` 的 sha256 + HMAC（服务端内容漂移 /
+  拼接伪造 → 该条不算命中，整条答案降级为拒答）。
+- **引用覆盖**：citation 必须绑到**同一条已签名 evidence**——同 `docId` + 同 `marker` +
+  落在其字符区间内。允许子区间（真实 sidecar 的 evidence 是整段 chunk，citation 只是命中的
+  那一句），零长度 / 越界 / 换 marker / 跨文档一律拒答。
+- **诚实边界**：条目验签证明"证据来自签名清单"，**不证明答案文本与引用一致**；后者由 sidecar
+  的 verify（字面 span / 蕴含 / 数值对账）负责，宿主侧不重复实现。
+- **拒答语义**：`kind: 'refusal'`、`verdict: 'RED'`、`reasonCode: 'signature-invalid'`，
+  复用既有 `knowledge/answered` 事件（**不新增事件类型**）。
+- **密钥**：只从 `BAH_KNOWLEDGE_KEY` 读，缺失即 `invalid-config`（库代码无默认密钥）。
+  本地 `export BAH_KNOWLEDGE_KEY=$(cat .secrets/knowledge.key)`；演示脚本显式注入
+  `demo-key-not-for-prod` 并打印警告；CI 在 workflow `env:` 注入固定测试密钥。
+  `profiles/*.yml` **不得**写密钥（会进 git）。无 KMS/HSM，生产必须换独立密钥并重签。
+- **生成与检查**：
+
+  ```bash
+  npx tsx scripts/sign-knowledge.ts --from-sqlite   # 从 RAG SQLite 重新导出 10 篇语料索引（开发机）
+  pnpm knowledge:sign                               # 用当前 BAH_KNOWLEDGE_KEY 重新签名
+  pnpm knowledge:sign --check                       # CI：只检查，不改文件
+  ```
+
+- **诚实边界**：语料只有 **10 篇 / 10 chunks**，"10/10 通过"不构成覆盖面证据（K-6 未接）；
+  HMAC 是对称完整性校验，不是来源认证。
 
 ## 5. 工具契约
 
@@ -209,3 +262,4 @@ Python 侧的锚点：
 | K-6 | 真实语料解析未接 | 只有 10 篇 demo | **记账，确认以后干**：PDF/DOCX/XLSX + 结构分块 + 哨兵 |
 | K-7 | FTS5 trigram 对长中文问句召回弱 | 混合检索实际由向量通道兜底 | 可选：jieba 分词或 2-4 gram 展开；当前不影响演示题库 |
 | K-8 | 向量绝对距离闸 0.45 为 demo 语料实测值 | 换语料/换模型需重标 | 配置项 `VECTOR_MAX_DISTANCE`，黄金集首跑后校准 |
+| K-9 | 签名清单基于 **10 篇 demo 语料**（`corpus.json` 由 SQLite 导出） | 真实语料接入后必须重跑 `pnpm knowledge:sign`，否则启动 fail-loud | W06 已落地；重签命令与 CI 检查见 §4.1 |

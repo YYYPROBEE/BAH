@@ -9,10 +9,12 @@
 |---|---|---|---|---|
 | ① | `tool/call`（执行前） | `pipeline.ts` | `tool/call` | — |
 | ② | `presentCall(args)` | 工具定义（纯函数） | — | 工具体作者 |
+| ②e | **入参契约校验**（`argsSchema`） | `pipeline.ts` + `contracts.ts` | — | runtime 端口；宿主注入（W03） |
 | ③ | `tools/pre-execute`（waterfall） | **判决平面**：危险规则 → PII → 预算 → 断路器 → 三级权限 | — | 施工单 09/10（**唯一阻断点**） |
 | ③e | ask → 签票据 → `approval/request` | `pipeline.ts` | `approval/asked` / `approval/decided` | 施工单 09 + 渠道（13/14/15） |
 | ④ | 单调 guard | `guard.ts` | — | 内核（插件无权绕过） |
 | ⑤ | `tools/execute`（waterfall 环绕） | 工具体 | — | 施工单 11（沙箱/超时）、05（重试/指标） |
+| ⑤e | **出参契约校验**（`resultSchema`） | `pipeline.ts` + `contracts.ts` | — | 同上（W03） |
 | ⑥ | `projectContent` → `tools/post-execute` | 工具定义 + 后置平面 | — | 施工单 10（脱敏/改写/纠正上下文） |
 | ⑦ | 归一化 → `finalizeContent` → `tools/result`(emit) → `tool/result` → `additionalContexts` → `presentResult` | `pipeline.ts` | `tool/result`、`user/message` | 工具体作者（presenter） |
 
@@ -146,7 +148,44 @@ try {
 
 补记的 `code = 'tool-interrupted'`，与"执行失败"（`tool-failed`）在审计里可区分。
 
-## 8. 铁律
+## 8. 契约校验的两个插点（W03 G-1）
+
+工具契约（`argsSchema` / `resultSchema`）由**宿主注入**：runtime 只定义
+`TOOL_CONTRACTS` 端口（`packages/runtime/src/tools/contracts.ts`），
+`bank:tools` 在 `packages/host/src/boot/plugins/bank-tools.ts` 里用
+`specOf(name).schema` + `BANK_RESULT_SCHEMAS[name]` 提供实现。runtime 全程不认识 bank（R-1 未破）。
+
+| 插点 | 精确位置 | 失败码 | 失败后的行为 |
+|---|---|---|---|
+| **②e 入参** | ①`tool/call` 落账之后、②`presentCall` 之后、③`pre-execute` **之前** | `tool-args-invalid` | 直接返回 `isError` 结果：**不签票据、不进审批、不跑工具体**；`tool/call` 仍在（审计要留下"模型发了什么"） |
+| **⑤e 出参** | ⑤`tools/execute` 返回之后、⑥`projectContent` **之前** | `tool-result-invalid` | 置 `isError = true`，落账的 `tool/result` 自然带错；不进入 `post-execute` 的"成功"分支 |
+
+**两个位置的理由**（顺序错了就是安全缺陷，不是风格问题）：
+
+- ②e 若放在 ① 之前 → 审计里没有非法参数的 `tool/call`（TC-W03-09 红）；
+- ②e 若放在 ③ 之后 → 票据可能已签发，等于"批了才发现参数错"（TC-W03-01 红）；
+- ⑤e 若缺失 → 模型会拿着**不合格的出参**继续决策，而审计里只有一条成功的 `tool/result`
+  ——这是全仓最危险的"假成功"形状（TC-W03-04）。
+
+**错误码边界**：这两个码**不进** `guard`、**不计入** deny 统计，也不参与"越权拦截率"。
+`reject()` 的语义是"治理面判 deny"；契约不合法是"模型发错了参数"，混进去会让赛题指标失真。
+`invalid()` 与 `reject()` 因此是两条路径（`pipeline.ts` 的 `invalid()` 单独实现）。
+
+**不泄露值本体**：失败文案由 `describeViolation()` 只拼 `path + detail`
+（例如 `（/amount）契约校验失败：必须大于 0`），**不回显参数值**——文案会进模型上下文与审计，
+回显金额/账号等于把 PII 写进日志（宪法 §4）。
+
+**缺省不校验**：`TOOL_CONTRACTS` 未提供时 `findToolContracts()` 返回 `undefined`，管线跳过校验。
+这是为纯内核 profile 保留的向后兼容；反过来说，**任何会跑银行工具的 profile 必须显式提供本服务**，
+否则等于校验没通电（宿主侧有"boot 后可取到契约"的通电用例守着）。
+
+**校验器范围**：`packages/util/src/tool-contract-validate.ts` 是零依赖纯函数，**不抛错**，
+只返回第一个 `ToolContractViolation`。支持 `type` / `required` / `enum` / `minimum` / `maximum` /
+`exclusiveMinimum` / `exclusiveMaximum` / `minLength` / `maxLength` / `pattern` / `multipleOf` /
+`properties` / `items` / `additionalProperties: false`。`amount` 的"必须 > 0、最多两位小数"
+就是靠 `exclusiveMinimum: 0` + `multipleOf: 0.01` 表达（TC-W03-02）。
+
+## 9. 铁律
 
 1. 七段顺序不可重排（改 = 破坏性变更）；
 2. presenter（`presentCall` / `presentResult` / `projectContent` / `finalizeContent`）是**纯函数**：

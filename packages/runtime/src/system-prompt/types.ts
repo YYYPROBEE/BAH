@@ -31,19 +31,40 @@ export interface ToolDescriptor {
 /** 渠道（语气与长度适配，施工单 05 §4 的 `style` 段）。 */
 export type ChannelKind = 'web' | 'mobile' | 'im' | 'desktop' | 'headless' | 'sdk'
 
+/** 账户槽位（展示用；金额已由边界格式化，运行时不做任何金额运算）。 */
+export interface RuntimeContextAccountView {
+  /** 受控文案：活期 / 定期 / 锁定 */
+  readonly name: string
+  /** 脱敏尾号：只允许数字，最多 4 位 */
+  readonly maskedNumber: string
+  /** 必须由 `formatYuan(cents)` 产出（如 `¥12,345.67`）；禁止 toFixed/浮点 */
+  readonly balanceText: string
+  /** 同上 */
+  readonly availableText: string
+  /** 受控文案：正常 / 冻结 / 销户 */
+  readonly statusText?: string
+}
+
 /** 运行时上下文视图（`runtime.context` 段的输入；**不进 system 头**）。 */
 export interface RuntimeContextView {
   readonly user?: {
     readonly name?: string
     readonly level?: string
   }
-  readonly accounts?: readonly {
-    readonly name: string
-    readonly maskedNumber: string
-    readonly balance: number
-  }[]
+  readonly accounts?: readonly RuntimeContextAccountView[]
+  /** 受控模板生成的单行；**禁止**自由文本（收款人/商户名/备注） */
   readonly recentTransactions?: readonly string[]
   readonly notes?: readonly string[]
+  /**
+   * 只有运行时 provider 才会写；静态 profile 不写（保证旧输出逐字不变）。
+   */
+  readonly meta?: {
+    readonly source: 'bank'
+    readonly status: 'ok' | 'unbound' | 'degraded'
+    readonly code?: string
+    /** 边界格式化好的 `YYYY-MM-DD HH:mm`（+8），运行时只排版 */
+    readonly asOfText?: string
+  }
 }
 
 /** 一次装配的输入。 */

@@ -1,0 +1,13 @@
+# plan（编排原语 `plan:dag` 的专用 profile）
+#
+# - bundles: [base] —— 与 headless 同底座：会话/工具/模型/主循环/持久化都在
+# - patch: 把模型换成确定性 router、绑定 demo 身份、**关掉 saga-bridge**、插入 plan:dag
+# - hmr: false —— 计划执行是同步长事务，热重载没有收益（改配置就重启）
+#
+# 为什么单独一个 profile 而不是塞进 headless：`plan:dag` 会接管"多步编排"这件事，
+# 与"模型自己决定调什么工具"是两种运行方式。混在一个 profile 里，
+# 演示时说不清"这一步到底是模型调的，还是计划调的"。
+name: plan
+bundles: [base]
+patch: ./patch.yml
+hmr: false

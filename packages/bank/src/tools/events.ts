@@ -29,6 +29,7 @@ import type {
 import type { SessionId, ToolTierLevel } from '@bah/core'
 
 import type { IdentityBoundData } from './identity.ts'
+import type { PolicyEvidence } from './policy.ts'
 import type { TierReason } from './tier.ts'
 
 /** 银行领域事件的数据表（`SessionEventMap` 的增强内容）。 */
@@ -51,6 +52,19 @@ export interface BankSessionEventMap {
     readonly code?: string
     /** 判决时刻（注入时钟）。 */
     readonly at: number
+    /**
+     * 策略版本（策略外置 S2）。legacy 判决写 `legacy`，bundle 写
+     * `name/version+sha256:<16>`；早拒路径写"当前生效版本"（不是空串）。
+     */
+    readonly policyVersion?: string
+    /** 命中的规则 ID（含默认行）；legacy 与早拒路径为 `[]`。 */
+    readonly ruleIds?: readonly string[]
+    /** 参数摘要（`sha256:<64 hex>`）：回答"当时用的哪组阈值"。 */
+    readonly paramsDigest?: string
+    /** 判决来源：`legacy`（tier.ts）| `bundle`（外置规则）。 */
+    readonly engineSource?: 'legacy' | 'bundle'
+    /** 判决证据（仅 bundle 模式；去 PII，只含枚举与整数分）。 */
+    readonly evidence?: PolicyEvidence
   }
   /** 账户列表已读取。 */
   'read/accounts': { readonly result: AccountsResult }
@@ -96,6 +110,19 @@ export interface BankSessionEventMap {
     readonly reason: string
     readonly at: number
   }
+  /** 银行卡挂失（ADR-0003；红档写操作）。 */
+  'card/reported-lost': {
+    readonly cardId: string
+    readonly tail: string
+    readonly status: 'lost'
+    readonly at: number
+  }
+  /** 取消自动扣款订阅（ADR-0003；黄档写操作）。 */
+  'sub/cancelled': {
+    readonly subscriptionId: string
+    readonly merchant: string
+    readonly at: number
+  }
 }
 
 declare module '@bah/core' {
@@ -124,6 +151,8 @@ export const BANK_SESSION_EVENT_TYPES = [
   'verify/ushield',
   'verify/locked',
   'ticket/ledger-failed',
+  'card/reported-lost',
+  'sub/cancelled',
 ] as const satisfies readonly BankSessionEventType[]
 
 /**

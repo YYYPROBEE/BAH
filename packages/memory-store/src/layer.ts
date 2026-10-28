@@ -41,6 +41,16 @@ export const DEFAULT_MAX_K = 8
 /** 个人客户权限矩阵上限（§7.2 fail-closed）。 */
 export const DEFAULT_SENSITIVITY_CEILING = 2
 
+/**
+ * 占位影子核验端口：永远返回 `null`（"没有权威状态可覆盖"）。
+ *
+ * 影子核验（M3）落地前，宿主用它显式声明"端口在、实现没在"；接真实账本时
+ * 换成 `createBankQuery(...)`（`adapters/bank-query.ts`），调用方签名不变。
+ * 放在包里而不是各宿主各写一份闭包：这种"永远 null"的端口不该让每个宿主
+ * 自己复制一遍（也避免宿主覆盖率名单里出现一个永远不可能被调用的函数）。
+ */
+export const NULL_BANK_QUERY: BankQuery = () => Promise.resolve(null)
+
 export interface MemoryLayerOptions {
   /** sqlite 文件路径；`:memory:` 仅用于测试。 */
   readonly dbPath: string

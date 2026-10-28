@@ -6,10 +6,10 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { asSessionId, createTestContext } from '@bah/test-support'
+import { asSessionId, createTestContext, fixedClock } from '@bah/test-support'
 import type { TicketId } from '@bah/core'
 
-import { createDeps, createPipelineHarness, TEST_CONFIG, type AuditRecord } from './testing.ts'
+import { createDeps, createPipelineHarness, primaryAccountId, TEST_CONFIG, type AuditRecord } from './testing.ts'
 import { provideBankGovernance, type TicketLifecycle } from './governance.ts'
 import { VerifyService } from '../verify/index.ts'
 
@@ -81,7 +81,8 @@ describe('T-TOOLS-002 黄级票据', () => {
       expect(asked[0]?.['challenge']).toBeUndefined()
       expect(payloads(h, 'approval/decided')[0]?.decision).toBe('allowed-once')
       expect(h.core.tickets.size).toBe(1)
-      expect(h.core.tickets.status('ticket:c-1' as TicketId)).toBe('redeemed')
+      // 票据 ID 已是随机 UUID：从 approval/asked 里取，不再按 callId 拼
+      expect(h.core.tickets.status(asked[0]?.['ticketId'] as TicketId)).toBe('redeemed')
       expect(auditPayloads(h, 'transfer/created')).toHaveLength(1)
       expect(auditPayloads(h, 'transfer/created')[0]?.result).toMatchObject({ amountCents: 80_000 })
     } finally {
@@ -103,7 +104,7 @@ describe('T-TOOLS-003 日累计升红', () => {
       const asked = payloads(h, 'approval/asked')
       expect(asked).toHaveLength(1)
       expect(asked[0]?.['challenge']).toBe(TEST_CONFIG.redChallenge)
-      expect(h.core.tickets.status('ticket:c-1' as TicketId)).toBe('redeemed')
+      expect(h.core.tickets.status(asked[0]?.['ticketId'] as TicketId)).toBe('redeemed')
     } finally {
       await h.dispose()
     }
@@ -134,7 +135,8 @@ describe('审批失败路径', () => {
 
       expect(execution.result.isError).toBe(true)
       expect(execution.result.code).toBe('approval-unavailable')
-      expect(h.core.tickets.status('ticket:c-1' as TicketId)).toBe('blocked')
+      const asked = payloads(h, 'approval/asked')
+      expect(h.core.tickets.status(asked[0]?.['ticketId'] as TicketId)).toBe('blocked')
       expect(auditPayloads(h, 'transfer/created')).toHaveLength(0)
       expect(h.audits.some((record) => record.type === 'transfer/created')).toBe(false)
     } finally {
@@ -147,7 +149,8 @@ describe('审批失败路径', () => {
     try {
       const execution = await h.run('transfer_create', TRANSFER_800)
       expect(execution.result.code).toBe('approval-rejected')
-      expect(h.core.tickets.status('ticket:c-1' as TicketId)).toBe('blocked')
+      const asked = payloads(h, 'approval/asked')
+      expect(h.core.tickets.status(asked[0]?.['ticketId'] as TicketId)).toBe('blocked')
       expect(payloads(h, 'approval/decided')[0]?.decision).toBe('rejected')
     } finally {
       await h.dispose()
@@ -343,6 +346,78 @@ describe('票据记账旁路：账本异常不改写主流程', () => {
       ).not.toThrow()
     } finally {
       await test.dispose()
+    }
+  })
+})
+
+describe('W12 执行 lease（治理平面 → bank-core 核销点）', () => {
+  it('TC-W12-01 lease 过期后核销 → ticket-expired，余额一分不动、无 transfer/created', async () => {
+    const clock = fixedClock({ start: 5_000_000, step: 10 })
+    const h = createPipelineHarness({
+      approval: 'allowed-once',
+      lease: { enforce: true, ttlMs: 1_000 },
+      clock,
+    })
+    try {
+      const accountId = await primaryAccountId(h.core)
+      const before = await h.core.balance(accountId)
+
+      // 审批已在 ⑤ 之前完成；这里模拟"排队排过了 lease 窗口"再落地执行
+      h.ctx.events.on('tools/execute', async (run, next) => {
+        clock.advance(2_000)
+        return next(run)
+      })
+
+      const execution = await h.run('transfer_create', TRANSFER_800)
+
+      expect(execution.result.isError).toBe(true)
+      expect(execution.result.code).toBe('ticket-expired')
+      expect(await h.core.balance(accountId)).toMatchObject({
+        balanceCents: before.balanceCents,
+        availableCents: before.availableCents,
+      })
+      expect(auditPayloads(h, 'transfer/created')).toHaveLength(0)
+
+      const asked = payloads(h, 'approval/asked')[0]!
+      expect(h.core.tickets.status(asked['ticketId'] as TicketId)).toBe('blocked')
+    } finally {
+      await h.dispose()
+    }
+  })
+
+  it('lease 窗口被写进 bank-core 五绑定：expiresAt 收紧到 ≤ 签发时刻 + lease TTL', async () => {
+    const clock = fixedClock({ start: 5_000_000, step: 10 })
+    const h = createPipelineHarness({
+      approval: 'allowed-once',
+      lease: { enforce: true, ttlMs: 1_000 },
+      clock,
+    })
+    try {
+      await h.run('transfer_create', TRANSFER_800)
+      const asked = payloads(h, 'approval/asked')[0]!
+      const record = h.core.tickets.get(asked['ticketId'] as TicketId)!
+      expect(record.binding.expiresAt - record.issuedAt).toBe(1_000)
+      // 票据本身 TTL 是 120s（TEST_CONFIG）：lease 确实更紧，而不是把 TTL 抄了一遍
+      expect(record.binding.expiresAt).toBeLessThan(clock.now() + TEST_CONFIG.ticketTtlSeconds * 1_000)
+    } finally {
+      await h.dispose()
+    }
+  })
+
+  it('enforce:false 回滚：五绑定回落到票据 TTL（lease 不参与）', async () => {
+    const clock = fixedClock({ start: 5_000_000, step: 10 })
+    const h = createPipelineHarness({
+      approval: 'allowed-once',
+      lease: { enforce: false, ttlMs: 1_000 },
+      clock,
+    })
+    try {
+      await h.run('transfer_create', TRANSFER_800)
+      const asked = payloads(h, 'approval/asked')[0]!
+      const record = h.core.tickets.get(asked['ticketId'] as TicketId)!
+      expect(record.binding.expiresAt - record.issuedAt).toBeGreaterThan(60_000)
+    } finally {
+      await h.dispose()
     }
   })
 })

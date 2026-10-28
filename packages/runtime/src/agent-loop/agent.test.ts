@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 主循环状态机（施工单 04 §2 / §7 的 T-LOOP-001~011、T-LOOP-013）。
  *
  * 说明两件"看起来可以更优雅、但不许改"的事：
@@ -48,6 +48,9 @@ import { TOOLS_SERVICE, provideTools } from '../tools/index.ts'
 import type { ToolRegistry } from '../tools/index.ts'
 
 import { AgentLoop, outcomeOf, resolveAgentLoopConfig, resolveParams, stickyReason } from './agent.ts'
+import type { RuntimeContextProvider } from './agent.ts'
+import type { RuntimeContextInvocation } from '../system-prompt/port.ts'
+import type { RuntimeContextView } from '../system-prompt/types.ts'
 
 /** 正常工具：绿级、回显参数。 */
 const OK_TOOL: ToolDefinition = {
@@ -83,8 +86,10 @@ interface HarnessOptions {
   readonly steps: readonly MockStep[]
   readonly config?: unknown
   readonly channel?: 'web' | 'mobile' | 'im' | 'desktop' | 'headless' | 'sdk'
-  /** 是否注入运行时上下文视图（默认注入，用来走 request/context 落账）。 */
+  /** 是否注入默认运行时上下文视图（默认注入，用来走 request/context 落账）。 */
   readonly runtime?: boolean
+  /** 自定义取数函数（优先于 `runtime`；异步 / 抛错 / 记录 invocation 都用它）。 */
+  readonly runtimeContext?: RuntimeContextProvider
   readonly sessionId?: string
   /** 包一层 adapter（T-LOOP-010 用）。 */
   readonly wrapAdapter?: (mock: MockLlmAdapter) => LlmAdapter
@@ -94,6 +99,8 @@ interface HarnessOptions {
   readonly prepare?: (harness: Harness) => void
   /** 包一层会话（B3 并行 flush 失败隔离用）。 */
   readonly wrapSession?: (session: SessionApi) => SessionApi
+  /** 入队前的全系统闸（W07 HALT）。 */
+  readonly beforeSend?: () => void
 }
 
 async function withHarness(
@@ -124,7 +131,12 @@ async function withHarness(
       config: options.config ?? { model: 'mock:mock-chat' },
       now: clock.now,
       ...(options.channel === undefined ? {} : { channel: options.channel }),
-      ...(options.runtime === false ? {} : { runtimeContext: () => ({ user: { name: '张三' } }) }),
+      ...(options.runtimeContext !== undefined
+        ? { runtimeContext: options.runtimeContext }
+        : options.runtime === false
+          ? {}
+          : { runtimeContext: () => ({ user: { name: '张三' } }) }),
+      ...(options.beforeSend === undefined ? {} : { beforeSend: options.beforeSend }),
     })
 
     const harness: Harness = {
@@ -197,7 +209,7 @@ describe('T-LOOP-001 完整 turn（mock provider）', () => {
         ])
         // 成本按 turn 汇总（mock 每步 100/20）
         expect(payloads(harness.events(), 'usage/summary')).toEqual([
-          { turn: 1, input: 200, output: 40, calls: 2 },
+          { turn: 1, input: 200, output: 40, calls: 2, cachedInput: 0, costMicroYuan: 0 },
         ])
         expect(payloads(harness.events(), 'turn/end')).toEqual([
           { turn: 1, reason: { kind: 'completed' } },
@@ -1312,6 +1324,61 @@ describe('T-LOOP-015 只读工具并行（P-P4）', () => {
     )
   })
 
+  it('D1：单批最多 8 个——9 个只读调用分两批，第 9 个不与前 8 个同时跑', async () => {
+    // 为什么钉这个：`MAX_PARALLEL_READS` 是"防打爆"的工程底线（模型一口气要 20 个只读调用时
+    // 全部同时打出去会吃光 CPU/句柄/上游配额）。它原本只有常量与注释、没有任何断言，
+    // 改坏了不会被任何用例拦住。这里的判据是"同时在跑的最大数"。
+    let active = 0
+    let maxActive = 0
+    const CALLS = 9
+    await withHarness(
+      {
+        steps: [
+          {
+            content: Array.from({ length: CALLS }, (_unused, index) => ({
+              kind: 'tool-call' as const,
+              id: `call-${String(index)}`,
+              name: 'probe_tool',
+              args: { index },
+            })),
+            finishReason: 'tool-calls',
+          },
+        ],
+        prepare: (harness) => {
+          harness.tools.register({
+            name: 'probe_tool',
+            description: '只读探针（记录并发度）',
+            schema: { type: 'object' },
+            tier: { level: 'green' },
+            sideEffect: 'read',
+            execute: async () => {
+              harness.session.appendDomain('read/probe', {}, { ignorable: true })
+              active += 1
+              maxActive = Math.max(maxActive, active)
+              // 让出一次事件循环：不 await 的话 9 个调用会顺序跑完，测不出并发
+              await new Promise((resolve) => setTimeout(resolve, 5))
+              active -= 1
+              return 'ok'
+            },
+          })
+        },
+      },
+      async (harness) => {
+        harness.loop.send('九个只读调用')
+        await harness.loop.run()
+
+        // 上限是 8：第 9 个必须等第一批收尾
+        expect(maxActive).toBe(8)
+        // 全部 9 个都执行了（上限不是丢弃），且结果按调用顺序落账
+        const results = payloads(harness.events(), 'tool/result')
+        expect(results).toHaveLength(CALLS)
+        expect(results.map((result) => result.callId)).toEqual(
+          Array.from({ length: CALLS }, (_unused, index) => `call-${String(index)}`),
+        )
+      },
+    )
+  })
+
   it('并行批次 flush 失败隔离：后续缓冲继续 flush，结果广播失败落审计，最终聚合报错', async () => {
     let active = 0
     let maxActive = 0
@@ -1387,6 +1454,250 @@ describe('T-LOOP-015 只读工具并行（P-P4）', () => {
         expect(auditAttempts).toBeGreaterThanOrEqual(2)
         expect(spy).toHaveBeenCalled()
         spy.mockRestore()
+      },
+    )
+  })
+})
+
+describe('beforeSend（W07 全系统闸）', () => {
+  it('闸抛错 → 输入不入队；放行后正常入队（闸不改变既有时序）', async () => {
+    let armed = true
+    await withHarness(
+      {
+        steps: [textStep('收到')],
+        beforeSend: () => {
+          if (armed) {
+            throw Object.assign(new Error('系统已 HALT'), { code: 'safety-halted' })
+          }
+        },
+      },
+      async (harness) => {
+        expect(() => harness.loop.send('这条不该入队')).toThrowError(/系统已 HALT/)
+        expect(harness.loop.inbox.pending).toBe(0)
+        expect(harness.types()).not.toContain('turn/start')
+
+        armed = false
+        harness.loop.send('这条可以入队')
+        expect(harness.loop.inbox.pending).toBe(1)
+        await harness.loop.run()
+        expect(harness.types()).toContain('turn/start')
+      },
+    )
+  })
+})
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 实体槽位：运行时上下文端口（S1 · ES-13…ES-17）
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+describe('实体槽位：运行时上下文解析（S1）', () => {
+  it('每个 step 调一次，invocation 带 turn / step / 当前 sessionId', async () => {
+    const calls: RuntimeContextInvocation[] = []
+    await withHarness(
+      {
+        steps: [textStep('好的')],
+        runtimeContext: (invocation) => {
+          calls.push(invocation)
+          return { user: { name: '张三' } }
+        },
+      },
+      async (harness) => {
+        harness.loop.send('你好')
+        await harness.loop.run()
+
+        expect(calls).toHaveLength(1)
+        expect(calls[0]?.sessionId).toBe(asSessionId('s-loop'))
+        expect(calls[0]?.turn).toBe(1)
+        expect(calls[0]?.step).toBe(1)
+        expect(calls[0]?.forkOf).toBeUndefined()
+        expect(typeof calls[0]?.now).toBe('function')
+      },
+    )
+  })
+
+  it('每 step 现算：两步返回不同视图 → 两段 request/context 不同（I3）', async () => {
+    let round = 0
+    await withHarness(
+      {
+        steps: [toolCallStep('call-1', 'ok_tool', { amount: 1 }), textStep('完成')],
+        runtimeContext: () => {
+          round += 1
+          return { user: { name: round === 1 ? '张三' : '李四' } }
+        },
+      },
+      async (harness) => {
+        harness.loop.send('查一下')
+        await harness.loop.run()
+
+        const contexts = payloads(harness.events(), 'request/context')
+        expect(contexts).toHaveLength(2)
+        expect(contexts[0]?.texts.join('')).toContain('张三')
+        expect(contexts[1]?.texts.join('')).toContain('李四')
+      },
+    )
+  })
+
+  it('解析挂起时 interrupt → 该 step 不提交 system/user/context', async () => {
+    let resolveLate: ((view: RuntimeContextView) => void) | undefined
+    let entered = false
+    await withHarness(
+      {
+        steps: [textStep('不该走到这里')],
+        runtimeContext: () =>
+          new Promise<RuntimeContextView>((resolve) => {
+            entered = true
+            resolveLate = resolve
+          }),
+      },
+      async (harness) => {
+        harness.loop.send('你好')
+        const running = harness.loop.turn()
+        await waitFor(() => entered)
+
+        harness.loop.interrupt('用户按下停止')
+        resolveLate?.({ user: { name: '张三' } })
+        const outcome = await running
+
+        expect(outcome).toEqual({ kind: 'aborted' })
+        expect(harness.types()).not.toContain('request/header')
+        expect(harness.types()).not.toContain('system/message')
+        expect(harness.types()).not.toContain('request/context')
+        expect(payloads(harness.events(), 'assistant/attempt')[0]?.status).toBe('cancelled')
+      },
+    )
+  })
+
+  it('解析抛普通 Error → turn failed（bug 是异常，不是降级值）', async () => {
+    await withHarness(
+      {
+        steps: [textStep('x')],
+        runtimeContext: () => {
+          throw new Error('boom')
+        },
+      },
+      async (harness) => {
+        harness.loop.send('你好')
+        const outcome = await harness.loop.turn()
+
+        expect(outcome).toEqual({ kind: 'failed', reason: '运行时上下文：boom' })
+        expect(payloads(harness.events(), 'assistant/attempt')[0]?.reason).toContain('运行时上下文')
+        expect(harness.types()).not.toContain('request/header')
+      },
+    )
+  })
+
+  it('解析拒绝时已 interrupt → 记 cancelled（取消优先于失败）', async () => {
+    let rejectLate: ((error: Error) => void) | undefined
+    let entered = false
+    await withHarness(
+      {
+        steps: [textStep('不该走到这里')],
+        runtimeContext: () =>
+          new Promise<RuntimeContextView>((_resolve, reject) => {
+            entered = true
+            rejectLate = reject
+          }),
+      },
+      async (harness) => {
+        harness.loop.send('你好')
+        const running = harness.loop.turn()
+        await waitFor(() => entered)
+
+        harness.loop.interrupt('用户按下停止')
+        rejectLate?.(new Error('端口忽略了取消'))
+        const outcome = await running
+
+        expect(outcome).toEqual({ kind: 'aborted' })
+        expect(payloads(harness.events(), 'assistant/attempt')[0]?.status).toBe('cancelled')
+        expect(harness.types()).not.toContain('request/header')
+      },
+    )
+  })
+
+  it('bank 视图 → 落 context/slots 事件，payload 不含 PII', async () => {
+    await withHarness(
+      {
+        steps: [textStep('好的')],
+        runtimeContext: () => ({
+          user: { name: '张三' },
+          accounts: [
+            {
+              name: '活期',
+              maskedNumber: '1234',
+              balanceText: '¥12,345.67',
+              availableText: '¥12,345.67',
+            },
+          ],
+          recentTransactions: ['2026-10-23 12:57 转出 ¥68.00（消费）'],
+          notes: ['演示数据'],
+          meta: { source: 'bank', status: 'ok', asOfText: '2026-10-28 12:57' },
+        }),
+      },
+      async (harness) => {
+        harness.loop.send('你好')
+        await harness.loop.run()
+
+        const slots = harness
+          .events()
+          .filter((event) => (event as { type: string }).type === 'context/slots')
+        expect(slots).toHaveLength(1)
+        expect(slots[0]?.data).toEqual({
+          source: 'bank',
+          status: 'ok',
+          accounts: 1,
+          transactions: 1,
+          asOfText: '2026-10-28 12:57',
+        })
+
+        const payload = JSON.stringify(slots[0]?.data)
+        expect(payload).not.toContain('张三')
+        expect(payload).not.toContain('1234')
+        expect(payload).not.toContain('¥')
+      },
+    )
+  })
+
+  it('静态视图（无 meta）→ 不落 context/slots', async () => {
+    await withHarness({ steps: [textStep('好的')] }, async (harness) => {
+      harness.loop.send('你好')
+      await harness.loop.run()
+
+      expect(
+        harness.events().filter((event) => (event as { type: string }).type === 'context/slots'),
+      ).toHaveLength(0)
+    })
+  })
+
+  it('fork：子 loop 的 invocation 是子会话，forkOf 是父会话（I12）', async () => {
+    const calls: RuntimeContextInvocation[] = []
+    await withHarness(
+      {
+        steps: [textStep('第一轮'), textStep('分叉后')],
+        runtimeContext: (invocation) => {
+          calls.push(invocation)
+          return { user: { name: '张三' } }
+        },
+      },
+      async (harness) => {
+        harness.loop.send('原会话')
+        await harness.loop.run()
+
+        const child = createTestContext()
+        try {
+          const forked = harness.loop.fork({
+            sessionId: asSessionId('s-forked'),
+            turn: 1,
+            ctx: child.ctx,
+          })
+          forked.send('分叉后')
+          await forked.run()
+
+          const forkedCall = calls[calls.length - 1]
+          expect(forkedCall?.sessionId).toBe(asSessionId('s-forked'))
+          expect(forkedCall?.forkOf).toBe(harness.session.sessionId)
+        } finally {
+          await child.dispose('fork-finished')
+        }
       },
     )
   })

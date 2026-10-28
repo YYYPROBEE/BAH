@@ -1,0 +1,330 @@
+tables:
+  - id: t-0
+    hit: first
+    rows:
+      - id: R-0-a
+        when: state.riskyCallsInTurn > 0
+        keep: true
+      - id: R-0-default
+        when: true
+        keep: true
+
+  - id: t-1
+    hit: first
+    rows:
+      - id: R-1-a
+        when: state.riskyCallsInTurn > 1
+        keep: true
+      - id: R-1-default
+        when: true
+        keep: true
+
+  - id: t-2
+    hit: first
+    rows:
+      - id: R-2-a
+        when: state.riskyCallsInTurn > 2
+        keep: true
+      - id: R-2-default
+        when: true
+        keep: true
+
+  - id: t-3
+    hit: first
+    rows:
+      - id: R-3-a
+        when: state.riskyCallsInTurn > 3
+        keep: true
+      - id: R-3-default
+        when: true
+        keep: true
+
+  - id: t-4
+    hit: first
+    rows:
+      - id: R-4-a
+        when: state.riskyCallsInTurn > 4
+        keep: true
+      - id: R-4-default
+        when: true
+        keep: true
+
+  - id: t-5
+    hit: first
+    rows:
+      - id: R-5-a
+        when: state.riskyCallsInTurn > 5
+        keep: true
+      - id: R-5-default
+        when: true
+        keep: true
+
+  - id: t-6
+    hit: first
+    rows:
+      - id: R-6-a
+        when: state.riskyCallsInTurn > 6
+        keep: true
+      - id: R-6-default
+        when: true
+        keep: true
+
+  - id: t-7
+    hit: first
+    rows:
+      - id: R-7-a
+        when: state.riskyCallsInTurn > 7
+        keep: true
+      - id: R-7-default
+        when: true
+        keep: true
+
+  - id: t-8
+    hit: first
+    rows:
+      - id: R-8-a
+        when: state.riskyCallsInTurn > 8
+        keep: true
+      - id: R-8-default
+        when: true
+        keep: true
+
+  - id: t-9
+    hit: first
+    rows:
+      - id: R-9-a
+        when: state.riskyCallsInTurn > 9
+        keep: true
+      - id: R-9-default
+        when: true
+        keep: true
+
+  - id: t-10
+    hit: first
+    rows:
+      - id: R-10-a
+        when: state.riskyCallsInTurn > 10
+        keep: true
+      - id: R-10-default
+        when: true
+        keep: true
+
+  - id: t-11
+    hit: first
+    rows:
+      - id: R-11-a
+        when: state.riskyCallsInTurn > 11
+        keep: true
+      - id: R-11-default
+        when: true
+        keep: true
+
+  - id: t-12
+    hit: first
+    rows:
+      - id: R-12-a
+        when: state.riskyCallsInTurn > 12
+        keep: true
+      - id: R-12-default
+        when: true
+        keep: true
+
+  - id: t-13
+    hit: first
+    rows:
+      - id: R-13-a
+        when: state.riskyCallsInTurn > 13
+        keep: true
+      - id: R-13-default
+        when: true
+        keep: true
+
+  - id: t-14
+    hit: first
+    rows:
+      - id: R-14-a
+        when: state.riskyCallsInTurn > 14
+        keep: true
+      - id: R-14-default
+        when: true
+        keep: true
+
+  - id: t-15
+    hit: first
+    rows:
+      - id: R-15-a
+        when: state.riskyCallsInTurn > 15
+        keep: true
+      - id: R-15-default
+        when: true
+        keep: true
+
+  - id: t-16
+    hit: first
+    rows:
+      - id: R-16-a
+        when: state.riskyCallsInTurn > 16
+        keep: true
+      - id: R-16-default
+        when: true
+        keep: true
+
+  - id: t-17
+    hit: first
+    rows:
+      - id: R-17-a
+        when: state.riskyCallsInTurn > 17
+        keep: true
+      - id: R-17-default
+        when: true
+        keep: true
+
+  - id: t-18
+    hit: first
+    rows:
+      - id: R-18-a
+        when: state.riskyCallsInTurn > 18
+        keep: true
+      - id: R-18-default
+        when: true
+        keep: true
+
+  - id: t-19
+    hit: first
+    rows:
+      - id: R-19-a
+        when: state.riskyCallsInTurn > 19
+        keep: true
+      - id: R-19-default
+        when: true
+        keep: true
+
+  - id: t-20
+    hit: first
+    rows:
+      - id: R-20-a
+        when: state.riskyCallsInTurn > 20
+        keep: true
+      - id: R-20-default
+        when: true
+        keep: true
+
+  - id: t-21
+    hit: first
+    rows:
+      - id: R-21-a
+        when: state.riskyCallsInTurn > 21
+        keep: true
+      - id: R-21-default
+        when: true
+        keep: true
+
+  - id: t-22
+    hit: first
+    rows:
+      - id: R-22-a
+        when: state.riskyCallsInTurn > 22
+        keep: true
+      - id: R-22-default
+        when: true
+        keep: true
+
+  - id: t-23
+    hit: first
+    rows:
+      - id: R-23-a
+        when: state.riskyCallsInTurn > 23
+        keep: true
+      - id: R-23-default
+        when: true
+        keep: true
+
+  - id: t-24
+    hit: first
+    rows:
+      - id: R-24-a
+        when: state.riskyCallsInTurn > 24
+        keep: true
+      - id: R-24-default
+        when: true
+        keep: true
+
+  - id: t-25
+    hit: first
+    rows:
+      - id: R-25-a
+        when: state.riskyCallsInTurn > 25
+        keep: true
+      - id: R-25-default
+        when: true
+        keep: true
+
+  - id: t-26
+    hit: first
+    rows:
+      - id: R-26-a
+        when: state.riskyCallsInTurn > 26
+        keep: true
+      - id: R-26-default
+        when: true
+        keep: true
+
+  - id: t-27
+    hit: first
+    rows:
+      - id: R-27-a
+        when: state.riskyCallsInTurn > 27
+        keep: true
+      - id: R-27-default
+        when: true
+        keep: true
+
+  - id: t-28
+    hit: first
+    rows:
+      - id: R-28-a
+        when: state.riskyCallsInTurn > 28
+        keep: true
+      - id: R-28-default
+        when: true
+        keep: true
+
+  - id: t-29
+    hit: first
+    rows:
+      - id: R-29-a
+        when: state.riskyCallsInTurn > 29
+        keep: true
+      - id: R-29-default
+        when: true
+        keep: true
+
+  - id: t-30
+    hit: first
+    rows:
+      - id: R-30-a
+        when: state.riskyCallsInTurn > 30
+        keep: true
+      - id: R-30-default
+        when: true
+        keep: true
+
+  - id: t-31
+    hit: first
+    rows:
+      - id: R-31-a
+        when: state.riskyCallsInTurn > 31
+        keep: true
+      - id: R-31-default
+        when: true
+        keep: true
+
+  - id: t-32
+    hit: first
+    rows:
+      - id: R-32-a
+        when: state.riskyCallsInTurn > 32
+        keep: true
+      - id: R-32-default
+        when: true
+        keep: true

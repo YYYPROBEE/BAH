@@ -46,8 +46,50 @@ const UPSTREAM_PATHS: readonly string[] = [
 
 const UPSTREAM_WHY = 'dsh 上游路径（对照表左列 / 落位坐标），不是本仓资产'
 
+/**
+ * 本仓**不发布**的内部件：按 `.git/info/exclude` 不入库，只在作者工作区存在。
+ *
+ * 为什么要单列一类：`PROGRESS.md` / 交接单 / 事实台账当初确实是按这些路径引用的，
+ * 而它们**永远不会**进仓库。两种修法里，改历史记录等于篡改当时的输入（`docs-consistency`
+ * 也是这个口径），所以只能把它们登记成"不是本仓资产"——和 `UPSTREAM_PATHS` 同类，
+ * 区别只是那些是别人仓库的坐标，这些是本仓自己的、但按提交纪律不入库。
+ *
+ * 代价写在这里，不假装它们存在：读者在 clone 里打不开这些路径。
+ */
+const PRIVATE_PLANNING_PATHS: readonly string[] = [
+  'docs/preflight-2026-10-25.md',
+  'docs/owners-2026-10-25.md',
+  'docs/capacity-plan-b-2026-10-25.md',
+  'docs/staffing-plan-2026-10-25.md',
+  'docs/one-person-plan-2026-10-25.md',
+  'docs/task-w10-2026-10-25.md',
+  'docs/next-three-w11-w12-w05-2026-10-26.md',
+  'docs/handoff-2026-10-25-w07-done.md',
+  'docs/handoff-2026-10-25-w08-done.md',
+  'docs/handoff-2026-10-25-w16-done.md',
+  'docs/handoff-2026-10-26-w20-next.md',
+]
+
+const PRIVATE_PLANNING_WHY =
+  '内部规划/交接件：按 .git/info/exclude 不入库，只在作者工作区存在（历史记录按当时路径引用，改文档等于篡改当时输入）'
+
 export const DOCS_PATH_EXCLUSIONS: readonly DocsPathExclusion[] = [
   ...UPSTREAM_PATHS.map((path) => ({ path, why: UPSTREAM_WHY })),
+  ...PRIVATE_PLANNING_PATHS.map((path) => ({ path, why: PRIVATE_PLANNING_WHY })),
+  // 运行期目录：内容一律不入库（`*.sqlite` 知识库、fastembed 模型缓存），
+  // 干净 clone 上本就不该有 —— `store.py:202` 自建父目录，容器按 `-v` 挂载宿主目录。
+  {
+    path: 'services/rag/data',
+    why: '运行期数据目录：内容是本地知识库（*.sqlite 已忽略），store.py 自建父目录、容器按 -v 挂载，干净 clone 上不该有',
+  },
+  {
+    path: 'services/rag/models',
+    why: '运行期模型缓存目录：fastembed 首次运行自建，内容不入库',
+  },
+  {
+    path: 'services/rag/models/',
+    why: '同上；门禁按精确串匹配，文档里带尾斜杠的写法需单列',
+  },
   {
     path: 'snapshots/tsconfig.json',
     why: 'PROGRESS R25 登记的待补配置：快照面目前只经 vitest 转译，阶段 7 扩 harness 时才补',

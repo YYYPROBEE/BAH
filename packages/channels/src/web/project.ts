@@ -31,7 +31,7 @@ import type {
 import { frameKey } from './frames.ts'
 import { auditOf } from './audit.ts'
 import { buildCard, toolTitle } from './cards.ts'
-import { amountFromArgs, payeeFromArgs } from './amount.ts'
+import { amountFromArgs, maskedPayeePhoneFromArgs, payeeFromArgs } from './amount.ts'
 import { DagBuilder } from './dag.ts'
 import { formatCents } from './format.ts'
 
@@ -59,6 +59,31 @@ function toMessageBlocks(content: readonly { type: string; text?: string; mimeTy
     }
   }
   return blocks
+}
+
+/**
+ * 预演结果的索引键：收款人 + 金额（分）。
+ *
+ * 只按收款人名会串味：同一人先后试算 800 / 5000，两笔手续费可能不同，
+ * 审批 800 时不能拿 5000 的那条。
+ */
+function previewKey(payee: string, cents: number | undefined): string {
+  return `${payee}\u0000${cents === undefined ? '' : String(cents)}`
+}
+
+/**
+ * 从预演结果正文里取手续费文本。
+ *
+ * 结果卡片（`UiCard`）不落账，正文是唯一持久化的来源；取不到就返回 `undefined`，
+ * 审批帧宁可少一行，也不从金额/费率反推一个"看起来对"的数。
+ */
+function previewFeeOf(content: readonly { type: string; text?: string }[]): string | undefined {
+  const text = content
+    .filter((block) => block.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text)
+    .join('\n')
+  const match = /手续费\s*(¥\s?[0-9][0-9,]*(?:\.[0-9]{2})?)/.exec(text)
+  return match?.[1]?.replace(/\s+/g, '')
 }
 
 /** 结束原因 → 提示级别。 */
@@ -103,6 +128,8 @@ export class WebProjector {
   private readonly list: WebFrame[] = []
   private readonly index = new Map<string, number>()
   private readonly calls = new Map<string, CallRecord>()
+  /** 本 turn 预演结果里的手续费（按收款人姓名），供审批帧显示。 */
+  private readonly previewFees = new Map<string, string>()
   private readonly dag = new DagBuilder()
   private last = 0
   private turn = 0
@@ -155,9 +182,15 @@ export class WebProjector {
 
   /** 事件本体的投影（不含审计条目）。 */
   private project(event: AnySessionEvent): WebFrame[] {
+    // plan/* 域事件（B2）：不在 `AnySessionEvent` 联合里（appendDomain 不受事件表约束），
+    // 按 derive.ts 同款纪律用结构化读取，在类型化 switch 之前分流
+    if (String(event.type).startsWith('plan/')) {
+      return this.projectPlan(String(event.type), event)
+    }
     switch (event.type) {
       case 'turn/start': {
         this.turn = event.data.turn
+        this.previewFees.clear()
         return [this.turnFrame(event.seq, event.at, event.data.turn, 'start')]
       }
       case 'turn/end': {
@@ -212,6 +245,15 @@ export class WebProjector {
       case 'tool/result': {
         const data = event.data
         const record = this.calls.get(data.callId)
+        // 审批帧的手续费只能来自预演结果：没有预演就不显示，不从别处猜
+        if (data.name === 'transfer_preview' && !data.isError && record !== undefined) {
+          const payee = payeeFromArgs(record.args)
+          const cents = amountFromArgs(record.args)
+          const feeText = previewFeeOf(data.content)
+          if (payee !== undefined && feeText !== undefined) {
+            this.previewFees.set(previewKey(payee, cents), feeText)
+          }
+        }
         const state: ToolFrame['state'] = data.isError ? 'denied' : 'done'
         if (record !== undefined) record.state = state === 'denied' ? 'denied' : 'done'
         this.dag.settle(data.callId, !data.isError)
@@ -232,6 +274,11 @@ export class WebProjector {
         const record = this.calls.get(data.callId)
         const tier: FrameTier = record?.tier ?? 'unknown'
         const payee = payeeFromArgs(record?.args)
+        const payeePhone = maskedPayeePhoneFromArgs(record?.args)
+        const feeText =
+          payee === undefined
+            ? undefined
+            : this.previewFees.get(previewKey(payee, amountFromArgs(record?.args)))
         // 金额口径：工具参数里的 `amount` 是**元**（施工单 08）；`approval/asked.amount`
         // 同为元（bank governance 用 `amountCents / 100` 填票据）。参数缺金额时才退回事件值，
         // 绝不把两种单位混着格式化——￥8.00 与 ￥800.00 的差别就是一次事故。
@@ -250,6 +297,8 @@ export class WebProjector {
             ...(cents === undefined ? {} : { amountText: formatCents(cents) }),
             amountConfirmed: false,
             ...(payee === undefined ? {} : { payeeName: payee }),
+            ...(payeePhone === undefined ? {} : { payeePhone }),
+            ...(feeText === undefined ? {} : { feeText }),
             tier,
             ...(data.challenge === undefined ? {} : { challenge: data.challenge }),
             rejectReasonRequired: true,
@@ -330,6 +379,48 @@ export class WebProjector {
   /** 轮次帧。 */
   private turnFrame(seq: number, at: number, turn: number, phase: 'start' | 'end'): TurnFrame {
     return { kind: 'turn', seq, at, turn, phase }
+  }
+
+  /**
+   * plan/* 域事件 → plan 节点图（B2）。
+   *
+   * 只消费能改变节点状态/图的五个键：`node-started` / `node-result` / `node-blocked` /
+   * `aborted` / `completed`。`plan/created` / `plan/resumed` 不产帧——它们没有节点态，
+   * 节点要等 `node-started` 才有 tool 与 ordinal；提前画空框只会制造噪音。
+   */
+  private projectPlan(type: string, event: AnySessionEvent): WebFrame[] {
+    const data = event.data as Readonly<Record<string, unknown>>
+    const planId = typeof data['planId'] === 'string' ? data['planId'] : ''
+    if (planId === '') return []
+    const nodeId = typeof data['nodeId'] === 'string' ? data['nodeId'] : ''
+    switch (type) {
+      case 'plan/node-started': {
+        const tool = typeof data['tool'] === 'string' ? data['tool'] : 'unknown'
+        const ordinal = typeof data['ordinal'] === 'number' ? data['ordinal'] : 0
+        this.dag.planNode(this.turn, planId, nodeId, tool, ordinal)
+        break
+      }
+      case 'plan/node-result': {
+        const status = typeof data['status'] === 'string' ? data['status'] : ''
+        const code = typeof data['code'] === 'string' ? data['code'] : undefined
+        this.dag.planSettle(this.turn, planId, nodeId, status, code)
+        break
+      }
+      case 'plan/node-blocked': {
+        const raw = data['blockedBy']
+        const blockedBy = Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []
+        this.dag.planSettle(this.turn, planId, nodeId, 'blocked', undefined, blockedBy)
+        break
+      }
+      case 'plan/aborted': {
+        this.dag.planAbort(this.turn, planId)
+        break
+      }
+      // plan/completed：收尾帧（summary 里带上成功/失败/阻断计数）
+      default:
+        break
+    }
+    return [this.dagFrame(this.turn, event.at, event.seq)]
   }
 
   /** DAG 帧（无节点时返回一个空帧？不——返回 `undefined` 由调用方过滤）。 */

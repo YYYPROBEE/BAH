@@ -24,7 +24,7 @@ import { loadBundles, readLayers, readProfile } from '@bah/cli'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
 import { ReplayAdapter, asSessionId, createRecordingAdapter, fixedClock } from '@bah/test-support'
 
-import type { SessionEvent } from '@bah/core'
+import type { SessionEvent, TicketId } from '@bah/core'
 import type { Exchange, LoadedSnapshot, SnapshotMeta, SnapshotRow } from '@bah/test-support'
 import type { Agent } from '@bah/runtime'
 
@@ -53,18 +53,33 @@ export const CASE = {
    */
   coveredSources: [
     'packages/runtime/src/agent-loop/',
+    // `runtime:agents` 服务键与 `dispatchReply` 都定义在 `agent/`：每次回复都要过
+    // `agent/reply` waterfall（本场景现已装核验门，见下面 `safety/src/verify/`）。
+    'packages/runtime/src/agent/',
     'packages/runtime/src/session/',
     'packages/runtime/src/system-prompt/',
     'packages/runtime/src/tools/',
+    // W04：治理平面每次判决都会走 `runtime:policy` 的默认实现（createTierPolicy）
+    'packages/runtime/src/policy/',
     'packages/runtime/src/seams.ts',
     'packages/llm/src/llm/',
     'packages/llm/src/mock/',
+    // 离线路由（默认 provider）：`router` 读消息现规划，本场景真的走了它
+    'packages/llm/src/demo/',
     'packages/bank/src/core/',
     'packages/bank/src/tools/',
     'packages/host/src/boot/',
     'packages/persistence/src/jsonl/',
+    // W08：audit:decisions 在每次 tool/call 与审批结论上真写链（信封 v1/v2 混链）
+    'packages/persistence/src/chain/',
     'packages/persistence/src/saga-store/',
     'packages/safety/src/sentry/',
+    // W05：`safety:verify` 是 base bundle 的常驻行（每次回复都过一遍 `agent/reply`）。
+    // 声明它之前本场景的录制产物里**没有** `safety/assertion`——那份快照是 W05 之前的装配，
+    // 回放只读 `scenario.json` 里的 rows，所以它永远不会因为"少装了一个插件"而红。
+    // 现在重录一次，`safety/assertion`（total=4 / verified=4）就进事件流了，
+    // 这条声明因此有实物背书，而不是一句声明。
+    'packages/safety/src/verify/',
     'packages/interaction/src/approval/',
     'packages/saga/src/recovery/',
     // 场景装配了 `bank:saga`（config 为空 → b3/b4 全开）：boot 期就会走 provideSaga
@@ -78,6 +93,9 @@ export const CASE = {
 function noHome(): string {
   return join(tmpdir(), 'bah-snapshot-no-home')
 }
+
+/** 快照面的票据 ID：按 `callId` 派生（生产仍随机；见 `ToolPipelineOptions.mintTicketId`）。 */
+const snapshotTicketId = (callId: string): TicketId => `ticket:${callId}` as TicketId
 
 /** 跑完全部 prompt（每个 prompt 一个 turn）。 */
 async function runPrompts(agent: Agent, prompts: readonly string[]): Promise<void> {
@@ -115,7 +133,12 @@ export async function runRecord(): Promise<{
     bundles,
     layers,
     catalog: createCatalog(),
-    run: { sessionId: asSessionId(CASE.sessionId), now: clock.now, jsonlDir: scratch },
+    run: {
+      sessionId: asSessionId(CASE.sessionId),
+      now: clock.now,
+      mintTicketId: snapshotTicketId,
+      jsonlDir: scratch,
+    },
   })
 
   try {
@@ -174,7 +197,12 @@ export async function runReplay(snapshot: LoadedSnapshot): Promise<readonly Sess
     bundles: [{ name: 'snapshot', rows: snapshot.meta.rows }],
     layers: [],
     catalog: createCatalog(),
-    run: { sessionId: asSessionId(snapshot.meta.sessionId), now: clock.now, jsonlDir: scratch },
+    run: {
+      sessionId: asSessionId(snapshot.meta.sessionId),
+      now: clock.now,
+      mintTicketId: snapshotTicketId,
+      jsonlDir: scratch,
+    },
   })
 
   try {

@@ -1,0 +1,44 @@
+# bank-tier-demo 1.0.0 · 演示规则表
+#
+# 与 bank-tier/1.0.0 的唯一差异是 **TR-004-single-large**：单笔金额 ≥ 500000 分（5000 元）
+# 直接升红。它证明"判决真的来自外置文件"——同一份输入在 1.0.0 下是黄级、在这里是红级。
+#
+# 它**不是**生产规则：registry 里标记 `demo: true`，`verify-policy-conformance` 不要求
+# 它与 legacy 等价（03 §7.1 第 7 条）。
+
+tables:
+  - id: transfer-escalation
+    appliesTo: [transfer_create]
+    requires: [preview]
+    hit: first
+    rows:
+      # 日累计含本笔 > 生效上限 → 红。严格大于：恰好等于上限不升。
+      - id: TR-001-over-daily-limit
+        when: preview.dailyUsedCents + preview.amountCents > limits.dailyLimitCents
+        raise: red
+        reason: daily-limit
+      # 新收款人 → 红（防"小额试探 + 大额收割"）。
+      - id: TR-002-new-payee
+        when: preview.payee.binding == "new"
+        raise: red
+        reason: new-payee
+      # 演示规则：单笔 ≥ 5000 元直接升红（生产 1.0.0 没有这条）。
+      - id: TR-004-single-large
+        when: preview.amountCents >= 500000
+        raise: red
+        reason: daily-limit
+      - id: TR-003-default
+        when: true
+        keep: true
+
+  - id: risky-calls-reason
+    hit: first
+    rows:
+      # 组合风险超阈：只改理由，不改级别；绿级不改（绿级工具不进策略，此处再守一道）。
+      - id: RC-001-over-threshold
+        when: reason == "declared" && level != "green" && state.riskyCallsInTurn >= params.riskyCallThreshold
+        keep: true
+        reason: risky-calls
+      - id: RC-002-default
+        when: true
+        keep: true

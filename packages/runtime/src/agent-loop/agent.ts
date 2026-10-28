@@ -30,7 +30,7 @@
 import { BahError, assertNever, reasonOf } from '@bah/util'
 import { UsageLedger, assembleStream } from '@bah/llm'
 
-import type { Context, SessionId } from '@bah/core'
+import type { ContentBlock, Context, SessionId, TicketId } from '@bah/core'
 import type {
   AssembledStream,
   AssembledToolCall,
@@ -43,10 +43,12 @@ import type {
 } from '@bah/llm'
 
 import { runCompaction } from '../compaction/apply.ts'
+import { estimateRequestTokens } from '../compaction/summarize.ts'
 import type { SessionApi } from '../session/service.ts'
 import { SessionEventBuffer, withSessionBuffer } from '../session/buffer.ts'
 import type { AnySessionEvent, ToolCallRecord, ToolResultData, TurnEndReason } from '../session/types.ts'
 import { SYSTEM_PROMPT_SERVICE } from '../system-prompt/index.ts'
+import type { ContextSlotsEventData, RuntimeContextInvocation } from '../system-prompt/port.ts'
 import { RuntimeContextQueue } from '../system-prompt/reconcile.ts'
 import type { PromptRegistry } from '../system-prompt/registry.ts'
 import type { ChannelKind, RuntimeContextView } from '../system-prompt/types.ts'
@@ -59,6 +61,7 @@ import type { ToolRegistry } from '../tools/registry.ts'
 import {
   dispatchLlmStream,
   dispatchPreStep,
+  dispatchReply,
   dispatchRequest,
   dispatchTurnStopping,
   type Agent,
@@ -75,6 +78,7 @@ import {
   assembleRequest,
   commitAttempt,
   freezeRequest,
+  toolSpecsOf,
   toSessionBlocks,
 } from './request.ts'
 import { forkSession, type ForkInfo, type ForkRequest } from './rollback.ts'
@@ -92,6 +96,25 @@ export {
  * 2. 构造选项
  * ──────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * 单次并行批的上限（D1）。
+ *
+ * 不做成配置键：这是"防打爆"的工程底线，不是产品语义；默认 8 已经比正常演示
+ * （1–3 个只读调用）宽 3 倍以上。要调先补一个压测数字。
+ */
+const MAX_PARALLEL_READS = 8
+
+/**
+ * 运行时上下文取数函数。
+ *
+ * 每个 step 现算（可异步）。`invocation.sessionId` 是**本次会话**（fork 后是子会话），
+ * `forkOf` 是父会话——闭包不得自己取会话，否则分叉会读错身份（I12）。
+ * 旧写法 `() => view` 仍可赋值（TS 允许少参数函数赋给多参数签名）。
+ */
+export type RuntimeContextProvider = (
+  invocation: RuntimeContextInvocation,
+) => RuntimeContextView | undefined | Promise<RuntimeContextView | undefined>
+
 /** `AgentLoop` 的装配依赖（全部显式注入，便于单测替换时钟 / 注册表）。 */
 export interface AgentLoopOptions {
   readonly ctx: Context
@@ -107,12 +130,32 @@ export interface AgentLoopOptions {
   readonly inbox?: Inbox
   readonly queue?: RuntimeContextQueue
   readonly channel?: ChannelKind
-  /** 运行时上下文视图（每次 attempt 现算；渲染结果会落账为 `request/context`）。 */
-  readonly runtimeContext?: () => RuntimeContextView | undefined
+  /**
+   * 运行时上下文视图（每次 attempt 现算，可异步；渲染结果会落账为 `request/context`）。
+   *
+   * `invocation.sessionId` 是本次会话（fork 后是子会话），`forkOf` 是父会话；
+   * `invocation.now` 是注入钟（函数；只有 bank 路径会调用一次）；`invocation.signal`
+   * 在该 step 取消时 abort。业务失败应由实现方返回降级视图，**不要 throw**。
+   */
+  readonly runtimeContext?: RuntimeContextProvider
   readonly now?: () => number
   readonly guard?: ToolGuard
+  /**
+   * 票据 ID 生成器（缺省随机 UUID）。
+   *
+   * 只给验收面注入确定性 ID（快照回放）；生产不传，票号必须不可预测。
+   */
+  readonly mintTicketId?: (callId: string) => TicketId
   /** 分叉来源（`fork()` 内部使用）。 */
   readonly forkInfo?: ForkInfo
+  /**
+   * 入队前的全系统闸（HALT 等）：抛错即拒绝这条输入。
+   *
+   * 为什么放在 `send()` 而不是 `agent/pre-step`：后者只能把 turn 以 `blocked` 关闭，
+   * 宿主拿不到"现在不能接受输入"的同步信号；而 HALT 的出口要求 `agent.send()` 直接
+   * 抛 `safety-halted`（W07 TC-01）。闸的判定归宿主（运行时**不认识** safety 包）。
+   */
+  readonly beforeSend?: () => void
 }
 
 /** 单 step 的输入。 */
@@ -152,7 +195,13 @@ export class AgentLoop implements Agent {
 
   private readonly guard: ToolGuard
 
+  /** 验收面注入的票据 ID 生成器；生产缺省（管线自己用随机 UUID）。 */
+  private readonly mintTicketId: ((callId: string) => TicketId) | undefined
+
   private readonly ledger = new UsageLedger()
+
+  /** 本次请求恒定的工具 schema 开销（压缩水位用；当前 turn 还没有 step 时为 0）。 */
+  private requestOverhead = 0
 
   private readonly abort = new TurnAbort()
 
@@ -160,7 +209,10 @@ export class AgentLoop implements Agent {
 
   private readonly channel: ChannelKind | undefined
 
-  private readonly runtimeContext: (() => RuntimeContextView | undefined) | undefined
+  private readonly runtimeContext: RuntimeContextProvider | undefined
+
+  /** 入队前的全系统闸（HALT；缺省 = 不设防，由宿主决定）。 */
+  private readonly beforeSend: (() => void) | undefined
 
   /** 已开过的 turn 数（从日志续号：分叉 / 回放的会话不会从 1 重来）。 */
   private turns: number
@@ -181,9 +233,11 @@ export class AgentLoop implements Agent {
     this.inbox = options.inbox ?? new Inbox({ now: options.now ?? (() => Date.now()) })
     this.queue = options.queue ?? new RuntimeContextQueue()
     this.guard = options.guard ?? new ToolGuard()
+    this.mintTicketId = options.mintTicketId
     this.now = options.now ?? (() => Date.now())
     this.channel = options.channel
     this.runtimeContext = options.runtimeContext
+    this.beforeSend = options.beforeSend
     this.turns = lastTurnOf(options.session.events())
     this.sessionId = options.session.sessionId
     this.id = options.id ?? (`agent:${options.session.sessionId}` as AgentId)
@@ -199,6 +253,7 @@ export class AgentLoop implements Agent {
 
   send(text: string, options: SendOptions = {}): void {
     this.ensureAlive()
+    this.beforeSend?.()
     this.inbox.send(text, options)
   }
 
@@ -267,6 +322,7 @@ export class AgentLoop implements Agent {
       forkInfo: info,
       ...(this.channel === undefined ? {} : { channel: this.channel }),
       ...(this.runtimeContext === undefined ? {} : { runtimeContext: this.runtimeContext }),
+      ...(this.mintTicketId === undefined ? {} : { mintTicketId: this.mintTicketId }),
       now: this.now,
     })
   }
@@ -366,7 +422,9 @@ export class AgentLoop implements Agent {
     // 收尾段自身失败也不能吞掉 `turn/end`——否则日志出现未闭合 turn，回退边界丢失。
     let closingError: unknown
     try {
-      if (this.config.compaction !== undefined) runCompaction(this.session, this.config.compaction)
+      if (this.config.compaction !== undefined) {
+        runCompaction(this.session, this.config.compaction, this.requestOverhead)
+      }
       const usage = this.ledger.finishTurn(turn)
       if (usage !== undefined && usage.calls > 0) this.session.append('usage/summary', usage)
     } catch (error) {
@@ -425,22 +483,70 @@ export class AgentLoop implements Agent {
   private async step(input: StepInput): Promise<TurnEndReason | null> {
     const { turn, step, signal } = input
 
-    // ⓪ 压缩判定（阈值触发；幂等）
-    //
-    // 放在**每次请求装配前**而不是只在 turn 收尾：turn 收尾时本 turn 尚未落 `turn/end`，
-    // 折不到它；而请求前的这次判定能覆盖"进程恢复 / 上一次 turn 没收尾"等场景，
-    // 保证发出去的请求看到的是折叠后的历史。只折叠**已完整结束**的 turn——当前 turn 永不折叠，
-    // 否则会拆散 `tool/call ↔ tool/result` 配对并丢掉本轮用户问题。
-    if (this.config.compaction !== undefined) runCompaction(this.session, this.config.compaction)
-
-    // ① 装配（纯）：首选模型的能力位决定提示词裁剪与工具 schema 是否下发
+    // ⓪ 解析首选模型（能力位决定提示词裁剪与工具 schema 是否下发；压缩水位要用它算开销）
     let model: ModelSpec
     try {
       model = this.registry.resolve(this.config.model).model
     } catch (error) {
       return this.failed(turn, error, signal, '模型解析')
     }
-    const runtime = this.runtimeContext?.()
+    // 未配置压缩时不需要序列化工具 schema（开销只服务于水位判定）
+    this.requestOverhead =
+      this.config.compaction === undefined ? 0 : requestOverheadTokens(model, this.tools)
+
+    // ① 压缩判定（阈值触发；幂等）
+    //
+    // 放在**每次请求装配前**而不是只在 turn 收尾：turn 收尾时本 turn 尚未落 `turn/end`，
+    // 折不到它；而请求前的这次判定能覆盖"进程恢复 / 上一次 turn 没收尾"等场景，
+    // 保证发出去的请求看到的是折叠后的历史。只折叠**已完整结束**的 turn——当前 turn 永不折叠，
+    // 否则会拆散 `tool/call ↔ tool/result` 配对并丢掉本轮用户问题。
+    if (this.config.compaction !== undefined) {
+      runCompaction(this.session, this.config.compaction, this.requestOverhead)
+    }
+
+    // ② 解析运行时上下文（可异步）→ 装配（纯）
+    //
+    // 顺序：压缩 → 解析 → 装配。解析失败/取消时**一个字节都不提交**（提交点在 `commitAttempt`），
+    // 只有 `context/slots` 会落一条"本次解析发生了什么"——它表示解析结果，不是模型可见内容。
+    // `signal.aborted` 在 await 之后必须**复查**：端口可能忽略 abort 直接返回。
+    let runtime: RuntimeContextView | undefined
+    if (this.runtimeContext !== undefined) {
+      try {
+        runtime = await this.runtimeContext({
+          sessionId: this.sessionId,
+          ...(this.forkInfo === undefined ? {} : { forkOf: this.forkInfo.parentSession }),
+          turn,
+          step,
+          signal,
+          // 传函数不调用：静态路径永不取钟，旧快照不会多走一格
+          now: this.now,
+        })
+      } catch (error) {
+        if (signal.aborted) {
+          return this.cancelled(turn, '运行时上下文解析阶段取消（未提交 system/user）')
+        }
+        return this.failed(turn, error, signal, '运行时上下文')
+      }
+      if (signal.aborted) {
+        return this.cancelled(turn, '运行时上下文解析阶段取消（未提交 system/user）')
+      }
+      // 事件落**自己的** session（fork 安全）；只记计数与码，不记姓名/尾号/文本
+      if (runtime?.meta?.source === 'bank') {
+        this.session.appendDomain(
+          'context/slots',
+          {
+            source: runtime.meta.source,
+            status: runtime.meta.status,
+            ...(runtime.meta.code === undefined ? {} : { code: runtime.meta.code }),
+            accounts: runtime.accounts?.length ?? 0,
+            transactions: runtime.recentTransactions?.length ?? 0,
+            ...(runtime.meta.asOfText === undefined ? {} : { asOfText: runtime.meta.asOfText }),
+          } satisfies ContextSlotsEventData,
+          { ignorable: true },
+        )
+      }
+    }
+
     const assembly = assembleRequest({
       session: this.session,
       composer: this.composer,
@@ -453,7 +559,7 @@ export class AgentLoop implements Agent {
       ...(runtime === undefined ? {} : { runtime }),
     })
 
-    // ② agent/request（waterfall）：降级 / 成本控制在这里改写路由与参数
+    // ③ agent/request（waterfall）：降级 / 成本控制在这里改写路由与参数
     const asked = await dispatchRequest(this.ctx, {
       agent: this.ref,
       turn,
@@ -462,12 +568,12 @@ export class AgentLoop implements Agent {
     })
     if (signal.aborted) return this.cancelled(turn, 'agent/request 阶段取消（未提交 system/user）')
 
-    // ③ 冻结：prepareCall 成功即"请求真的发出去了"，此后不再派发 agent/request
+    // ④ 冻结：prepareCall 成功即"请求真的发出去了"，此后不再派发 agent/request
     const prepared = await this.prepareCall(asked.request)
     if (!prepared.ok) return this.failed(turn, prepared.error, signal, 'prepareCall')
     if (signal.aborted) return this.cancelled(turn, 'prepareCall 阶段取消（未提交 system/user）')
 
-    // ④ 提交：模型可见输入落账（此时才允许出现在日志里）
+    // ⑤ 提交：模型可见输入落账（此时才允许出现在日志里）
     commitAttempt({
       session: this.session,
       turn,
@@ -478,7 +584,7 @@ export class AgentLoop implements Agent {
       messages: input.messages,
     })
 
-    // ⑤ llm/stream（waterfall 环绕）→ 分片装配
+    // ⑥ llm/stream（waterfall 环绕）→ 分片装配
     const streamer = await this.llmStreamer(prepared.adapter)
     let assembled: AssembledStream
     try {
@@ -491,10 +597,10 @@ export class AgentLoop implements Agent {
       return this.cancelled(turn, '模型流以 aborted 结束')
     }
 
-    // ⑥ 记账
+    // ⑦ 记账
     this.ledger.record(turn, assembled.usage)
 
-    // ⑦ 工具调度 → assistant/message 收尾落账
+    // ⑧ 工具调度 → assistant/message 收尾落账
     //
     // 落账顺序按施工单 04 §7 T-LOOP-001：`tool/call → tool/result → assistant/message`
     // （工具跑完，assistant 消息才收尾）。wire 侧的「带 tool_calls 的 assistant 必须在
@@ -504,28 +610,86 @@ export class AgentLoop implements Agent {
     const toolCalls = assembled.toolCalls
     if (assembled.finishReason === 'tool-calls') {
       if (toolCalls.length === 0) {
-        this.appendAssistantMessage(assembled)
+        await this.appendAssistantMessage(assembled, turn, step, signal)
         return this.fail(turn, '模型以 tool-calls 结束但没有给出任何工具调用（拒绝空转）')
       }
       try {
         await this.runToolCalls(toolCalls, signal)
       } finally {
-        this.appendAssistantMessage(assembled)
+        await this.appendAssistantMessage(assembled, turn, step, signal)
       }
     } else {
-      this.appendAssistantMessage(assembled)
+      await this.appendAssistantMessage(assembled, turn, step, signal)
     }
 
     return outcomeOf(assembled.finishReason)
   }
 
-  /** 落 `assistant/message`（工具调用在这里一并落账，wire 侧才配得上 tool 消息）。 */
-  private appendAssistantMessage(assembled: AssembledStream): void {
+  /**
+   * 落 `assistant/message`（工具调用在这里一并落账，wire 侧才配得上 tool 消息）。
+   *
+   * 落账前先过 `agent/reply`（waterfall）：核验门用它把"未核实/拒答"写进日志的
+   * **最终事实**。没有监听器时原样透传（默认零影响）。钩子自身抛错时 fail-closed：
+   * 落拒答文本，并把异常记进 `assistant/attempt`，绝不把未核验原文发出去。
+   */
+  private async appendAssistantMessage(
+    assembled: AssembledStream,
+    turn: number,
+    step: number,
+    signal: AbortSignal,
+  ): Promise<void> {
     const toolCalls = assembled.toolCalls
+    let content = toSessionBlocks(assembled.content)
+    const originalText = content
+      .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+      .map((block) => block.text)
+      .join('')
+
+    if (originalText.length > 0) {
+      const input = {
+        agent: this.ref,
+        turn,
+        step,
+        text: originalText,
+        toolResults: this.toolResultsOfTurn(turn),
+        hasToolCalls: toolCalls.length > 0,
+        signal,
+      }
+      try {
+        const decided = await dispatchReply(this.ctx, input)
+        if (decided.text !== originalText) content = replaceTextBlocks(content, decided.text)
+      } catch (error) {
+        this.session.append('assistant/attempt', {
+          status: 'failed',
+          reason: `agent/reply 钩子失败（已 fail-closed 落拒答文本）：${reasonOf(error)}`,
+        })
+        content = replaceTextBlocks(content, refusedText())
+      }
+    }
+
     this.session.append('assistant/message', {
-      content: toSessionBlocks(assembled.content),
+      content,
       ...(toolCalls.length === 0 ? {} : { toolCalls: toolCalls.map(toToolCallRecord) }),
     })
+  }
+
+  /** 本 turn 已执行的工具结果（核验证据只取本 turn，不混入历史）。 */
+  private toolResultsOfTurn(turn: number): ToolResultData[] {
+    const events = this.session.events()
+    let start = 0
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index]
+      if (event?.type === 'turn/start' && event.data.turn === turn) {
+        start = index
+        break
+      }
+    }
+    const results: ToolResultData[] = []
+    for (let index = start; index < events.length; index += 1) {
+      const event = events[index]
+      if (event?.type === 'tool/result') results.push(event.data)
+    }
+    return results
   }
 
   /**
@@ -562,6 +726,9 @@ export class AgentLoop implements Agent {
           while (index < calls.length) {
             const next = calls[index]
             if (next === undefined || !dispatcher.canRunConcurrently(next)) break
+            // D1：一次并行批最多 MAX_PARALLEL_READS 个。模型一口气要 20 个只读调用时，
+            // 全部同时打出去会把 CPU/句柄/上游配额瞬间吃光；超出的部分留给下一批（顺序不变）。
+            if (batch.length >= MAX_PARALLEL_READS) break
             batch.push(next)
             index += 1
           }
@@ -674,6 +841,7 @@ export class AgentLoop implements Agent {
       sessionId: this.session.sessionId,
       now: this.now,
       signal,
+      ...(this.mintTicketId === undefined ? {} : { mintTicketId: this.mintTicketId }),
       ...(emitResult === undefined ? {} : { emitResult }),
     })
   }
@@ -735,6 +903,18 @@ export class AgentLoop implements Agent {
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
+ * 一次请求的恒定开销（token）：工具 schema。
+ *
+ * 会话事件里没有工具定义（每次由注册表现算），压缩水位只看事件会漏掉工具
+ * 的 name / description / JSON schema；模型不支持 function calling 时请求不下发
+ * 工具 schema，开销为 0。
+ */
+function requestOverheadTokens(model: ModelSpec, tools: ToolRegistry): number {
+  if (!model.capabilities.toolCall) return 0
+  return estimateRequestTokens({ modelId: model.id, messages: [], tools: toolSpecsOf(tools) })
+}
+
+/**
  * 粘性结束原因：已判定的原因不被后续 step 覆盖（施工单 04 §2.1 `sticky()`）。
  *
  * 例：模型先以 `max-tokens` 结束，本 turn 内又因转向跑了一步并正常收尾——
@@ -768,6 +948,28 @@ export function outcomeOf(reason: FinishReason): TurnEndReason | null {
 /** 装配后的调用 → `assistant/message.toolCalls` 的记录形状。 */
 function toToolCallRecord(call: AssembledToolCall): ToolCallRecord {
   return { callId: call.callId, name: call.name, args: call.args ?? {} }
+}
+
+/**
+ * 用改写后的文本替换内容里的文本块（图片保留）。
+ *
+ * 多文本块只在模型返回多个 text 块时出现；核验门判的是整条回复，合并成一块
+ * 才能保证"日志里的文本 = 核验过的文本"。
+ */
+function replaceTextBlocks(content: readonly ContentBlock[], text: string): ContentBlock[] {
+  const images = content.filter((block): block is Extract<ContentBlock, { type: 'image' }> =>
+    block.type === 'image',
+  )
+  return [{ type: 'text', text }, ...images]
+}
+
+/**
+ * `agent/reply` 钩子自身抛错时的兜底文本（fail-closed）。
+ *
+ * 运行时不认识 `@bah/safety`，所以这里只写通用拒答；理由码稳定，供 eval/审计检索。
+ */
+function refusedText(): string {
+  return '【拒答】安全检查未能完成，回复已阻止发送。（reasonCode: reply-hook-failed）'
 }
 
 /** 日志里最后一个 turn 号（分叉 / 回放的会话续号用）。 */

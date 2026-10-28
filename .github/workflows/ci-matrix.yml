@@ -1,0 +1,137 @@
+# CI 矩阵（D3）：Node 22.19 / 24 × Ubuntu，外加一个 Windows 信号位
+#
+# 为什么不合并进 ci.yml：那条流水线是**完整链路**（干净 clone + RAG Python + 快照基线 +
+# `check:ci` 严格模式），跑一次就要装 Python 依赖。矩阵只回答一个问题——
+# **同一份代码在另一条 Node 版本线上还成立吗**。两件事混在一个 job 里会让成本乘 4，
+# 却不会让结论更可信。
+#
+# Windows 为什么是 `continue-on-error`：
+# 本仓库在 Windows 上开发，但**从未在 GitHub 的 Windows runner 上跑过一次绿灯**。
+# 直接设为必过等于押一个没有证据的注；先以非阻断方式收集信号，攒到一次连续绿灯
+# 再转正（转正时删掉 continue-on-error 并把结论写进 docs/testing.md）。
+# 这是"有 CI 但没结论"，不是"声称 Windows 等价"。
+
+name: ci-matrix
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-matrix-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: node ${{ matrix.node }} / ubuntu
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22.19.0 = engines 下界（.nvmrc 同值）；24 = 上界一侧，抓"新版本删 API"
+        node: ["22.19.0", "24"]
+    env:
+      CI: "true"
+      BAH_KNOWLEDGE_KEY: "demo-key-not-for-prod"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.34.7
+
+      - name: Setup Node ${{ matrix.node }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # 必须先 build：`pnpm test` 里有相当一部分用例断言的是 **bundle 产物**
+      # （CLI 冒烟里的 `bundle:base`、profile 加载的生效树等），它们读的是
+      # `packages/*/dist`，不是源码。干净 clone 上没有 dist ⇒ 这些用例必然红。
+      # 2026-10-27 首次跑矩阵时漏了这一步，Ubuntu 三个档位整片红；
+      # 本地之所以看不出来，是因为工作树里一直留着上次 build 的产物。
+      - name: Build
+        run: pnpm build
+
+      - name: Unit tests
+        run: pnpm test
+
+      # 干净 clone 上 `merge-base(origin/main, HEAD)` 就是 HEAD ⇒ 改动 0 个文件 ⇒
+      # snapshot-fresh 判"无法证明快照与当前代码一致"而红。这是**设计好的失败**
+      # （门禁不肯在无差分的情况下宣称快照可信），不是误报，所以不能靠放行开关绕。
+      # 严格档 ci.yml 早就按 PR base / push before 取基线；矩阵漏了这一步，
+      # 2026-10-27 首次跑矩阵时三个档位的 Gates 就整片红在这一项上。
+      - name: Resolve snapshot base
+        shell: bash
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then
+            BASE="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+          fi
+          echo "BAH_SNAPSHOT_BASE=$BASE" >> "$GITHUB_ENV"
+
+      - name: Gates
+        run: pnpm gate
+
+  windows:
+    name: node 22 / windows（信号位，先非阻断）
+    runs-on: windows-latest
+    timeout-minutes: 40
+    continue-on-error: true
+    env:
+      CI: "true"
+      BAH_KNOWLEDGE_KEY: "demo-key-not-for-prod"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.34.7
+
+      - name: Setup Node 22.19
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22.19.0"
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # Windows 上先只跑类型检查与门禁：它们不依赖进程/信号/临时目录的行为差异，
+      # 是"能不能在这台机器上站住"的最小判据。测试面等这步稳定后再加。
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # 同 Ubuntu 档：干净 clone 上没有差分，snapshot-fresh 会按设计判红。
+      - name: Resolve snapshot base
+        shell: bash
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then
+            BASE="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+          fi
+          echo "BAH_SNAPSHOT_BASE=$BASE" >> "$GITHUB_ENV"
+
+      - name: Gates
+        run: pnpm gate

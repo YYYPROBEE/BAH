@@ -22,6 +22,7 @@ import type { LlmRequest, PreparedCall, StreamChunk } from '@bah/llm'
 
 import type { Inbox, InboxMessage, SendOptions } from '../agent-loop/inbox.ts'
 import type { ForkInfo, ForkRequest } from '../agent-loop/rollback.ts'
+import type { ToolResultData } from '../session/types.ts'
 
 export type { InboxClaim, InboxMessage, InboxTarget, SendOptions } from '../agent-loop/inbox.ts'
 export type { ForkInfo, ForkRequest, SessionFork } from '../agent-loop/rollback.ts'
@@ -152,6 +153,30 @@ export interface AgentRequestInput {
 export type LlmStreamer = (call: PreparedCall, signal: AbortSignal) => AsyncIterable<StreamChunk>
 
 /**
+ * `agent/reply` 的载荷（waterfall）：**本轮助手回复在落账之前的唯一改写点**。
+ *
+ * 为什么必须是 waterfall 且必须在 `session.append('assistant/message')` 之前：
+ * - `agent/turn-stopping` 是 serial，返回值被丢弃，改不了文本；
+ * - channels 读的是会话日志，append 之后再改写，用户看到的仍是原文。
+ *
+ * 监听器必须 `return next(input)` 才能把下游（可能已改写）的文本交还；不调 `next()`
+ * 直接返回 = 短路。核验门（W05）注册在链的最外层，并**先 `next()` 再判**——
+ * 这样即使更内层的监听器不调 `next()`，核验门仍能拿到它返回的最终文本。
+ */
+export interface AgentReplyInput {
+  readonly agent: AgentRef
+  readonly turn: number
+  readonly step: number
+  /** 本轮助手文本（尚未落账；落账的 `assistant/message` 就是这个值或它的改写）。 */
+  readonly text: string
+  /** 本 turn 已执行工具的结果（核验证据；不含本 turn 之外的历史）。 */
+  readonly toolResults: readonly ToolResultData[]
+  /** 这条消息是否同时承载工具调用（true 时它不是本 turn 的最终回复）。 */
+  readonly hasToolCalls: boolean
+  readonly signal: AbortSignal
+}
+
+/**
  * `agent/turn-stopping` 的载荷（serial，**无 next 参数**）。
  *
  * 停止钩子：收尾、汇总、写审计（施工单 04 §2.1），以及**循环 guard 判停**（施工单 10 §4）。
@@ -189,6 +214,11 @@ export function dispatchRequest(
 /** 派发 `llm/stream`（waterfall，值为流式生产者）。 */
 export function dispatchLlmStream(ctx: Context, stream: LlmStreamer): Promise<LlmStreamer> {
   return ctx.events.waterfall('llm/stream', stream)
+}
+
+/** 派发 `agent/reply`（waterfall，回复落账前的唯一改写点）。 */
+export function dispatchReply(ctx: Context, input: AgentReplyInput): Promise<AgentReplyInput> {
+  return ctx.events.waterfall('agent/reply', input)
 }
 
 /** 派发 `agent/turn-stopping`（serial，顺序执行、无返回值通道）。 */
