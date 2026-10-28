@@ -62,43 +62,45 @@ import { logJson } from './log.ts'
  * 三个事件进快照（`bundle-loaded` / `bundle-switched` / `reload-rejected`）；
  * `shadow-diff` 默认不进（影子只在演练 profile 打开，见 02 §7.3）。
  */
-declare module '@bah/core' {
-  interface SessionEventMap {
-    /** bundle 载入成功（插件启动或重载后的首次可用）。 */
-    'policy/bundle-loaded': {
-      readonly kind: string
-      readonly handle: string
-      readonly version: string
-      readonly digest: string
-      readonly engineVersion: string
-      readonly at: number
-    }
-    /** 热重载切换成功（`from`/`to` 是 handle，不是 identity）。 */
-    'policy/bundle-switched': {
-      readonly kind: string
-      readonly from: string
-      readonly to: string
-      readonly percent: number
-      readonly epoch: number
-      readonly at: number
-    }
-    /** 重载被拒（旧版继续服务）。 */
-    'policy/reload-rejected': {
-      readonly kind: string
-      readonly code: string
-      readonly message: string
-      readonly at: number
-    }
-    /** 影子判决与生效判决不一致（只在 shadow 打开时发）。 */
-    'policy/shadow-diff': {
-      readonly kind: string
-      readonly callId?: string
-      readonly from: string
-      readonly to: string
-      readonly changed: readonly string[]
-      readonly at: number
-    }
+export interface PolicySessionEventMap {
+  /** bundle 载入成功（插件启动或重载后的首次可用）。 */
+  'policy/bundle-loaded': {
+    readonly kind: string
+    readonly handle: string
+    readonly version: string
+    readonly digest: string
+    readonly engineVersion: string
+    readonly at: number
   }
+  /** 热重载切换成功（`from`/`to` 是 identity，不是 handle）。 */
+  'policy/bundle-switched': {
+    readonly kind: string
+    readonly from: string
+    readonly to: string
+    readonly percent: number
+    readonly epoch: number
+    readonly at: number
+  }
+  /** 重载被拒（旧版继续服务）。 */
+  'policy/reload-rejected': {
+    readonly kind: string
+    readonly code: string
+    readonly message: string
+    readonly at: number
+  }
+  /** 影子判决与生效判决不一致（只在 shadow 打开时发）。 */
+  'policy/shadow-diff': {
+    readonly kind: string
+    readonly callId?: string
+    readonly from: string
+    readonly to: string
+    readonly changed: readonly string[]
+    readonly at: number
+  }
+}
+
+declare module '@bah/core' {
+  interface SessionEventMap extends PolicySessionEventMap {}
 }
 
 /** v1 只认这一种 bundle 类型（S5 才加 `sentry.rules`）。 */
@@ -263,29 +265,31 @@ export const policyRulesPlugin: HostPlugin<PolicyRulesSettings> = {
        */
       ctx.effect(
         providePolicyDescriptor(ctx, {
+          // `loadSnapshot` 保证每个 active kind 一个描述符，且 active 至少一行；
+          // 这里不做 `??` 兜底——没有描述符是装配 bug，不该被一个假版本号掩盖。
           get kind() {
-            return current.descriptors[0]?.kind ?? TIER_KIND
+            return current.descriptors[0]!.kind
           },
           get handle() {
-            return current.descriptors[0]?.handle ?? 'legacy'
+            return current.descriptors[0]!.handle
           },
           get version() {
-            return current.descriptors[0]?.version ?? 'legacy'
+            return current.descriptors[0]!.version
           },
           get semanticDigest() {
-            return current.descriptors[0]?.semanticDigest ?? ''
+            return current.descriptors[0]!.semanticDigest
           },
           get engineVersion() {
-            return current.descriptors[0]?.engineVersion ?? '0.0.0'
+            return current.descriptors[0]!.engineVersion
           },
           get loadedAt() {
             return current.loadedAt
           },
           get parameters() {
-            return current.descriptors[0]?.parameters
+            return current.descriptors[0]!.parameters
           },
           get canary() {
-            return current.descriptors[0]?.canary
+            return current.descriptors[0]!.canary
           },
         }),
       )
@@ -835,6 +839,7 @@ function compileAt(
     dir,
     toolNames,
     verifyLock: true,
+    withCorpus: false,
     requireSignature: settings.requireSignature,
     ...(keyPath === undefined ? {} : { publicKeyPem: readFileSync(resolve(keyPath), 'utf8') }),
     ...(settings.signature.allowedKeyVersions.length === 0

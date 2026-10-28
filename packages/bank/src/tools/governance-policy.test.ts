@@ -295,3 +295,22 @@ describe('策略外置 S2 · 审计旁路（I17）', () => {
     }
   })
 })
+
+describe('策略外置 S2 · 引擎返回非法形状', () => {
+  it('未知级别 / 空 ruleId → deny policy-engine-error（不是抛穿管线）', async () => {
+    const cases: readonly [string, Partial<PolicyDecision>][] = [
+      ['未知级别', { level: 'purple' as never }],
+      ['空 ruleId', { ruleIds: [''] }],
+    ]
+    for (const [name, patch] of cases) {
+      const engine = engineOf(patch)
+      const h = createPipelineHarness({ approval: 'allowed-once', policy: engine, policyEngineMode: 'bundle' })
+      try {
+        const execution = await h.run('transfer_create', TRANSFER_800)
+        expect(`${name}: ${execution.result.code}`).toBe(`${name}: policy-engine-error`)
+      } finally {
+        await h.dispose()
+      }
+    }
+  })
+})

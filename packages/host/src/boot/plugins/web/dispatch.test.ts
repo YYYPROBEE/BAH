@@ -322,6 +322,25 @@ describe('W16 分派矩阵 · 有 Web 凭证', () => {
       { type: 'approval/decided', data: { ticketId: 't-3', decision: 'unavailable' } },
       // 耗时分位只吃数字：脏值不能被 push 进样本（否则分位数出现 NaN）
       { type: 'tool/result', data: { callId: 'c-3', isError: false, durationMs: '12' } },
+      // 策略维度：全部从事件现算（版本取判决发生时的版本，不是当前 active）
+      {
+        type: 'tier/decided',
+        data: {
+          callId: 'c-1',
+          name: 'transfer_create',
+          level: 'yellow',
+          reason: 'declared',
+          verdict: 'ask',
+          at: 1,
+          policyVersion: 'legacy',
+          ruleIds: [],
+          paramsDigest: 'sha256:x',
+          engineSource: 'legacy',
+        },
+      },
+      { type: 'policy/bundle-loaded', data: { kind: 'bank.tier', handle: 'bank-tier/1.0.0' } },
+      { type: 'policy/reload-rejected', data: { kind: 'bank.tier', code: 'policy-state-invalid' } },
+      { type: 'policy/shadow-diff', data: { kind: 'bank.tier', changed: ['level'] } },
       // 不认识的会话事件必须被跳过，而不是让指标端点 500
       { type: 'unknown/event', data: { anything: true } },
       {
@@ -356,6 +375,17 @@ describe('W16 分派矩阵 · 有 Web 凭证', () => {
       turns: 1,
       tools: { calls: 1, errors: 1, durationMs: { p50: 10, p95: 30 } },
       approvals: { asked: 1, approved: 1, rejected: 1, other: 1 },
+      policy: {
+        decisions: 1,
+        byVersion: { legacy: 1 },
+        byVerdict: { ask: 1 },
+        byReason: { declared: 1 },
+        engineErrors: 0,
+        legacyDecisions: 1,
+        shadowDiffs: 1,
+        reloads: 1,
+        reloadRejected: 1,
+      },
       usage: { input: 100, output: 20, cachedInput: 5, costMicroYuan: 42 },
       halt: { status: 'HALTED', halted: true, reason: 'manual' },
       sseClients: 0,

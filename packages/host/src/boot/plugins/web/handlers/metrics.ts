@@ -16,6 +16,9 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
+import type { BankSessionEventMap } from '@bah/bank'
+
+import type { PolicySessionEventMap } from '../../policy.ts'
 import type { WebDeps, WebRequest } from '../deps.ts'
 import { sendJson } from '../http.ts'
 
@@ -49,7 +52,50 @@ export async function handleMetrics(
   let costMicroYuan = 0
   const durations: number[] = []
 
+  /** 策略维度（策略外置 S3 / 02 §10）：全部从事件现算，不新造计数器。 */
+  let policyDecisions = 0
+  let engineErrors = 0
+  let legacyDecisions = 0
+  let shadowDiffs = 0
+  let reloads = 0
+  let reloadRejected = 0
+  const byPolicyVersion: Record<string, number> = {}
+  const byPolicyVerdict: Record<string, number> = {}
+  const byPolicyReason: Record<string, number> = {}
+
+  const count = (bucket: Record<string, number>, key: string): void => {
+    bucket[key] = (bucket[key] ?? 0) + 1
+  }
+
   for (const event of events) {
+    const kind = String(event.type)
+    /**
+     * 策略事件走 `String(type)` 分支：`SessionEventMap` 的领域增强由 bank / policy 包
+     * 分别声明，本文件不 import 运行期实现；用结构类型取值比依赖增强顺序更稳。
+     */
+    if (kind === 'tier/decided') {
+      const data = event.data as unknown as BankSessionEventMap['tier/decided']
+      policyDecisions += 1
+      // `policyVersion` 是"判决发生时的版本"，不是当前 active——这正是审计需要的口径。
+      count(byPolicyVersion, data.policyVersion ?? 'legacy')
+      count(byPolicyVerdict, data.verdict)
+      count(byPolicyReason, data.reason)
+      if (data.engineSource === 'legacy') legacyDecisions += 1
+      if (data.code === 'policy-engine-error') engineErrors += 1
+      continue
+    }
+    if (kind === 'policy/bundle-loaded' || kind === 'policy/bundle-switched') {
+      reloads += 1
+      continue
+    }
+    if (kind === 'policy/reload-rejected') {
+      reloadRejected += 1
+      continue
+    }
+    if (kind === 'policy/shadow-diff') {
+      shadowDiffs += 1
+      continue
+    }
     switch (event.type) {
       case 'turn/end':
         turns += 1
@@ -97,6 +143,17 @@ export async function handleMetrics(
       durationMs: { p50: quantile(durations, 0.5), p95: quantile(durations, 0.95) },
     },
     approvals: { asked: approvalsAsked, approved, rejected, other: undecided },
+    policy: {
+      decisions: policyDecisions,
+      byVersion: byPolicyVersion,
+      byVerdict: byPolicyVerdict,
+      byReason: byPolicyReason,
+      engineErrors,
+      legacyDecisions,
+      shadowDiffs,
+      reloads,
+      reloadRejected,
+    },
     usage: { input, output, cachedInput, costMicroYuan },
     // `null` = 本 profile 没装 HALT（不是"未停机"）。区分开才知道该不该去看锁。
     halt:

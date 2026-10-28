@@ -112,6 +112,11 @@
       "config": {}
     },
     {
+      "id": "policy:rules",
+      "use": "policy:rules",
+      "config": {}
+    },
+    {
       "id": "bank:tools",
       "use": "bank:tools",
       "config": {
@@ -222,6 +227,7 @@
     "packages/saga/src/index.ts",
     "packages/saga/src/tick/",
     "packages/safety/src/sandbox-runtime/",
+    "packages/bank/src/forge/",
     "packages/bank/src/verify/"
   ]
 }

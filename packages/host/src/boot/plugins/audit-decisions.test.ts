@@ -18,6 +18,7 @@ import { generateKeyPairSync } from 'node:crypto'
 import { dirname, join } from 'node:path'
 
 import { createSagaAudit } from '@bah/persistence'
+import { canonicalJson, sha256Hex } from '@bah/util'
 import { HALT_SERVICE } from '@bah/safety'
 import { AGENTS_SERVICE } from '@bah/runtime'
 import { asSessionId } from '@bah/test-support'
@@ -130,6 +131,15 @@ function chainOf(dir: string, sessionId: string): Record<string, unknown>[] {
     .map((line) => JSON.parse(line) as Record<string, unknown>)
 }
 
+/** 读会话事件（`type` + `data`；用于重算链上的 `d`）。 */
+function sessionOf(dir: string, sessionId: string): Record<string, unknown>[] {
+  return readFileSync(join(dir, sessionId, 'session.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+}
+
 describe('W08 · 会话级证据链', () => {
   it('TC-W08-01：一次转账后链中有 tool/call、tool/result、sentry/decision、approval/decided', async () => {
     const dir = root()
@@ -161,6 +171,8 @@ describe('W08 · 会话级证据链', () => {
       expect(types).toContain('tool/result')
       expect(types).toContain('sentry/decision')
       expect(types).toContain('approval/decided')
+      // 策略外置 S3：每条 tier/decided 都有一条 policy/decision 摘要行
+      expect(types).toContain('policy/decision')
 
       const toolCall = rows.find((row) => row['t'] === 'tool/call')!
       expect(toolCall['version']).toBeUndefined()
@@ -180,7 +192,9 @@ describe('W08 · 会话级证据链', () => {
         expect(row['version']).toBe(2)
         expect(row['subject']).toBe('session:s-w08-chain')
         expect(row['prevHash']).toBe(row['p'])
-        expect(row['policyVersion']).toMatch(/^(sentry-policy\/2|approval-policy\/1)$/)
+        expect(String(row['policyVersion'])).toMatch(
+          /^(sentry-policy\/2|approval-policy\/1|legacy|bank-tier\/\d+\.\d+\.\d+\+sha256:[0-9a-f]{16})$/,
+        )
       }
       const sentryDecision = rows.find((row) => row['t'] === 'sentry/decision')!
       expect(sentryDecision['decision']).toBe('allow')
@@ -188,6 +202,15 @@ describe('W08 · 会话级证据链', () => {
       const approval = rows.find((row) => row['t'] === 'approval/decided')!
       expect(approval['decision']).toBe('allow')
       expect(approval['policyVersion']).toBe('approval-policy/1')
+
+      // S3：policy/decision 的 `d` 必须覆盖 tier/decided 全量载荷（含 evidence）
+      const policyRow = rows.find((row) => row['t'] === 'policy/decision')!
+      expect(policyRow['decision']).toBe('ask')
+      expect(policyRow['policyVersion']).toBe('legacy')
+      const decided = sessionOf(dir, 's-w08-chain').find(
+        (event) => event['type'] === 'tier/decided',
+      )!
+      expect(policyRow['d']).toBe(sha256Hex(canonicalJson(decided['data'])))
 
       // 链是连续的（用审计器再验一遍，而不是只看文件）
       const audit = createSagaAudit({ now: () => 1, rootDir: dir, fsync: false })

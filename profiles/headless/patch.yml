@@ -20,6 +20,8 @@
     demoUserId: u-1
     seed: 7
     datasetTier: demo
+    # 策略外置 S3：判决走内容寻址的外置规则（1.0.0 与 legacy 穷举等价）
+    policy: { engine: bundle }
 
 - id: interaction:approval
   config:

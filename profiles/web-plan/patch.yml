@@ -38,6 +38,7 @@
     demoUserId: u-1
     seed: 7
     datasetTier: demo
+    policy: { engine: bundle }
 
 # 知识平面：与 web 同配置（sidecar 缺席时降级 knowledge-unavailable，不挡主路径）
 - id: bank:knowledge

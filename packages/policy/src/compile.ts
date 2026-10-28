@@ -49,6 +49,13 @@ export interface CompileOptions {
   readonly toolNames: readonly string[]
   /** 是否与 `lock.json` 比对（默认 true；`--write` 时传 false）。 */
   readonly verifyLock?: boolean
+  /**
+   * 是否解析并返回语料（默认 true）。
+   *
+   * 宿主启动只需要可执行 IR；语料校验由 `policy:test` / 门禁负责。跳过它能把
+   * 启动编译压回预算内，同时**不改变** lock/source 摘要（摘要仍覆盖 corpus.yml）。
+   */
+  readonly withCorpus?: boolean
 }
 
 /** `lock.json` 里的一个文件条目。 */
@@ -168,7 +175,10 @@ export function compileBundle(bundle: BundleFiles, options: CompileOptions): Com
     verifyLock(files['lock.json'], lock)
   }
 
-  const cases = readCorpus(parseYaml(corpusText, manifest.corpusFile), manifest.parameters, manifest.reasons)
+  const cases =
+    options.withCorpus === false
+      ? []
+      : readCorpus(parseYaml(corpusText, manifest.corpusFile), manifest.parameters, manifest.reasons)
 
   const frozen = deepFreeze(ir)
   // 参数边界也冻结：`compiled.parameters` 是公开字段，宿主改一个 min/max 就会改变

@@ -27,6 +27,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 import { defineService, type Context } from '@bah/core'
+import type { BankSessionEventMap } from '@bah/bank'
 import { ChainFile, SIGNED_TYPES, createSagaAudit, toolResultSummaryOf } from '@bah/persistence'
 import type { ChainDecision } from '@bah/persistence'
 import { BahError, reasonOf } from '@bah/util'
@@ -56,7 +57,7 @@ export interface AuditDecisionsSettings {
 
 /** 一条待写链的判决（v2 信封字段由本层补齐）。 */
 export interface DecisionChainEntry {
-  readonly type: 'sentry/decision' | 'approval/decided'
+  readonly type: 'sentry/decision' | 'approval/decided' | 'policy/decision'
   readonly data: unknown
   readonly subject: string
   readonly decision: ChainDecision
@@ -200,6 +201,28 @@ export const auditDecisionsPlugin: HostPlugin<AuditDecisionsSettings> = {
       ctx.effect(
         ctx.events.on('session/event', (envelope) => {
           const event = envelope.event
+          if (String(event.type) === 'tier/decided') {
+            const data = event.data as unknown as BankSessionEventMap['tier/decided']
+            /**
+             * 策略判决入链（策略外置 S3 / 02 §4.4）。
+             *
+             * 链行只存 `d = sha256(canonicalJson(event.data))`；载荷本身在 session.jsonl。
+             * 写失败**不改判**（I17）：这是证据链的旁路，不能把一次已做出的 allow/ask/deny
+             * 翻转成错误——失败只告警，`policy:explain` 会显示 `chain: missing`。
+             */
+            try {
+              audit.append(chainId, 'policy/decision', data, undefined, {
+                subject: `session:${chainId}`,
+                decision: data.verdict,
+                policyVersion: data.policyVersion ?? 'legacy',
+              })
+            } catch (error) {
+              console.warn(
+                `[audit:decisions] policy/decision 写入失败（判决不变）：${reasonOf(error)}`,
+              )
+            }
+            return
+          }
           if (event.type === 'tool/call') {
             audit.append(chainId, 'tool/call', event.data)
             return

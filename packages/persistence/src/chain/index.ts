@@ -51,6 +51,7 @@ export const SIGNED_TYPES = [
   'tool/call',
   'tool/result',
   'sentry/decision',
+  'policy/decision',
   'saga/comp-issued',
   'saga/comp-result',
   'saga/residual-recorded',
