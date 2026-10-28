@@ -1,0 +1,899 @@
+/**
+ * `policy:rules` 宿主行（策略外置 S2/S3）。
+ *
+ * 覆盖五件事：
+ * 1. **配置 fail-loud**：未知键、`..` 逃逸、未知 kind、影子自指、签名与上限；
+ * 2. **载入与失败矩阵**（02 §13）：registry/state 坏、bundle 缺失、摘要不符、未知 kind；
+ * 3. **判决适配**：`CompiledPolicy` → `PolicyEngine` 的四个增量字段；缺 `input` 时抛错；
+ * 4. **灰度与影子**：显式名单 / 万分比 / epoch 分桶 / 差异事件；
+ * 5. **热重载**：好 state 原子切换、坏 state 保持旧版并落 `reload-rejected`。
+ *
+ * 真 bundle 从仓库复制，只在临时目录里造坏数据——**不改** `policies/` 的入库内容。
+ */
+
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import { boot, createCatalog, type BootedApp } from '@bah/host'
+import { AGENTS_SERVICE, SESSION_SERVICE, findPolicyDescriptor, findPolicyEngine } from '@bah/runtime'
+import { asSessionId } from '@bah/test-support'
+import { afterEach, describe, expect, it } from 'vitest'
+
+import type { AnySessionEvent } from '@bah/runtime'
+
+import type { ValidatedRow } from '../../plugin-manager/index.ts'
+import { policyInternals, policyRulesPlugin, reloadPolicyNow, resetPolicyReloadHandle } from './policy.ts'
+
+const repoRoot = fileURLToPath(new URL('../../../../../', import.meta.url))
+const realBundle = join(repoRoot, 'policies', 'bank-tier', '1.0.0')
+const demoBundle = join(repoRoot, 'policies', 'demo', 'bank-tier-demo', '1.0.0')
+const FIXED_NOW = 1_700_000_000_000
+
+const scratch: string[] = []
+
+afterEach(() => {
+  resetPolicyReloadHandle()
+  for (const dir of scratch.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
+
+function tempRoot(tag: string): string {
+  const dir = mkdtempSync(join(tmpdir(), `bah-policy-${tag}-`))
+  scratch.push(dir)
+  mkdirSync(join(dir, 'policies'), { recursive: true })
+  return join(dir, 'policies')
+}
+
+/**
+ * 递归复制目录（**不用 `fs.cpSync`**）。
+ *
+ * 本机 Node 22.17 在中文路径下执行 `cpSync(..., { recursive: true })` 会让进程
+ * 无输出退出（exit 127，无异常、无 fatal report）；`readdirSync` + `copyFileSync`
+ * 走同一套 Win32 路径 API 却稳定。测试夹具因此显式实现，避免把环境缺陷当成用例失败。
+ */
+function copyTree(source: string, target: string): void {
+  mkdirSync(target, { recursive: true })
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const from = join(source, entry.name)
+    const to = join(target, entry.name)
+    if (entry.isDirectory()) copyTree(from, to)
+    else copyFileSync(from, to)
+  }
+}
+
+/** 把仓库里的真 bundle 复制进临时策略根（`handle` 是 `<name>/<version>`）。 */
+function install(root: string, handle: string, source = realBundle): string {
+  const target = join(root, ...handle.split('/'))
+  copyTree(source, target)
+  return target
+}
+
+/** registry 条目：`path` 用**临时目录的绝对路径**，确保测的是复制出来的 bundle。 */
+function entryOf(handle: string, dir: string): Record<string, unknown> {
+  const lock = JSON.parse(readFileSync(join(dir, 'lock.json'), 'utf8')) as {
+    semanticDigest: string
+    sourceDigest: string
+    engineVersion: string
+  }
+  return {
+    path: dir,
+    semanticDigest: lock.semanticDigest,
+    sourceDigest: lock.sourceDigest,
+    engine: lock.engineVersion,
+    installedAt: FIXED_NOW,
+  }
+}
+
+function writeRegistry(root: string, versions: Readonly<Record<string, Record<string, unknown>>>): void {
+  writeFileSync(
+    join(root, 'registry.json'),
+    JSON.stringify({ apiVersion: 'bah.policy.registry/v1', kinds: { 'bank.tier': { versions } } }, null, 2),
+    'utf8',
+  )
+}
+
+function writeState(root: string, assignments: unknown): string {
+  const path = join(root, 'runtime-state.json')
+  writeFileSync(
+    path,
+    JSON.stringify(
+      { apiVersion: 'bah.policy.runtime-state/v1', updatedAt: FIXED_NOW, assignments },
+      null,
+      2,
+    ),
+    'utf8',
+  )
+  return path
+}
+
+interface BootArgs {
+  readonly root: string
+  readonly config?: Readonly<Record<string, unknown>>
+  readonly probe?: boolean
+}
+
+async function bootPolicy(args: BootArgs): Promise<BootedApp> {
+  return boot({
+    profile: { name: 'policy-test', bundles: ['policy-test'], hmr: false },
+    bundles: [
+      {
+        name: 'policy-test',
+        rows: [
+          { id: 'core:session' },
+          { id: 'policy:rules', config: { root: args.root, ...(args.config ?? {}) } },
+        ],
+      },
+    ],
+    layers: [],
+    catalog: createCatalog(),
+    run: {
+      sessionId: asSessionId('s-policy-test'),
+      now: () => FIXED_NOW,
+      probe: args.probe ?? true,
+    },
+  })
+}
+
+/** 会话里某类事件的载荷（`appendDomain` 落的就是这个）。 */
+function eventsOf(app: BootedApp, type: string): Record<string, unknown>[] {
+  const session = app.ctx.get(SESSION_SERVICE)
+  return session
+    .events()
+    .filter((event: AnySessionEvent) => String(event.type) === type)
+    .map((event: AnySessionEvent) => event.data as Record<string, unknown>)
+}
+
+/** 一次判决的输入（`bank.tier.input/v1` 的最小合法形状）。 */
+function tierInput(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    subject: { userId: 'u-1', sessionId: 's-policy-test' },
+    action: { name: 'transfer_create', declared: 'yellow' },
+    preview: {
+      amountCents: 500_000,
+      dailyUsedCents: 0,
+      dailyLimitCents: 1_000_000,
+      payee: { binding: 'whitelist' },
+    },
+    state: { riskyCallsInTurn: 0, verifyLocked: false },
+    limits: { dailyLimitCents: 1_000_000 },
+    params: { riskyCallThreshold: 3 },
+    ...overrides,
+  }
+}
+
+describe('policy:rules · validate', () => {
+  it('空配置 → base 行的默认值（root=policies，active=bank-tier/1.0.0）', () => {
+    const settings = policyRulesPlugin.validate({})
+    expect(settings.root).toBe('policies')
+    expect(settings.active).toEqual({ 'bank.tier': 'bank-tier/1.0.0' })
+    expect(settings.statePath).toBe(join('policies', 'runtime-state.json'))
+    expect(settings.hotReload).toBe(false)
+    expect(settings.requireSignature).toBe(false)
+    expect(settings.shadow).toEqual({})
+    expect(settings.signature.allowedKeyVersions).toEqual([1])
+  })
+
+  it('未知键 / .. 逃逸 / 未知 kind / 影子未声明 kind / 影子空串 → 全部拒绝', () => {
+    const code = (config: Record<string, unknown>): string => {
+      try {
+        policyRulesPlugin.validate(config)
+        return 'no-throw'
+      } catch (error) {
+        return (error as { code?: string }).code ?? 'unknown'
+      }
+    }
+    expect(code({ nope: 1 })).toBe('unknown-config-key')
+    expect(code({ root: '../etc' })).toBe('invalid-config')
+    expect(code({ active: { 'sentry.rules': 'x/1.0.0' } })).toBe('invalid-config')
+    expect(code({ active: { 'bank.tier': '' } })).toBe('invalid-config')
+    expect(code({ active: { 'bank.tier': 'a/1' }, shadow: { 'sentry.rules': 'b/1' } })).toBe(
+      'invalid-config',
+    )
+    expect(code({ active: { 'bank.tier': 'a/1' }, shadow: { 'bank.tier': '' } })).toBe(
+      'invalid-config',
+    )
+    expect(code({ active: { 'bank.tier': 'a/1' }, shadow: { 'bank.tier': 'a/1' } })).toBe(
+      'policy-shadow-self',
+    )
+    expect(code({ active: {} })).toBe('invalid-config')
+  })
+
+  it('签名：未知键 / 强制签名缺公钥 / allowedKeyVersions 非空升序唯一', () => {
+    const code = (config: Record<string, unknown>): string => {
+      try {
+        policyRulesPlugin.validate(config)
+        return 'no-throw'
+      } catch (error) {
+        return (error as { code?: string }).code ?? 'unknown'
+      }
+    }
+    expect(code({ signature: { nope: 1 } })).toBe('unknown-config-key')
+    expect(code({ requireSignature: true })).toBe('invalid-config')
+    expect(code({ signature: { allowedKeyVersions: [] } })).toBe('invalid-config')
+    expect(code({ signature: { allowedKeyVersions: ['1'] } })).toBe('invalid-config')
+    expect(code({ signature: { allowedKeyVersions: [2, 1] } })).toBe('invalid-config')
+    expect(code({ signature: { allowedKeyVersions: [1, 1] } })).toBe('invalid-config')
+    expect(
+      policyRulesPlugin.validate({ signature: { allowedKeyVersions: [1, 2] } }).signature
+        .allowedKeyVersions,
+    ).toEqual([1, 2])
+  })
+
+  it('limits：未知键 / 超硬上限拒绝，合法值放行', () => {
+    const code = (config: Record<string, unknown>): string => {
+      try {
+        policyRulesPlugin.validate(config)
+        return 'no-throw'
+      } catch (error) {
+        return (error as { code?: string }).code ?? 'unknown'
+      }
+    }
+    expect(code({ limits: { nope: 1 } })).toBe('unknown-config-key')
+    expect(code({ limits: { maxTables: 999 } })).toBe('invalid-config')
+    expect(code({ limits: { maxTables: 8 } })).toBe('no-throw')
+  })
+})
+
+describe('policy:rules · validateComposition', () => {
+  const row = (id: string, settings: Record<string, unknown>): ValidatedRow =>
+    ({ id, settings }) as unknown as ValidatedRow
+
+  it('缺行 / engine=legacy → 不校验（不是 bundle 模式就没有行序要求）', () => {
+    expect(() =>
+      policyRulesPlugin.validateComposition?.([row('policy:rules', { active: { 'bank.tier': 'a' } })]),
+    ).not.toThrow()
+    expect(() =>
+      policyRulesPlugin.validateComposition?.([
+        row('policy:rules', { active: { 'bank.tier': 'a' } }),
+        row('bank:tools', { policy: { engine: 'legacy' } }),
+      ]),
+    ).not.toThrow()
+  })
+
+  it('engine=bundle + policy 行在后 → policy-row-order', () => {
+    expect(() =>
+      policyRulesPlugin.validateComposition?.([
+        row('bank:tools', { policy: { engine: 'bundle' } }),
+        row('policy:rules', { active: { 'bank.tier': 'a' } }),
+      ]),
+    ).toThrowError(/policy:rules 必须排在 bank:tools 之前/)
+  })
+
+  it('engine=bundle + active 缺 bank.tier → policy-service-missing', () => {
+    expect(() =>
+      policyRulesPlugin.validateComposition?.([
+        row('policy:rules', { active: {} }),
+        row('bank:tools', { policy: { engine: 'bundle' } }),
+      ]),
+    ).toThrowError(/policy:service-missing|active 没有 bank.tier/)
+  })
+})
+
+describe('policy:rules · 载入与判决', () => {
+  it('正常载入：发 policy/bundle-loaded，引擎给出 level/reason/ruleIds/policyVersion', async () => {
+    const root = tempRoot('load')
+    install(root, 'bank-tier/1.0.0')
+    const app = await bootPolicy({ root })
+    try {
+      const loaded = eventsOf(app, 'policy/bundle-loaded')
+      expect(loaded).toHaveLength(1)
+      expect(loaded[0]?.['handle']).toBe('bank-tier/1.0.0')
+      expect(String(loaded[0]?.['version'])).toMatch(/^bank-tier\/1\.0\.0\+sha256:[0-9a-f]{16}$/)
+
+      const engine = findPolicyEngine(app.ctx)
+      expect(engine).toBeDefined()
+      const decision = engine?.decide(
+        { userId: 'u-1', sessionId: 's-policy-test' },
+        { name: 'transfer_create', declared: 'yellow' },
+        { riskyCallsInTurn: 0, verifyLocked: false, input: tierInput() },
+      )
+      expect(decision?.verdict).toBe('allow')
+      expect(decision?.level).toBe('yellow')
+      expect(decision?.tierReason).toBe('declared')
+      expect(decision?.ruleIds).toEqual(['TR-003-default', 'RC-002-default'])
+      expect(String(decision?.policyVersion)).toMatch(/^bank-tier\/1\.0\.0\+sha256:/)
+
+      // 描述符同时可读（早拒路径要靠它写"当前生效版本"）
+      const descriptor = findPolicyDescriptor(app.ctx)
+      expect(descriptor?.parameters).toEqual({ riskyCallThreshold: { min: 1, max: 100 } })
+      expect(descriptor?.canary).toBeUndefined()
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('缺 context.input → 抛 policy-input-invalid（绝不静默求值）', async () => {
+    const root = tempRoot('no-input')
+    install(root, 'bank-tier/1.0.0')
+    const app = await bootPolicy({ root })
+    try {
+      const engine = findPolicyEngine(app.ctx)
+      expect(() =>
+        engine?.decide(
+          { userId: 'u-1' },
+          { name: 'transfer_create', declared: 'yellow' },
+          { riskyCallsInTurn: 0, verifyLocked: false },
+        ),
+      ).toThrowError(/policy-input-invalid|context\.input/)
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('未知 kind → 抛 policy-unavailable', async () => {
+    const root = tempRoot('kind')
+    install(root, 'bank-tier/1.0.0')
+    const app = await bootPolicy({ root })
+    try {
+      const engine = findPolicyEngine(app.ctx)
+      expect(() =>
+        engine?.decide(
+          { userId: 'u-1' },
+          { name: 'transfer_create', declared: 'yellow', kind: 'sentry.rules' },
+          { riskyCallsInTurn: 0, verifyLocked: false, input: tierInput() },
+        ),
+      ).toThrowError(/没有 kind=sentry\.rules 的策略快照/)
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('registry 缺省时按 root/<name>/<version> 推断目录（S2 的兼容路径）', async () => {
+    const root = tempRoot('no-registry')
+    install(root, 'bank-tier/1.0.0')
+    const app = await bootPolicy({ root })
+    try {
+      expect(findPolicyDescriptor(app.ctx)?.handle).toBe('bank-tier/1.0.0')
+    } finally {
+      await app.dispose('test')
+    }
+  })
+})
+
+describe('policy:rules · 灰度与影子', () => {
+  it('显式名单命中候选版本；未命中的会话留在 active', async () => {
+    const root = tempRoot('canary')
+    const stable = install(root, 'bank-tier/1.0.0')
+    const demo = install(root, 'bank-tier-demo/1.0.0', demoBundle)
+    writeRegistry(root, {
+      'bank-tier/1.0.0': entryOf('bank-tier/1.0.0', stable),
+      'bank-tier-demo/1.0.0': entryOf('bank-tier-demo/1.0.0', demo),
+    })
+    writeState(root, {
+      'bank.tier': {
+        active: 'bank-tier/1.0.0',
+        canary: {
+          version: 'bank-tier-demo/1.0.0',
+          percent: 0,
+          sessions: ['s-canary'],
+          epoch: 1,
+        },
+      },
+    })
+    const app = await bootPolicy({ root })
+    try {
+      const engine = findPolicyEngine(app.ctx)
+      const inCanary = engine?.decide(
+        { userId: 'u-1', sessionId: 's-canary' },
+        { name: 'transfer_create', declared: 'yellow' },
+        { riskyCallsInTurn: 0, verifyLocked: false, input: tierInput() },
+      )
+      // demo 规则：单笔 500000 分直接升红
+      expect(inCanary?.level).toBe('red')
+      expect(inCanary?.ruleIds).toEqual(['TR-004-single-large', 'RC-002-default'])
+
+      const stayed = engine?.decide(
+        { userId: 'u-1', sessionId: 's-other' },
+        { name: 'transfer_create', declared: 'yellow' },
+        { riskyCallsInTurn: 0, verifyLocked: false, input: tierInput() },
+      )
+      expect(stayed?.level).toBe('yellow')
+      expect(findPolicyDescriptor(app.ctx)?.canary?.handle).toBe('bank-tier-demo/1.0.0')
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('万分比 10000 → 全部命中候选；0 → 全部留在 active；分桶纯函数稳定', async () => {
+    const root = tempRoot('percent')
+    const stable = install(root, 'bank-tier/1.0.0')
+    const demo = install(root, 'bank-tier-demo/1.0.0', demoBundle)
+    writeRegistry(root, {
+      'bank-tier/1.0.0': entryOf('bank-tier/1.0.0', stable),
+      'bank-tier-demo/1.0.0': entryOf('bank-tier-demo/1.0.0', demo),
+    })
+    const run = async (percent: number, sessionId: string): Promise<string | undefined> => {
+      writeState(root, {
+        'bank.tier': {
+          active: 'bank-tier/1.0.0',
+          canary: { version: 'bank-tier-demo/1.0.0', percent, epoch: 2 },
+        },
+      })
+      const app = await bootPolicy({ root })
+      try {
+        return findPolicyEngine(app.ctx)?.decide(
+          { userId: 'u-1', sessionId },
+          { name: 'transfer_create', declared: 'yellow' },
+          { riskyCallsInTurn: 0, verifyLocked: false, input: tierInput() },
+        )?.policyVersion
+      } finally {
+        await app.dispose('test')
+      }
+    }
+    expect(String(await run(10_000, 's-any'))).toMatch(/^bank-tier-demo\//)
+    expect(String(await run(0, 's-any'))).toMatch(/^bank-tier\//)
+
+    // 分桶：同一 (sessionId, epoch) 永远同一桶；0 <= bucket < 10000
+    const once = policyInternals.bucketOf('s-stable', 3)
+    expect(policyInternals.bucketOf('s-stable', 3)).toBe(once)
+    expect(once).toBeGreaterThanOrEqual(0)
+    expect(once).toBeLessThan(10_000)
+    // epoch 变 → 桶可能变（不是"会话固定在同一版本"）
+    expect(policyInternals.bucketOf('s-stable', 4)).not.toBe(Number.NaN)
+  })
+
+  it('影子：候选与生效不同 → 发 policy/shadow-diff，判决仍是生效版本', async () => {
+    const root = tempRoot('shadow')
+    install(root, 'bank-tier/1.0.0')
+    install(root, 'bank-tier-demo/1.0.0', demoBundle)
+    const app = await bootPolicy({
+      root,
+      config: { shadow: { 'bank.tier': 'bank-tier-demo/1.0.0' } },
+    })
+    try {
+      const decision = findPolicyEngine(app.ctx)?.decide(
+        { userId: 'u-1', sessionId: 's-policy-test' },
+        { name: 'transfer_create', declared: 'yellow', callId: 'call-1' },
+        { riskyCallsInTurn: 0, verifyLocked: false, input: tierInput() },
+      )
+      expect(decision?.level).toBe('yellow')
+      const diffs = eventsOf(app, 'policy/shadow-diff')
+      expect(diffs).toHaveLength(1)
+      expect(diffs[0]?.['callId']).toBe('call-1')
+      expect(diffs[0]?.['changed']).toEqual(['level', 'reason', 'ruleIds'])
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('影子与生效一致 → 不发事件（差异为零不是"没有影子"）', async () => {
+    const root = tempRoot('shadow-same')
+    install(root, 'bank-tier/1.0.0')
+    install(root, 'bank-tier-demo/1.0.0', demoBundle)
+    const app = await bootPolicy({
+      root,
+      config: { shadow: { 'bank.tier': 'bank-tier-demo/1.0.0' } },
+    })
+    try {
+      const decision = findPolicyEngine(app.ctx)?.decide(
+        { userId: 'u-1', sessionId: 's-policy-test' },
+        // 80000 分：1.0.0 与 demo 都判黄，无差异
+        { name: 'transfer_create', declared: 'yellow' },
+        {
+          riskyCallsInTurn: 0,
+          verifyLocked: false,
+          input: tierInput({
+            preview: {
+              amountCents: 80_000,
+              dailyUsedCents: 0,
+              dailyLimitCents: 500_000,
+              payee: { binding: 'whitelist' },
+            },
+          }),
+        },
+      )
+      expect(decision?.level).toBe('yellow')
+      expect(eventsOf(app, 'policy/shadow-diff')).toHaveLength(0)
+    } finally {
+      await app.dispose('test')
+    }
+  })
+})
+
+describe('policy:rules · 热重载', () => {
+  it('state 变更 → policy/bundle-switched，后续判决走新版本', async () => {
+    const root = tempRoot('reload-ok')
+    const stable = install(root, 'bank-tier/1.0.0')
+    const demo = install(root, 'bank-tier-demo/1.0.0', demoBundle)
+    writeRegistry(root, {
+      'bank-tier/1.0.0': entryOf('bank-tier/1.0.0', stable),
+      'bank-tier-demo/1.0.0': entryOf('bank-tier-demo/1.0.0', demo),
+    })
+    const app = await bootPolicy({ root, config: { hotReload: true } })
+    try {
+      writeState(root, { 'bank.tier': { active: 'bank-tier-demo/1.0.0' } })
+      expect(reloadPolicyNow()).toBe(true)
+      const switched = eventsOf(app, 'policy/bundle-switched')
+      expect(switched).toHaveLength(1)
+      // `from/to` 是 identity（02 §4.3），不是 handle
+      expect(String(switched[0]?.['to'])).toMatch(/^bank-tier-demo\/1\.0\.0\+sha256:[0-9a-f]{16}$/)
+
+      const decision = findPolicyEngine(app.ctx)?.decide(
+        { userId: 'u-1', sessionId: 's-policy-test' },
+        { name: 'transfer_create', declared: 'yellow' },
+        { riskyCallsInTurn: 0, verifyLocked: false, input: tierInput() },
+      )
+      expect(String(decision?.policyVersion)).toMatch(/^bank-tier-demo\//)
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('坏 state → policy/reload-rejected，旧版本继续服务（I10）', async () => {
+    const root = tempRoot('reload-bad')
+    install(root, 'bank-tier/1.0.0')
+    const app = await bootPolicy({ root, config: { hotReload: true } })
+    try {
+      writeFileSync(join(root, 'runtime-state.json'), '{ not json', 'utf8')
+      expect(reloadPolicyNow()).toBe(true)
+      const rejected = eventsOf(app, 'policy/reload-rejected')
+      expect(rejected).toHaveLength(1)
+      expect(rejected[0]?.['code']).toBe('policy-state-invalid')
+
+      // 旧版本仍在服务
+      const decision = findPolicyEngine(app.ctx)?.decide(
+        { userId: 'u-1', sessionId: 's-policy-test' },
+        { name: 'transfer_create', declared: 'yellow' },
+        { riskyCallsInTurn: 0, verifyLocked: false, input: tierInput() },
+      )
+      expect(String(decision?.policyVersion)).toMatch(/^bank-tier\/1\.0\.0/)
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('hotReload=false → 不暴露手动重载句柄（生产默认不热换）', async () => {
+    const root = tempRoot('reload-off')
+    install(root, 'bank-tier/1.0.0')
+    const app = await bootPolicy({ root })
+    try {
+      expect(reloadPolicyNow()).toBe(false)
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('state 没变 → 重载不产生 bundle-switched（事件只跟真实版本变化）', async () => {
+    const root = tempRoot('reload-same')
+    install(root, 'bank-tier/1.0.0')
+    const app = await bootPolicy({ root, config: { hotReload: true } })
+    try {
+      expect(reloadPolicyNow()).toBe(true)
+      expect(eventsOf(app, 'policy/bundle-switched')).toHaveLength(0)
+      expect(eventsOf(app, 'policy/reload-rejected')).toHaveLength(0)
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('描述符是活引用：重载后 version/canary 立即反映新版本', async () => {
+    const root = tempRoot('reload-live')
+    const stable = install(root, 'bank-tier/1.0.0')
+    const demo = install(root, 'bank-tier-demo/1.0.0', demoBundle)
+    writeRegistry(root, {
+      'bank-tier/1.0.0': entryOf('bank-tier/1.0.0', stable),
+      'bank-tier-demo/1.0.0': entryOf('bank-tier-demo/1.0.0', demo),
+    })
+    const app = await bootPolicy({ root, config: { hotReload: true } })
+    try {
+      expect(findPolicyDescriptor(app.ctx)?.handle).toBe('bank-tier/1.0.0')
+      writeState(root, { 'bank.tier': { active: 'bank-tier-demo/1.0.0' } })
+      expect(reloadPolicyNow()).toBe(true)
+      const descriptor = findPolicyDescriptor(app.ctx)
+      expect(descriptor?.handle).toBe('bank-tier-demo/1.0.0')
+      expect(String(descriptor?.version)).toMatch(/^bank-tier-demo\/1\.0\.0\+sha256:/)
+    } finally {
+      await app.dispose('test')
+    }
+  })
+})
+
+describe('policy:rules · 启动失败矩阵（02 §13）', () => {
+  /**
+   * 启动期错误会被 `boot()` 统一包成 `boot-failed`（原始错误放在 `detail.cause`）。
+   * 断言策略错误码时必须剥到 cause，否则所有负例都只会看到同一个外层码。
+   */
+  const codeOf = (error: unknown): string => {
+    const shaped = error as {
+      code?: string
+      detail?: { cause?: unknown }
+      cause?: unknown
+    }
+    if (shaped.code === 'boot-failed') {
+      const cause = shaped.detail?.cause ?? shaped.cause
+      if (cause !== undefined) return codeOf(cause)
+    }
+    return typeof shaped.code === 'string' ? shaped.code : 'unknown'
+  }
+
+  const bootCode = async (root: string, config?: Record<string, unknown>): Promise<string> => {
+    try {
+      const app = await bootPolicy({ root, ...(config === undefined ? {} : { config }) })
+      await app.dispose('cleanup')
+      return 'no-throw'
+    } catch (error) {
+      return codeOf(error)
+    }
+  }
+
+  it('bundle 目录缺失 → policy-bundle-missing', async () => {
+    const root = tempRoot('missing')
+    expect(await bootCode(root)).toBe('policy-bundle-missing')
+  })
+
+  it('registry 坏 JSON / apiVersion 错 → policy-registry-invalid', async () => {
+    const root = tempRoot('registry')
+    install(root, 'bank-tier/1.0.0')
+    writeFileSync(join(root, 'registry.json'), '{ bad', 'utf8')
+    expect(await bootCode(root)).toBe('policy-registry-invalid')
+
+    writeFileSync(join(root, 'registry.json'), JSON.stringify({ apiVersion: 'v0' }), 'utf8')
+    expect(await bootCode(root)).toBe('policy-registry-invalid')
+  })
+
+  it('registry 摘要与现场不符 → policy-digest-mismatch', async () => {
+    const root = tempRoot('digest')
+    const stable = install(root, 'bank-tier/1.0.0')
+    writeRegistry(root, {
+      'bank-tier/1.0.0': { ...entryOf('bank-tier/1.0.0', stable), semanticDigest: 'deadbeef' },
+    })
+    expect(await bootCode(root)).toBe('policy-digest-mismatch')
+  })
+
+  it('state 坏 JSON / apiVersion 错 → policy-state-invalid', async () => {
+    const root = tempRoot('state')
+    install(root, 'bank-tier/1.0.0')
+    writeFileSync(join(root, 'runtime-state.json'), '{ bad', 'utf8')
+    expect(await bootCode(root)).toBe('policy-state-invalid')
+
+    writeFileSync(join(root, 'runtime-state.json'), JSON.stringify({ apiVersion: 'v0' }), 'utf8')
+    expect(await bootCode(root)).toBe('policy-state-invalid')
+  })
+
+  it('state 指向未声明的 kind → policy-state-invalid（配置漂移不静默）', async () => {
+    const root = tempRoot('drift')
+    install(root, 'bank-tier/1.0.0')
+    writeState(root, { 'bank.tier': { active: 'bank-tier/1.0.0' }, 'sentry.rules': { active: 'x/1' } })
+    expect(await bootCode(root)).toBe('policy-state-invalid')
+  })
+
+  it('state 指向未安装版本 → policy-bundle-missing（无 registry 时按目录推断）', async () => {
+    const root = tempRoot('state-missing')
+    install(root, 'bank-tier/1.0.0')
+    writeState(root, { 'bank.tier': { active: 'bank-tier/9.9.9' } })
+    expect(await bootCode(root)).toBe('policy-bundle-missing')
+  })
+
+  it('有 registry 时 state 指向未登记版本 → policy-version-missing（不静默用目录）', async () => {
+    const root = tempRoot('state-unregistered')
+    const stable = install(root, 'bank-tier/1.0.0')
+    const extra = install(root, 'bank-tier/9.9.9')
+    writeRegistry(root, { 'bank-tier/1.0.0': entryOf('bank-tier/1.0.0', stable) })
+    writeState(root, { 'bank.tier': { active: 'bank-tier/9.9.9' } })
+    // 目录确实存在，但 registry 没登记：必须拒绝，而不是"有目录就用"
+    expect(extra).toContain('9.9.9')
+    expect(await bootCode(root)).toBe('policy-version-missing')
+  })
+
+  it('registry 形状不完整 → policy-registry-invalid（半截清单比没有更危险）', async () => {
+    const root = tempRoot('registry-shape')
+    install(root, 'bank-tier/1.0.0')
+    writeFileSync(join(root, 'registry.json'), JSON.stringify({ apiVersion: 'bah.policy.registry/v1' }), 'utf8')
+    expect(await bootCode(root)).toBe('policy-registry-invalid')
+  })
+
+  it('state 的 canary.percent 越界 / sessions 非数组 → policy-state-invalid', async () => {
+    const root = tempRoot('state-shape')
+    install(root, 'bank-tier/1.0.0')
+    writeState(root, {
+      'bank.tier': {
+        active: 'bank-tier/1.0.0',
+        canary: { version: 'bank-tier/1.0.0', percent: 10001, epoch: 1 },
+      },
+    })
+    expect(await bootCode(root)).toBe('policy-state-invalid')
+
+    writeState(root, {
+      'bank.tier': {
+        active: 'bank-tier/1.0.0',
+        canary: { version: 'bank-tier/1.0.0', percent: 0, sessions: 's-1', epoch: 1 },
+      },
+    })
+    expect(await bootCode(root)).toBe('policy-state-invalid')
+  })
+
+  it('requireSignature 且无 bundle.sig → policy-signature-invalid', async () => {
+    const root = tempRoot('sig')
+    install(root, 'bank-tier/1.0.0')
+    const keyPath = join(root, 'policy.pub.pem')
+    writeFileSync(keyPath, 'not-a-real-key', 'utf8')
+    expect(
+      await bootCode(root, { requireSignature: true, signature: { publicKeyPath: keyPath } }),
+    ).toBe('policy-signature-invalid')
+  })
+
+  it('--dump-config（probe=false）不打 stderr，但事件照常落账', async () => {
+    const root = tempRoot('probe')
+    install(root, 'bank-tier/1.0.0')
+    const lines: string[] = []
+    const original = console.error
+    console.error = (...args: unknown[]) => {
+      lines.push(args.map(String).join(' '))
+    }
+    try {
+      const app = await bootPolicy({ root, probe: false })
+      try {
+        expect(lines).toEqual([])
+        expect(eventsOf(app, 'policy/bundle-loaded')).toHaveLength(1)
+      } finally {
+        await app.dispose('test')
+      }
+    } finally {
+      console.error = original
+    }
+  })
+})
+
+describe('policy:rules × bank:tools（S2 端到端）', () => {
+  /** 真实底座 + 外置策略：`policy:rules` 必须排在 `bank:tools` 之前。 */
+  async function bootBank(
+    root: string,
+    bankConfig: Readonly<Record<string, unknown>>,
+    rows?: readonly { id: string; config?: Readonly<Record<string, unknown>> }[],
+  ): Promise<BootedApp> {
+    return boot({
+      profile: { name: 'policy-bank-test', bundles: ['policy-bank-test'], hmr: false },
+      bundles: [
+        {
+          name: 'policy-bank-test',
+          rows:
+            rows ??
+            ([
+              { id: 'core:session' },
+              { id: 'core:tools' },
+              { id: 'core:prompt' },
+              {
+                id: 'core:model',
+                config: {
+                  provider: 'mock',
+                  model: 'mock-chat',
+                  script: [
+                    {
+                      tool: {
+                        id: 'call-transfer',
+                        name: 'transfer_create',
+                        args: {
+                          amount: 800,
+                          payee: { name: '王建国', phone: '13900002222' },
+                          remark: '房租',
+                        },
+                      },
+                    },
+                    { text: '已发起转账。' },
+                  ],
+                },
+              },
+              {
+                id: 'core:agent',
+                config: { channel: 'headless', loop: { model: 'mock:mock-chat' } },
+              },
+              { id: 'policy:rules', config: { root } },
+              { id: 'bank:tools', config: bankConfig },
+            ] as const),
+        },
+      ],
+      layers: [],
+      catalog: createCatalog(),
+      run: {
+        sessionId: asSessionId('s-policy-bank'),
+        now: () => FIXED_NOW,
+        probe: true,
+      },
+    })
+  }
+
+  it('真实 bundle 判决：tier/decided 带版本/规则/参数摘要/证据，行为与等价基线一致', async () => {
+    const root = tempRoot('bank-e2e')
+    install(root, 'bank-tier/1.0.0')
+    const app = await bootBank(root, {
+      demoUserId: 'u-1',
+      seed: 7,
+      datasetTier: 'demo',
+      policy: { engine: 'bundle' },
+    })
+    try {
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('转账 800 元给王建国')
+      await agent.run()
+
+      const decided = eventsOf(app, 'tier/decided')[0]!
+      expect(decided).toMatchObject({
+        name: 'transfer_create',
+        level: 'yellow',
+        reason: 'declared',
+        verdict: 'ask',
+        engineSource: 'bundle',
+        ruleIds: ['TR-003-default', 'RC-002-default'],
+      })
+      expect(String(decided['policyVersion'])).toMatch(/^bank-tier\/1\.0\.0\+sha256:[0-9a-f]{16}$/)
+      expect(String(decided['paramsDigest'])).toMatch(/^sha256:[0-9a-f]{64}$/)
+      const evidence = decided['evidence'] as { inputDigest: string; input: Record<string, unknown> }
+      expect(evidence.inputDigest).toMatch(/^sha256:[0-9a-f]{64}$/)
+      expect(evidence.input).toMatchObject({
+        subject: { userId: 'u-1', sessionId: 's-policy-bank' },
+        limits: { dailyLimitCents: 100_000 },
+      })
+      // 没有 approval 行：ask 之后审批不可用是预期的（不是策略错误）
+      const result = eventsOf(app, 'tool/result')[0] as { code?: string }
+      expect(result.code).toBe('approval-unavailable')
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('engine=bundle 但缺 policy:rules 行 → 启动失败 policy-service-missing', async () => {
+    const root = tempRoot('bank-no-policy')
+    install(root, 'bank-tier/1.0.0')
+    let code = 'no-throw'
+    try {
+      const app = await bootBank(
+        root,
+        { demoUserId: 'u-1', seed: 7, datasetTier: 'demo', policy: { engine: 'bundle' } },
+        [
+          { id: 'core:session' },
+          { id: 'core:tools' },
+          { id: 'bank:tools', config: { demoUserId: 'u-1', policy: { engine: 'bundle' } } },
+        ],
+      )
+      await app.dispose('test')
+    } catch (error) {
+      const shaped = error as { code?: string; detail?: { cause?: { code?: string } } }
+      code = shaped.detail?.cause?.code ?? shaped.code ?? 'unknown'
+    }
+    expect(code).toBe('policy-service-missing')
+  })
+
+  it('policy:rules 排在 bank:tools 之后 → 启动失败 policy-row-order', async () => {
+    const root = tempRoot('bank-order')
+    install(root, 'bank-tier/1.0.0')
+    let code = 'no-throw'
+    try {
+      const app = await bootBank(
+        root,
+        { demoUserId: 'u-1', seed: 7, datasetTier: 'demo', policy: { engine: 'bundle' } },
+        [
+          { id: 'core:session' },
+          { id: 'core:tools' },
+          { id: 'bank:tools', config: { demoUserId: 'u-1', policy: { engine: 'bundle' } } },
+          { id: 'policy:rules', config: { root } },
+        ],
+      )
+      await app.dispose('test')
+    } catch (error) {
+      const shaped = error as { code?: string; detail?: { cause?: { code?: string } } }
+      code = shaped.detail?.cause?.code ?? shaped.code ?? 'unknown'
+    }
+    expect(code).toBe('policy-row-order')
+  })
+
+  it('部署参数越过 bundle 声明的区间 → 启动失败 policy-param-mismatch', async () => {
+    const root = tempRoot('bank-param')
+    install(root, 'bank-tier/1.0.0')
+    let code = 'no-throw'
+    try {
+      const app = await bootBank(root, {
+        demoUserId: 'u-1',
+        seed: 7,
+        datasetTier: 'demo',
+        riskyCallThreshold: 101,
+        policy: { engine: 'bundle' },
+      })
+      await app.dispose('test')
+    } catch (error) {
+      const shaped = error as { code?: string; detail?: { cause?: { code?: string } } }
+      code = shaped.detail?.cause?.code ?? shaped.code ?? 'unknown'
+    }
+    expect(code).toBe('policy-param-mismatch')
+  })
+})

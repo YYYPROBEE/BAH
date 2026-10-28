@@ -1,0 +1,14 @@
+apiVersion: bah.policy/v1
+kind: bank.tier
+name: bank-tier-demo
+version: 1.0.0
+description: 演示用候选 bundle —— 单笔 ≥ 5000 元的白名单转账也升红（legacy 与 1.0.0 都不会）
+owners: [risk-platform]
+schema: bank.tier.input/v1
+engine: { min: 1.0.0, max: 1.x }
+parameters:
+  riskyCallThreshold: { type: integer, min: 1, max: 100 }
+reasons: [declared, new-payee, daily-limit, risky-calls]
+denyCodes: [policy-denied]
+rulesFile: rules.yml
+corpusFile: corpus.yml

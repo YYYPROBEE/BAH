@@ -18,6 +18,8 @@ import { knowledgePlugin } from './knowledge.ts'
 import { modelPlugin } from './model.ts'
 import { persistencePlugin } from './persistence.ts'
 import { planPlugin } from './plan.ts'
+// 策略外置 S2：外置规则 bundle 的载入/校验/灰度/热重载
+import { policyRulesPlugin } from './policy.ts'
 import { promptPlugin } from './prompt.ts'
 import { sagaPlugin } from './saga.ts'
 import { sagaAuditPlugin } from './saga-audit.ts'
@@ -45,6 +47,9 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   auditDecisionsPlugin,
   echoPlugin,
   bankToolsPlugin,
+  // 策略外置 S2：登记 ≠ 装配。真正是否装配由 bundle 行决定；
+  // **行序**上 base bundle 把它排在 `bank:tools` 之前（后者 apply 时要找引擎）
+  policyRulesPlugin,
   knowledgePlugin,
   approvalPlugin,
   sentryPlugin,
@@ -77,6 +82,7 @@ export {
   modelPlugin,
   persistencePlugin,
   planPlugin,
+  policyRulesPlugin,
   promptPlugin,
   sagaPlugin,
   sagaAuditPlugin,

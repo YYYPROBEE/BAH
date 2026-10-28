@@ -173,6 +173,10 @@ export function createPipelineHarness(options: {
   readonly callIdPrefix?: string
   /** 策略引擎（缺省 = `tier.ts` 的默认实现；W04 的注入面）。 */
   readonly policy?: PolicyEngine
+  /** 策略引擎模式（策略外置 S2；缺省 `legacy`）。 */
+  readonly policyEngineMode?: 'legacy' | 'bundle'
+  /** 当前生效策略版本（早拒路径审计；缺省 `legacy`）。 */
+  readonly activePolicyVersion?: string
   /**
    * 可控时钟（缺省 = 内部确定性钟）。
    *
@@ -207,6 +211,12 @@ export function createPipelineHarness(options: {
     sessionId,
     deps,
     ...(options.policy === undefined ? {} : { policy: options.policy }),
+    ...(options.policyEngineMode === undefined
+      ? {}
+      : { policyEngineMode: options.policyEngineMode }),
+    ...(options.activePolicyVersion === undefined
+      ? {}
+      : { activePolicyVersion: options.activePolicyVersion }),
     ...(options.lease === undefined ? {} : { lease: options.lease }),
   })
 
