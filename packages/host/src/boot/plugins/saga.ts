@@ -101,7 +101,8 @@ export const sagaPlugin: HostPlugin<ReturnType<typeof parseSagaSettings>> = {
           const alertLevel = level === 'P0' ? 'P0' : 'alert'
           const sink = legacyAlertSink()
           sink(level, message)
-          logJson(level === 'P0' ? 'error' : 'warn', 'saga-alert', { level, message })
+          // `level` 是日志级别（固定字段），告警级别用 `alertLevel`，避免被字段覆盖成 P0/alert。
+          logJson(level === 'P0' ? 'error' : 'warn', 'saga-alert', { alertLevel: level, message })
           recordAlertResult(alertLevel, 'stderr')
           const fileResult = appendAlertLine(process.env['BAH_ALERT_LOG'], level, message)
           if (fileResult === 'ok') recordAlertResult(alertLevel, 'file')

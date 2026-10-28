@@ -76,13 +76,14 @@ describe('logging · 级别与字段', () => {
     }
   })
 
-  it('固定字段 code/ts 不被 fields 覆盖（否则事件名会被顶掉）', () => {
+  it('固定字段 code/ts/level 不被 fields 覆盖（否则事件名/级别会被顶掉）', () => {
     const restore = capture()
     try {
-      logJson('warn', 'test.reserved', { code: 'field-code', ts: 'field-ts', ok: 1 })
+      logJson('warn', 'test.reserved', { code: 'field-code', ts: 'field-ts', level: 'field-level', ok: 1 })
       const payload = JSON.parse(captured[0]!) as Record<string, unknown>
       expect(payload.code).toBe('test.reserved')
       expect(payload.ts).not.toBe('field-ts')
+      expect(payload.level).toBe('warn')
       expect(payload.ok).toBe(1)
     } finally {
       restore()
