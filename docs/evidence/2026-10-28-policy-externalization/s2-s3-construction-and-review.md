@@ -71,6 +71,7 @@
 | B-08 | 通过 | explain 证据被改 → `input-digest-mismatch`；链缺失默认提示、`--require-chain` 失败；归档缺失退出码 1 |
 | B-09 | 通过 | 审计 sink 抛错：判决不变（I17），只 stderr 告警 |
 | B-10 | 通过 | 快照差异逐条审：只新增计划内事件/字段；无 evaluate 路径漂移（legacy 与 bundle 判决逐字段一致） |
+| B-11 | 通过 | 热重载参数绑定：候选 bundle 与部署参数不兼容 → `reload-rejected`，描述符/判决仍是旧版（P2-8 修复后新增用例） |
 
 ---
 
@@ -88,6 +89,7 @@
 | P2-5 | P2 | `policy/bundle-switched` 的 `from/to` 写 handle，02 §4.3 要求 identity | 改为 `policyVersion` identity；更新用例 |
 | P2-6 | P2 | 重载每次都发 `bundle-switched`，state 无关变化也会计数 | 比较描述符身份键；无变化只换引用 |
 | P2-7 | P2 | 编译 1.0.0 平均 6.5 ms，超 5 ms 预算；语料解析占大头 | `CompileOptions.withCorpus`（默认 true）；启动路径跳过语料，编译降到 1.7 ms；语料仍由 `policy:test`/门禁覆盖 |
+| P2-8 | P2 | 热重载换到"参数声明不同"的 bundle 时，启动期的部署参数绑定不会重新校验；切换成功后首条判决才 fail-closed | 新增 `runtime:policy-param-check` 服务：`bank:tools` 提供检查函数，`policy:rules` 在原子替换**前**调用；不兼容 → `policy/reload-rejected(policy-param-mismatch)`，旧版继续。另在 `loadSnapshot` 强制 active/canary/shadow 参数名集合一致 |
 | P3-1 | P3 | `policy:explain` 的规则行号靠扫描 `rules.yml`（IR 不保留行号），列号不精确 | 已在源码注释登记；人类输出只要求行号 |
 | P3-2 | P3 | 审计 sink 失败只 stderr，没有 `policy/audit-failed` 事件 | 事件出口与失败出口是同一个 session；强发只会二次失败。I17 已满足，指标侧暂不计数（登记） |
 

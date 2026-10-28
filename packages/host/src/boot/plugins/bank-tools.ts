@@ -58,6 +58,7 @@ import {
   TOOLS_SERVICE,
   findPolicyDescriptor,
   findPolicyEngine,
+  providePolicyParamCheck,
   provideToolContracts,
 } from '@bah/runtime'
 import type { PolicyDescriptor, SessionApi } from '@bah/runtime'
@@ -379,9 +380,14 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
       const activePolicyVersion = (): string =>
         mode === 'bundle' ? (findPolicyDescriptor(ctx)?.version ?? 'unknown') : 'legacy'
       if (mode === 'bundle') {
-        assertPolicyParams(findPolicyDescriptor(ctx), {
-          riskyCallThreshold: config.riskyCallThreshold,
-        })
+        const params = { riskyCallThreshold: config.riskyCallThreshold }
+        assertPolicyParams(findPolicyDescriptor(ctx), params)
+        // 热重载换 bundle 时，policy:rules 在原子替换前回调这里；绑定不兼容 = 拒绝重载
+        ctx.effect(
+          providePolicyParamCheck(ctx, (descriptor) => {
+            assertPolicyParams(descriptor, params)
+          }),
+        )
       }
       provideBankGovernance({
         ctx,

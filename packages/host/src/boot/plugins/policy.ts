@@ -32,6 +32,7 @@ import {
 } from '@bah/policy'
 import {
   SESSION_SERVICE,
+  findPolicyParamCheck,
   providePolicyDescriptor,
   providePolicyEngine,
   type PolicyDecision,
@@ -325,6 +326,11 @@ export const policyRulesPlugin: HostPlugin<PolicyRulesSettings> = {
         let next: PolicySnapshot
         try {
           next = loadSnapshot(config, run.now)
+          // 激活前用部署参数校验新描述符（`bank:tools` 提供）；不兼容 = 旧版继续
+          const paramCheck = findPolicyParamCheck(ctx)
+          if (paramCheck !== undefined) {
+            for (const descriptor of next.descriptors) paramCheck(descriptor)
+          }
         } catch (error) {
           const code = (error as { code?: string }).code ?? 'policy-reload-failed'
           logJson('warn', 'policy.reloadRejected', {
@@ -566,6 +572,22 @@ function loadSnapshot(settings: PolicyRulesSettings, now: () => number): PolicyS
         ? undefined
         : compileAt(root, kind, shadowHandle, registry, settings, toolNames)
 
+    // 同一 kind 的所有版本必须声明**同一组参数名**：部署参数按 active 校验过一次，
+    // 灰度/影子换一组键会让 `validateInput` 在求值时才发现不匹配（那时只能 deny）。
+    const keys = parameterKeysOf(active)
+    for (const [label, candidate] of [
+      ['canary', canary?.compiled],
+      ['shadow', shadow],
+    ] as const) {
+      if (candidate !== undefined && parameterKeysOf(candidate) !== keys) {
+        throw new BahError(
+          'policy-param-mismatch',
+          `${kind} 的 ${label} 版本声明了不同的参数集（active=${keys || '<none>'}，${label}=${parameterKeysOf(candidate) || '<none>'}）`,
+          { kind, label },
+        )
+      }
+    }
+
     kinds.set(kind, {
       kind,
       active,
@@ -619,6 +641,11 @@ function descriptorOf(
           },
         }),
   }
+}
+
+/** 参数名集合（排序后拼接；只用于比较，不参与摘要）。 */
+function parameterKeysOf(compiled: CompiledPolicy): string {
+  return Object.keys(compiled.parameters).sort().join(',')
 }
 
 /** 描述符的"版本身份"键（不含 loadedAt；重载时间不是切换）。 */
