@@ -1,0 +1,34 @@
+# policy:explain 复现与负控 · 2026-10-28T19:28:56+08:00 · HEAD d2f8922
+
+## 1. 正常复现（快照 call-create）
+policy        bank-tier-demo/1.1.0+sha256:dee8183a04ef9750
+engine        1.0.0
+paramsDigest  sha256:57c7dbda9e570fcc913048403584a9a0c36bdb499170034a9228e38b1f55e9c5
+inputDigest   sha256:b29fe66980e4633d288d5e20cd34f72420d1e998feb380e3c83806cd5d95021d
+decision      red / daily-limit
+rules         TR-004-single-large (rules.yml:26)
+rules         RC-002-default (rules.yml:42)
+reproduced    yes
+chain         policy/decision missing
+evidence      present
+# exit=0
+
+## 2. 负控：篡改 evidence 一个字段 → 必须退出码 1 + input-digest-mismatch
+policy        bank-tier-demo/1.1.0+sha256:dee8183a04ef9750
+engine        -
+paramsDigest  sha256:57c7dbda9e570fcc913048403584a9a0c36bdb499170034a9228e38b1f55e9c5
+inputDigest   sha256:0f30fd6467fce8be54340b8ba467ba43e93d7fcfa00c4bbbf0dd63b9880841ac
+decision      - / -
+reproduced    no (input-digest-mismatch)
+chain         policy/decision missing
+evidence      present
+# exit=1
+
+## 3. 负控：--require-chain（快照无链）→ 必须退出码 1
+# exit=1
+
+## 4. 负控：归档缺失（registry 副本把 demo 路径改成不存在的目录）→ policy-archive-missing
+policy-archive-missing: 归档 bundle 缺失：D:\项目集\微众杯银行ai智能体\BAH\MonoRepo\policies\demo\archive-removed\1.1.0
+# exit=1
+
+# 结论：正常复现 yes；篡改/缺链/缺归档均显式失败（退出码 1）

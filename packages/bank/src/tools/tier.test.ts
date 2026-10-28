@@ -197,6 +197,17 @@ describe('T-TIER-007 用户声称额度更高', () => {
       run({}, { amountCents: 400_000, dailyUsedCents: 200_000, dailyLimitCents: 5_000_000 }),
     ).toEqual({ kind: 'ask', level: 'red', reason: 'daily-limit', challenge: true })
   })
+
+  it('账本限额比 Config 更紧时取账本（数据只能收紧，不能放宽）', () => {
+    // 账本 1,000 分（10 元），Config 500,000 分（5 千元）：生效上限 = 1,000 分
+    expect(
+      run({}, { amountCents: 1_001, dailyUsedCents: 0, dailyLimitCents: 1_000 }),
+    ).toEqual({ kind: 'ask', level: 'red', reason: 'daily-limit', challenge: true })
+    // 恰好等于账本上限：不升（严格大于才升）
+    expect(
+      run({}, { amountCents: 1_000, dailyUsedCents: 0, dailyLimitCents: 1_000 }),
+    ).toMatchObject({ kind: 'ask', level: 'yellow', reason: 'declared' })
+  })
 })
 
 describe('T-TIER-008 红级重试不降级', () => {
