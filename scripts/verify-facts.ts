@@ -229,6 +229,12 @@ function computeFacts(
   const pct = total > 0 ? round2((covered / total) * 100) : Number.NaN
 
   // 报表存在时核对台账是否最近一次：干净 clone 没有报表，只记 note。
+  //
+  // 为什么 Windows 跳过比对：台账是 CI（Ubuntu / Node 22.19）口径，本机报表的
+  // 分母含「无执行行文件按物理行计入」的差异（见 coverage-baseline.json 的 note），
+  // 两者**按定义不可比**。旧实现拿本机报表去否定 CI 台账，使 `pnpm check` 在
+  // Windows 上从 acf0963 起必红于 gate（与代码是否真的漂移无关）。
+  // 仍解析报表——坏 JSON 要红；只有"比大小"这一步按平台跳过。
   const reportPath = join(root, '.ci-artifacts/cov-all/coverage-summary.json')
   if (existsSync(reportPath)) {
     try {
@@ -236,7 +242,11 @@ function computeFacts(
         total?: { lines?: { covered?: number; total?: number } }
       }
       const lines = report.total?.lines
-      if (lines?.covered !== covered || lines.total !== total) {
+      if (process.platform === 'win32') {
+        notes.push(
+          'Windows 本地全仓报表与 CI/Ubuntu 台账口径不同，跳过覆盖率新鲜度比对（CI 上仍严格核对）',
+        )
+      } else if (lines?.covered !== covered || lines.total !== total) {
         findings.push(
           `coverage-baseline 已过期：报表 ${String(lines?.covered)}/${String(lines?.total)}，台账 ${String(covered)}/${String(total)}（重跑 pnpm test:coverage:all 并更新台账）`,
         )
