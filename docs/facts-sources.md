@@ -1,4 +1,4 @@
-# BAH 事实数字唯一来源（2026-10-27 实测；主仓测试 2026-10-28 复跑）
+# BAH 事实数字唯一来源（2026-10-27 实测；主仓测试与覆盖率 2026-10-28 复跑）
 
 > 本文是 `facts.md`、PPT、视频旁白、自评材料里数字的**唯一取值来源**。
 > 改代码后重跑下表命令，先改本文，再改 `facts.md`，最后跑 `npx tsx scripts/verify-facts.ts`。
@@ -13,9 +13,9 @@ tools=16
 plan_lines=2246
 snapshot_files=6
 snapshot_cases=23
-coverage_covered=31197
-coverage_total=34234
-coverage_pct=91.13
+coverage_covered=31233
+coverage_total=34270
+coverage_pct=91.14
 coverage_package_ok=15
 coverage_package_total=16
 tests_main_files=205
@@ -34,7 +34,7 @@ tests_main_cases=2115
 | 工具数 | **16** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 16（与 `result-schemas.ts` 16 个出参键一一对应） |
 | plan 非测试行数 | **2,246** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,246（2026-10-27 复核） |
 | 快照文件 / 用例 | **6 / 23** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 6 文件 / 23 例（`pnpm test:snapshot` 同值） |
-| 覆盖率（行） | **91.13%** | `pnpm test:coverage:all`（**CI / Ubuntu 口径**） | 覆盖 31197 行 / 参与统计 34234 行（2026-10-27 深夜轮次，CI run 40537315058） |
+| 覆盖率（行） | **91.14%** | `pnpm test:coverage:all`（**CI / Ubuntu 口径**） | 覆盖 31233 行 / 参与统计 34270 行（2026-10-28 CI run 40631263792，端口守卫新增 36 行后） |
 | 覆盖率（包） | **15/16** | 同上 | 只有 `eval` 53.20% 未达 80%；`memory-store` 89.40% 已达标 |
 | 主仓测试 | **205 文件 / 2115 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 205 passed / 2115 例（2026-10-28 复跑，端口守卫新增 3 例；门禁不重跑测试，只校验本文与 facts.md 一致） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
@@ -43,9 +43,9 @@ tests_main_cases=2115
 
 ## 3. 覆盖率为什么只有一个值
 
-`31197 / 34234 = 91.13%`。**只能用 CI 口径**：Windows 检出为 CRLF 时 v8 行映射会退化，把无可执行行的文件按**物理行**计入分母（`packages/memory-store/src/types.ts` 精确 257 物理行，Windows 报表里记为 `0/257`），分母虚高约 1900 行、行口径虚低约 5 个百分点；两平台的 covered 行数几乎一致（31197 vs 31191，差 6 行来自平台分支），差异全在分母。
+`31233 / 34270 = 91.14%`。**只能用 CI 口径**：本机 Node 22.17（低于 `engines` 要求的 22.19）时 v8 行口径会把没有执行行的文件按**物理行**计入分母（`packages/memory-store/src/types.ts` 精确 257 物理行，本机报表记为 `0/257`），分母虚高约 1900 行、行口径虚低约 5 个百分点。**不是 CRLF**——2026-10-28 把 230 个 CRLF/mixed 文件按索引改成 LF 后复跑，报表逐字不变（31227/36169），说明差异来自 Node/V8 版本而非行尾；两平台 covered 行数几乎一致（CI 31233 vs 本机 31227，差 6 行来自平台分支），差异全在分母。
 
-因此 **2026-10-27 在 Windows 上测出的 86.32%（31191/36133）与更早的 86.06%（31093/36131）都已作废**，不要再引用——它们不是"覆盖率下降"，是分母算法在 CRLF 检出下失真。再往前 `85.84%` 有两个不同分母（29958/34898 与 30992/36106）、`85.83%`（29843/34771）与 `84.49%`（29163/34517）更早，同属 Windows 口径，只作历史记录。
+因此 **本机时点值 86.33%（31227/36169）与更早的 86.32%（31191/36133）、86.06%（31093/36131）都已作废**，不要再引用——它们不是"覆盖率下降"，是分母算法在 Node 22.17 下失真。再往前 `85.84%` 有两个不同分母（29958/34898 与 30992/36106）、`85.83%`（29843/34771）与 `84.49%`（29163/34517）更早，同属本机口径，只作历史记录。
 `docs/coverage-baseline.json` 是机器产物：重跑覆盖率高时先更新它，再跑
 `npx tsx scripts/gen-architecture.ts` 重生成 `architecture.md` / `algorithms.md` / `security-design.md` 的事实块。
 **不许手改那三份文档的生成块。**
