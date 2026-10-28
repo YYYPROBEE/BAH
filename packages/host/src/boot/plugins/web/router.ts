@@ -289,6 +289,18 @@ export const ROUTES: readonly RouteSpec[] = [
     note: '单会话部署：depth ∈ {0,1}',
   },
   {
+    // 坐席工作台入口。static：页面本身必须能打开才能输凭证；**页面里没有任何凭证**。
+    // 未配置 BAH_OPERATOR_TOKEN 时由 handleStatic 返回 404（不暴露路由存在性）。
+    methods: ['GET'],
+    path: '/operator',
+    kind: 'exact',
+    auth: 'static',
+    csrf: false,
+    statuses: [200, 404],
+    handler: 'static',
+    note: '坐席工作台入口（零注入；凭证由坐席粘贴，存 sessionStorage）',
+  },
+  {
     // 静态兜底：吃掉所有 GET/HEAD（含未知 `/api/*`，它们会被解析成 404 而不是 405）
     methods: ['GET', 'HEAD'],
     path: '/',

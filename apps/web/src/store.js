@@ -28,6 +28,13 @@ export function frameKey(frame) {
       return `audit:${frame.seq}`
     case 'dag':
       return `dag:${frame.turn}`
+    case 'handoff':
+      // 固定 key（与 @bah/channels/web 的 frameKey 一致）：接管会循环，按 active 分键
+      // 会让重放顺序留下旧的 active:false，把"又要人工了"画成"已交回"。
+      return 'handoff'
+    case 'handoff-warn':
+      // 固定 key：超时只该有一个红标，累积多条没有意义。
+      return 'handoff-warn'
     case 'snapshot':
       return 'snapshot'
     default:
@@ -56,6 +63,10 @@ export function createStore() {
   let status = 'connecting'
   /** 渠道级故障（横幅）。 */
   let fault = null
+  /** 最近一条接管帧（固定 key ⇒ 只有一条）。 */
+  let handoff = null
+  /** 最近一条超时告警帧。 */
+  let handoffWarn = null
 
   const listeners = new Set()
 
@@ -66,6 +77,8 @@ export function createStore() {
       streamText,
       status,
       fault,
+      handoff,
+      handoffWarn,
     }
   }
 
@@ -85,6 +98,8 @@ export function createStore() {
     if (frame.kind === 'snapshot') {
       frames.clear()
       order = []
+      handoff = null
+      handoffWarn = null
       for (const item of frame.frames) put(item)
       streamText = ''
       emit()
@@ -108,6 +123,9 @@ export function createStore() {
     const key = frameKey(frame)
     if (!frames.has(key)) order.push(key)
     frames.set(key, frame)
+    // 接管帧单独暴露：横幅只看"最近一次接管状态"，不随对话流滚动。
+    if (frame.kind === 'handoff') handoff = frame
+    if (frame.kind === 'handoff-warn') handoffWarn = frame
   }
 
   function setStatus(next) {
@@ -126,6 +144,8 @@ export function createStore() {
     order = []
     streamText = ''
     fault = null
+    handoff = null
+    handoffWarn = null
     emit()
   }
 

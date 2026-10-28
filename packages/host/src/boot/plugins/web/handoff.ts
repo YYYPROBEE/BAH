@@ -149,6 +149,8 @@ export interface HandoffHandle {
  */
 export class HandoffRegistry implements HandoffHandle {
   private state: HandoffSnapshot | undefined
+  /** 最近一次进入接管的 seq（交回后仍保留，供摘要回看"刚才人工说了几句"）。 */
+  private lastEnterSeq: number | undefined
   private readonly store: HandoffPersistence
   readonly slaMs: number
 
@@ -168,6 +170,7 @@ export class HandoffRegistry implements HandoffHandle {
     this.slaMs = options.slaMs ?? 0
     // 构造即恢复：读到快照就 active；损坏文件抛错 ⇒ boot 失败（不静默当作未接管）
     this.state = this.loadSnapshot()
+    this.lastEnterSeq = this.state?.lastSeq
   }
 
   get active(): boolean {
@@ -185,6 +188,7 @@ export class HandoffRegistry implements HandoffHandle {
     // 先落盘再改内存：写盘失败 → 抛错 → 状态仍是未接管
     this.saveSnapshot(snapshot)
     this.state = snapshot
+    this.lastEnterSeq = snapshot.lastSeq
     // 事件失败最多丢一条证据，不会让"日志说接管了、系统还在自动回话"
     this.options.append('handoff/requested', {
       ...(reason === undefined ? {} : { reason }),
@@ -280,10 +284,9 @@ export class HandoffRegistry implements HandoffHandle {
   summary(): HandoffSummary {
     const events = this.options.session.events()
     const state = this.state
-    // 重启后 boot 不重放历史：内存日志的 lastSeq 可能小于快照里的 lastSeq。
-    // 此时用 0（从本次进程的第一条算起）而不是旧 seq，否则"接管后的 turn 数"永远不增长。
-    const fromSeq =
-      state === undefined ? undefined : Math.min(state.lastSeq, this.options.session.lastSeq())
+    // 交回后 `state` 清空，但摘要仍要能回答"刚才人工说了几句"——用最近一次进入的 seq。
+    // 重启后（无 state 也无内存记录）如实为 0，不造假。
+    const fromSeq = state === undefined ? this.lastEnterSeq : Math.min(state.lastSeq, this.options.session.lastSeq())
     const messages: HandoffMessage[] = []
     let turns = 0
     let turnsSinceHandoff = 0

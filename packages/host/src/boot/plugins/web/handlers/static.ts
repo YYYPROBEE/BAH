@@ -38,7 +38,16 @@ export async function handleStatic(
   request: WebRequest,
   deps: WebDeps,
 ): Promise<void> {
-  const pathname = request.path
+  // 坐席入口默认不存在：未配 BAH_OPERATOR_TOKEN 时 /operator 与 /operator.html
+  // 都 404（不暴露"这系统有坐席台"）。页面里没有任何凭证，但存在性本身也不该白给。
+  const isOperatorEntry = request.path === '/operator' || request.path === '/operator.html'
+  if (isOperatorEntry && deps.operatorToken === undefined) {
+    sendError(res, 404, 'web-not-found', `没有这个资源：${request.path}`)
+    return
+  }
+  // 路径映射必须在 decodeURIComponent 之前：走同一条解码/规范化/越界判定。
+  // `operator.html` 不等于 `deps.indexPath`，所以天然不注入 token、不带 set-cookie。
+  const pathname = request.path === '/operator' ? '/operator.html' : request.path
   const headOnly = request.method === 'HEAD'
 
   // `decodeURIComponent` 对畸形百分号序列（如 `%E0%A4%A`）抛 `URIError`。

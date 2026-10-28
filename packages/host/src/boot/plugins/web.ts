@@ -160,7 +160,7 @@ export const webPlugin: HostPlugin<WebSettings> = {
         trySentry: () => tryService(ctx, SENTRY_SERVICE),
         tryHalt: () => tryService(ctx, HALT_SERVICE),
         staticRoot,
-        indexPath: join(staticRoot, 'index.html'),
+        indexPath: join(staticRoot, 'index.html'), operatorIndexPath: join(staticRoot, 'operator.html'),
       }
 
       const handle = createDispatcher(config, deps)

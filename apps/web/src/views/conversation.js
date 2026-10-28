@@ -56,12 +56,18 @@ export function renderTurn(frame) {
 
 /** 消息气泡。 */
 export function renderMessage(frame) {
-  const role = frame.role === 'user' ? 'user' : 'assistant'
+  const role = frame.role === 'operator' ? 'operator' : frame.role === 'user' ? 'user' : 'assistant'
   // 模型的上下文类消息（`context` = 工具后置纠正，`runtime-context` = 每次请求现渲染的用户档案）
-  // 都不是用户发言：用提示样式，避免"用户说了没说过的话"。
+  // 都不是用户发言；`handoff-handover` 是人工交回时系统写的交接语，也不是用户原话。
+  // 三者都用提示样式，避免"用户说了没说过的话"。
   const contextSource =
     role === 'user' && typeof frame.source === 'string' && frame.source !== 'user' ? frame.source : null
-  const contextLabel = contextSource === 'context' ? '系统纠正（模型可见）' : '运行时上下文（模型可见）'
+  const contextLabel =
+    contextSource === 'context'
+      ? '系统纠正（模型可见）'
+      : contextSource === 'handoff-handover'
+        ? '系统交接（已交回智能助手）'
+        : '运行时上下文（模型可见）'
 
   const body = el(
     'div',
@@ -86,6 +92,11 @@ export function renderMessage(frame) {
     ])
   }
 
+  const label = role === 'operator' ? (frame.operator ?? '人工坐席') : role === 'user' ? '你' : 'BAH'
+  // 图标：坐席与客户共用 `UserCheck.svg`（没有"耳机/坐席"图标），
+  // 区分靠 `.message--operator` 的品牌底色 + meta 文案，不靠图标。
+  const iconName = role === 'assistant' ? 'agent' : 'user'
+
   return el(
     'article',
     {
@@ -94,8 +105,8 @@ export function renderMessage(frame) {
     },
     [
       el('div', { class: 'message__meta' }, [
-        role === 'user' ? icon('user', 14) : icon('agent', 14),
-        role === 'user' ? '你' : 'BAH',
+        icon(iconName, 14),
+        label,
         el('span', { class: 'message__seq', text: `#${String(frame.seq)}` }),
       ]),
       body,

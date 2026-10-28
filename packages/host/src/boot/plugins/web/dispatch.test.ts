@@ -148,6 +148,7 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
     tryHalt: () => undefined,
     staticRoot: 'this-directory-does-not-exist',
     indexPath: 'this-directory-does-not-exist/index.html',
+    operatorIndexPath: 'this-directory-does-not-exist/operator.html',
     ...overrides,
   }
 }

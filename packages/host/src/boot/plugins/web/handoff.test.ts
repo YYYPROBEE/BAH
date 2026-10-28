@@ -361,6 +361,17 @@ describe('人机接管 01：认领 / 发言 / 心跳 / 恢复', () => {
     })
   })
 
+  it('交回后的摘要仍记得上一次接管的人工发言条数（operatorMessages 的回看口径）', () => {
+    const h = harness()
+    h.handoff.enter()
+    h.handoff.say('A', '第一句')
+    h.handoff.say('A', '第二句')
+    expect(h.handoff.resume('A').ok).toBe(true)
+    const summary = h.handoff.summary()
+    expect(summary.active).toBe(false)
+    expect(summary.operatorMessages).toBe(2)
+  })
+
   it('T-36 重启恢复：同一落盘端口新建状态机 → active 与 at/reason/operator 原样', () => {
     const store = persistentStore()
     const first = new HandoffRegistry({

@@ -268,6 +268,7 @@ confirmed(amount, callId) =
 | POST | `/api/handoff/claim` | 坐席认领（幂等；换人 409）——认领只改显示与审计，不改变 `/api/turn` 的接管语义 | 坐席 Bearer + CSRF | 200 / 401 / 403 / 404 / 409 |
 | POST | `/api/handoff/heartbeat` | 等待时长与超时判定（只告警，不自动交回）；未接管时返回 waitedMs:0 | 坐席 Bearer + CSRF | 200 / 401 / 403 / 404 |
 | GET | `/api/handoff/queue` | 单会话部署：depth ∈ {0,1} | 坐席 Bearer | 200 / 401 / 404 |
+| GET | `/operator` | 坐席工作台入口（零注入；凭证由坐席粘贴，存 sessionStorage） | 无（静态） | 200 / 404 |
 | GET / HEAD | `/*` | 静态资源（默认根目录见 §7.2；纯原生 ES 模块，无需构建）；畸形百分号编码 → 400 | 无（静态） | 200 / 400 / 404 |
 <!-- web-routes:end -->
 
@@ -364,9 +365,13 @@ HALT 期间新 turn 的 `/api/turn` 返回 **423 `safety-halted`**（不是 500�
 - **页面载体**：响应 `index.html` 时注入 `<meta name="bah-web-token">`，同源脚本读取后放进请求头。
   跨源页面读不到这个响应体（没有 CORS）——但这是访问凭证，不是登录；CSRF 另有 §7.2.2 的
   双提交校验，不靠"读不到响应体"这条隐式边界。
-  **坐席凭证绝不注入页面**：`/operator`（第 2 份）只返回原样 HTML，坐席手输 token、存 `sessionStorage`。
 - **SSE 例外**：`EventSource` 不能设请求头，只有 `GET /api/events` 接受 `?token=`；其余接口不认查询参数。
   `?token=` 可以是客户或坐席凭证（坐席台据此拿全量快照）。
+- **两个入口页**：`/` 由服务端注入 web token；`/operator`（坐席工作台）**原样返回、零注入**，
+  坐席手输 `BAH_OPERATOR_TOKEN`，只存 `sessionStorage`（关标签即失效，不进 localStorage / URL / cookie）。
+  未配 `BAH_OPERATOR_TOKEN` 时 `/operator` 与 `/operator.html` 都 404。
+- **限流共用窗口**：客户与坐席在同一台机器打开两个页面时来源 IP 相同，共用 60s/120 次配额。
+  坐席台 15s 心跳 = 4 次/分钟；三个标签页同时开也只到 12 次/分钟。
 - **健康探针公开**：编排器与演示脚本只问"还活着吗"，不拿凭证。
 
 约定：
@@ -510,7 +515,7 @@ pnpm web          # = tsx packages/cli/src/main.ts --profile web --serve
 |---|---|---|---|
 | R-WEB-D1 | DAG 从工具调用派生，非 `plan/*` 事件 | 施工单 14 未开工，`plan/*` 事件表不存在 | `plan/*` 落地后替换数据源 |
 | R-WEB-D2 | "回到上一步"（fork）未接 | fork 产生**新会话**，单会话服务端需切换会话与 SSE 重连，属施工单 14 §5 范围 | 施工单 14 落地 |
-| R-WEB-D3 | 坐席接管视图未接 | 01 已产出 `handoff/*` 事件与接管帧；坐席台 UI 属人机接管 02 | 人机接管 02 落地 |
+| R-WEB-D3 | 坐席接管视图已接 | 01 产出 `handoff/*` 事件与帧；02 落地 `apps/web/operator.html` + `src/seat/`（零注入、手输凭证） | 仅剩多坐席/租约（租户方案） |
 | R-WEB-D4 | 流式 `delta` 为 ephemeral，不入会话日志 | 分片不是事实，`assistant/message` 才是；落账分片会让日志膨胀且破坏 `deriveMessages` | 永不回收（设计选择） |
 | R-WEB-D5 | 依赖方向 `host → channels` 翻转 | 见 §3 | 不回收（修正） |
 | R-WEB-D6 | 卡片从 `tool/call.args` + `tool/result.content` 派生，非 `UiCard` | `UiCard` 不落账（`ToolPipeline` 算出后无人持久化），回放场景无 `kind` 可用 | `tool/call` 增 `card` 字段后换 `cards.ts` 输入 |
