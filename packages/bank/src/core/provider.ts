@@ -22,6 +22,7 @@ import type {
   TxnCategory,
   TxnChannel,
   TxnDirection,
+  User,
   UserId,
   WealthProduct,
 } from './model.ts'
@@ -193,6 +194,14 @@ export interface SubscriptionCancelled {
 }
 
 export interface BankCoreProvider {
+  /**
+   * 读用户（只读）。
+   *
+   * 实体槽位用它取**权威姓名**与"主体是否存在"：绑定的 `userId` 核心不认识时，
+   * 槽位必须明确降级，不能拿静态画像顶替。不存在返回 `undefined`（不是抛错：
+   * "查无此人"是业务结果，不是故障）；实现必须返回副本，调用方改字段不能污染账本。
+   */
+  getUser(userId: UserId): Promise<User | undefined>
   listAccounts(userId: UserId): Promise<Account[]>
   balance(accountId: AccountId): Promise<Balance>
   queryTransactions(query: TxnQuery): Promise<Page<Transaction>>
