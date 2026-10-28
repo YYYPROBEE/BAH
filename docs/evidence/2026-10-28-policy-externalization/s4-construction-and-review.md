@@ -100,6 +100,9 @@
 | `policy:explain`（快照 call-create） | ✔ `reproduced yes`，规则行 `TR-004-single-large (rules.yml:26)` |
 | 篡改 evidence 的 explain | ✔ 退出码 1，`input-digest-mismatch` |
 | `--require-chain`（快照无链） | ✔ 退出码 1 |
+| 归档缺失（registry 指向不存在的目录） | ✔ 退出码 1，`policy-archive-missing` |
+| `bench:policy` | ✔ compile 1.700 ms、eval p99 3.700 µs、reload 1.679 ms（均低于预算） |
+| 坏 bundle 演练 | ✔ 就地改一字节 → `policy-digest-mismatch`；`raise: purple` → `policy-schema-invalid` |
 
 ### 6.2 对抗式审查（本轮新增发现）
 

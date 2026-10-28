@@ -5832,6 +5832,8 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 | `npx vitest run` | ✔ **219 文件 / 2405 例**（复审 +1） |
 | `pnpm test:snapshot` | ✔ **8 文件 / 34 例** |
 | `policy:explain`（快照 call-create） | ✔ `reproduced yes`；篡改 → `input-digest-mismatch`；`--require-chain` → 1；归档缺失 → `policy-archive-missing` |
+| `pnpm bench:policy` | ✔ compile 1.700 ms、eval p99 3.700 µs、reload 1.679 ms（均低于预算） |
+| 坏 bundle 演练 | ✔ 就地改一字节 → `policy-digest-mismatch`；`raise: purple` → `policy-schema-invalid` |
 
 ### 96.30.2 对抗式发现（P1 已闭合）
 

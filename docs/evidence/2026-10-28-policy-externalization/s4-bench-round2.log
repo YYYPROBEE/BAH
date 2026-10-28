@@ -1,0 +1,5 @@
+# pnpm bench:policy · 2026-10-28T19:30:42+08:00
+✔ compile avg 1.700 ms（预算 < 5 ms）
+✔ eval p99 3.700 µs（预算 < 20 µs）
+✔ reload 1.679 ms（预算 < 20 ms）
+  eval p50 2.900 µs / 100000 次；bundle bank-tier/1.0.0+sha256:97764bc1298834d6

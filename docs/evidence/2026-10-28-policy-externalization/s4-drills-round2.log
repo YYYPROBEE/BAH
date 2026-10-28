@@ -1,0 +1,21 @@
+# S4 补充演练：坏 bundle / 口径 grep · 2026-10-28T19:31:14+08:00 · HEAD 1fb7579
+
+## 1. 负控：就地改 bundle 一个字节（有 lock）→ policy:compile --check 必失败
+policy-digest-mismatch: lock.json: 源摘要不符：bundle 被就地改动（lock c5093f5be4cf585c090715516a5a5d16b78e7a0d3fd28eaf4759ee22d7c54a5f，实际 012988c8f5b0752a96c7175d1401f273ec4176c7ee55fba1d77470540e12f252）
+# exit=1
+
+## 2. 负控：枚举非法的 bundle（无 lock）→ 编译必失败
+policy-schema-invalid: rules.yml:15: TR-001-over-daily-limit: raise 只接受 yellow|red
+# exit=1
+
+## 3. 口径 grep（04 §10.2；前两条 exit 1 = 无命中）
+$ ! grep -rn "策略外置.*✅\|策略已外置" README.md docs/ --exclude-dir=evidence
+# exit=1
+$ ! grep -rn "判决.*tier.ts.*唯一" docs/ --exclude-dir=evidence
+# exit=1
+$ ! grep -rn "多租户策略\|租户级策略" README.md docs/ --exclude-dir=evidence
+docs/policy.md:6:> **不可以**说"接入 OPA/Cedar""多租户策略隔离""策略文件防篡改"（只有本地链 + 可选签名，没有外部锚定）。
+docs/policy.md:313:- 无多租户策略隔离；`tenant` 只是预留 scope；
+# exit=0
+
+# 结论：两种坏 bundle 都退出码 1；前两条口径 0 命中；第三条仅命中 docs/policy.md 的“不可以/无”否定句（不是宣称）
