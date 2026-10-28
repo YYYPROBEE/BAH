@@ -230,7 +230,7 @@ facts.md             演示材料唯一数字来源
 | `pnpm test` | 主仓 | 207 文件 / 2195 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
 | `pnpm test:web` | 前端 | 7 文件 / 55 用例 |
-| `pnpm test:snapshot` | 快照回放 | 6 文件 / 23 用例 |
+| `pnpm test:snapshot` | 快照回放 | 7 文件 / 28 用例 |
 | `pnpm gate` | 门禁 | 36/36 |
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。

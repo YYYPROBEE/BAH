@@ -11,8 +11,8 @@
 gates=36
 tools=16
 plan_lines=2246
-snapshot_files=6
-snapshot_cases=23
+snapshot_files=7
+snapshot_cases=28
 coverage_covered=31233
 coverage_total=34270
 coverage_pct=91.14
@@ -33,13 +33,13 @@ tests_main_cases=2195
 | 门禁数 | **36** | `Get-ChildItem scripts -Filter "verify-*.ts" \| Measure-Object` | 34 → `verify-facts.ts` 后 35 → `verify-docs-consistency.ts` 后 36；`run-gates` 输出 `36/36` |
 | 工具数 | **16** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 16（与 `result-schemas.ts` 16 个出参键一一对应） |
 | plan 非测试行数 | **2,246** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,246（2026-10-27 复核） |
-| 快照文件 / 用例 | **6 / 23** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 6 文件 / 23 例（`pnpm test:snapshot` 同值） |
+| 快照文件 / 用例 | **7 / 28** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 7 文件 / 28 例（`pnpm test:snapshot` 同值） |
 | 覆盖率（行） | **91.14%** | `pnpm test:coverage:all`（**CI / Ubuntu 口径**） | 覆盖 31233 行 / 参与统计 34270 行（2026-10-28 CI run 40631263792，端口守卫新增 36 行后） |
 | 覆盖率（包） | **15/16** | 同上 | 只有 `eval` 53.20% 未达 80%；`memory-store` 89.40% 已达标 |
 | 主仓测试 | **207 文件 / 2195 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 207 passed / 2195 例（2026-10-28 复跑，实体槽位 S1 +16 / S2 +40 / S3 +24 例；门禁不重跑测试，只校验本文与 facts.md 一致） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
 | web 测试 | **7 文件 / 55 例** | `pnpm test:web` | 7 passed / 55 passed |
-| 快照跑批 | **6 文件 / 23 例** | `pnpm test:snapshot` | 6 passed / 23 passed |
+| 快照跑批 | **7 文件 / 28 例** | `pnpm test:snapshot` | 7 passed / 28 passed |
 
 ## 3. 覆盖率为什么只有一个值
 
