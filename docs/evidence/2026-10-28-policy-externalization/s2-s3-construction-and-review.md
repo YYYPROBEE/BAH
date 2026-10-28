@@ -3,7 +3,7 @@
 - 施工范围：`02-运行时判决平面.md`（PE-20 … PE-39）
 - 施工时间：2026-10-28
 - 输入 HEAD：`61d7c83`（S1 已落库）
-- 交付 checkpoint：`1ea501d`（S2）；S3 为本批提交
+- 交付 checkpoint：`1ea501d`（S2）；S3 `b6f6e1a`；复审修复 `158ac47`（参数绑定）/ `839e74b`（影子隔离）
 - 上游方案：`BAH-策略外置施工方案-2026-10-28/00-总纲与决策.md`、`02-运行时判决平面.md`
 
 ---
@@ -28,7 +28,7 @@
 | 判据 | 结果 |
 |---|---|
 | `pnpm typecheck` | ✔ 三项全绿 |
-| `npx vitest run` | ✔ **219 文件 / 2401 例** |
+| `npx vitest run` | ✔ **219 文件 / 2403 例** |
 | `pnpm test:snapshot` | ✔ 7 文件 / 28 例 |
 | `pnpm gate` | ✔ **36/36**（S4 的 4 条新门禁尚未加入） |
 | `pnpm policy:compile --check` | ✔ digest 一致 |
