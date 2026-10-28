@@ -9,7 +9,7 @@
 |---|---|---|---|---|
 | unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 207 文件 / 2195 用例 |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
-| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 6 文件 / 23 用例 |
+| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 7 文件 / 28 用例 |
 | web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 7 文件 / 55 用例 |
 
 一条命令跑全链（本地等价 CI，fail-fast）：
@@ -219,7 +219,13 @@ snapshots/<case>/
   scenario.json     场景输入：prompts / 会话 ID / 时钟 / 种子 / 生效行 / 模型规格
   scenario.ts       场景（录制与回放共用；boot 怎么装由它决定）
   snapshot.test.ts  T-AUD-005 record→replay 全等 + T-AUD-006 两次回放全等
+  overlay.yml       （可选）层 4 overlay：在 profile 底座上开一个开关（如 entity-slots 的 slots）
+  reverified.json   （可选）回放全等后写入的源码摘要（`pnpm snapshot:reverify`；给 snapshot-fresh 用）
 ```
+
+现有场景：`headless-basic`（主链路基线）、`web-channel`（渠道不扰动事件流）、
+`compaction`（压缩）、`sandbox-compute`（沙箱计算 + 转账）、`plan`（DAG）、
+`entity-slots`（实体槽位：每 step 从权威核心读账户/流水，负控见 §9.2）。
 
 - **回放（默认，CI 用）**：`pnpm test:snapshot` —— 只读快照，不联网、不读密钥、不写文件；
   应用由 `scenario.json` 里的**录制行**重建（不读 `profiles/` 与 `bah.yml`），provider 换成 `ReplayAdapter`。
@@ -231,6 +237,25 @@ snapshots/<case>/
   这条已由门禁 `snapshot-fresh` 自动执行：改 `packages/{runtime,llm}/src`（测试文件除外）
   却没改 `snapshots/` 即阻断；纯重构用 `BAH_ALLOW_NO_SNAPSHOT=1` 或提交信息 `[no-snapshot]` 放行。
   门禁默认比对 `HEAD` 与工作树；CI/评审要对比更长区间时设 `BAH_SNAPSHOT_BASE=<ref>`。
+
+### 9.2 实体槽位的快照负控（entity-slots）
+
+`entity-slots` 比其它场景多两条负控，回答同一个问题：**槽位到底在不在比对面内**。
+
+- **入用例**（`snapshots/entity-slots/snapshot.test.ts` 第 4、5 条）：改一条 `assistant/message`
+  → 必须红；把 `context/slots` 的 `accounts` 从 3 改 2 → 必须红（差异里点名 `context/slots`）。
+- **人工三条**（不入用例，2026-10-28 实测，记录在
+  `docs/evidence/2026-10-28-entity-slots/06-s4-adversarial-review.md`）：
+  删掉全部 `context/slots`（36 行 → 34 行）→ 比对红；`scenario.json.clock.start` +1 →
+  回放 `at` 整体 +1、比对红；把生效行的 `slots.source` 改成 `none` 后回放 →
+  `context/slots` 0 条、`request/context` 退回静态画像（只剩 `【当前用户】` + `【补充说明】`）、比对红。
+
+> 第三条只改**生效行**、不动录制件：回放本来就只读 `scenario.json` 的 rows（不读 profile/overlay），
+> "层 4 合并后的行"是开关的唯一真相，所以不需要"重录到临时目录"也能证明开关有效。
+
+**证据看哪里**：`session.jsonl` 的 `request/context.texts` 与 `user/message(source=runtime-context)`。
+`llm.jsonl` 只有请求标识 + 响应分片，**不含提示词正文**——在那里 grep `【账户概览】` 搜不到，
+不代表槽位没进模型。
 
 ## 10. 已知边界（不是遗漏，是记账）
 

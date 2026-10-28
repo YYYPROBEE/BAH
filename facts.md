@@ -20,7 +20,7 @@
 |---|---|---|
 | `pnpm gate` | **36/36** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
-| `pnpm test:snapshot` | 6 文件 / 23 用例（23/23 绿） | 录制回放；`pnpm snapshot:record` 重录 |
+| `pnpm test:snapshot` | 7 文件 / 28 用例（28/28 绿） | 录制回放；`pnpm snapshot:record` 重录 |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
 | `pnpm test:coverage:all` | **行口径 91.14%**（31233/34270）/ **包口径 15/16**（**CI/Ubuntu 口径**） | 两个口径必须一起说；未达标只有 `eval` 53.20%（`memory-store` 89.40% 已达标） |
 

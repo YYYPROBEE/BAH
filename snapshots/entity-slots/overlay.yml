@@ -1,0 +1,41 @@
+# entity-slots 快照场景的层 4 overlay（实体槽位方案 S4）。
+#
+# 目的：在 **headless 底座**上把实体槽位真的打开（`slots.source=bank`），
+# 其余配置照抄 `profiles/headless/patch.yml`。
+#
+# 为什么必须抄全：patch / overlay 的层语义是**整块替换**，不是深合并。
+# `core:agent` 少写 `loop.compaction` 就会顺手关掉压缩；少写 `channel` 就退回默认；
+# `bank:tools` 少写 `datasetTier` 就会用别的档位造数。少一项 = 场景悄悄换了。
+
+- id: core:agent
+  config:
+    channel: headless
+    loop:
+      model: router:router-chat
+      maxSteps: 8
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
+    # ⚠ 本场景的**唯一开关**：每 step 从 bank:tools 的权威核心现算账户/流水。
+    # 去掉这一行，快照里的 request/context 会退回静态画像（S4 的负控 5 就是验这个）。
+    slots: { source: bank }
+    runtimeContext:
+      # name 必须与 bank:tools.demoUserId（u-1）的权威姓名一致（S0 后为张三）；
+      # 不一致会在首个 turn 触发 slots-user-mismatch —— 这是口径守门，不是展示问题。
+      user: { name: 张三, level: 金卡 }
+      notes:
+        - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。
+
+- id: bank:tools
+  config:
+    demoUserId: u-1
+    seed: 7
+    datasetTier: demo
+    # 七键与 profiles/web 一致：账户 3 / 流水 3 / 窗口 30 天 / 超时 250ms /
+    # 数据行 800 字符 / 熔断 3 次 × 10s。改这里 = 改快照，必须重录。
+    contextSlots:
+      accounts: 3
+      transactions: 3
+      windowDays: 30
+      timeoutMs: 250
+      maxChars: 800
+      breakerFailures: 3
+      breakerOpenMs: 10000
