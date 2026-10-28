@@ -39,7 +39,12 @@ describe('runtime.context 落账与回收（T-LLM-008）', () => {
         session,
         turn: 1,
         step: 1,
-        composed: composedOf({ user: { name: '张三' }, accounts: [{ name: '储蓄卡', maskedNumber: '1234', balance: 100 }] }),
+        composed: composedOf({
+          user: { name: '张三' },
+          accounts: [
+            { name: '储蓄卡', maskedNumber: '1234', balanceText: '¥1.00', availableText: '¥1.00' },
+          ],
+        }),
       })
       expect(first.contextTexts).toHaveLength(1)
       expect(first.systemText).toContain('不得编造账户、余额、交易')
@@ -59,7 +64,12 @@ describe('runtime.context 落账与回收（T-LLM-008）', () => {
         session,
         turn: 1,
         step: 2,
-        composed: composedOf({ user: { name: '张三' }, accounts: [{ name: '储蓄卡', maskedNumber: '9999', balance: 200 }] }),
+        composed: composedOf({
+          user: { name: '张三' },
+          accounts: [
+            { name: '储蓄卡', maskedNumber: '9999', balanceText: '¥2.00', availableText: '¥2.00' },
+          ],
+        }),
       })
 
       const reconciled = reconcileContextEvents(session.events())

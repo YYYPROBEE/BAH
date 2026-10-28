@@ -12,6 +12,7 @@ import type { Context, Disposer, ServiceKey } from '@bah/core'
 import { PromptRegistry } from './registry.ts'
 import { DEFAULT_SECTIONS } from './sections.ts'
 
+export * from './port.ts'
 export * from './reconcile.ts'
 export * from './registry.ts'
 export * from './sections.ts'
