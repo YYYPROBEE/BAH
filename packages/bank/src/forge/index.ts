@@ -115,7 +115,9 @@ export function buildBankDataset(options: ForgeOptions): BankDataset {
 function buildDemo(now: number): DatasetParts {
   const user: User = {
     id: bankIds.user('u-1'),
-    name: '王建国',
+    // 主体姓名必须与 profiles/*/patch.yml 的静态画像一致（张三）：
+    // 槽位接上权威姓名后，两处不一致会直接触发 `slots-user-mismatch`。
+    name: '张三',
     phone: '13800001111',
     riskGrade: 'R2',
     verified: true,

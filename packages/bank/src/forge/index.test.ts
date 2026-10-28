@@ -36,15 +36,15 @@ describe('T-BANK-001 seeded 复现', () => {
   })
 })
 
-describe('T-BANK-009 demo 档王建国', () => {
-  it('T-BANK-009 王建国是白名单收款人，首笔时间早于演示时刻', () => {
+describe('T-BANK-009 demo 档主体与白名单收款人', () => {
+  it('T-BANK-009 主体是张三，白名单收款人是王建国，首笔时间早于演示时刻', () => {
     const data = buildBankDataset({ seed: 1 })
     const payee = data.payees.find((item) => item.name === '王建国')
     expect(payee).toMatchObject({ binding: 'whitelist' })
     expect(payee?.firstSeenAt).toBeLessThan(data.now)
 
     const user = data.users.find((item) => item.id === payee?.userId)
-    expect(user?.name).toBe('王建国')
+    expect(user?.name).toBe('张三')
   })
 })
 

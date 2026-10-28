@@ -16,7 +16,7 @@
 
 - id: bank:tools
   config:
-    # headless 显式绑定 demo 用户（王建国）；不写则所有业务工具 deny no-identity
+    # headless 显式绑定 demo 用户（张三）；不写则所有业务工具 deny no-identity
     demoUserId: u-1
     seed: 7
     datasetTier: demo
