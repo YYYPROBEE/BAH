@@ -222,7 +222,6 @@
     "packages/saga/src/index.ts",
     "packages/saga/src/tick/",
     "packages/safety/src/sandbox-runtime/",
-    "packages/bank/src/forge/",
     "packages/bank/src/verify/"
   ]
 }

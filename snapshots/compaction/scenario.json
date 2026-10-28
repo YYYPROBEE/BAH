@@ -198,6 +198,7 @@
     "packages/interaction/src/approval/",
     "packages/saga/src/recovery/",
     "packages/saga/src/index.ts",
-    "packages/saga/src/tick/"
+    "packages/saga/src/tick/",
+    "packages/bank/src/forge/"
   ]
 }
