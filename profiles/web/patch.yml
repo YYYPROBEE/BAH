@@ -52,6 +52,16 @@
     demoUserId: u-1
     seed: 7
     datasetTier: demo
+    # 实体槽位的数据层预算（只有 core:agent.slots.source=bank 时才会被读）。
+    # 七键都有界：越界是 boot 期 invalid-config，不是运行期静默收敛。
+    contextSlots:
+      accounts: 3          # 最多展示账户数
+      transactions: 3      # 最多展示流水数
+      windowDays: 30       # 流水回看窗口（天）
+      timeoutMs: 250       # 单次核心读的真实等待预算（不走注入钟）
+      maxChars: 800        # 数据行总长预算（头部与说明不计）
+      breakerFailures: 3   # 连续失败几次开熔断
+      breakerOpenMs: 10000 # 熔断窗口（毫秒）
 
 # 知识平面（施工单 12）：base bundle **不含**此行，web 必须显式开。
 # 不开就没检索：`knowledge_answer` / `knowledge_query` 两个工具根本不存在于注册表，
@@ -92,7 +102,12 @@
       # 与 headless 同阈值：压缩只在长会话（> 8 turn）才触发，
       # 演示那两幕不会触发，所以不会污染"对话流可回放"的验收。
       compaction: { maxTurns: 8, keepRecentTurns: 3 }
+    # 实体槽位：每 step 从 bank:tools 提供的权威核心现算（S3 通电）。
+    # 关掉这一行 = 回到静态画像；适配器与端口保留但无人调用（最小回滚单元）。
+    slots: { source: bank }
     runtimeContext:
+      # name 必须与 bank:tools.demoUserId（u-1）的权威姓名一致（S0 后为张三）；
+      # 不一致会在首个 turn 触发 slots-user-mismatch（主体错位宁可红）。
       user: { name: 张三, level: 金卡 }
       notes:
         - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。

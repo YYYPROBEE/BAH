@@ -1,4 +1,4 @@
-/**
+﻿/**
  * `bank:tools` 插件（施工单 08 §0 第 6 条：headless 端到端）。
  *
  * 两条链路：
@@ -11,10 +11,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { asSessionId, captureRejection, captureThrown } from '@bah/test-support'
-import { AGENTS_SERVICE, SESSION_SERVICE, TOOLS_SERVICE, TOOL_CONTRACTS } from '@bah/runtime'
+import {
+  AGENTS_SERVICE,
+  RUNTIME_CONTEXT_SOURCE,
+  SESSION_SERVICE,
+  TOOLS_SERVICE,
+  TOOL_CONTRACTS,
+} from '@bah/runtime'
 import {
   BANK_CHALLENGE,
   BANK_RESULT_SCHEMAS,
+  DEFAULT_CONTEXT_SLOTS,
   SessionIdentityStore,
   restoreSessionIdentity,
   specOf,
@@ -571,5 +578,80 @@ describe('W12 执行 lease 配置（四件套：白名单 / 默认 / fail-loud /
     )
     expect(() => bankToolsPlugin.validate({ ticketLease: { enforce: 'yes' } })).toThrow(/enforce/)
     expect(() => bankToolsPlugin.validate({ ticketLease: { ttlSeconds: 0 } })).toThrow(/ttlSeconds/)
+  })
+})
+
+/* ── 实体槽位（S3）：bank:tools.contextSlots 的配置面与端口通电 ─────────────── */
+
+describe('实体槽位参数（bank:tools.contextSlots）', () => {
+  it('默认七键 = DEFAULT_CONTEXT_SLOTS（与 02 §ES-23 / 00 §5.1 逐字一致）', () => {
+    expect(bankToolsPlugin.validate({}).contextSlots).toEqual(DEFAULT_CONTEXT_SLOTS)
+    expect(DEFAULT_CONTEXT_SLOTS).toEqual({
+      accounts: 3,
+      transactions: 3,
+      windowDays: 30,
+      timeoutMs: 250,
+      maxChars: 800,
+      breakerFailures: 3,
+      breakerOpenMs: 10_000,
+    })
+  })
+
+  it('显式覆盖生效（未写的键仍取默认）', () => {
+    const settings = bankToolsPlugin.validate({
+      contextSlots: { accounts: 5, maxChars: 1_200, breakerOpenMs: 30_000 },
+    }) as BankToolsSettings
+    expect(settings.contextSlots).toEqual({
+      ...DEFAULT_CONTEXT_SLOTS,
+      accounts: 5,
+      maxChars: 1_200,
+      breakerOpenMs: 30_000,
+    })
+  })
+
+  it('七键越界与未知键全部 fail-loud', () => {
+    const cases: readonly [string, Readonly<Record<string, unknown>>, string][] = [
+      ['accounts 0', { contextSlots: { accounts: 0 } }, 'invalid-config'],
+      ['accounts 11', { contextSlots: { accounts: 11 } }, 'invalid-config'],
+      ['transactions 11', { contextSlots: { transactions: 11 } }, 'invalid-config'],
+      ['windowDays 366', { contextSlots: { windowDays: 366 } }, 'invalid-config'],
+      ['timeoutMs 10', { contextSlots: { timeoutMs: 10 } }, 'invalid-config'],
+      ['timeoutMs 5001', { contextSlots: { timeoutMs: 5_001 } }, 'invalid-config'],
+      ['maxChars 100', { contextSlots: { maxChars: 100 } }, 'invalid-config'],
+      ['breakerFailures 11', { contextSlots: { breakerFailures: 11 } }, 'invalid-config'],
+      ['breakerOpenMs 999', { contextSlots: { breakerOpenMs: 999 } }, 'invalid-config'],
+      ['未知键', { contextSlots: { foo: 1 } }, 'unknown-config-key'],
+      ['非对象', { contextSlots: 1 }, 'invalid-config'],
+    ]
+    for (const [name, config, code] of cases) {
+      const error = captureThrown(() => bankToolsPlugin.validate(config))
+      expect(`${name}: ${error.code}`).toBe(`${name}: ${code}`)
+    }
+  })
+
+  it('boot 后端口可用（真的连到 mock 核心与 demo 身份），dispose 后服务消失', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-slots-port-'))
+    const sessionId = 's-bank-slots-port'
+    const now = 1_792_000_000_000
+    const app = await bootWith({ demoUserId: 'u-1', seed: 7, datasetTier: 'demo' }, sessionId, dir)
+    try {
+      const source = app.ctx.get(RUNTIME_CONTEXT_SOURCE)
+      const resolution = await source.resolve({
+        sessionId: asSessionId(sessionId),
+        turn: 1,
+        step: 1,
+        signal: new AbortController().signal,
+        now: () => now,
+      })
+      expect(resolution.status).toBe('ok')
+      expect(resolution.asOfText).toBe('2026-10-15 01:46')
+      expect(resolution.view?.user).toEqual({ name: '张三' })
+      expect(resolution.view?.accounts).toHaveLength(3)
+      expect(resolution.view?.recentTransactions).toHaveLength(3)
+    } finally {
+      await app.dispose('test')
+      expect(captureThrown(() => app.ctx.get(RUNTIME_CONTEXT_SOURCE)).code).toBe('service-missing')
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

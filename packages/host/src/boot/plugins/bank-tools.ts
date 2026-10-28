@@ -28,15 +28,18 @@ import {
   VerifyService,
   buildBankDataset,
   createBankChallengePort,
+  createBankContextSource,
   createBankTools,
   createGatewayVerifyProvider,
   createMockVerifyProvider,
+  DEFAULT_CONTEXT_SLOTS,
   provideBankGovernance,
   restoreSessionIdentity,
   yuanToCents,
   type BankAudit,
   type BankToolDeps,
   type BankToolsConfig,
+  type ContextSlotSettings,
   type ForgeTier,
   type IdentityBoundData,
   type StrongAuth,
@@ -49,7 +52,13 @@ import {
   ImIdentityMap,
   MockSmsLoginService,
 } from '@bah/persistence'
-import { SESSION_SERVICE, TOOLS_SERVICE, findPolicyEngine, provideToolContracts } from '@bah/runtime'
+import {
+  RUNTIME_CONTEXT_SOURCE,
+  SESSION_SERVICE,
+  TOOLS_SERVICE,
+  findPolicyEngine,
+  provideToolContracts,
+} from '@bah/runtime'
 import type { SessionApi } from '@bah/runtime'
 import { BahError, seededRandom } from '@bah/util'
 
@@ -65,6 +74,7 @@ import {
   readStringArray,
   rejectUnknownKeys,
 } from '../config.ts'
+import { logJson } from './log.ts'
 
 /** `bank:tools` 的配置。 */
 export interface BankToolsSettings extends BankToolsConfig {
@@ -91,6 +101,13 @@ export interface BankToolsSettings extends BankToolsConfig {
     readonly enforce: boolean
     readonly ttlSeconds: number
   }
+  /**
+   * 实体槽位的预算/超时/熔断参数（`core:agent.slots.source=bank` 时才会被读）。
+   *
+   * 写在 `bank:tools` 而不是 `core:agent`：这些是**读核心**的参数（超时、熔断、取数上限），
+   * 属数据层；`core:agent` 只管"要不要读"。
+   */
+  readonly contextSlots: ContextSlotSettings
 }
 
 /** 默认配置（只有随部署可调的值；身份必须显式给）。 */
@@ -114,6 +131,8 @@ export const DEFAULT_BANK_TOOLS: Omit<BankToolsSettings, 'demoUserId'> = {
   verify: { provider: 'gateway', successAfter: 1, maxAttempts: 3, lockMinutes: 30 },
   // W12：默认 lease 窗口 = 票据 TTL（等价于今日行为）；要更紧的窗口由 profile 显式调小。
   ticketLease: { enforce: true, ttlSeconds: 120 },
+  // 实体槽位：默认值与 02 §ES-23 / 00 §5.1 逐字一致（数据行 800 字符、超时 250ms、熔断 3×10s）
+  contextSlots: DEFAULT_CONTEXT_SLOTS,
 }
 
 /** 允许的强验证渠道。 */
@@ -212,6 +231,27 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         },
       })
       ctx.effect(ctx.provide(CREDENTIALS, credentials))
+
+      /**
+       * 实体槽位数据源（`runtime:context-source`）。
+       *
+       * - 端口是**每 host 一个实例**：熔断状态跨会话共享（核心挂了不该每个会话各等 250ms）；
+       * - `warn` 只透传 code + 计数/窗口（`logJson` 自己还会丢 key/token 类字段）；
+       * - `core:agent` 懒取它（不在 `inject` 里），因为 base 不能被 bank 绑死。
+       */
+      ctx.effect(
+        ctx.provide(
+          RUNTIME_CONTEXT_SOURCE,
+          createBankContextSource({
+            core,
+            identity,
+            settings: config.contextSlots,
+            warn: (code, fields) => {
+              logJson('warn', code, fields)
+            },
+          }),
+        ),
+      )
 
       const audit: BankAudit = {
         append: (type, data) => {
@@ -333,6 +373,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         'riskyCallThreshold',
         'verify',
         'ticketLease',
+        'contextSlots',
       ],
       'bank:tools',
     )
@@ -376,6 +417,46 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
       }
     }
 
+    // 实体槽位：七键各自有界；越界是配置错误（运行期不许"静默收敛成一个别的数"）
+    const contextSlotsRecord =
+      config['contextSlots'] === undefined
+        ? {}
+        : asRecord(config['contextSlots'], 'bank:tools.contextSlots')
+    rejectUnknownKeys(
+      contextSlotsRecord,
+      [
+        'accounts',
+        'transactions',
+        'windowDays',
+        'timeoutMs',
+        'maxChars',
+        'breakerFailures',
+        'breakerOpenMs',
+      ],
+      'bank:tools.contextSlots',
+    )
+    const bounded = (key: string, min: number, max: number, fallback: number): number => {
+      const value = readPositiveInteger(contextSlotsRecord, key, 'bank:tools.contextSlots')
+      if (value === undefined) return fallback
+      if (value < min || value > max) {
+        throw bootError(
+          'invalid-config',
+          `bank:tools.contextSlots.${key} 必须在 ${String(min)}..${String(max)}（收到 ${String(value)}）`,
+          { where: 'bank:tools.contextSlots', key, value, min, max },
+        )
+      }
+      return value
+    }
+    const contextSlots: ContextSlotSettings = {
+      accounts: bounded('accounts', 1, 10, DEFAULT_CONTEXT_SLOTS.accounts),
+      transactions: bounded('transactions', 1, 10, DEFAULT_CONTEXT_SLOTS.transactions),
+      windowDays: bounded('windowDays', 1, 365, DEFAULT_CONTEXT_SLOTS.windowDays),
+      timeoutMs: bounded('timeoutMs', 50, 5_000, DEFAULT_CONTEXT_SLOTS.timeoutMs),
+      maxChars: bounded('maxChars', 200, 2_000, DEFAULT_CONTEXT_SLOTS.maxChars),
+      breakerFailures: bounded('breakerFailures', 1, 10, DEFAULT_CONTEXT_SLOTS.breakerFailures),
+      breakerOpenMs: bounded('breakerOpenMs', 1_000, 60_000, DEFAULT_CONTEXT_SLOTS.breakerOpenMs),
+    }
+
     return {
       ...(demoUserId === undefined ? {} : { demoUserId }),
       seed: readPositiveInteger(config, 'seed', 'bank:tools') ?? DEFAULT_BANK_TOOLS.seed,
@@ -401,6 +482,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         enforce: readBoolean(leaseConfig, 'enforce', 'bank:tools.ticketLease', true),
         ttlSeconds: leaseTtlSeconds,
       },
+      contextSlots,
       verify: {
         provider:
           readEnum(verify, 'provider', 'bank:tools.verify', VERIFY_PROVIDERS) ??

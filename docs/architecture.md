@@ -317,5 +317,9 @@ MERMAID_JS=.tmp-w19/mermaid.min.js npx tsx scripts/render-diagrams.ts
    在图上被压成了一个结果。层序本身在 `docs/profile.md`，这里不重复。
 3. **依赖边只到"服务键"粒度**：`inject` 是服务级契约，不是函数调用图。
    想看函数级调用请直接读包的 `index.ts`。
+   **懒取的服务不是 `inject` 边，图里不画**：`safety:halt` 与
+   `runtime:context-source`（实体槽位数据源，由 `bank:tools` 提供、`core:agent`
+   每 step 懒取）都属这一类。它们的存在由对应插件/端口文档说明；
+   `SERVICE_OWNER` 只服务 `inject` 解析，不是全量服务清单。
 4. **本文不含部署拓扑**：单进程、无外部中间件（除可选的 RAG sidecar），
    所以没有"部署图"这一层可画。
