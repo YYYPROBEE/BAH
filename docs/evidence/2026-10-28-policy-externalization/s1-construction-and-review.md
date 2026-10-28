@@ -16,7 +16,7 @@
 | 数据 | `policies/bank-tier/1.0.0/`：`bundle.yml` / `rules.yml` / `corpus.yml`（20 例）/ `CHANGELOG.md` / `lock.json` |
 | CLI | `policy:lint` / `policy:compile --write|--check` / `policy:test` |
 | 工程登记 | `tsconfig.host|json|scripts`、`vitest.shared.ts`、覆盖率名单（`policy` 全包 100%）、barrel 名单、`verify-package-graph`（加入域层）、`package.json` scripts |
-| 事实面 | `facts.md` / `facts-sources.md` / README / testing / deploy / security-self-assessment：213 文件 / 2329 例 |
+| 事实面 | `facts.md` / `facts-sources.md` / README / testing / deploy / security-self-assessment：214 文件 / 2331 例 |
 
 **判据实测**（01 §14）：
 
@@ -31,7 +31,7 @@
 | `packages/policy` 不依赖 runtime/bank/host | ✔ 只依赖 `@bah/util` + `yaml` |
 | 语义摘要对注释/缩进/键序/CRLF 不变 | ✔ 注释+CRLF、reasons 顺序两种 fixture 均不变；源摘要变 |
 
-`pnpm gate` **36/36**（无新增门禁，4 条 `verify-policy-*` 属 S4）；全量 `vitest` **213 文件 / 2329 例**全绿。
+`pnpm gate` **36/36**（无新增门禁，4 条 `verify-policy-*` 属 S4）；全量 `vitest` **214 文件 / 2331 例**全绿。
 
 ---
 
@@ -68,7 +68,7 @@
 | B-06 | 通过 | CRLF 检出：整目录转 CRLF 后 `--check` 仍通过（`normalizeSourceText`），摘要与平台无关 |
 | B-07 | 通过 | 并发/确定性：求值纯函数，属性测试两组（10000 次）断言同输入两次全等、级别单调、`reason` 在词表内 |
 | B-08 | 通过（有登记） | 每行都有变异体（16/16 killed）；无字面量的 bundle 不生成 `const-offset` 变异（报告为 0，不是静默跳过） |
-| B-09 | 通过 | 旧行为零回归：全量 213 文件 / 2329 例绿；未触碰 `bank`/`host`/`runtime` 任何源码 |
+| B-09 | 通过 | 旧行为零回归：全量 214 文件 / 2331 例绿；未触碰 `bank`/`host`/`runtime` 任何源码 |
 | B-10 | 通过 | 依赖方向：`policy → util`；`verify-package-graph` 把 `@bah/policy` 加入域层，反向依赖会被拦 |
 | B-11 | 通过 | 覆盖率门禁：`policy` 进名单后逐文件 100%，`verify-coverage-allowlist` 命中 14 个源文件 |
 | B-12 | 通过（有登记） | 静态分析 sound 但不 complete：合取矛盾（`p<0 && p>5`）、`a && b` 组合覆盖不判；方案 §7.1 允许 |
@@ -109,7 +109,7 @@
 
 ## 6. 结论
 
-- S1 判据（01 §14）**全部满足**，`pnpm gate` 36/36、`pnpm typecheck` 绿、全量 213 文件 / 2329 例绿；
+- S1 判据（01 §14）**全部满足**，`pnpm gate` 36/36、`pnpm typecheck` 绿、全量 214 文件 / 2331 例绿；
 - 负控 24/24 应红即红；错误码矩阵 27+1 由测试机械自检；
 - **未闭合 P1 一项**：覆盖率台账需 CI 跑批后更新（本机不可比，写本机数会让 CI 反而红）；
 - 未做（属后续阶段，不计入 S1）：`policy:diff/render/sign/install/explain/promote/rollback/versions/audit-verify/shadow`、`registry.json`、`tier/decided` 新字段、链 `policy/decision`、穷举等价（S2/PE-26）、4 条新门禁（S4）。
