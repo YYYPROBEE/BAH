@@ -10,7 +10,7 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **221 文件 / 2481 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **223 文件 / 2529 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗） | **7 文件 / 55 用例** |
 
@@ -91,7 +91,7 @@
 | 可替换模型 | `provider: deepseek` + `baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1` + `apiKeyEnv: BAH_MODEL_KEY`（`.env.local`，不入库）；切 `core:model` 与 `core:agent.loop.model` **两处**，手动切换，不是自动降级 |
 | 知识问答 | Web 的 router **不规划**知识意图；用 `pnpm demo:rag`（headless）演示，sidecar 与宿主共用 `BAH_KNOWLEDGE_TOKEN`（无 token 拒启） |
 | 审批 | 黄级 `transfer_create` → 票据 → Web 弹窗；红级另加强验证 |
-| 会话作用域 | 单用户、单会话、单进程；无多租户；Web `/api/*` 有 60s/120 次每来源限流 |
+| 会话作用域 | 单用户、单会话、单进程；无多租户；Web `/api/*` 有 60s/120 次每来源限流。接管状态落 `<会话根>/<sid>/handoff.json`：跨重启需固定 `--session`；boot 不重放历史会话，重启后首次落账会撞 `session-exists`（会话恢复属 D4） |
 
 ## 6. 交付与安全口径（写材料时照抄）
 

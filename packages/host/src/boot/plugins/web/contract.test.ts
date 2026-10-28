@@ -41,7 +41,7 @@ function fingerprint(route: (typeof ROUTES)[number]): string {
 }
 
 describe('W16 路由表（拆分前后同一份期望）', () => {
-  it('16 条路由的三元组逐条不变（12 条 W16 基线 + 1 条 D2 指标 + 3 条 C5 接管）', () => {
+  it('20 条路由的三元组逐条不变（12 条 W16 基线 + 1 条 D2 指标 + 7 条人机接管）', () => {
     expect(ROUTES.map(fingerprint)).toEqual([
       'GET /api/health exact public no-csrf 200 health',
       'POST /api/admin/sentry/unfreeze exact admin no-csrf 200,400,401,403,404,405,503 admin',
@@ -52,15 +52,20 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
       'GET /api/events exact web no-csrf 200,400,401,503 events',
       // D2 新增：单机指标（只读，Bearer 与其它业务路由同闸）
       'GET /api/metrics exact web no-csrf 200,401 metrics',
-      'POST /api/turn exact web csrf 202,400,401,403,423,503 turn',
-      'POST /api/interrupt exact web csrf 200,401,403,503 interrupt',
-      'POST /api/approval/ prefix web csrf 200,400,401,403,404,409 approval',
-      'POST /api/verify/ prefix web csrf 200,400,401,403,404 verify',
-      // C5：接管平面三条（读摘要 / 请求接管 / 交回）。写路由都受 CSRF 管，
-      // 读摘要与其它 GET 同闸（Bearer，无 CSRF）
+      // 人机接管 01：客户动作降到 user（坐席不能替客户发消息 / 打断）
+      'POST /api/turn exact user csrf 202,400,401,403,423,503 turn',
+      'POST /api/interrupt exact user csrf 200,401,403,503 interrupt',
+      'POST /api/approval/ prefix user csrf 200,400,401,403,404,409 approval',
+      'POST /api/verify/ prefix user csrf 200,400,401,403,404 verify',
+      // C5：客户侧三条（读摘要 / 请求接管 / 交回）。交回是坐席动作 ⇒ operator
       'GET /api/handoff exact web no-csrf 200,401 handoff',
       'POST /api/handoff exact web csrf 200,400,401,403,409 handoff',
-      'POST /api/handoff/resume exact web csrf 200,400,401,403,409 handoff',
+      'POST /api/handoff/resume exact operator csrf 200,400,401,403,409 handoff',
+      // 人机接管 01：坐席侧四条（发言 / 认领 / 心跳 / 队列）
+      'POST /api/handoff/message exact operator csrf 200,400,401,403,404,409,413 handoff-message',
+      'POST /api/handoff/claim exact operator csrf 200,401,403,404,409 handoff-claim',
+      'POST /api/handoff/heartbeat exact operator csrf 200,401,403,404 handoff-heartbeat',
+      'GET /api/handoff/queue exact operator no-csrf 200,401,404 handoff-queue',
       // 400 是 D6 新增：畸形百分号编码（`%E0%A4%A`）以前冒成 500
       'GET|HEAD / prefix static no-csrf 200,400,404 static',
     ])
@@ -68,8 +73,6 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
 
   it('每个受 CSRF 管的路由都必须列 403：搬丢闸时最先消失的就是这一行', () => {
     const guarded = ROUTES.filter((route) => route.csrf)
-    // 用 `handler 路径` 而不是只列 handler：C5 起同一个 handler 承担两条写路由
-    // （`POST /api/handoff` 与 `/resume`），只列 handler 会看不出少的是哪一条闸
     expect(guarded.map((route) => `${route.handler} ${route.path}`)).toEqual([
       'turn /api/turn',
       'interrupt /api/interrupt',
@@ -77,6 +80,9 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
       'verify /api/verify/',
       'handoff /api/handoff',
       'handoff /api/handoff/resume',
+      'handoff-message /api/handoff/message',
+      'handoff-claim /api/handoff/claim',
+      'handoff-heartbeat /api/handoff/heartbeat',
     ])
     for (const route of guarded) expect(route.statuses).toContain(403)
   })

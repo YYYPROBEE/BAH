@@ -115,8 +115,12 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
     // C5：矩阵测试只关心闸的顺序，接管状态给一个"永不接管"的桩
     handoff: {
       active: false,
+      slaMs: 0,
       enter: () => ({ ok: false, code: 'handoff-already-active' }),
       resume: () => ({ ok: false, code: 'handoff-not-active' }),
+      claim: () => ({ ok: false, code: 'handoff-not-active' }),
+      say: () => ({ ok: false, code: 'handoff-not-active' }),
+      heartbeat: () => ({ waitedMs: 0, overdue: false }),
       summary: () => ({
         active: false,
         sessionId: 's-matrix',
@@ -124,9 +128,17 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
         turns: 0,
         pendingTickets: 0,
         messages: [],
+        waitedMs: 0,
+        overdue: false,
+        claimed: false,
+        turnsSinceHandoff: 0,
+        operatorMessages: 0,
       }),
     },
     webToken: WEB_TOKEN,
+    // 缺省不配坐席面（operator 路由 404）；需要 operator 的用例用 overrides 覆盖
+    operatorToken: undefined,
+    operatorName: '坐席',
     csrfToken: CSRF_TOKEN,
     rateLimiter,
     now: () => 1_700_000_000_000,
