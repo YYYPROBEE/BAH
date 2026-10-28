@@ -46,9 +46,19 @@ describe('tenantRootOf', () => {
     expect(tenantRootOf('sessions', parseTenantId('acme-bank'))).toBe(join('sessions', 'acme-bank'))
   })
 
-  it('TA-12-2 绕过 parseTenantId 的非法租户在拼路径前被拒（asTenantId 的兜底）', () => {
-    // 模拟调用方用无校验的 asTenantId 塞了穿越串
-    expect(() => tenantRootOf('sessions', '../etc' as never)).toThrow(/路径段/)
+  it('TA-12-2 绕过 parseTenantId 的非法租户在拼路径前被拒（AR-04：用租户字符集，不是路径白名单）', () => {
+    // 三个样本都是**路径安全但不是租户**的值：旧实现的兜底（assertSafePathSegment）会放过它们，
+    // 于是落成 `sessions/Demo` / `sessions/demo_1`——两个目录、一个环境变量后缀，最难查的一类事故。
+    // 注：'undefined' 也在租户字符集内（复审 AR-04 原稿写错了这一点），真正的防线是类型与入口校验。
+    for (const bad of ['../etc', 'Demo', 'demo_1', 'a']) {
+      let code = ''
+      try {
+        tenantRootOf('sessions', bad as never)
+      } catch (error) {
+        code = (error as { code?: string }).code ?? ''
+      }
+      expect(code, bad).toBe('tenant-id-invalid')
+    }
   })
 })
 

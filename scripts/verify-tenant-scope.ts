@@ -13,7 +13,8 @@
  * | 1 | 记忆 API 的租户实参必须是 `tenant*` | `store.listUnits(userId)` |
  * | 2 | `packages/host/src/**` 里拼 `sessionId` 路径的文件必须出现 `tenant` | 新写一个只拼 sessionId 的落盘点 |
  * | 3 | 全仓不许从请求里取租户 | `req.headers['x-tenant']` / `searchParams.get('tenant')` |
- * | 4 | 门禁自检（`--self-test`） | 上面两条坏样本都必须被抓到 |
+ * | 4 | `SessionFiles.baseRoot` 只许 `bank:saga-store` 用 | 新插件 `ctx.get(SESSION_FILES).baseRoot` |
+ * | 5 | 门禁自检（`--self-test`） | 上面四个坏样本都必须被抓到 |
  *
  * ## 与计划书的一处差异（判据 1 的实参下标）
  *
@@ -226,6 +227,28 @@ export function judgeClientTenant(path: string, source: string): string[] {
   return findings
 }
 
+/**
+ * 判据 4：`SessionFiles.baseRoot` 只许 `bank:saga-store` 用（复审 AR-04）。
+ *
+ * 为什么：`baseRoot` 是"部署根、未拼租户"——它是这条边界上唯一的官方豁口
+ * （saga 库按 01 §5 不按租户分库）。豁口没有守卫，第二个使用者出现时不会有任何东西响，
+ * 而它读到的就是所有租户共享的目录。
+ */
+export function judgeBaseRootUse(path: string, source: string): string[] {
+  const normalized = path.replaceAll('\\', '/')
+  if (!normalized.startsWith('packages/')) return []
+  if (!/\bbaseRoot\b/.test(source)) return []
+  const allowed = [
+    'packages/host/src/boot/plugins/persistence.ts', // 定义处
+    'packages/host/src/boot/plugins/saga-store.ts', // 唯一合法使用者
+  ]
+  if (allowed.includes(normalized)) return []
+  const match = /\bbaseRoot\b/.exec(source)
+  return [
+    `${path}:${String(lineOf(source, match?.index ?? 0))} 使用了 SessionFiles.baseRoot（部署根，未拼租户）——只允许 bank:saga-store 用；要用租户根请走 root（契约 tenant-model §5）`,
+  ]
+}
+
 /** 对一个文件跑全部判据（自检与 run 共用，避免两套实现）。 */
 function judgeFile(path: string, raw: string): string[] {
   // 门禁自身不参与任何判据：它的自检样本里**故意**写着坏代码（字符串常量）
@@ -234,8 +257,9 @@ function judgeFile(path: string, raw: string): string[] {
   const findings: string[] = []
   if (!isTest(path) && !isMemoryImplementation(path)) findings.push(...judgeMemoryArgs(path, source))
   if (!isTest(path)) findings.push(...judgeSessionPathJoin(path, source))
-  // 测试文件不扫判据 3：门禁自己的反例样本就住在 *.test.ts 里（写死"被禁的字符串"）
+  // 测试文件不扫判据 3/4：门禁自己的反例样本就住在 *.test.ts 里（写死"被禁的字符串"）
   if (!isTest(path)) findings.push(...judgeClientTenant(path, source))
+  if (!isTest(path)) findings.push(...judgeBaseRootUse(path, source))
   return findings
 }
 
@@ -257,7 +281,7 @@ const gate: Gate = {
       findings.push(...judgeFile(relativePath, raw))
     }
     notes.push(
-      `扫描 ${String(files.length)} 个 .ts；判据 1（记忆 API 租户实参，登记 ${String(MEMORY_APIS.length)} 个符号）、判据 2（host 拼会话路径）、判据 3（禁止客户端声明租户）`,
+      `扫描 ${String(files.length)} 个 .ts；判据 1（记忆 API 租户实参，登记 ${String(MEMORY_APIS.length)} 个符号）、判据 2（host 拼会话路径）、判据 3（禁止客户端声明租户）、判据 4（baseRoot 只许 saga-store）`,
     )
     return { ok: findings.length === 0, findings, notes }
   },
@@ -300,6 +324,12 @@ export function selfTest(): number {
       text: "const t = url.searchParams.get('tenant')\n",
       judge: judgeClientTenant,
     },
+    {
+      name: '新插件偷用 baseRoot（部署根，未拼租户）',
+      path: 'packages/host/src/boot/plugins/fake-sink.ts',
+      text: 'const dir = ctx.get(SESSION_FILES).baseRoot\n',
+      judge: judgeBaseRootUse,
+    },
   ]
 
   let missed = 0
@@ -332,6 +362,12 @@ export function selfTest(): number {
       path: 'packages/host/src/boot/plugins/persistence.ts',
       text: 'const tenant = String(run.tenantId)\nconst path = join(root, String(sessionId))\n',
       judge: judgeSessionPathJoin,
+    },
+    {
+      name: 'saga-store 合法使用 baseRoot（白名单）',
+      path: 'packages/host/src/boot/plugins/saga-store.ts',
+      text: 'const dbPath = resolve(ctx.get(SESSION_FILES).baseRoot, config.dbPath)\n',
+      judge: judgeBaseRootUse,
     },
   ]
   for (const sample of goodSamples) {

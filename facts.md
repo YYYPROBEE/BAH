@@ -10,7 +10,7 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **242 文件 / 2715 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **244 文件 / 2722 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗） | **7 文件 / 55 用例** |
 

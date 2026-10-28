@@ -83,6 +83,9 @@ export function normalizePrincipal(input: PrincipalInput): Principal
 2. 去重 + 按 `ROLES` 固定序 ⇒ 两个逻辑相同的主体序列化出**同一串字节**（审计链要对它算哈希）；
 3. 返回**新对象且冻结**（`Object.freeze`）——调用方 `push` 一下，链上的主体哈希就漂了。
 
+**`SessionIdentity.tenantId` 是预留字段**（复审 AR-07）：01 只负责把它记录正确，
+真正的判定在 T3 的 `authorize()`。**不要**在答辩里把它讲成"已经生效的跨租户防线"。
+
 **角色不是业务权限**：角色是**渠道**身份（谁在操作），业务权限仍是绿/黄/红三级分级。
 两个平面正交，混起来就无法解释"同一笔转账换个角色级别为什么变红"。
 
@@ -204,7 +207,8 @@ export function normalizePrincipal(input: PrincipalInput): Principal
 | 1 | 记忆 API 的租户实参必须是 `tenant*`（`readScoped` 是第 2 个实参） | `store.listUnits(userId)` |
 | 2 | `packages/host/src/**` 里拼会话路径的文件必须出现 `tenant` | 新写一个只拼 sessionId 的落盘点 |
 | 3 | 全仓不许从请求里取租户 | `req.headers['x-tenant']` / `searchParams.get('tenant')` |
-| 4 | 判据自身有反例（`--self-test`） | 加一个"恒绿"的判据 |
+| 4 | `SessionFiles.baseRoot` 只许 `bank:saga-store` 用（部署根是唯一的官方豁口） | 新插件 `ctx.get(SESSION_FILES).baseRoot` |
+| 5 | 判据自身有反例（`--self-test`） | 加一个"恒绿"的判据 |
 
 **这条门禁的局限**（如实写）：判据 1/2 是文本检查，不是类型检查。绕过它仍然可能
 （例如把租户拼进一个变量名不含 tenant 的字符串）。它挡的是**疏忽**，不是恶意；
