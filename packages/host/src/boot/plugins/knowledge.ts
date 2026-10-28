@@ -38,6 +38,8 @@ import { BahError } from '@bah/util'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
+import { withKnowledgeSpans } from './knowledge-spans.ts'
+import { tryTelemetry } from './telemetry.ts'
 import {
   asRecord,
   bootError,
@@ -343,10 +345,15 @@ export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
         ? applySignatureGate({ config, fixture, port })
         : port
 
-      ctx.effect(ctx.provide(KNOWLEDGE_SERVICE, activePort))
+      // 可观测性 01：`port.answer()` / `port.query()` 的唯一调用方在 `@bah/knowledge` 内部，
+      // 宿主看不到那次调用；套在端口上才能把两个工具都覆盖到。未装遥测时原样透传。
+      const telemetry = tryTelemetry(ctx)
+      const observedPort = telemetry === undefined ? activePort : withKnowledgeSpans(activePort, telemetry)
+
+      ctx.effect(ctx.provide(KNOWLEDGE_SERVICE, observedPort))
 
       const [answerTool, queryTool] = createKnowledgeTools({
-        port: activePort,
+        port: observedPort,
         principalOf: (sessionId) => {
           const userId = identity.resolve(sessionId)
           if (userId === undefined) {

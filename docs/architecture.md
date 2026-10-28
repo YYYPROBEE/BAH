@@ -44,7 +44,7 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **22 项 / 40 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
+| 注册表 / 门禁 | **23 项 / 41 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
 | 覆盖率 | **91.14%（行口径，31233/34270 行，实测 2026-10-28）；15/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
@@ -67,7 +67,7 @@
 | ⑥ 编排原语（plan） | `plan:dag` | 1 |
 | ⑦ 渠道（channel） | `channel:web` | 1 |
 | ⑧ 演示件（demo） | `demo:echo` | 1 |
-| **合计** | — | **22** |
+| **合计** | — | **23** |
 <!-- END GENERATED:layers -->
 
 ### 3.1 依赖图（谁向谁要服务）
@@ -76,66 +76,69 @@
 ```mermaid
 graph LR
   p0["core:session"]
-  p1["core:tools"]
-  p2["core:prompt"]
-  p3["core:model"]
-  p4["core:agent"]
-  p5["core:persistence"]
-  p6["audit:decisions"]
-  p7["demo:echo"]
-  p8["bank:tools"]
-  p9["policy:rules"]
-  p10["bank:knowledge"]
-  p11["interaction:approval"]
-  p12["safety:sentry"]
-  p13["safety:verify"]
-  p14["safety:sandbox"]
-  p15["bank:saga-store"]
-  p16["bank:saga"]
-  p17["bank:saga-audit"]
-  p18["bank:saga-bridge"]
-  p19["plan:dag"]
-  p20["bah:memory-store"]
-  p21["channel:web"]
+  p1["obs:telemetry"]
+  p2["core:tools"]
+  p3["core:prompt"]
+  p4["core:model"]
+  p5["core:agent"]
+  p6["core:persistence"]
+  p7["audit:decisions"]
+  p8["demo:echo"]
+  p9["bank:tools"]
+  p10["policy:rules"]
+  p11["bank:knowledge"]
+  p12["interaction:approval"]
+  p13["safety:sentry"]
+  p14["safety:verify"]
+  p15["safety:sandbox"]
+  p16["bank:saga-store"]
+  p17["bank:saga"]
+  p18["bank:saga-audit"]
+  p19["bank:saga-bridge"]
+  p20["plan:dag"]
+  p21["bah:memory-store"]
+  p22["channel:web"]
   p0 --> host["宿主运行时 boot()"]
+  p1 --> host["宿主运行时 boot()"]
+  p1 --> p0
   p10 --> host["宿主运行时 boot()"]
   p10 --> p0
-  p10 --> p1
-  p10 --> p8
   p11 --> host["宿主运行时 boot()"]
   p11 --> p0
+  p11 --> p2
+  p11 --> p9
   p12 --> host["宿主运行时 boot()"]
   p12 --> p0
-  p12 --> p1
-  p12 --> p4
-  p12 --> p6
-  p12 --> p8
   p13 --> host["宿主运行时 boot()"]
   p13 --> p0
+  p13 --> p2
+  p13 --> p5
+  p13 --> p7
+  p13 --> p9
   p14 --> host["宿主运行时 boot()"]
   p14 --> p0
-  p16 --> p5
-  p17 --> p16
-  p17 --> p5
-  p20 --> host["宿主运行时 boot()"]
-  p20 --> p0
-  p20 --> p2
+  p15 --> host["宿主运行时 boot()"]
+  p15 --> p0
+  p17 --> p6
+  p18 --> p17
+  p18 --> p6
   p21 --> host["宿主运行时 boot()"]
   p21 --> p0
-  p21 --> p11
-  p21 --> p4
-  p4 --> host["宿主运行时 boot()"]
-  p4 --> p0
-  p4 --> p3
+  p21 --> p3
+  p22 --> host["宿主运行时 boot()"]
+  p22 --> p0
+  p22 --> p12
+  p22 --> p5
   p5 --> host["宿主运行时 boot()"]
+  p5 --> p0
+  p5 --> p4
   p6 --> host["宿主运行时 boot()"]
-  p6 --> p5
-  p7 --> p1
-  p8 --> host["宿主运行时 boot()"]
-  p8 --> p0
-  p8 --> p1
+  p7 --> host["宿主运行时 boot()"]
+  p7 --> p6
+  p8 --> p2
   p9 --> host["宿主运行时 boot()"]
   p9 --> p0
+  p9 --> p2
 ```
 <!-- END GENERATED:dependency-graph -->
 
@@ -151,6 +154,7 @@ graph LR
 | 组件 | 依赖的服务（`inject`） | 提供方 |
 |---|---|---|
 | core:session | `bah:run` | 宿主运行时 boot() |
+| obs:telemetry | `bah:run`、`runtime:session` | 宿主运行时 boot()、`core:session` |
 | core:tools | —（无依赖） | — |
 | core:prompt | —（无依赖） | — |
 | core:model | —（无依赖） | — |
@@ -183,41 +187,41 @@ graph LR
 ```mermaid
 graph TB
   subgraph P_headless["profiles/headless"]
-    p7_headless["demo:echo"]
-    p10_headless["bank:knowledge（未装配）"]
-    p18_headless["bank:saga-bridge"]
-    p19_headless["plan:dag（未装配）"]
-    p20_headless["bah:memory-store（未装配）"]
-    p21_headless["channel:web（未装配）"]
+    p8_headless["demo:echo"]
+    p11_headless["bank:knowledge（未装配）"]
+    p19_headless["bank:saga-bridge"]
+    p20_headless["plan:dag（未装配）"]
+    p21_headless["bah:memory-store（未装配）"]
+    p22_headless["channel:web（未装配）"]
   end
   subgraph P_plan["profiles/plan"]
-    p7_plan["demo:echo（未装配）"]
-    p10_plan["bank:knowledge（未装配）"]
-    p18_plan["bank:saga-bridge（enabled: false）"]
-    p19_plan["plan:dag"]
-    p20_plan["bah:memory-store（未装配）"]
-    p21_plan["channel:web（未装配）"]
+    p8_plan["demo:echo（未装配）"]
+    p11_plan["bank:knowledge（未装配）"]
+    p19_plan["bank:saga-bridge（enabled: false）"]
+    p20_plan["plan:dag"]
+    p21_plan["bah:memory-store（未装配）"]
+    p22_plan["channel:web（未装配）"]
   end
   subgraph P_web["profiles/web"]
-    p7_web["demo:echo"]
-    p10_web["bank:knowledge"]
-    p18_web["bank:saga-bridge"]
-    p19_web["plan:dag（未装配）"]
-    p20_web["bah:memory-store"]
-    p21_web["channel:web"]
+    p8_web["demo:echo"]
+    p11_web["bank:knowledge"]
+    p19_web["bank:saga-bridge"]
+    p20_web["plan:dag（未装配）"]
+    p21_web["bah:memory-store"]
+    p22_web["channel:web"]
   end
   subgraph P_web-plan["profiles/web-plan"]
-    p7_web-plan["demo:echo"]
-    p10_web-plan["bank:knowledge"]
-    p18_web-plan["bank:saga-bridge（enabled: false）"]
-    p19_web-plan["plan:dag"]
-    p20_web-plan["bah:memory-store（未装配）"]
-    p21_web-plan["channel:web"]
+    p8_web-plan["demo:echo"]
+    p11_web-plan["bank:knowledge"]
+    p19_web-plan["bank:saga-bridge（enabled: false）"]
+    p20_web-plan["plan:dag"]
+    p21_web-plan["bah:memory-store（未装配）"]
+    p22_web-plan["channel:web"]
   end
   classDef ghost stroke-dasharray: 5 5,stroke:#9aa4b2,color:#9aa4b2
   classDef off stroke-dasharray: 3 3,stroke:#c9822f,color:#c9822f
-  class p10_headless,p19_headless,p20_headless,p21_headless,p7_plan,p10_plan,p20_plan,p21_plan,p19_web,p20_web-plan ghost
-  class p18_plan,p18_web-plan off
+  class p11_headless,p20_headless,p21_headless,p22_headless,p8_plan,p11_plan,p21_plan,p22_plan,p20_web,p21_web-plan ghost
+  class p19_plan,p19_web-plan off
 ```
 <!-- END GENERATED:assembly -->
 
@@ -232,6 +236,7 @@ graph TB
 | 组件 | profiles/headless | profiles/plan | profiles/web | profiles/web-plan |
 |---|---|---|---|---|
 | core:session | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| obs:telemetry | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | core:tools | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | core:prompt | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | core:model | ● 生效 | ● 生效 | ● 生效 | ● 生效 |

@@ -1,0 +1,190 @@
+/**
+ * `obs:telemetry` 的三件事：配置校验、装配、按需派生。
+ *
+ * 最值得测的一条是**时钟可信度由数据判定**：全仓没有 `Clock.tick()`，快照回放里
+ * `fixedClock.now()` 幂等 ⇒ 同一场景所有事件 `at` 相同。如果这里判错，
+ * 瀑布图会把"没测过"画成"很快"，而那正是本方案明令禁止的三种"零"之一。
+ */
+
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { createContext } from '@bah/core'
+import { SESSION_SERVICE, type SessionApi } from '@bah/runtime'
+import { afterEach, describe, expect, it } from 'vitest'
+
+import { RUN_SERVICE } from '../boot.ts'
+import { TELEMETRY, telemetryPlugin } from './telemetry.ts'
+
+const T = 1_700_000_000_000
+
+/** 环境变量覆盖是进程级的；每条用例后恢复，避免互相污染。 */
+const savedEnv = new Map<string, string | undefined>()
+function setEnv(key: string, value: string): void {
+  if (!savedEnv.has(key)) savedEnv.set(key, process.env[key])
+  process.env[key] = value
+}
+
+afterEach(() => {
+  for (const [key, value] of savedEnv) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+  savedEnv.clear()
+})
+
+/** 一个只够 `derive()` 用的会话桩（`events()` 是唯一被读的方法）。 */
+function fakeSession(events: readonly { seq: number; at: number; type: string; data: unknown }[]): SessionApi {
+  return {
+    sessionId: 's-telemetry',
+    formatVersion: 1,
+    lastSeq: () => events.length,
+    events: () => events,
+    eventsView: () => events,
+  } as unknown as SessionApi
+}
+
+/** 起一个只装了 `obs:telemetry` 的上下文。 */
+async function boot(options: {
+  events?: readonly { seq: number; at: number; type: string; data: unknown }[]
+  config?: Readonly<Record<string, unknown>>
+  jsonlDir?: string
+} = {}) {
+  const ctx = createContext()
+  ctx.provide(RUN_SERVICE, {
+    sessionId: 's-telemetry' as never,
+    now: () => T,
+    ...(options.jsonlDir === undefined ? {} : { jsonlDir: options.jsonlDir }),
+  })
+  ctx.provide(SESSION_SERVICE, fakeSession(options.events ?? []))
+  await ctx.use(telemetryPlugin.plugin, telemetryPlugin.validate(options.config ?? {}))
+  await ctx.start()
+  return ctx
+}
+
+describe('obs:telemetry · 配置校验', () => {
+  it('缺省：容量 2000、只留内存、无采样覆盖', () => {
+    expect(telemetryPlugin.validate({})).toEqual({ maxSpans: 2000, spanLog: null, sample: {} })
+  })
+
+  it('未知键 fail-loud（静默取缺省会导致"配了却没生效"）', () => {
+    expect(() => telemetryPlugin.validate({ maxSpan: 10 })).toThrow(/maxSpan/)
+  })
+
+  it('maxSpans 越界 fail-loud', () => {
+    expect(() => telemetryPlugin.validate({ maxSpans: 10 })).toThrow(/100/)
+    expect(() => telemetryPlugin.validate({ maxSpans: 1_000_000 })).toThrow(/100000/)
+  })
+
+  it('sample 必须是 [0,1] 的数', () => {
+    expect(() => telemetryPlugin.validate({ sample: { 'policy.evaluate': 2 } })).toThrow(/0,1/)
+    expect(() => telemetryPlugin.validate({ sample: 'x' })).toThrow(/sample/)
+    expect(telemetryPlugin.validate({ sample: { 'policy.evaluate': 0.1 } })).toMatchObject({
+      sample: { 'policy.evaluate': 0.1 },
+    })
+  })
+
+  it('BAH_TELEMETRY_MAX_SPANS 覆盖 config（合法正整数）', () => {
+    setEnv('BAH_TELEMETRY_MAX_SPANS', '5000')
+    expect(telemetryPlugin.validate({ maxSpans: 300 }).maxSpans).toBe(5000)
+  })
+
+  it('BAH_TELEMETRY_MAX_SPANS 非法时忽略并回落 config', () => {
+    setEnv('BAH_TELEMETRY_MAX_SPANS', 'abc')
+    for (const bad of ['abc', '0', '-1', '1.5']) {
+      process.env['BAH_TELEMETRY_MAX_SPANS'] = bad
+      expect(telemetryPlugin.validate({ maxSpans: 300 }).maxSpans).toBe(300)
+    }
+  })
+
+  it('BAH_SPAN_LOG 覆盖 config', () => {
+    setEnv('BAH_SPAN_LOG', 'logs/spans.jsonl')
+    expect(telemetryPlugin.validate({ spanLog: 'config.jsonl' }).spanLog).toBe('logs/spans.jsonl')
+  })
+})
+
+describe('obs:telemetry · 装配与派生', () => {
+  it('提供 obs:telemetry 服务键，且不产生任何会话事件', async () => {
+    const ctx = await boot()
+    try {
+      const handle = ctx.get(TELEMETRY)
+      expect(handle).toBeDefined()
+      expect(handle.stats.size).toBe(0)
+      expect(handle.spanLogPath).toBeNull()
+    } finally {
+      await ctx.dispose('test')
+    }
+  })
+
+  it('真钟（at 有多个值）→ clockTrusted = true', async () => {
+    const ctx = await boot({
+      events: [
+        { seq: 1, at: T, type: 'turn/start', data: { turn: 1 } },
+        { seq: 2, at: T + 5, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+      ],
+    })
+    try {
+      const snapshot = ctx.get(TELEMETRY).derive()
+      expect(snapshot.clockTrusted).toBe(true)
+      expect(snapshot.spans).toHaveLength(1)
+      expect(snapshot.spans[0]!.endMs).not.toBe(snapshot.spans[0]!.startMs)
+      expect(snapshot.roots).toHaveLength(1)
+    } finally {
+      await ctx.dispose('test')
+    }
+  })
+
+  it('冻结钟（所有 at 相同）→ clockTrusted = false，并标 clock=frozen', async () => {
+    const ctx = await boot({
+      events: [
+        { seq: 1, at: T, type: 'turn/start', data: { turn: 1 } },
+        { seq: 2, at: T, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+      ],
+    })
+    try {
+      const snapshot = ctx.get(TELEMETRY).derive()
+      expect(snapshot.clockTrusted).toBe(false)
+      expect(snapshot.spans[0]!.attributes['clock']).toBe('frozen')
+    } finally {
+      await ctx.dispose('test')
+    }
+  })
+
+  it('derive() 把结果并进记录器，重复调用不重复计数（absorb 去重）', async () => {
+    const ctx = await boot({
+      events: [{ seq: 1, at: T, type: 'turn/start', data: { turn: 1 } }],
+    })
+    try {
+      const handle = ctx.get(TELEMETRY)
+      handle.derive()
+      handle.derive()
+      expect(handle.stats.size).toBe(1)
+    } finally {
+      await ctx.dispose('test')
+    }
+  })
+})
+
+describe('obs:telemetry · span.jsonl 落盘', () => {
+  it('相对路径按 run.jsonlDir 解析，一行一条 JSON', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'bah-telemetry-'))
+    const ctx = await boot({ jsonlDir: base, config: { spanLog: 'span.jsonl' } })
+    try {
+      const handle = ctx.get(TELEMETRY)
+      expect(handle.spanLogPath).toBe(join(base, 'span.jsonl'))
+      // 用采样率为 1 的名字：`policy.evaluate` 默认 0.1，可能整条被采样掉（那是设计行为）。
+      handle.withSpan('http.request', { method: 'GET' }, () => undefined)
+      const lines = readFileSync(join(base, 'span.jsonl'), 'utf8').trim().split('\n')
+      expect(lines).toHaveLength(1)
+      const row = JSON.parse(lines[0] as string) as Record<string, unknown>
+      expect(row['name']).toBe('http.request')
+      expect(row['source']).toBe('recorded')
+      // 键序是钉死的（drop-in 断言：改键序 = 改导出格式）
+      expect(Object.keys(row)[0]).toBe('traceId')
+    } finally {
+      await ctx.dispose('test')
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+})

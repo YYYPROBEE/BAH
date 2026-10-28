@@ -57,6 +57,13 @@ export async function handleEvents(
     sendError(res, 400, 'web-invalid-since', `since 必须是非负整数（收到 ${raw}）`)
     return
   }
+  // 可观测性 01：SSE 是**长连接**，不能用 `withSpan`（会把整个请求生命周期挂住），
+  // 只能在 attach 前后手动开/关；收尾挂 `close`，心跳与断连都会走到。
+  const span = deps.tryTelemetry()?.recorder.open('sse.attach', {
+    since,
+    clients: deps.hub.size(),
+  })
+  res.once('close', () => span?.end('ok'))
   deps.hub.attach(req, res, since)
 }
 

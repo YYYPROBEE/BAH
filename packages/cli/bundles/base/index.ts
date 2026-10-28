@@ -21,6 +21,9 @@ export const bundle: Bundle = {
     { id: 'core:model', config: { provider: 'deepseek', model: 'deepseek-chat' } },
     { id: 'core:agent', config: { loop: { model: 'deepseek:deepseek-chat' } } },
     { id: 'core:persistence', config: { root: 'sessions' } },
+    // 观测面（obs:telemetry）：只读旁路，不产生会话事件（不改变任何快照）。
+    // 排在持久化之后（要 `bah:session-files` 的落点）；config 取缺省（容量 2000、只留内存）。
+    { id: 'obs:telemetry', config: { maxSpans: 2000 } },
     // 会话级证据链（W08）：工具调用 + sentry 判决 + 审批结论落 `<会话>/audit.jsonl`。
     // 排在持久化之后：链根与 `SESSION_FILES.root` 同源，`--jsonl` 换目录时一起走。
     { id: 'audit:decisions' },

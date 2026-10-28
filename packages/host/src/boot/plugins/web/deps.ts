@@ -17,6 +17,7 @@ import type { Agent, SessionApi } from '@bah/runtime'
 import type { HaltHandle, SentryHandle } from '@bah/safety'
 
 import type { HandoffHandle } from './handoff.ts'
+import type { TelemetryHandle } from '../telemetry.ts'
 import type { createRateLimiter } from '../web-rate-limit.ts'
 import type { SseHub } from './sse.ts'
 
@@ -47,6 +48,13 @@ export interface WebDeps {
   readonly trySentry: () => SentryHandle | undefined
   /** 惰性取 HALT（同上）。 */
   readonly tryHalt: () => HaltHandle | undefined
+  /**
+   * 惰性取遥测（可观测性 01）。
+   *
+   * 同样**不进** `webPlugin.plugin.inject`：没装 `obs:telemetry` 的 profile 必须照常起。
+   * 调用点写 `deps.tryTelemetry()?.recorder.open(...)`——判空是义务，不是可选项。
+   */
+  readonly tryTelemetry: () => TelemetryHandle | undefined
   /**
    * 人工接管状态机（C5）。进程内状态 + `handoff/*` 事件留痕；
    * 重启后回到未接管（见 `handoff.ts` 的"诚实边界"）。

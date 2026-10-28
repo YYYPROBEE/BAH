@@ -190,6 +190,7 @@
     "packages/safety/src/sentry/",
     "packages/safety/src/verify/",
     "packages/interaction/src/approval/",
+    "packages/saga/src/gates/",
     "packages/saga/src/recovery/",
     "packages/saga/src/index.ts",
     "packages/saga/src/tick/"

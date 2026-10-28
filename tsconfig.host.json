@@ -17,6 +17,7 @@
     { "path": "packages/channels" },
     { "path": "packages/cli" },
     { "path": "packages/test-support" },
-    { "path": "packages/util" }
+    { "path": "packages/util" },
+    { "path": "packages/telemetry" }
   ]
 }

@@ -134,6 +134,8 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
     ensureDriver: () => undefined,
     trySentry: () => undefined,
     tryHalt: () => undefined,
+    // 矩阵测试只关心闸的顺序：不给遥测（`startHttpSpan` 必须能判空后静默返回）
+    tryTelemetry: () => undefined,
     staticRoot: 'this-directory-does-not-exist',
     indexPath: 'this-directory-does-not-exist/index.html',
     ...overrides,

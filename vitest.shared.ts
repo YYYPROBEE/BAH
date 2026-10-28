@@ -28,6 +28,8 @@ const PACKAGE_DIRS = [
   'cli',
   'test-support',
   'util',
+  // 可观测性 01：遥测内核。只依赖 util，位置在 core 之上、runtime 之下。
+  'telemetry',
 ] as const
 
 /** 包内 `src/` 目录的绝对路径（带结尾分隔符，便于拼子路径）。 */

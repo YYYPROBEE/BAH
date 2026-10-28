@@ -28,6 +28,8 @@ import { sagaStorePlugin } from './saga-store.ts'
 import { sandboxPlugin } from './sandbox.ts'
 import { sentryPlugin } from './sentry.ts'
 import { sessionPlugin } from './session.ts'
+// 可观测性 01：遥测内核（只读旁路，不产生会话事件）
+import { telemetryPlugin } from './telemetry.ts'
 import { toolsPlugin } from './tools.ts'
 // W05：断言核验门（监听 `agent/reply`）
 import { verifyPlugin } from './verify.ts'
@@ -38,6 +40,9 @@ import { webPlugin } from './web.ts'
 /** base bundle 的插件集（施工单 06 §3：内核 + 主循环 + 模型层 + 工具管线 + 持久化）。 */
 export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   sessionPlugin,
+  // 可观测性 01：`obs:telemetry` 只 inject `bah:run` 与 `runtime:session`，
+  // 所以紧跟在 `core:session` 之后即可；越早越能包住后续插件的包裹点。
+  telemetryPlugin,
   toolsPlugin,
   promptPlugin,
   modelPlugin,
@@ -91,6 +96,7 @@ export {
   sandboxPlugin,
   sentryPlugin,
   sessionPlugin,
+  telemetryPlugin,
   toolsPlugin,
   verifyPlugin,
   webPlugin,
