@@ -128,6 +128,22 @@ export class MockBankCore implements BankCoreProvider {
     return user === undefined ? undefined : { ...user }
   }
 
+  /**
+   * 列出用户名下全部卡片（只读）。
+   *
+   * 不认识的用户返回 `[]`（不抛错——"没有卡"是业务结果，同 `getUser` 的判定口径）；
+   * 必须 `map` 复制（`this.cards` 是可变数组，调用方改字段不能污染账本）；
+   * 顺序按账本原序（种子顺序 = 实体卡在前），不额外排序，保证跨端一致。
+   */
+  async listCards(userId: UserId): Promise<Card[]> {
+    const accountIds = new Set(
+      this.accounts.filter((item) => item.userId === userId).map((item) => item.id),
+    )
+    return this.cards
+      .filter((item) => accountIds.has(item.accountId))
+      .map((item) => ({ ...item }))
+  }
+
   async reportCardLost(userId: UserId, cardId: CardId): Promise<CardLostResult> {
     const card = this.cards.find((item) => item.id === cardId)
     if (card === undefined) {

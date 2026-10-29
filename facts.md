@@ -1,6 +1,8 @@
 # BAH 事实表（演示材料的唯一数字来源）
 
-> 更新：2026-10-29（移动 H5 04 收口：goal/todo 平面 + 生日案例 cross-scene 快照 + `POST /api/session/fork` + 门禁 `verify-cross-scene`；D 族 15 例）。任何 PPT / 视频 / 自评里的数字先查这里；
+> 更新：2026-10-30（卡片 L2：`account_list` 带出卡片清单，挂失链路可达）。
+> 上一版 2026-10-29 为移动 H5 04 收口（goal/todo 平面、生日案例 cross-scene 快照、`POST /api/session/fork`、门禁 `verify-cross-scene`；D 族 15 例）。
+> 任何 PPT / 视频 / 自评里的数字先查这里；
 > 改代码后重跑对应命令再改本表。**不要把三行测试数相加成一个"总用例数"**。
 > 数字的取值命令与原始输出见 `docs/facts-sources.md`；门禁 `verify-facts` 逐项比对，不一致即红。
 > ⚠ 本表上一版停在 2026-10-24，被 W03–W17 甩在后面（门禁还写 27/27、工具还写 14 个、
@@ -10,9 +12,9 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **294 文件 / 3333 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **294 文件 / 3337 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
-| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **27 文件 / 365 用例** |
+| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **27 文件 / 375 用例** |
 
 其他口径：
 
@@ -39,7 +41,7 @@
 
 | # | 工具 | 级别 | 职责 |
 |---|---|---|---|
-| 1 | `account_list` | green | 列出账户（尾号/类型/状态/余额） |
+| 1 | `account_list` | green | 列出账户与卡片（账户尾号/类型/余额；卡 ID/尾号/状态/限额） |
 | 2 | `account_balance` | green | 查账户余额与可用余额 |
 | 3 | `txn_query` | green | 按时间/分类/方向分页查流水 |
 | 4 | `bill_analyze` | green | 月度/季度汇总、分类占比、环比、异常 |

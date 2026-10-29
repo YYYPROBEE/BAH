@@ -291,7 +291,7 @@ pnpm bah --profile headless --prompt "给王建国转800元" --session s-tier09 
 |---|---|---|
 | 红级强验证串联 | 已由 09 串联：`ask+challenge` → `bank:challenge` 签发 → 验证通过才批准 | — |
 | 日限额与执行 | 升红后经批准仍会执行（bank-core 不拦日限额；规格把日限额放在权限升级） | 若产品要"拒绝"，改判定 `deny` 并同步 T-TIER-004 |
-| card / subscription | 九实体与造数已落，Provider 方法未加（P1 工具才需要） | P1 工具时补齐 |
+| card / subscription | `card` 的 list / reportLost 已接（`account_list` 带出卡片清单）；申请/提额/限额未加；`subscription` 只有 cancel | P1 工具时补齐 |
 | 定时转账 / AA 拆分 | `transfer_create` 的 `when` 只支持 `now`，未来时间返回 `unsupported-schedule` | P1 `transfer_schedule` / `transfer_split` |
 | 单应用单会话 | 票据五绑定里的 `sessionId` 来自 `bah:run`（一应用一会话） | 与 R52 一并评估多会话 |
 | 审批应答者 | headless 有显式自动应答者；Web / IM 渠道属 13/15 | 渠道只需 `attach(responder)` |

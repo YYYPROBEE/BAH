@@ -66,6 +66,7 @@ export const CASE = {
     'packages/persistence/src/saga-store/',
     'packages/safety/src/sentry/',
     'packages/interaction/src/approval/',
+    'packages/saga/src/gates/',
     'packages/saga/src/recovery/',
   ],
 } as const

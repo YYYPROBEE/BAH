@@ -29,6 +29,28 @@ describe('account_list / account_balance（T-TOOLS-001 的读侧）', () => {
     expect(tool.presentResult?.({}, result)).toMatchObject({ kind: 'bank.account-list' })
   })
 
+  it('account_list 同时返回卡片清单（cardId 进正文，模型才拿得到）', async () => {
+    const h = createBankHarness()
+    const result = (await h.call('account_list')) as AccountsResult
+
+    expect(result.cards.map((card) => card.cardId)).toEqual(['c-1', 'c-2'])
+    expect(result.cards[0]).toMatchObject({
+      accountId: 'a-1',
+      tail: '1234',
+      type: 'physical',
+      status: 'normal',
+      dailyLimitCents: 100_000,
+      monthlyLimitCents: 2_000_000,
+    })
+
+    const tool = h.tools.get('account_list')!
+    const text = ((tool.projectContent?.(result) ?? [])[0] as { text: string }).text
+    // 模型只看 projectContent 的正文（UiCard 不落账），cardId 必须在正文里
+    expect(text).toContain('名下 2 张卡')
+    expect(text).toContain('卡尾号 1234')
+    expect(text).toContain('卡ID c-1')
+  })
+
   it('余额缺省主账户；带 txnRef 与冻结金额', async () => {
     const h = createBankHarness()
     const result = (await h.call('account_balance', {}, 'call-balance')) as BalanceResult

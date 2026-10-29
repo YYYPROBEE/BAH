@@ -16,6 +16,7 @@ import type {
   BalanceResult,
   BillAnalysisResult,
   BillReportResult,
+  CardView,
   TransferCreatedResult,
   TransferPreviewResult,
   TxnQueryResult,
@@ -37,6 +38,19 @@ export const ACCOUNT_STATUS_LABEL: Readonly<Record<AccountStatus, string>> = {
   active: '正常',
   frozen: '冻结',
   closed: '销户',
+}
+
+/** 卡片类型文案。 */
+export const CARD_TYPE_LABEL: Readonly<Record<CardView['type'], string>> = {
+  physical: '实体',
+  virtual: '虚拟',
+}
+
+/** 卡片状态文案。 */
+export const CARD_STATUS_LABEL: Readonly<Record<CardView['status'], string>> = {
+  normal: '正常',
+  frozen: '已冻结',
+  lost: '已挂失',
 }
 
 /** 交易分类文案。 */

@@ -68,7 +68,7 @@ export const BANK_TOOL_SPECS = [
   {
     name: 'account_list',
     description:
-      '列出当前用户名下全部银行账户（尾号、类型、状态、余额）。用户问“我有几张卡/哪些账户”时用；不要用它查单笔流水或账单分析。',
+      '列出当前用户名下全部账户与卡片（账户尾号/类型/余额；卡尾号/类型/状态/日限额）。用户问“我有几张卡/哪些账户/卡什么状态”时用；不要用它查单笔流水或账单分析。',
     schema: { type: 'object', properties: {} },
     tier: { level: 'green' },
     event: 'read/accounts',
@@ -335,7 +335,7 @@ export const BANK_TOOL_SPECS = [
     schema: {
       type: 'object',
       properties: {
-        cardId: { type: 'string', description: '要挂失的银行卡 ID（从 account_list 的卡片信息里取）' },
+        cardId: { type: 'string', description: '要挂失的卡片 ID（从 account_list 结果里每张卡的「卡ID」取，不要猜）' },
       },
       required: ['cardId'],
     },

@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { bankIds } from '../core/index.ts'
+import type { AccountsResult } from './dto.ts'
 import { specOf } from './specs.ts'
 import { createPipelineHarness, TEST_CONFIG } from './testing.ts'
 
@@ -23,6 +24,25 @@ function payloads(
 }
 
 describe('TC-W03-06 新工具的档位（声明 + 行为）', () => {
+  it('先 account_list 取 cardId，再挂失（端到端可达）', async () => {
+    const h = createPipelineHarness({ approval: 'allowed-once' })
+    try {
+      const listed = await h.run('account_list', {})
+      expect(listed.result.isError).toBe(false)
+
+      const target = (listed.value as AccountsResult).cards.find((card) => card.tail === '1234')
+      expect(target).toBeDefined()
+
+      const execution = await h.run('card_report_lost', { cardId: target!.cardId })
+      expect(execution.result.isError).toBe(false)
+      expect(h.audits.find((record) => record.type === 'card/reported-lost')?.data).toMatchObject(
+        { cardId: target!.cardId, status: 'lost' },
+      )
+    } finally {
+      await h.dispose()
+    }
+  })
+
   it('声明面：card_report_lost 红档 / sub_cancel 黄档，且都不带 amountPath', () => {
     expect(specOf('card_report_lost').tier).toEqual({ level: 'red' })
     expect(specOf('sub_cancel').tier).toEqual({ level: 'yellow' })
