@@ -65,15 +65,16 @@ type Step = CommandStep | VitestStep | E2eStep | RagStep
  * 此后 W17–W20 与 §5.1/§5.2 修复加了两百多例，地板却没跟上——**删掉一整个测试文件
  * 仍会绿**，那条"删测试即红"的判据实际上早已失效。
  *
- * 现值：unit 实测 2048（地板 2000）、snapshot 实测 23（地板 22）、web 实测 55（地板 54）。
+ * 现值：unit 实测 2830（地板 2829，移动 H5 01 收口抬）、snapshot 实测 34（地板 22）、web 实测 139（地板 54）。
+ * snapshot / web 的地板是历史值，只增不减（施工单 01 没动 apps/web 与治理平面）。
  * 余量刻意留小：地板的作用是钉住"没有大批丢失"，不是允许慢慢删。
  */
 const STEPS: readonly Step[] = [
   { kind: 'command', name: 'typecheck', command: 'pnpm typecheck' },
   { kind: 'command', name: 'lint', command: 'pnpm lint' },
   { kind: 'command', name: 'build', command: 'pnpm build' },
-  { kind: 'vitest', name: 'test (unit)', minCases: 2000 },
-  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 2000 },
+  { kind: 'vitest', name: 'test (unit)', minCases: 2829 },
+  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 2829 },
   // W17：全仓覆盖率口径（分母 = packages/*/src 全量，不是 allowlist 名单）。
   // 上一步的 `test:coverage` 守"名单内逐文件 100%"，这一步报"全仓行口径 ≥80% / 包口径 ≥14/16"。
   // 两步都要：只有前者会"分母只算一半"，只有后者会丢掉"确定性组件必须 100%"的硬约束。

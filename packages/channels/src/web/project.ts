@@ -18,12 +18,18 @@ import type {
   ApprovalFrame,
   CardView,
   DagFrame,
+  DagNode,
   DeltaFrame,
+  EffectItem,
+  EffectsFrame,
   FrameTier,
+  FrameTone,
   MessageBlock,
   MessageFrame,
   NoticeFrame,
   SnapshotFrame,
+  TodoFrame,
+  TodoItem,
   ToolFrame,
   TurnFrame,
   WebFrame,
@@ -86,9 +92,23 @@ function previewFeeOf(content: readonly { type: string; text?: string }[]): stri
   return match?.[1]?.replace(/\s+/g, '')
 }
 
+/**
+ * 失败工具的三种细分：`denied` = 判决拦截（安全 / 审批 / 策略），`failed` = 执行期错误。
+ *
+ * 判据不能是"有没有理由码"：执行期异常恰恰**总是**带码（运行时兜底 `tool-failed`、
+ * 出参契约校验 `tool-result-invalid`），按"有码即拦截"会把内部错误讲成风控拦截。
+ * 所以只把这两条明确的执行期失败码判 `failed`，其余带码的 `isError` 仍是判决拦截
+ * （`PRV-002`、`approval-rejected`、`policy-denied` 这类正是要讲给人听的拦截叙事）。
+ */
+const EXECUTION_FAILURE_CODES: ReadonlySet<string> = new Set(['tool-failed', 'tool-result-invalid'])
+
+/** 工具失败细分（`denied` / `failed`）。 */
+function reasonKindOf(code: string | undefined): 'denied' | 'failed' {
+  return code === undefined || EXECUTION_FAILURE_CODES.has(code) ? 'failed' : 'denied'
+}
+
 /** 结束原因 → 提示级别。 */
-function noticeLevel(end: TurnEndReason): NoticeFrame['level'] {
-  switch (end.kind) {
+function noticeLevel(end: TurnEndReason): NoticeFrame['level'] {  switch (end.kind) {
     case 'completed':
       return 'success'
     case 'blocked':
@@ -123,6 +143,168 @@ function noticeTitle(end: TurnEndReason): string {
   }
 }
 
+/**
+ * `DagNode.state` → 待办项的 `done` / `tone`（穷尽 9 态，`frames.ts` 的联合）。
+ *
+ * 映射口径（施工单 01 §3.5）：
+ *   ok → 完成 · success
+ *   pending / running → 未完成 · default
+ *   blocked → 未完成 · warning（等前置，不是错）
+ *   denied / failed / incident → 未完成 · danger
+ *   skipped / cancelled → 已完成 · muted（不会再做了，但也不算"待办"）
+ */
+function todoStateOf(state: DagNode['state']): { readonly done: boolean; readonly tone: FrameTone } {
+  switch (state) {
+    case 'ok':
+      return { done: true, tone: 'success' }
+    case 'pending':
+    case 'running':
+      return { done: false, tone: 'default' }
+    case 'blocked':
+      return { done: false, tone: 'warning' }
+    case 'denied':
+    case 'failed':
+    case 'incident':
+      return { done: false, tone: 'danger' }
+    case 'skipped':
+    case 'cancelled':
+      return { done: true, tone: 'muted' }
+    default:
+      return assertNever(state, 'plan-node-state')
+  }
+}
+
+/**
+ * 待办派生：纯函数（不读时钟 / 随机 / IO）。
+ *
+ * 输入是 `DagBuilder` 已归约出的 plan 节点视图，输出**确定性排序**的清单。
+ * WHY 纯 + 显式排序：同一输入必须产出逐字节相同的帧，否则 SSE 重连发全量快照
+ * （`web/sse.ts`）时前端角标会抖。排序：先 `done` 升序（未完成在前），
+ * 再 `id` 字典序升序——**不得**依赖 `DagNode[]` 的原始顺序（来自 Map 迭代，
+ * 插入序在回放与实时两条路径上可能不同）。
+ *
+ * @returns 无 plan 节点时返回 `null`（不产空帧）
+ */
+export function projectTodo(input: {
+  readonly turn: number
+  readonly seq: number
+  readonly at: number
+  readonly planId: string
+  readonly nodes: readonly DagNode[]
+  readonly blockedBy?: Readonly<Record<string, readonly string[]>>
+}): TodoFrame | null {
+  const nodes = input.nodes.filter((node) => node.kind === 'plan' && node.planId === input.planId)
+  if (nodes.length === 0) return null
+
+  const items: TodoItem[] = nodes
+    .map((node) => {
+      const { done, tone } = todoStateOf(node.state)
+      const blockedBy = input.blockedBy?.[node.id]
+      return {
+        id: node.id,
+        text: node.label,
+        done,
+        ...(node.code === undefined ? {} : { code: node.code }),
+        ...(blockedBy === undefined ? {} : { blockedBy }),
+        tone,
+      } satisfies TodoItem
+    })
+    .sort((left, right) => {
+      if (left.done !== right.done) return left.done ? 1 : -1
+      return left.id < right.id ? -1 : left.id > right.id ? 1 : 0
+    })
+
+  return {
+    kind: 'todo',
+    seq: input.seq,
+    at: input.at,
+    turn: input.turn,
+    planId: input.planId,
+    items,
+    openCount: items.filter((item) => !item.done).length,
+  }
+}
+
+/**
+ * 影响面派生：纯函数（不读时钟 / 随机 / IO）。
+ *
+ * 写操作用**双判据**（施工单 01 §9 V3：`tool/result` 载荷里没有 `sideEffect`，而
+ * `@bah/channels` 不得反向依赖 bank）：
+ *
+ * ① `tier === 'yellow' || tier === 'red'` —— 追溯 `tool/call.tier.level`（需审批 = 有资金或状态写）；
+ * ② `writeToolNames` 命中 —— **调用方注入**的权威名单（宿主从注册表读 `sideEffect==='write'`；
+ *    01 单只留注入口，接线属 04 单）。
+ *
+ * `tier === 'unknown'` **不产出**：`FrameTier` 的口径是"事件里没带，绝不猜"，把"不知道"
+ * 当成"写"等于编造一条"已发生操作"（登记于 01 §9 V8）。
+ *
+ * 诚实边界：`verify_face|sms|ushield` 是**绿级但 `sideEffect:'write'`**
+ * （`bank/src/tools/catalog.ts`）⇒ 只靠 ① 会漏；② 未接线前（01 单交付态）`effects` 帧对
+ * 这三个工具**不产出**——这是已知缺口，不是"已实现"。
+ *
+ * @returns 无可呈现条目时返回 `null`（**不产空帧**，避免噪声）
+ */
+export function projectEffects(input: {
+  readonly turn: number
+  readonly seq: number
+  readonly at: number
+  readonly items: readonly {
+    readonly callId: string
+    readonly name: string
+    readonly tier: FrameTier
+    readonly args: unknown
+    readonly durationMs?: number
+    readonly ticketId?: string
+  }[]
+  readonly writeToolNames?: readonly string[]
+}): EffectsFrame | null {
+  const items: EffectItem[] = []
+  let ticketId: string | undefined
+  for (const candidate of input.items) {
+    const byTier = candidate.tier === 'yellow' || candidate.tier === 'red'
+    const byName = input.writeToolNames?.includes(candidate.name) === true
+    if (!byTier && !byName) continue
+    const cents = amountFromArgs(candidate.args)
+    items.push({
+      callId: candidate.callId,
+      name: candidate.name,
+      title: toolTitle(candidate.name),
+      ...(cents === undefined ? {} : { amountText: formatCents(cents) }),
+      ...(candidate.durationMs === undefined ? {} : { durationMs: candidate.durationMs }),
+      tone: 'success',
+    })
+    if (candidate.ticketId !== undefined) ticketId = candidate.ticketId
+  }
+  if (items.length === 0) return null
+  return {
+    kind: 'effects',
+    seq: input.seq,
+    at: input.at,
+    turn: input.turn,
+    items,
+    ...(ticketId === undefined ? {} : { ticketId }),
+  }
+}
+
+/** 影响面候选（`projectEffects` 的入参项；由 `tool/result` + `CallRecord` 组装）。 */
+interface EffectCandidate {
+  readonly callId: string
+  readonly name: string
+  readonly tier: FrameTier
+  readonly args: unknown
+  readonly durationMs?: number
+  readonly ticketId?: string
+}
+
+/** `WebProjector` 的可选注入口（施工单 01 §3.5）。 */
+export interface WebProjectorOptions {
+  /**
+   * 写侧工具名单（权威来源 = 宿主的工具注册表 `sideEffect === 'write'`）。
+   * 01 单只留注入口，接线属 04 单；未注入时 `effects` 只按 `tier` 双判据之一工作。
+   */
+  readonly writeToolNames?: readonly string[]
+}
+
 /** Web 事件投影器（一对一实例；`frames()` 是只读视图）。 */
 export class WebProjector {
   private readonly list: WebFrame[] = []
@@ -131,9 +313,20 @@ export class WebProjector {
   /** 本 turn 预演结果里的手续费（按收款人姓名），供审批帧显示。 */
   private readonly previewFees = new Map<string, string>()
   private readonly dag = new DagBuilder()
+  /** `plan/node-blocked.blockedBy`，键 = `DagNode.id`（`dag.ts` 的 `plan:` 前缀形态）。 */
+  private readonly blockedBy = new Map<string, readonly string[]>()
+  /** 每个 turn 的写操作候选（`effects` 帧累积替换用）。 */
+  private readonly effectCandidates = new Map<number, EffectCandidate[]>()
+  /** `tool/call.callId` → 审批票号（`effects` 帧的可选 `ticketId`）。 */
+  private readonly ticketOfCall = new Map<string, string>()
+  private readonly writeToolNames?: readonly string[]
   private last = 0
   private turn = 0
   private step = 0
+
+  constructor(options: WebProjectorOptions = {}) {
+    this.writeToolNames = options.writeToolNames
+  }
 
   /** 已归约的最大 `seq`。 */
   maxSeq(): number {
@@ -257,7 +450,7 @@ export class WebProjector {
         const state: ToolFrame['state'] = data.isError ? 'denied' : 'done'
         if (record !== undefined) record.state = state === 'denied' ? 'denied' : 'done'
         this.dag.settle(data.callId, !data.isError)
-        return [
+        const frames: WebFrame[] = [
           this.toolFrame(data.callId, event.seq, event.at, {
             state,
             amountConfirmed: !data.isError,
@@ -268,10 +461,38 @@ export class WebProjector {
           }),
           this.dagFrame(record?.turn ?? this.turn, event.at, event.seq),
         ]
+        // 施工单 01 §3.5：成功的写操作 → effects 帧（一轮一张清单，累积替换）。
+        // 失败（isError）不产：那是"被判停/出错"，不是"已发生的影响"。
+        if (!data.isError && record !== undefined) {
+          const ticketId = this.ticketOfCall.get(data.callId)
+          const candidate: EffectCandidate = {
+            callId: data.callId,
+            name: data.name,
+            tier: record.tier,
+            args: record.args,
+            ...(data.durationMs === undefined ? {} : { durationMs: data.durationMs }),
+            ...(ticketId === undefined ? {} : { ticketId }),
+          }
+          const bucket = this.effectCandidates.get(record.turn) ?? []
+          if (!bucket.some((item) => item.callId === data.callId)) {
+            bucket.push(candidate)
+            this.effectCandidates.set(record.turn, bucket)
+          }
+          const effects = projectEffects({
+            turn: record.turn,
+            seq: event.seq,
+            at: event.at,
+            items: bucket,
+            ...(this.writeToolNames === undefined ? {} : { writeToolNames: this.writeToolNames }),
+          })
+          if (effects !== null) frames.push(effects)
+        }
+        return frames
       }
       case 'approval/asked': {
         const data = event.data
         const record = this.calls.get(data.callId)
+        this.ticketOfCall.set(data.callId, data.ticketId)
         const tier: FrameTier = record?.tier ?? 'unknown'
         const payee = payeeFromArgs(record?.args)
         const payeePhone = maskedPayeePhoneFromArgs(record?.args)
@@ -409,6 +630,9 @@ export class WebProjector {
       case 'plan/node-blocked': {
         const raw = data['blockedBy']
         const blockedBy = Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []
+        // `DagNode` 没有该字段（本单不改它），但 todo 帧要带 ⇒ 在这里留一份，
+        // 键与 `dag.ts` 的 `planNodeId`（`plan:<planId>:<nodeId>`）同构。
+        this.blockedBy.set(`plan:${planId}:${nodeId}`, blockedBy)
         this.dag.planSettle(this.turn, planId, nodeId, 'blocked', undefined, blockedBy)
         break
       }
@@ -420,7 +644,20 @@ export class WebProjector {
       default:
         break
     }
-    return [this.dagFrame(this.turn, event.at, event.seq)]
+    const dag = this.dagFrame(this.turn, event.at, event.seq)
+    const frames: WebFrame[] = [dag]
+    // 施工单 01 §3.5：本 turn 有 plan 节点时同步产出 todo 帧（派生，不落账，D8）。
+    // 无节点 ⇒ projectTodo 返回 null ⇒ 不产空清单（不造假清单）。
+    const todo = projectTodo({
+      turn: this.turn,
+      seq: event.seq,
+      at: event.at,
+      planId,
+      nodes: dag.nodes,
+      blockedBy: Object.fromEntries(this.blockedBy),
+    })
+    if (todo !== null) frames.push(todo)
+    return frames
   }
 
   /** DAG 帧（无节点时返回一个空帧？不——返回 `undefined` 由调用方过滤）。 */
@@ -471,9 +708,7 @@ export class WebProjector {
       name,
       title: toolTitle(name),
       state: update.state,
-      ...(update.state === 'denied'
-        ? { reasonKind: update.code === undefined ? ('failed' as const) : ('denied' as const) }
-        : {}),
+      ...(update.state === 'denied' ? { reasonKind: reasonKindOf(update.code) } : {}),
       tier: record?.tier ?? 'unknown',
       amountConfirmed: update.amountConfirmed,
       card,

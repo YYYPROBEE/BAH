@@ -142,6 +142,11 @@ export interface ApprovalFrame {
   /** 操作类型（渠道可读标题）。 */
   readonly operation: string
   readonly amountText?: string
+  /**
+   * 金额是否已被工具结果证实。审批帧**恒为 `false`**，这是口径不是漏推导：
+   * 票据尚未核销，本 turn 不存在该调用的 `tool/result`，`approval/asked` 里的金额
+   * 只是"待批准的数字"。视图据此标灰 + "待确认"；批准执行后的确认以 `tool/result` 为准。
+   */
   readonly amountConfirmed: boolean
   readonly payeeName?: string
   /** 收款人手机号（**已脱敏**：前 3 后 4；原值不进前端）。 */
@@ -250,6 +255,124 @@ export interface SnapshotFrame {
   readonly frames: readonly WebFrame[]
 }
 
+/**
+ * 选择题帧（00 D6/D7，施工单 01 §3.4）。语义边界（D6 原文）：追问**不走审批通道**——没有票据、
+ * 没有 responder，用户点选后前端把**选项文本**当普通用户消息发 `POST /api/turn`。
+ * 所以本帧刻意**不含** `ticketId`：有票据就会被误当成审批。
+ * 发射方 `prompt_ask` 的 `tool/result`（03 单接线）；01 单只定契约，**不写**投影分支
+ * （工具尚不存在，写了就是永不命中的死代码 + 覆盖率洞）。
+ */
+export interface ChoiceFrame {
+  readonly kind: 'choice'
+  readonly seq: number
+  readonly at: number
+  /** 追溯：`tool/result.callId`（`runtime/src/session/types.ts`）。 */
+  readonly callId: string
+  /** 追溯：`prompt_ask` 出参 question（schema 由 03 单定义）。 */
+  readonly prompt: string
+  /** 追溯：`prompt_ask` 出参候选列表；D6 硬约束 ≤3 个。 */
+  readonly options: readonly ChoiceOption[]
+  /** 追溯：D6「必含手动输入出口」⇒ 收窄成字面量 true，不给 false 留死胡同。 */
+  readonly allowFreeText: true
+}
+
+/** 一个候选项。 */
+export interface ChoiceOption {
+  /** 追溯：`prompt_ask` 出参选项 id；仅供前端 key，回传只回 label。 */
+  readonly id: string
+  /** 追溯：`prompt_ask` 出参 label；即点选后发 `/api/turn` 的文本。 */
+  readonly label: string
+  /** 可空。追溯：`CardField.value` 的同类文本形态。 */
+  readonly hint?: string
+}
+
+/**
+ * 目标帧（00 D7/D8，施工单 01 §3.4）。跨 turn 存续，靠 `frameKey` 的**替换语义**实现。
+ * 发射方 `goal_set` 的 `tool/result`（04 单接线）；01 单只定契约。
+ */
+export interface GoalFrame {
+  readonly kind: 'goal'
+  readonly seq: number
+  readonly at: number
+  /** 追溯：`goal_set` 出参 title。 */
+  readonly title: string
+  /** 追溯：`goal_set` 出参 status；是 `DagNode.state` 的子集。 */
+  readonly status: 'active' | 'done' | 'abandoned'
+  /** 可空。追溯：`ApprovalFrame.amountText`；必须走 `formatCents`。 */
+  readonly amountText?: string
+  /** 可空。追溯：`ApprovalFrame.payeePhone`（已脱敏前 3 后 4）。 */
+  readonly payeePhone?: string
+}
+
+/**
+ * 待办帧（00 D7/D8，施工单 01 §3.4）：**派生帧，不落账**。由 `plan/*` 域事件派生
+ * （`project.ts` 已有结构化分流通道 → `projectPlan()`）。D8 理由原文：todo 再落一遍账
+ * 就有两个真相源，回放必打架。
+ */
+export interface TodoFrame {
+  readonly kind: 'todo'
+  readonly seq: number
+  readonly at: number
+  /** 追溯：`DagFrame.turn`。 */
+  readonly turn: number
+  /** 追溯：`plan/*` 的 planId / `DagNode.planId`。 */
+  readonly planId: string
+  readonly items: readonly TodoItem[]
+  /** 派生值 = `items.filter(i => !i.done).length`；冗余但可断言。 */
+  readonly openCount: number
+}
+
+/** 一条待办。 */
+export interface TodoItem {
+  /** 追溯：`plan/*` 的 nodeId / `DagNode.id`。 */
+  readonly id: string
+  /** 追溯：`DagNode.label`（值来自 `plan/node-started.tool` 的可读标题）。 */
+  readonly text: string
+  /** 追溯：`DagNode.state`；9 态映射见 `project.ts` 的 `projectTodo`。 */
+  readonly done: boolean
+  /** 可空。追溯：`DagNode.code`（与 `plan/node-result.code` 同源）。 */
+  readonly code?: string
+  /**
+   * 可空。追溯：`plan/node-blocked` 的 `blockedBy` 数组。
+   * ⚠ 该值当前被 `DagBuilder.planSettle` 消费后**未上帧**（`DagNode` 无此字段）
+   * ⇒ 本单只在 todo 帧上带，**不改** `DagNode`（DAG 视图契约属 02/04 的呈现面）。
+   */
+  readonly blockedBy?: readonly string[]
+  /** 复用既有 `FrameTone`，不新造枚举。 */
+  readonly tone: FrameTone
+}
+
+/**
+ * 影响面帧（00 D7，施工单 01 §3.4）：**派生帧**，由已成功的写操作 `tool/result` 派生；
+ * 用途是"中断后的已发生操作清单"。
+ */
+export interface EffectsFrame {
+  readonly kind: 'effects'
+  readonly seq: number
+  readonly at: number
+  /** 追溯：`CallRecord.turn`。 */
+  readonly turn: number
+  readonly items: readonly EffectItem[]
+  /** 可空。追溯：`ApprovalFrame.ticketId`；无审批的写操作为 undefined。 */
+  readonly ticketId?: string
+}
+
+/** 一条已发生的操作。 */
+export interface EffectItem {
+  /** 追溯：`tool/result.callId`。 */
+  readonly callId: string
+  /** 追溯：`tool/result.name`。 */
+  readonly name: string
+  /** 追溯：`ToolFrame.title`，由 `toolTitle(name)` 产出。 */
+  readonly title: string
+  /** 可空。追溯：`ApprovalFrame.amountText`；`amountFromArgs` + `formatCents`。 */
+  readonly amountText?: string
+  /** 可空。追溯：`tool/result.durationMs` / `ToolFrame.durationMs`。 */
+  readonly durationMs?: number
+  /** 复用 `FrameTone`。 */
+  readonly tone: FrameTone
+}
+
 /** 全部帧。 */
 export type WebFrame =
   | TurnFrame
@@ -261,6 +384,10 @@ export type WebFrame =
   | NoticeFrame
   | AuditFrame
   | DagFrame
+  | ChoiceFrame
+  | GoalFrame
+  | TodoFrame
+  | EffectsFrame
   | SnapshotFrame
 
 /** 帧的稳定键：同一键的新帧**替换**旧帧（不追加），这是三态与 DAG 更新的基础。 */
@@ -284,6 +411,18 @@ export function frameKey(frame: WebFrame): string {
       return `audit:${String(frame.seq)}`
     case 'dag':
       return `dag:${String(frame.turn)}`
+    case 'choice':
+      // 同一次追问只有一张卡（替换语义）
+      return `choice:${frame.callId}`
+    case 'goal':
+      // 会话级唯一目标条（跨 turn 替换，D8）
+      return 'goal'
+    case 'todo':
+      // 与 `dag:${turn}` 同粒度
+      return `todo:${String(frame.turn)}:${frame.planId}`
+    case 'effects':
+      // 一轮一张"已发生清单"，累积替换
+      return `effects:${String(frame.turn)}`
     case 'snapshot':
       return 'snapshot'
     default:

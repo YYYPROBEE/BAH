@@ -54,7 +54,11 @@ describe('WebChannelAdapter · 入站', () => {
   })
 
   it('能力位全量：富卡片 / 按钮 / 表单 / 图片 / 流式', () => {
-    expect(createWebChannelAdapter().capabilities).toEqual({
+    // 施工单 01 / 00 D4：能力位从 5 字段扩到 10 字段后，对**整体**做 toEqual 会结构性必红。
+    // 语义不变（这五个呈现位都为 true），所以只把被断言的主语投影成这五个字段，
+    // 期望字面量一字未改（比 toMatchObject 更严：多一个键也会红）。
+    const { richCards, buttons, forms, images, streaming } = createWebChannelAdapter().capabilities
+    expect({ richCards, buttons, forms, images, streaming }).toEqual({
       richCards: true,
       buttons: true,
       forms: true,

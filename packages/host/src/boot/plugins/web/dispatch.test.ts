@@ -146,7 +146,9 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
     tryTelemetry: () => undefined,
     trySlo: () => undefined,
     staticRoot: 'this-directory-does-not-exist',
-    indexPath: 'this-directory-does-not-exist/index.html',
+    // 施工单 01：单个 indexPath 泛化为 token 入口白名单（D3）；矩阵测试不落盘
+    defaultEntry: 'this-directory-does-not-exist/index.html',
+    tokenEntries: ['this-directory-does-not-exist/index.html'],
     ...overrides,
   }
 }

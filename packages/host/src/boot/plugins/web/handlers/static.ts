@@ -8,7 +8,7 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import { extname, isAbsolute, join, normalize, resolve, sep } from 'node:path'
+import { extname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path'
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
@@ -46,7 +46,9 @@ export async function handleStatic(
   // "服务崩了"和"路径不对"。这里一律 400，且**不回显**原始串以外的任何信息。
   let decoded: string
   try {
-    decoded = pathname === '/' ? 'index.html' : decodeURIComponent(pathname)
+    // 施工单 01 / 00 D3：`/` 的落点由配置的 `defaultEntry` 决定（移动壳是第二个 HTML 壳），
+    // 这里只换成相对名——后面的 normalize + join + 穿越校验逐字不动。
+    decoded = pathname === '/' ? relative(deps.staticRoot, deps.defaultEntry) : decodeURIComponent(pathname)
   } catch {
     sendError(res, 400, 'web-invalid-path', '请求路径不是合法的百分号编码')
     return
@@ -62,18 +64,19 @@ export async function handleStatic(
 
   try {
     const raw = await readFile(target)
-    // index 是 token 的唯一载体：注入后必须 no-store，避免浏览器缓存旧 token
-    const isIndex = target === deps.indexPath
-    const content = isIndex
+    // 只有 token 入口白名单里的 HTML 才注入：注入后必须 no-store，避免浏览器缓存旧 token。
+    // `no-store` / `set-cookie` / 注入三者**同生同灭**，判定必须来自同一个变量（01 §3.8 不变量 4）。
+    const isTokenEntry = deps.tokenEntries.includes(target)
+    const content = isTokenEntry
       ? Buffer.from(injectWebToken(raw.toString('utf8'), deps.webToken))
       : raw
     res.writeHead(200, {
       ...SECURITY_HEADERS,
       'content-type': MIME[extname(target).toLowerCase()] ?? 'application/octet-stream',
       'content-length': content.length,
-      'cache-control': isIndex ? 'no-store' : 'no-cache',
+      'cache-control': isTokenEntry ? 'no-store' : 'no-cache',
       // 不是 HttpOnly：double-submit 需要同源脚本读 cookie 回填请求头
-      ...(isIndex ? { 'set-cookie': csrfCookieHeader(deps.csrfToken) } : {}),
+      ...(isTokenEntry ? { 'set-cookie': csrfCookieHeader(deps.csrfToken) } : {}),
     })
     res.end(headOnly ? undefined : content)
   } catch {

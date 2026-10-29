@@ -5,12 +5,12 @@
 
 ## 1. 四个测试面（一个都不能省）
 
-| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-28 实测） |
+| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-29 实测） |
 |---|---|---|---|---|
-| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 241 文件 / 2727 用例 |
+| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 250 文件 / 2830 用例 |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
 | snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 8 文件 / 34 用例 |
-| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 7 文件 / 55 用例 |
+| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 前端 12 文件 / 139 用例 |
 
 一条命令跑全链（本地等价 CI，fail-fast）：
 
@@ -72,7 +72,7 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 - **第 4 批明确不做**：`eval`（53.20%，主体是评测 harness 的场景装载）**不进**本轮目标；
   `memory-store` 已随补测升到 89.40%，不再属于放弃项。这是**显式放弃的项目**，不是漏做——写在这里是为了
   让"80%/85%"这两个数可复现，而不是靠慢慢缩分母。
-- 现状（2026-10-28 实测，2727 例全绿）：覆盖率数字以 `facts.md` 为准（本文不重复记具体百分比，避免二次漂移）
+- 现状（2026-10-29 实测，2755 例全绿）：覆盖率数字以 `facts.md` 为准（本文不重复记具体百分比，避免二次漂移）
   **包口径 15/16**（CI/Ubuntu 口径；Windows 检出为 CRLF 时 v8 行映射会退化，分母虚高，别拿本机数对账）；分母只含参与统计的逻辑行，注释、空行与纯类型文件按设计不计入。
 - 产物：`coverage/lcov.info`、`coverage/lcov-report/`（名单口径）；
   `.ci-artifacts/cov-all/coverage-summary.json`（全仓口径）。两者都已进 `.gitignore`。
@@ -183,8 +183,25 @@ pnpm test:e2e
 4. 再发起一笔，点**拒绝**（必填拒绝理由），工具卡呈已拦截态；
 5. 截图 / 录屏覆盖 2–4 全程，地址栏与页面内容同框。
 
-网页面 handler/SSE/审批 API 的逻辑面由 `packages/channels` 与 `web.test.ts`（53 例）
+网页面 handler/SSE/审批 API 的逻辑面由 `packages/channels` 与 `web.test.ts`（60 例）
 在无浏览器环境覆盖；上面 5 条是它们的**人工端到端补证**，不要把单测说成"浏览器已验证"。
+
+移动渠道（施工单 01）新增的测试面，全部在 `pnpm test` 之内（不进 web 面）：
+
+| 面 | 用例 | 钉住什么 |
+|---|---|---|
+| `packages/channels/src/capabilities.test.ts` | 12 | 六渠道穷尽、10 字段键集一致、mobile↔web 差异面恰五项、能力位单一实现点 |
+| `packages/channels/src/http-adapter.test.ts` | 9 | web 与 mobile **同一组夹具**跑两遍结果逐条相同；decide 六码 + verify 四路 + 归属校验 |
+| `packages/channels/src/mobile/adapter.test.ts` | 3 | 薄工厂：id、能力位同一引用、sessionId 透传 |
+| `packages/channels/src/web/project.test.ts` | 38（+13） | `projectTodo` 确定性/9 态穷尽/openCount；`projectEffects` 双判据与诚实边界 |
+| `packages/host/src/boot/plugins/web/config.test.ts` | 14 | `entry`/`entries` fail-loud 6 类 + 未知键仍被拒（admin 无法从配置面开） |
+| `packages/host/src/boot/plugins/web/handlers/static.test.ts` | 12 | 白名单命中三件套 / 白名单外不注入 / 绕过变形 / 穿越与畸形编码 |
+| `packages/host/src/boot/plugins/web/channel.test.ts` | 6 | **两渠道真装配**：能力位只差五项、入口与白名单不同、闸序与安全头逐条相同 |
+| `packages/host/src/boot/plugins/mobile.test.ts` | 6 | `channel:mobile` 真监听 + `/api/session` 10 字段 + admin 默认 404 |
+
+> 双口径提醒（老坑）：`pnpm test:coverage` 只看 `scripts/coverage-allowlist.ts` 的名单（逐文件 100%），
+> `pnpm test:coverage:all` 才是全仓行/包口径。**只跑前者会把分母当成全仓**。施工单 01 起
+> `packages/channels` 的 `capabilities.ts` / `http-adapter.ts` / `mobile/` 三个窄 scope 进了名单。
 
 ## 8. 确定性纪律（上快照回放的前提）
 
