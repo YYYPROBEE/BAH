@@ -27,8 +27,9 @@ pnpm install
 | **起演示** | `pnpm demo:web` | 主路径为**离线 router**（不读密钥、不依赖外网），每次新建独立会话目录，打开 `http://127.0.0.1:7331` |
 | **容器演示** | `docker build -t bah:local . && docker run --rm -p 7331:7331 bah:local` | 单容器 Web，默认离线 router（不需要密钥）；RAG sidecar 不在镜像内，知识工具降级为 `knowledge-unavailable` |
 | **移动 H5 演示** | `pnpm bah --profile mobile` | 第二个壳（`staticRoot` 同为 `apps/web`），打开 `http://127.0.0.1:7551`；与 7331 共用同一份 `createHttpChannel`（路由 / 闸序 / 安全头 / 审批端点） |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 296 文件 / 3347 用例 |
-| **门禁** | `pnpm gate` | 45 项静态与契约检查，任一红即失败 |
+| **桌面端演示** | `pnpm build && pnpm desktop:dev` | Electron 窗口内嵌私有 host（`port:0`，只绑 `127.0.0.1`），加载同一份 `apps/web`；断网可用。打包见 `pnpm desktop:pack`，说明见 [docs/desktop.md](docs/desktop.md) |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 303 文件 / 3389 用例 |
+| **门禁** | `pnpm gate` | 51 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
 主演示**不需要密钥**：`profiles/web/patch.yml` 默认 `provider: router`（读消息做意图路由，
@@ -241,9 +242,9 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 
 ```text
 apps/web/            前端（对话 / 工具卡 / 审批 / DAG / 审计）
-packages/            17 个包（见 §2.1）
+packages/            18 个包（见 §2.1）
 profiles/            web / mobile / headless / plan / web-plan 装配与 patch
-scripts/             44 个 verify-* 门禁、录制、演示脚本
+scripts/             51 个 verify-* 门禁、录制、演示脚本
 design/bah-ds/       自研设计系统（与应用内分发副本逐字节一致）
 docs/                管线、sentry、审计、前端、测试等落地文档
 facts.md             演示材料唯一数字来源
@@ -251,11 +252,11 @@ facts.md             演示材料唯一数字来源
 
 ## 7. 测试与资料
 
-| 命令 | 范围 | 实测（2026-10-27） |
+| 命令 | 范围 | 实测（2026-10-30） |
 |---|---|---|
-| `pnpm test` | 主仓 | 296 文件 / 3347 用例 |
+| `pnpm test` | 主仓 | 303 文件 / 3389 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
-| `pnpm test:web` | 前端 | 22 文件 / 333 用例 |
+| `pnpm test:web` | 前端 | 27 文件 / 375 用例 |
 | `pnpm test:snapshot` | 快照回放 | 9 文件 / 39 用例 |
 | `pnpm gate` | 门禁 | 51/51 |
 

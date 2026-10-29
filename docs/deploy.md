@@ -188,7 +188,7 @@ headless 走 `provider: router`（读消息现规划，不是固定磁带），�
 ### 4.4 一键自证（不需要密钥）
 
 ```bash
-pnpm test              # 296 文件 / 3347 用例（2026-10-29 实测；前端另有 365 例）
+pnpm test              # 303 文件 / 3389 用例（2026-10-29 实测；前端另有 375 例）
 pnpm test:snapshot     # 9 文件 39 例，录制↔回放逐条全等
 pnpm gate              # 51/51
 pnpm demo:verifier-fail # 判决件异常 → 结果被挡在模型之外（20 条断言）
@@ -262,6 +262,23 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>" --key "<demo:web 打印�
 
 断链时 `bah audit` 会在 stderr 打 `audit/chain-broken <chainId> brokenAt=<seq>` 并以 1 退出；
 运行中的宿主启动扫描发现断链会直接 `HALT(chain-broken)`（无关闭开关）。
+
+### 4.7 桌面端（Electron，便携 zip）
+
+```bash
+pnpm install           # 首次：Electron 二进制走 npmmirror（.npmrc 已配）
+pnpm build             # 必须：主进程 import 各包的 dist
+pnpm desktop:build
+pnpm desktop:pack      # → dist-desktop/BAH-desktop-0.1.0-win-x64.zip（约 132 MB）
+```
+
+- 解压到任意目录（含空格/中文实测可用），双击 `BAH.exe`；
+- 窗口加载 `http://127.0.0.1:<随机端口>/`，宿主是**进程内私有**的，不需要先起 Web；
+- 会话/记忆/saga 落 `%APPDATA%\bah-desktop`，`resources/app` 只读；
+- 未签名：SmartScreen 拦截时选「仍要运行」（不承诺绕过）；
+- **前置条件**：环境里不能带 `NODE_OPTIONS`（打包应用会拒），启动前 `unset NODE_OPTIONS`。
+
+启动/操作/离线演示/排障的完整口径见 [desktop.md](desktop.md)。
 
 ---
 

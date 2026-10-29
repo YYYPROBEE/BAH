@@ -1,6 +1,6 @@
 # BAH 事实表（演示材料的唯一数字来源）
 
-> 更新：2026-10-30（桌面端 01 收口：`channel:desktop` + `profiles/desktop`（`port:0`）；门禁 51（新增 `verify-desktop-shell`），用例 296 文件 / 3347 例）。任何 PPT / 视频 / 自评里的数字先查这里；
+> 更新：2026-10-30（桌面端 01+02+03 收口：`channel:desktop` + `profiles/desktop`（`port:0`）+ `apps/desktop`（Electron 私有 host）；门禁 51（新增 `verify-desktop-shell`），用例 303 文件 / 3389 例）。任何 PPT / 视频 / 自评里的数字先查这里；
 > 改代码后重跑对应命令再改本表。**不要把三行测试数相加成一个"总用例数"**。
 > 数字的取值命令与原始输出见 `docs/facts-sources.md`；门禁 `verify-facts` 逐项比对，不一致即红。
 > ⚠ 本表上一版停在 2026-10-24，被 W03–W17 甩在后面（门禁还写 27/27、工具还写 14 个、
@@ -10,9 +10,9 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **296 文件 / 3347 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **303 文件 / 3389 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
-| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **27 文件 / 365 用例** |
+| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **27 文件 / 375 用例** |
 
 其他口径：
 

@@ -87,15 +87,55 @@ pnpm desktop:dev        # 构建 main/preload 并启动窗口
 
 见 §4 幕 4 与 `apps/desktop/src/session-id.ts`。
 
-## 6. 打包
+## 6. 打包（便携 zip）
 
-`pnpm desktop:pack` → `dist-desktop/BAH-desktop-<version>-win-x64.zip`（详细步骤、体积、
-sha256 见 03 单的回执与本节后续更新）。
+```bash
+pnpm install           # 首次
+pnpm build             # 必须：主进程 import 的是各包的 dist
+pnpm desktop:build     # main.mjs + preload.cjs
+pnpm desktop:pack      # → dist-desktop/BAH-desktop-<version>-win-x64.zip
+```
+
+实测（2026-10-30，Electron 39.8.10 / win32-x64）：
+
+| 项 | 值 |
+|---|---|
+| zip | `dist-desktop/BAH-desktop-0.1.0-win-x64.zip` |
+| 体量 | 132 MB（Electron 运行时 130 MB + `resources/app` 约 2 MB） |
+| `resources/app` 文件数 | 601 |
+| 主进程产物 | `dist/main.mjs` 30 KB（接线层） |
+| sha256 | 见 `docs/evidence/2026-10-30-desktop/desktop-sha256.txt`（每次打包覆写） |
+
+脚本做的六件事（`scripts/pack-desktop.mjs`）：
+
+1. 从 `apps/desktop/package.json` 取**精确** electron 版本（写 `^` 就没有确定的下载 URL）；
+2. 从 `npmmirror` 下载 `electron-v<ver>-win32-x64.zip` 到 `.tmp-desktop-cache/`（复用缓存）；
+3. 用系统 bsdtar 解压到 `dist-desktop/BAH/`，`electron.exe` 改名 `BAH.exe`；
+4. 组装 `resources/app`：`dist/` + `profiles/` + `policies/` + `apps/web/` +
+   `<resources/app>/packages/cli/bundles/base/index.js`（由仓库里的 `index.ts` 转译，仓库内没有 `.js`）+ `packages/cli/package.json` +
+   `node_modules/`（@bah 闭包 16 个包 + `yaml`，**扁平真实目录、无符号链接**）；
+5. 压成 zip（`bsdtar -a -cf`，`-C` 指定根目录 ⇒ 解压后就是一层 `BAH/`）；
+6. 打 sha256 写进证据目录。
+
+前置检查（任一不满足就当场失败，不会先下载 130 MB）：
+
+- `apps/desktop/dist/{main.mjs,preload.cjs}` 存在；
+- `packages/{host,cli,util,core}/dist/index.js` 存在；
+- **`packages/cli/dist` 里含 `.js` 回退代码**（`dist` 存在 ≠ 是新的，见 §7 第 2 行）；
+- 打包后必检：`node_modules/@bah/safety/dist/sandbox-runtime/worker.js`、
+  `<resources/app>/node_modules/@bah/safety/dist/sandbox-runtime/handlers/compute.js`、`<resources/app>/packages/cli/bundles/base/index.js`、
+  `packages/cli/package.json`、`profiles/desktop/patch.yml`、`apps/web/index.html`。
+
+> **不进 zip 的东西**：会话、记忆、saga 库、`.env*`、`keys/`、`sessions/`。
+> 它们的落点是 `%APPDATA%\bah-desktop`（§5.5）。
 
 ## 7. 故障排查
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
+| 双击 `BAH.exe` 弹一个**标题是 `Error`** 的原生框，stdout 一片空白 | `resources/app/package.json` 的 `main` 指向不存在的文件 | 必须是 `dist/main.mjs`（相对 `resources/app`）。`pnpm desktop:pack` 已修正，改脚本时别写回 `main.mjs` |
+| 启动即弹「bundle 'base' 不存在：…index.ts 缺失」 | `packages/cli/dist` 是旧的（不含 `.js` 回退） | `pnpm build` 后重新打包；打包脚本已加前置探针 |
+| 启动即弹「bah-sandbox: package-root-missing」 | `@bah/safety` 被内联进 bundle（`noExternal` 又开回来了） | 见 §5.3；门禁 G10 有体量护栏（main.mjs >200 KB 即红） |
 | 窗口白屏，日志 `desktop.window-loaded` 正常 | 静态根找错（少了 chdir 或 `apps/web` 没进包） | 看 `desktop.starting` 里的 `web` 路径是否存在 |
 | 启动即弹「BAH 启动失败 / desktop-sqlite-unavailable」 | Electron 内置 Node 没有 `node:sqlite`（< 22.5） | 升 Electron；本方案锁 39.x（Node 22.22 + Chromium 142，实测可用） |
 | 弹「desktop-tsx-unavailable」 | dev 态没装 `tsx`（`node_modules` 不齐） | `pnpm install` |
@@ -103,6 +143,7 @@ sha256 见 03 单的回执与本节后续更新）。
 | 点「审计视图」没反应 | 页面里没有 `id="tab-audit"`（Web 重构过） | 看 `desktop.audit-view-missing` 告警；`pnpm gate` 的 G8 会先拦下这种改动 |
 | 日志 `runtime.session-listener-failed: 会话已存在` | 有人把会话 ID 改回了固定值 | 会话 ID 必须是 `desktop-<时间戳>`，见 §5.4 |
 | 第二次双击没反应 | 单实例锁（已有窗口被聚焦） | 预期行为：`requestSingleInstanceLock` |
+| 打包产物**完全没反应**，日志里有 `Most NODE_OPTIONs are not supported in packaged apps` | 环境里设了 `NODE_OPTIONS`（例如某些 IDE/CLI 注入 `--require`），打包应用会拒 | 启动前 `unset NODE_OPTIONS`；普通用户机不会有这个变量 |
 | 杀软/SmartScreen 拦截 `BAH.exe` | 未签名 | 选择「仍要运行」；本方案不承诺绕过 |
 
 ## 8. 安全边界（一页版）

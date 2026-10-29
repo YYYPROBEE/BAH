@@ -7,10 +7,10 @@
 
 | 面 | 命令 | 配置 | 装什么 | 现状（2026-10-29 实测） |
 |---|---|---|---|---|
-| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 296 文件 / 3347 用例 |
+| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 303 文件 / 3389 用例 |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
 | snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 9 文件 / 39 用例 |
-| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 前端 22 文件 / 333 用例 |
+| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 前端 27 文件 / 375 用例 |
 
 意图/追问平面（03 单）在前两个面里各占一块：`packages/runtime/src/intent/*.test.ts`（规则引擎、
 槽位归一化、脱敏、检索闸门、工具 fail-loud）、`packages/interaction/src/prompt/*.test.ts`
@@ -53,7 +53,7 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 | 项 | 值 |
 |---|---|
 | 测试面 | `vitest.web.config.ts`（jsdom），`apps/web/src/mobile/**/*.test.js` |
-| 规模 | **前端 10 文件 / 194 用例**（含 `test:web` 全量 22 文件 / 333 用例） |
+| 规模 | **前端 10 文件 / 194 用例**（含 `test:web` 全量 27 文件 / 375 用例） |
 | 覆盖率 | **不在覆盖率面**（`00 §6.1`：前端 jsdom 用例不计入 `packages/*/src` 分母），但计入 `test:web` 用例地板（`scripts/ci.ts` 的 `minCases`） |
 | 门禁 | `scripts/verify-mobile-shell.ts`（11 条不变量）；负控演练 27 条见 `docs/evidence/2026-10-28-mobile-h5/02-gate-negative-controls.txt` |
 

@@ -16,13 +16,14 @@
  * G4  导航拦截：`will-navigate` + `setWindowOpenHandler`→deny + `will-attach-webview` 拦
  * G5  只加载 loopback：`loadURL` 用 `DESKTOP_SERVER` 给的 `instance.url`，源码无远程/文件 URL
  * G6  无自动更新 / 无外链打开 / 无崩溃上报
+ * G7  打包脚本不依赖 GitHub / electron-builder，且显式走 npmmirror
  * G8  审计入口：`apps/web/src/main.js` 仍有 `id: 'tab-audit'`，且与 `AUDIT_TAB_ID` 同值
  * G9  文档：`docs/desktop.md` 存在且含离线演示步骤
- *
- * G7/G10（打包脚本不依赖 GitHub、打包清单含 bundle）在 03 单追加，见文件末。
+ * G10 打包清单含 bundle 的 `.js` 回退与 cli 声明清单；桌面端无第二份 bundle 数据；
+ *     主进程产物体量护栏（>200 KB 说明 `@bah/*` 被内联了）
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { isMainModule, runStandalone, walk, type Gate, type GateResult } from './gate-lib.ts'
@@ -42,6 +43,7 @@ const FILES = {
   tsdown: 'apps/desktop/tsdown.config.ts',
   webMain: 'apps/web/src/main.js',
   doc: 'docs/desktop.md',
+  pack: 'scripts/pack-desktop.mjs',
 } as const
 
 /** G1 钉死的四个硬值（连同冒号与空格，逐字比对）。 */
@@ -245,6 +247,58 @@ const gate: Gate = {
       if (!/禁用网卡|断网/.test(doc)) {
         findings.push(`G9 ${FILES.doc} 缺离线演示步骤（必须写明"禁用网卡/断网"这一动作）`)
       }
+    }
+
+    // ── G7 打包脚本不依赖 GitHub / electron-builder ──────────────────────
+    // 本机 `github.com:443` 不通是既定事实：electron-builder 的 winCodeSign 等依赖
+    // 全走 GitHub Releases，构建会随机失败。所以"只走 npmmirror"必须被机器钉住，
+    // 而不是靠文档里的一句"我们不用 builder"。
+    const pack = read(root, FILES.pack)
+    if (pack.length === 0) {
+      findings.push(`G7 缺 ${FILES.pack}（便携打包脚本）`)
+    } else {
+      for (const banned of ['github.com', 'electron-builder', 'electron-packager']) {
+        if (pack.includes(banned)) {
+          findings.push(`G7 ${FILES.pack} 出现 '${banned}'（构建不得依赖 GitHub / 第三方打包器）`)
+        }
+      }
+      if (!pack.includes('npmmirror.com')) {
+        findings.push(`G7 ${FILES.pack} 必须显式从 npmmirror 取 Electron 二进制（默认源是 GitHub）`)
+      }
+    }
+
+    // ── G10 打包清单含 bundle 的 .js 回退，且桌面端没有第二份 bundle 数据 ──
+    if (pack.length > 0) {
+      for (const required of ['packages/cli/bundles/base/index.js', 'packages/cli/package.json']) {
+        if (!pack.includes(required)) {
+          findings.push(`G10 ${FILES.pack} 的必检清单里缺 ${required}（缺了启动就是 unknown-bundle）`)
+        }
+      }
+    }
+    // 第二份 bundle 数据 = 第二真相源：桌面端只许**编译**仓库里那一份，不许复制
+    const desktopBundles = walk(
+      root,
+      ['apps/desktop'],
+      (name) => name === 'index.ts' || name === 'index.js',
+    ).filter((file) => file.replace(/\\/g, '/').includes('/bundles/'))
+    if (desktopBundles.length > 0) {
+      findings.push(
+        `G10 apps/desktop 下出现 ${String(desktopBundles.length)} 个 bundle 文件（第二份 bundle 数据 = 第二真相源）`,
+      )
+    }
+    // 主进程产物体量护栏：接线层不该把 workspace 包吞进来（那是 F-02-03 的复发信号）
+    const mainBundle = join(root, 'apps', 'desktop', 'dist', 'main.mjs')
+    if (existsSync(mainBundle)) {
+      const kb = Math.round(statSync(mainBundle).size / 1024)
+      if (kb > 200) {
+        findings.push(
+          `G10 apps/desktop/dist/main.mjs 有 ${String(kb)} KB（>200 KB 说明 @bah/* 被内联了：会让 instanceof 跨副本失效）`,
+        )
+      } else {
+        notes.push(`G10 main.mjs ${String(kb)} KB（接线层体量正常；@bah/* 未内联）`)
+      }
+    } else {
+      notes.push('G10 未找到 apps/desktop/dist/main.mjs（还没构建，跳过体量护栏）')
     }
 
     notes.push(
