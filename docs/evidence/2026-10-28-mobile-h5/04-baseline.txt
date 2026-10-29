@@ -1,0 +1,72 @@
+# 04 单开工基线 2026-10-29T07:41:14Z
+HEAD: e09b165
+
+## git status --porcelain（未提交面，逐条归因）
+ M PROGRESS.md
+ M apps/web/src/main.js
+ A apps/web/src/main.observe.test.js
+ M apps/web/src/main.test.js
+ A apps/web/src/observability.js
+ A apps/web/src/observability.test.js
+ M apps/web/src/store.js
+ M apps/web/src/store.test.js
+ M apps/web/src/transport.js
+ A apps/web/src/transport.observe.test.js
+ M apps/web/src/transport.test.js
+ M apps/web/src/views/approval.js
+ M apps/web/src/views/approval.test.js
+ M apps/web/src/views/audit.js
+ M apps/web/src/views/audit.test.js
+ M apps/web/src/views/conversation.js
+ M apps/web/src/views/dag.js
+ M apps/web/src/views/dag.test.js
+ A apps/web/src/views/observe.js
+ A apps/web/src/views/observe.test.js
+ M apps/web/src/views/tool-card.js
+ M apps/web/src/views/tool-card.test.js
+ M apps/web/styles/app.css
+ A docs/evidence/2026-10-28-observability/01-metrics-json.txt
+ A docs/evidence/2026-10-28-observability/02-metrics-prom.txt
+ A docs/evidence/2026-10-28-observability/03-trace-chrome.json
+ A docs/evidence/2026-10-28-observability/04-cost.txt
+ A docs/evidence/2026-10-28-observability/05-ui-observe.png
+ A docs/evidence/2026-10-28-observability/06-reconcile.txt
+ M docs/observability.md
+ M docs/web-frontend.md
+ M packages/cli/src/cli/command.ts
+ A packages/cli/src/cli/cost.ts
+ M packages/cli/src/cli/index.ts
+ A packages/cli/src/cli/metrics.ts
+ A packages/cli/src/cli/observe-commands.test.ts
+ A packages/cli/src/cli/observe-http.ts
+ M packages/cli/src/cli/run.ts
+ A packages/cli/src/cli/trace.ts
+ M packages/host/src/boot/plugins/alert-webhook.test.ts
+ M packages/host/src/boot/plugins/web/handlers/metrics-extra.test.ts
+ M packages/telemetry/src/metrics.test.ts
+A  packages/telemetry/src/process.test.ts
+ M scripts/gates.smoke.test.ts
+ M scripts/verify-audit-cli.ts
+ M scripts/verify-docs-consistency.ts
+ A scripts/verify-observability-ui.ts
+?? apps/web/src/views/conversation.test.js
+?? docs/evidence/2026-10-28-mobile-h5/04-baseline.txt
+?? packages/cli/src/cli/observe-http.test.ts
+
+## 门禁基线（pnpm gate，全量输出见 04-gate-before.txt）
+46 个门禁，5 红。逐条归因（增量口径：本单收口时失败集合不得新增）：
+
+| 红项 | 证据 | 归因 |
+|------|------|------|
+| assertions | `packages/cli/src/cli/observe-http.test.ts: 新增 24 条断言但基线里没有` | 并行「可观测性」线未提交文件 |
+| docs-consistency | `docs/security-self-assessment.md: 门禁写成 42/46，facts 是 46/46` | **03 单遗留**（R-11 记的是一次性授权当日的 42/46），本单修正 |
+| docs-paths | `PROGRESS.md` 引用 `docs/demo/`（并行线）；`docs/security-self-assessment.md` 引用 `docs/demo/`（03 遗留）；`docs/testing.md` 引用已改名的 `scripts/verify-intent-determinism.test.ts`（03 遗留） | 前一条并行线；后两条本单修正 |
+| snapshot-fresh | `packages/saga/src/gates/index.ts: 没有快照场景在 coveredSources 声明覆盖` | 并行线提交 6af6d64 触碰 saga 门禁面（03 复审已登记） |
+| tracked-sources | `packages/cli/src/cli/observe-http.test.ts: 源码未纳入版本库` | 并行「可观测性」线未提交文件 |
+
+## 实测口径（开工日）
+- 门禁文件：46 个（`ls scripts/verify-*.ts | wc -l`）⇒ 本单新增 1 个 → 终态 47。
+- `scripts/ci.ts` 地板：unit 2989（两步同值）、snapshot 22、web 332、rag 75。
+- 快照：8 个 case（compaction/entity-slots/headless-basic/plan/policy-externalized/sandbox-compute/web-channel + fixtures.test.ts）。
+- eval 场景 66（Q12/T16/P10/S8/D10/K10）；D 族现有 D-01…D-10。
+- goal/todo 占位各 7 行；`plan/types.ts` 无 `addNode`；路由表无 fork；`ForkRequest` 无 `ctx` 由 HTTP 提供的可能。

@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { asSessionId, asTicketId, captureThrown } from '@bah/test-support'
 
 import { buildBankDataset, DEFAULT_LIMITS, DEMO_NOW, type BankDataset } from '../forge/index.ts'
-import { bankIds, type BankLimits, type Account } from './model.ts'
+import { accountDisplayName, bankIds, type BankLimits, type Account } from './model.ts'
 import { MockBankCore } from './mock.ts'
 import type { TicketBinding, TicketRef } from './ticket.ts'
 
@@ -685,6 +685,119 @@ async function captureThrownAsync(run: () => Promise<unknown>): Promise<{ readon
   }
   throw new Error('预期应抛错，但调用成功了')
 }
+
+/* ── 内部划转（04 单生日案例：锁定 1000 元） ─────────────────────────────── */
+
+const LOCKED = bankIds.account('a-3')
+
+/** 内部划转到本人锁定账户。 */
+function selfTransfer(amountCents = 100_000): Parameters<MockBankCore['createTransfer']>[0] {
+  return {
+    fromAccountId: ACCOUNT,
+    payee: { name: '锁定账户(9012)', memo: '生日预算锁定' },
+    amountCents,
+    channel: 'app',
+  }
+}
+
+describe('内部划转：本人账户命中与方向约束', () => {
+  it('活期 → 锁定：扣源、贷目标、两条流水、计入日累计', async () => {
+    const core = setup()
+    const beforeSource = await core.balance(ACCOUNT)
+    const beforeTarget = await core.balance(LOCKED)
+    const ref = ticket(core, { amountCents: 100_000 })
+
+    const result = await core.createTransfer(selfTransfer(), ref)
+
+    expect(result.amountCents).toBe(100_000)
+    expect(result.balanceCents).toBe(beforeSource.balanceCents - 100_000)
+    expect(result.dailyUsedCents).toBe(100_000)
+    // 核销发生在账本变更之前：转账成功 ⇒ 票据已核销
+    expect(core.tickets.status(ref.ticketId)).toBe('redeemed')
+
+    const afterSource = await core.balance(ACCOUNT)
+    const afterTarget = await core.balance(LOCKED)
+    expect(afterSource.balanceCents).toBe(beforeSource.balanceCents - 100_000)
+    expect(afterTarget.balanceCents).toBe(beforeTarget.balanceCents + 100_000)
+    expect(afterTarget.availableCents).toBe(beforeTarget.availableCents + 100_000)
+
+    // 两条流水：源账户 out（对方=锁定账户）、目标账户 in（对方=活期账户）
+    // 展示名由 `accountDisplayName` 生成——判定与流水共用同一函数，改口径只改一处。
+    const sourcePage = await core.queryTransactions({ userId: USER, accountId: ACCOUNT, limit: 5 })
+    const targetPage = await core.queryTransactions({ userId: USER, accountId: LOCKED, limit: 5 })
+    const out = sourcePage.items.find((item) => item.id === result.txnId)
+    expect(out?.direction).toBe('out')
+    const lockedAccount = dataset().accounts.find((item) => item.id === LOCKED) as Account
+    expect(out?.counterparty.name).toBe(accountDisplayName(lockedAccount))
+    const incoming = targetPage.items.find((item) => item.amountCents === 100_000 && item.direction === 'in')
+    expect(incoming?.direction).toBe('in')
+    expect(incoming?.counterparty.name).toBe('活期账户(1234)')
+  })
+
+  it('预览：本人账户报 whitelist，不触发 new-payee 升红', async () => {
+    const core = setup()
+    const preview = await core.previewTransfer(selfTransfer())
+    expect(preview.payee).toMatchObject({ name: '锁定账户(9012)', binding: 'whitelist' })
+    expect(preview.risks.some((risk) => risk.code === 'new-payee')).toBe(false)
+  })
+
+  it('锁定账户作转出方 → transfer-locked-source（票据未核销）', async () => {
+    const core = setup()
+    const ref = ticket(core)
+    const error = await captureThrownAsync(() =>
+      core.createTransfer({ ...selfTransfer(), fromAccountId: LOCKED, payee: { name: '活期账户(1234)' } }, ref),
+    )
+    expect(error.code).toBe('transfer-locked-source')
+    expect(core.tickets.status(ref.ticketId)).toBe('approved')
+  })
+
+  it('定期作转出方 → transfer-internal-unsupported（v1 只允许活期转出）', async () => {
+    const core = setup()
+    const error = await captureThrownAsync(() =>
+      core.createTransfer(
+        { ...selfTransfer(), fromAccountId: FIXED, payee: { name: '锁定账户(9012)' } },
+        ticket(core),
+      ),
+    )
+    expect(error.code).toBe('transfer-internal-unsupported')
+  })
+
+  it('目标账户冻结 → account-inactive', async () => {
+    const accounts = dataset().accounts.map((item) =>
+      item.id === LOCKED ? { ...item, status: 'frozen' as const } : item,
+    )
+    const core = setup({ accounts })
+    const error = await captureThrownAsync(() => core.createTransfer(selfTransfer(), ticket(core)))
+    expect(error.code).toBe('account-inactive')
+  })
+
+  it('内部划转的幂等键：第二次同键不重复扣款，返回同一 txnId', async () => {
+    const core = setup()
+    const first = await core.createTransfer({ ...selfTransfer(), idempotencyKey: 'k-self' }, ticket(core))
+    const second = await core.createTransfer({ ...selfTransfer(), idempotencyKey: 'k-self' }, ticket(core))
+    expect(second.txnId).toBe(first.txnId)
+    expect((await core.balance(ACCOUNT)).balanceCents).toBe(first.balanceCents)
+  })
+
+  it('转给自己所在的账户 → payee-invalid（内部划转不能同账户）', async () => {
+    const core = setup()
+    const error = await captureThrownAsync(() =>
+      core.createTransfer({ ...selfTransfer(), payee: { name: '活期账户(1234)' } }, ticket(core)),
+    )
+    expect(error.code).toBe('payee-invalid')
+  })
+
+  it('展示名命中多个本人账户 → payee-ambiguous（fail-loud，不猜）', async () => {
+    const base = dataset().accounts
+    const twin: Account = {
+      ...(base.find((item) => item.id === LOCKED) as Account),
+      id: bankIds.account('a-9'),
+    }
+    const core = setup({ accounts: [...base, twin] })
+    const error = await captureThrownAsync(() => core.createTransfer(selfTransfer(), ticket(core)))
+    expect(error.code).toBe('payee-ambiguous')
+  })
+})
 
 /* ── 主体读取（实体槽位的数据来源） ───────────────────────────────────────── */
 

@@ -56,6 +56,16 @@ export type DemoIntent =
   | { readonly kind: 'transfer'; readonly request: TransferIntent }
   | { readonly kind: 'clarify'; readonly question: string }
   | {
+      /**
+       * 生日案例（04 单）：两幕脚本。propose = 提案（意图 → 目标账本 → DAG），
+       * execute = 用户确认后执行同一张 DAG。**仍然不是 NLU**：
+       * 它只认"生日"与"确认执行"两种话语形态，认不出的一律追问。
+       */
+      readonly kind: 'birthday'
+      readonly phase: 'propose' | 'execute'
+      readonly utterance: string
+    }
+  | {
       /** 交给意图平面：router 只决定"要问意图工具"，不判定槽位语义。 */
       readonly kind: 'intent'
       readonly route: IntentRoute
@@ -95,6 +105,13 @@ const CN_DIGITS: Readonly<Record<string, number>> = {
 /** 隐含意图的场景陈述（尚未提及任何动作）。 */
 const IMPLICIT_PATTERNS: readonly RegExp[] = [/生日|发工资|年终奖|孩子上学|退休/]
 
+/** 生日案例的确认话语（04 单第二幕）。 */
+const BIRTHDAY_CONFIRM_PATTERNS: readonly RegExp[] = [
+  /确认执行/,
+  /按计划执行/,
+  /开始执行.*计划/,
+]
+
 /** 模糊复现：历史指代 + 重办语义。 */
 const RECALL_PATTERNS: readonly RegExp[] = [/(上次|上回|之前|那个).{0,8}(再来|再转|接着|继续)/]
 
@@ -122,7 +139,18 @@ export function classifyIntent(text: string): DemoIntent {
     return { kind: 'balance' }
   }
 
+  // 生日案例（04 单）：确认话术先判，再判场景陈述。两条都比转账更窄，先判窄的。
+  if (BIRTHDAY_CONFIRM_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return { kind: 'birthday', phase: 'execute', utterance: normalized }
+  }
+
   const hasTransferCue = TRANSFER_PATTERNS.some((pattern) => pattern.test(normalized))
+
+  // 只认"下个月…生日"这种带时间锚点的场景陈述：03 单的 `implicit` 路由继续兜住
+  // 其它生日说法（"我爱人生日快到了"），不与它抢话语。
+  if (!hasTransferCue && /下个?月.{0,12}生日|生日.{0,6}下个?月/.test(normalized)) {
+    return { kind: 'birthday', phase: 'propose', utterance: normalized }
+  }
 
   // 隐含意图：场景陈述且**没有任何转账线索**（有动作时显式指令优先）
   if (!hasTransferCue && IMPLICIT_PATTERNS.some((pattern) => pattern.test(normalized))) {
@@ -268,12 +296,79 @@ export function planFor(intent: DemoIntent): readonly MockStep[] {
     }
     case 'clarify':
       return [textStep(intent.question)]
+    case 'birthday':
+      return planBirthday(intent)
     case 'intent':
       return planIntent(intent)
     default:
       // 封闭联合上的兜底：新增意图时忘了在这里规划，编译期就会红
       return assertNever(intent, 'demo-intent')
   }
+}
+
+/** 生日案例的 DAG（6 节点 5 边）；提案与执行两幕共用同一份定义。 */
+const BIRTHDAY_NODES = [
+  { id: 'a1', tool: 'transfer_preview', args: { amount: 300, payee: { name: '锁定账户(9012)' } }, deps: [] },
+  {
+    id: 'a2',
+    tool: 'transfer_create',
+    args: { amount: 300, payee: { name: '锁定账户(9012)', memo: '生日预算锁定' } },
+    deps: ['a1'],
+  },
+  { id: 'b1', tool: 'transfer_preview', args: { amount: 200, payee: { name: '馨香花艺' } }, deps: ['a2'] },
+  { id: 'c1', tool: 'transfer_preview', args: { amount: 100, payee: { name: '甜心蛋糕坊' } }, deps: ['a2'] },
+  {
+    id: 'b2',
+    tool: 'transfer_create',
+    args: { amount: 200, payee: { name: '馨香花艺', memo: '生日鲜花预订款' } },
+    deps: ['b1'],
+  },
+  {
+    id: 'c2',
+    tool: 'transfer_create',
+    args: { amount: 100, payee: { name: '甜心蛋糕坊', memo: '生日蛋糕预订款' } },
+    deps: ['c1'],
+  },
+] as const
+
+const BIRTHDAY_PLAN = {
+  planId: 'birthday-plan',
+  meta: { title: '生日准备：锁定预算 → 鲜花 → 蛋糕' },
+  nodes: BIRTHDAY_NODES,
+} as const
+
+/**
+ * 生日案例两幕（04 单 §4）的脚本。
+ *
+ * 第一幕：意图（implicit）→ `goal_set` 记意图账 → `plan_propose` 出 DAG（**只校验不执行**）。
+ * 第二幕：用户确认后 `plan_execute` —— 计划本身黄级审批一次，每个写节点**再各走一次**审批。
+ * 时间语义是预演（不做真定时）：文案里写明"生日前 2 天"只是提案声明，没有定时器。
+ */
+function planBirthday(intent: Extract<DemoIntent, { kind: 'birthday' }>): readonly MockStep[] {
+  if (intent.phase === 'propose') {
+    return [
+      toolCallStep('call-intent', 'intent_resolve', { utterance: intent.utterance, scene: 'unknown' }),
+      toolCallStep('call-goal', 'goal_set', {
+        statement: '为配偶生日做准备：锁定预算 300 元，预订鲜花 200 元、蛋糕 100 元',
+        budget: { amount: 600, currency: 'CNY' },
+        constraints: ['只用活期余额', '生日前 2 天预订（预演，不自动下单）'],
+      }),
+      toolCallStep('call-plan', 'plan_propose', BIRTHDAY_PLAN),
+      textStep(
+        '已生成计划：锁定预算 → 鲜花 → 蛋糕，共 6 步。' +
+          '确认后每一笔转账仍需您单独批准；"生日前 2 天自动下单"是预演叙事，系统不会真正定时扣款。' +
+          '要执行请回复「确认执行生日计划」。',
+      ),
+    ]
+  }
+  return [
+    toolCallStep('call-exec', 'plan_execute', BIRTHDAY_PLAN),
+    outcomeStep({
+      tool: 'plan_execute',
+      ok: '计划已执行完成：每一笔转账都各自经过了审批与票据核销，明细见上方工具卡。',
+      failed: '计划未全部完成：{reason}。已发生的操作不会自动撤销，请核对清单。',
+    }),
+  ]
 }
 
 /**

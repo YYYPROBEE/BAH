@@ -102,6 +102,57 @@ export function createHttpApi(options = {}) {
 }
 
 /**
+ * 会话控制端点（04 单）：人工接管 / 交回 / "回到上一步"分叉。
+ *
+ * 为什么放在 transport.js 而不是移动壳里自造 fetch：token 与 CSRF 的读取面只许有一处
+ * （门禁 `verify-mobile-shell` 的 I5/I10）——两份实现迟早会在安全头上漂。
+ *
+ * @param {{ base?: string, token?: string, csrfToken?: string }} [options]
+ */
+export function createSessionControlClient(options = {}) {
+  const base = options.base ?? ''
+  const token = options.token ?? readWebToken()
+  const csrfToken = options.csrfToken ?? readCookie('bah_csrf')
+
+  async function send(method, path, body) {
+    const headers = { authorization: `Bearer ${token}` }
+    if (method !== 'GET') headers['x-bah-csrf'] = csrfToken
+    const init = { method, headers }
+    if (body !== undefined) {
+      init.headers['content-type'] = 'application/json'
+      init.body = JSON.stringify(body)
+    }
+
+    let response
+    try {
+      response = await fetch(`${base}${path}`, init)
+    } catch (error) {
+      return { ok: false, status: 0, code: 'network-error', reason: String(error) }
+    }
+
+    let data = null
+    try {
+      data = await response.json()
+    } catch {
+      data = null
+    }
+    if (!response.ok) {
+      const code = data?.error?.code ?? `http-${response.status}`
+      const reason = data?.error?.reason ?? `请求失败（${response.status}）`
+      return { ok: false, status: response.status, code, reason }
+    }
+    return { ok: true, status: response.status, data }
+  }
+
+  return {
+    handoffStatus: () => send('GET', '/api/handoff'),
+    handoff: (reason) => send('POST', '/api/handoff', reason === undefined ? {} : { reason }),
+    resume: () => send('POST', '/api/handoff/resume', {}),
+    fork: (turn) => send('POST', '/api/session/fork', { turn }),
+  }
+}
+
+/**
  * 连 SSE（`docs/web-frontend.md` §8）。
  *
  * 续订点必须跟着**已归约的最大 seq** 走：`EventSource` 自带重连，但重连 URL 不会更新，

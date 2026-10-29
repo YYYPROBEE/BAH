@@ -1,0 +1,238 @@
+ WARN  Unsupported engine: wanted: {"node":"^22.19 || >=24"} (current: {"node":"v22.17.0","pnpm":"10.34.7"})
+
+> bah-monorepo@ test:snapshot D:\项目集\微众杯银行ai智能体\BAH\MonoRepo
+> vitest run --config vitest.snapshot.config.ts
+
+
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mD:/项目集/微众杯银行ai智能体/BAH/MonoRepo[39m
+
+[90mstderr[2m | snapshots/cross-scene/snapshot.test.ts[2m > [22m[2m快照回放 · cross-scene[2m > [22m[2mrecord → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:12.538Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/cross-scene/snapshot.test.ts[2m > [22m[2m快照回放 · cross-scene[2m > [22m[2mrecord → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:12.548Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/cross-scene/snapshot.test.ts[2m > [22m[2m快照回放 · cross-scene[2m > [22m[2mrecord → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:13.055Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/cross-scene/snapshot.test.ts[2m > [22m[2m快照回放 · cross-scene[2m > [22m[2mrecord → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:13.060Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/cross-scene/snapshot.test.ts[2m > [22m[2m快照回放 · cross-scene[2m > [22m[2mTC-XSC-29 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:13.539Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/cross-scene/snapshot.test.ts[2m > [22m[2m快照回放 · cross-scene[2m > [22m[2mTC-XSC-29 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:13.543Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/cross-scene/snapshot.test.ts[2m > [22m[2m快照回放 · cross-scene[2m > [22m[2mTC-XSC-29 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:14.015Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/cross-scene/snapshot.test.ts[2m > [22m[2m快照回放 · cross-scene[2m > [22m[2mTC-XSC-29 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:14.020Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+ [32m✓[39m snapshots/cross-scene/snapshot.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 1995[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · cross-scene[2m > [22mrecord → replay：无密钥回放，事件流逐条全等 [33m 1016[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · cross-scene[2m > [22mTC-XSC-29 同一快照两次回放全等（确定性时钟 + 无网络） [33m 962[2mms[22m[39m
+[90mstderr[2m | snapshots/sandbox-compute/snapshot.test.ts[2m > [22m[2m快照回放 · sandbox-compute[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:15.252Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/sandbox-compute/snapshot.test.ts[2m > [22m[2m快照回放 · sandbox-compute[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:15.261Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+(node:68332) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[90mstderr[2m | snapshots/sandbox-compute/snapshot.test.ts[2m > [22m[2m快照回放 · sandbox-compute[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:15.706Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/sandbox-compute/snapshot.test.ts[2m > [22m[2m快照回放 · sandbox-compute[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:15.711Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+(node:68332) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[90mstderr[2m | snapshots/sandbox-compute/snapshot.test.ts[2m > [22m[2m快照回放 · sandbox-compute[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:16.130Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/sandbox-compute/snapshot.test.ts[2m > [22m[2m快照回放 · sandbox-compute[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:16.134Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+(node:68332) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[90mstderr[2m | snapshots/sandbox-compute/snapshot.test.ts[2m > [22m[2m快照回放 · sandbox-compute[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:16.548Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/sandbox-compute/snapshot.test.ts[2m > [22m[2m快照回放 · sandbox-compute[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:16.553Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+(node:68332) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ [32m✓[39m snapshots/sandbox-compute/snapshot.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 1740[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · sandbox-compute[2m > [22mT-AUD-005 record → replay：无密钥回放，事件流逐条全等 [33m 894[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · sandbox-compute[2m > [22mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络） [33m 833[2mms[22m[39m
+[90mstderr[2m | snapshots/policy-externalized/snapshot.test.ts[2m > [22m[2m快照回放 · policy-externalized[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:17.704Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/policy-externalized/snapshot.test.ts[2m > [22m[2m快照回放 · policy-externalized[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:17.714Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier-demo/1.1.0+sha256:dee8183a04ef9750","digest":"dee8183a04ef9750b2a9ad1c56174b59219ca95b6ee9058bb02286d3a77b98da","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/policy-externalized/snapshot.test.ts[2m > [22m[2m快照回放 · policy-externalized[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:18.085Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/policy-externalized/snapshot.test.ts[2m > [22m[2m快照回放 · policy-externalized[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:18.090Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier-demo/1.1.0+sha256:dee8183a04ef9750","digest":"dee8183a04ef9750b2a9ad1c56174b59219ca95b6ee9058bb02286d3a77b98da","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/policy-externalized/snapshot.test.ts[2m > [22m[2m快照回放 · policy-externalized[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:18.325Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/policy-externalized/snapshot.test.ts[2m > [22m[2m快照回放 · policy-externalized[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:18.330Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier-demo/1.1.0+sha256:dee8183a04ef9750","digest":"dee8183a04ef9750b2a9ad1c56174b59219ca95b6ee9058bb02286d3a77b98da","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/policy-externalized/snapshot.test.ts[2m > [22m[2m快照回放 · policy-externalized[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:18.561Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/policy-externalized/snapshot.test.ts[2m > [22m[2m快照回放 · policy-externalized[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:18.565Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier-demo/1.1.0+sha256:dee8183a04ef9750","digest":"dee8183a04ef9750b2a9ad1c56174b59219ca95b6ee9058bb02286d3a77b98da","engine":"1.0.0"}
+
+ [32m✓[39m snapshots/policy-externalized/snapshot.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 1128[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · policy-externalized[2m > [22mT-AUD-005 record → replay：无密钥回放，事件流逐条全等 [33m 635[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · policy-externalized[2m > [22mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络） [33m 474[2mms[22m[39m
+[90mstderr[2m | snapshots/web-channel/snapshot.test.ts[2m > [22m[2m快照回放 · web-channel[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:19.557Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/web-channel/snapshot.test.ts[2m > [22m[2m快照回放 · web-channel[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:19.566Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/web-channel/snapshot.test.ts[2m > [22m[2m快照回放 · web-channel[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:19.840Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/web-channel/snapshot.test.ts[2m > [22m[2m快照回放 · web-channel[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:19.846Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/web-channel/snapshot.test.ts[2m > [22m[2m快照回放 · web-channel[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:20.081Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/web-channel/snapshot.test.ts[2m > [22m[2m快照回放 · web-channel[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:20.085Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/web-channel/snapshot.test.ts[2m > [22m[2m快照回放 · web-channel[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:20.312Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/web-channel/snapshot.test.ts[2m > [22m[2m快照回放 · web-channel[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:20.316Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+ [32m✓[39m snapshots/web-channel/snapshot.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 1025[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · web-channel[2m > [22mT-AUD-005 record → replay：无密钥回放，事件流逐条全等 [33m 539[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · web-channel[2m > [22mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络） [33m 473[2mms[22m[39m
+[90mstderr[2m | snapshots/headless-basic/snapshot.test.ts[2m > [22m[2m快照回放 · headless-basic[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:21.305Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/headless-basic/snapshot.test.ts[2m > [22m[2m快照回放 · headless-basic[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:21.314Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/headless-basic/snapshot.test.ts[2m > [22m[2m快照回放 · headless-basic[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:21.576Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/headless-basic/snapshot.test.ts[2m > [22m[2m快照回放 · headless-basic[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:21.581Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/headless-basic/snapshot.test.ts[2m > [22m[2m快照回放 · headless-basic[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:21.814Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/headless-basic/snapshot.test.ts[2m > [22m[2m快照回放 · headless-basic[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:21.818Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/headless-basic/snapshot.test.ts[2m > [22m[2m快照回放 · headless-basic[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:22.045Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/headless-basic/snapshot.test.ts[2m > [22m[2m快照回放 · headless-basic[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:22.051Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+ [32m✓[39m snapshots/headless-basic/snapshot.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 998[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · headless-basic[2m > [22mT-AUD-005 record → replay：无密钥回放，事件流逐条全等 [33m 524[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · headless-basic[2m > [22mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络） [33m 464[2mms[22m[39m
+[90mstderr[2m | snapshots/plan/snapshot.test.ts[2m > [22m[2m快照回放 · plan[2m > [22m[2mrecord → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:23.019Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/plan/snapshot.test.ts[2m > [22m[2m快照回放 · plan[2m > [22m[2mrecord → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:23.029Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/plan/snapshot.test.ts[2m > [22m[2m快照回放 · plan[2m > [22m[2mrecord → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:23.232Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/plan/snapshot.test.ts[2m > [22m[2m快照回放 · plan[2m > [22m[2mrecord → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:23.236Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/plan/snapshot.test.ts[2m > [22m[2m快照回放 · plan[2m > [22m[2m同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:23.416Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/plan/snapshot.test.ts[2m > [22m[2m快照回放 · plan[2m > [22m[2m同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:23.420Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/plan/snapshot.test.ts[2m > [22m[2m快照回放 · plan[2m > [22m[2m同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:23.594Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/plan/snapshot.test.ts[2m > [22m[2m快照回放 · plan[2m > [22m[2m同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:23.598Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+ [32m✓[39m snapshots/plan/snapshot.test.ts [2m([22m[2m4 tests[22m[2m)[22m[33m 781[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · plan[2m > [22mrecord → replay：无密钥回放，事件流逐条全等 [33m 409[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · plan[2m > [22m同一快照两次回放全等（确定性时钟 + 无网络） [33m 360[2mms[22m[39m
+[90mstderr[2m | snapshots/compaction/snapshot.test.ts[2m > [22m[2m快照回放 · compaction[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:24.496Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/compaction/snapshot.test.ts[2m > [22m[2m快照回放 · compaction[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:24.506Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/compaction/snapshot.test.ts[2m > [22m[2m快照回放 · compaction[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:24.695Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/compaction/snapshot.test.ts[2m > [22m[2m快照回放 · compaction[2m > [22m[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+[22m[39m{"ts":"2026-10-29T08:11:24.700Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/compaction/snapshot.test.ts[2m > [22m[2m快照回放 · compaction[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:24.869Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/compaction/snapshot.test.ts[2m > [22m[2m快照回放 · compaction[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:24.873Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/compaction/snapshot.test.ts[2m > [22m[2m快照回放 · compaction[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:25.039Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/compaction/snapshot.test.ts[2m > [22m[2m快照回放 · compaction[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:25.043Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+ [32m✓[39m snapshots/compaction/snapshot.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 750[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · compaction[2m > [22mT-AUD-005 record → replay：无密钥回放，事件流逐条全等 [33m 387[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · compaction[2m > [22mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络） [33m 350[2mms[22m[39m
+[90mstderr[2m | snapshots/entity-slots/snapshot.test.ts[2m > [22m[2m快照回放 · entity-slots[2m > [22m[2mT-AUD-005 record → replay 逐条全等；槽位真的进了模型输入，路由仍读用户原话
+[22m[39m{"ts":"2026-10-29T08:11:25.960Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/entity-slots/snapshot.test.ts[2m > [22m[2m快照回放 · entity-slots[2m > [22m[2mT-AUD-005 record → replay 逐条全等；槽位真的进了模型输入，路由仍读用户原话
+[22m[39m{"ts":"2026-10-29T08:11:25.970Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/entity-slots/snapshot.test.ts[2m > [22m[2m快照回放 · entity-slots[2m > [22m[2mT-AUD-005 record → replay 逐条全等；槽位真的进了模型输入，路由仍读用户原话
+[22m[39m{"ts":"2026-10-29T08:11:26.132Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/entity-slots/snapshot.test.ts[2m > [22m[2m快照回放 · entity-slots[2m > [22m[2mT-AUD-005 record → replay 逐条全等；槽位真的进了模型输入，路由仍读用户原话
+[22m[39m{"ts":"2026-10-29T08:11:26.136Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/entity-slots/snapshot.test.ts[2m > [22m[2m快照回放 · entity-slots[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:26.278Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/entity-slots/snapshot.test.ts[2m > [22m[2m快照回放 · entity-slots[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:26.282Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | snapshots/entity-slots/snapshot.test.ts[2m > [22m[2m快照回放 · entity-slots[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:26.418Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | snapshots/entity-slots/snapshot.test.ts[2m > [22m[2m快照回放 · entity-slots[2m > [22m[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+[22m[39m{"ts":"2026-10-29T08:11:26.422Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+ [32m✓[39m snapshots/entity-slots/snapshot.test.ts [2m([22m[2m5 tests[22m[2m)[22m[33m 629[2mms[22m[39m
+   [33m[2m✓[22m[39m 快照回放 · entity-slots[2m > [22mT-AUD-005 record → replay 逐条全等；槽位真的进了模型输入，路由仍读用户原话 [33m 332[2mms[22m[39m
+ [32m✓[39m snapshots/fixtures.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m9 passed[39m[22m[90m (9)[39m
+[2m      Tests [22m [1m[32m39 passed[39m[22m[90m (39)[39m
+[2m   Start at [22m 16:11:10
+[2m   Duration [22m 16.65s[2m (transform 1.30s, setup 0ms, collect 5.78s, tests 9.05s, environment 1ms, prepare 819ms)[22m
+

@@ -960,3 +960,23 @@
   .m-sheet { transform: none; }
   .m-step__toggle .icon { transition: none; }
 }
+
+/* ────────────── 会话控制条（04 单：转人工 / 回到上一步） ──────────────
+   只做布局：配色与按钮形态全部来自 BAH DS（`ds-btn` / `ds-alert`），不新增色值。 */
+.session-controls {
+  display: flex;
+  gap: var(--spacer-8);
+  padding: var(--spacer-8) var(--spacer-12) 0;
+}
+
+.session-controls__action { flex: 1 1 0; }
+
+.session-controls__banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacer-8);
+  margin: var(--spacer-8) var(--spacer-12) 0;
+}
+
+.session-controls__banner[hidden] { display: none; }

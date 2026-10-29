@@ -25,6 +25,7 @@ import {
   handleTurn,
 } from './handlers/session.ts'
 import { handleStatic } from './handlers/static.ts'
+import { handleFork } from './handlers/fork.ts'
 import { handleHandoff } from './handlers/handoff.ts'
 import { handleMetrics } from './handlers/metrics.ts'
 import { handleTrace } from './handlers/trace.ts'
@@ -46,6 +47,7 @@ const HANDLERS: Readonly<Record<RouteHandler, WebHandler>> = {
   approval: handleApproval,
   verify: handleVerify,
   handoff: handleHandoff,
+  fork: handleFork,
   admin: handleAdmin,
   static: handleStatic,
 }

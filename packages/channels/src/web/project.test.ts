@@ -813,3 +813,80 @@ describe('projectEffects · 影响面派生（TC-MCH-25..26，施工单 01 §3.5
     expect(projector.frames().some((frame) => frame.kind === 'effects')).toBe(false)
   })
 })
+
+describe('04 单投影：goal 帧与 effects 写侧名单', () => {
+  /** 一条 goal_set 的成功结果（默认 JSON 投影）。 */
+  const goalResult = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    callId: 'call-goal',
+    name: 'goal_set',
+    isError: false,
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          goalId: 'g-1',
+          statement: '为配偶下月 8 日生日做准备',
+          status: 'active',
+          originTurn: 1,
+          budget: { amountCents: 150_000, currency: 'CNY' },
+          createdAt: 1_700_000_000_000,
+          ...overrides,
+        }),
+      },
+    ],
+  })
+
+  it('goal_set 成功 → goal 帧；字段逐项来自出参（不加工）；同键替换', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(
+      ev('tool/call', { callId: 'call-goal', name: 'goal_set', args: { statement: 'x' }, tier: { level: 'green' } }),
+    )
+    const frames = projector.apply(ev('tool/result', goalResult()))
+    const goal = frames.find((frame) => frame.kind === 'goal')
+    expect(goal).toEqual({
+      kind: 'goal',
+      seq: 3,
+      at: 1_700_000_000_000,
+      title: '为配偶下月 8 日生日做准备',
+      status: 'active',
+      amountText: '¥1,500.00',
+    })
+
+    // 关闭目标 → 同 key 替换（frames 里只有一条 goal）
+    projector.apply(ev('tool/call', { callId: 'call-close', name: 'goal_set', args: {}, tier: { level: 'green' } }))
+    projector.apply(ev('tool/result', { ...goalResult({ status: 'achieved' }), callId: 'call-close' }))
+    const goals = projector.frames().filter((frame) => frame.kind === 'goal')
+    expect(goals).toHaveLength(1)
+    expect(goals[0]).toMatchObject({ status: 'done' })
+  })
+
+  it('失败调用 / 坏 JSON / 未知状态 ⇒ 不产 goal 帧（不编造）', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('tool/call', { callId: 'c1', name: 'goal_set', args: {}, tier: { level: 'green' } }))
+    projector.apply(ev('tool/result', { ...goalResult(), isError: true, content: [{ type: 'text', text: 'boom' }] }))
+    projector.apply(ev('tool/call', { callId: 'c2', name: 'goal_set', args: {}, tier: { level: 'green' } }))
+    projector.apply(ev('tool/result', { callId: 'c2', name: 'goal_set', isError: false, content: [{ type: 'text', text: '{oops' }] }))
+    projector.apply(ev('tool/call', { callId: 'c3', name: 'goal_set', args: {}, tier: { level: 'green' } }))
+    projector.apply(ev('tool/result', { ...goalResult({ status: 'weird' }), callId: 'c3' }))
+    expect(projector.frames().filter((frame) => frame.kind === 'goal')).toHaveLength(0)
+  })
+
+  it('writeToolNames 注入：绿级但 sideEffect=write 的 verify_sms 进入 effects 清单', () => {
+    reset()
+    const projector = new WebProjector({ writeToolNames: ['verify_sms'] })
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('step/start', { turn: 1, step: 1 }))
+    projector.apply(
+      ev('tool/call', { callId: 'call-v', name: 'verify_sms', args: { code: '123456' }, tier: { level: 'green' } }),
+    )
+    const frames = projector.apply(
+      ev('tool/result', { callId: 'call-v', name: 'verify_sms', isError: false, content: [{ type: 'text', text: 'ok' }] }),
+    )
+    const effects = frames.find((frame) => frame.kind === 'effects') as EffectsFrame | undefined
+    expect(effects?.items.map((item) => item.name)).toEqual(['verify_sms'])
+  })
+})

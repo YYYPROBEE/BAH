@@ -1,7 +1,9 @@
 /**
- * @bah/runtime · 逻辑模块 todo（M0 占位）。
+ * @bah/runtime · todo 平面（04 单）。
  *
- * 本文件只声明模块位置，不实现任何运行逻辑；
- * 实装见施工单 03、04、05、14。
+ * 派生（`deriveTodos` 复用 `replayPlan`）+ 同屏合并 + 模型侧清单工具 `todo_write`。
+ * 零新事件键：todo 不落账（D8），模型侧清单只经 `tool/call` + `tool/result`。
  */
-export {}
+export * from './types.ts'
+export * from './derive.ts'
+export * from './tool.ts'

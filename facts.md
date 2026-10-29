@@ -1,6 +1,6 @@
 # BAH 事实表（演示材料的唯一数字来源）
 
-> 更新：2026-10-29（移动 H5 02：`apps/web/m.html` + `src/mobile/` 10 模块 / 194 用例 + 门禁 `verify-mobile-shell`）。任何 PPT / 视频 / 自评里的数字先查这里；
+> 更新：2026-10-29（移动 H5 04 收口：goal/todo 平面 + 生日案例 cross-scene 快照 + `POST /api/session/fork` + 门禁 `verify-cross-scene`；D 族 15 例）。任何 PPT / 视频 / 自评里的数字先查这里；
 > 改代码后重跑对应命令再改本表。**不要把三行测试数相加成一个"总用例数"**。
 > 数字的取值命令与原始输出见 `docs/facts-sources.md`；门禁 `verify-facts` 逐项比对，不一致即红。
 > ⚠ 本表上一版停在 2026-10-24，被 W03–W17 甩在后面（门禁还写 27/27、工具还写 14 个、
@@ -10,28 +10,32 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **260 文件 / 2990 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **264 文件 / 3047 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
-| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **22 文件 / 333 用例** |
+| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **23 文件 / 338 用例** |
 
 其他口径：
 
 | 命令 | 结果 | 说明 |
 |---|---|---|
-| `pnpm gate` | **46/46** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
+| `pnpm gate` | **47/47** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
-| `pnpm test:snapshot` | 8 文件 / 34 用例（34/34 绿） | 录制回放；`pnpm snapshot:record` 重录 |
+| `pnpm test:snapshot` | 9 文件 / 39 用例（39/39 绿） | 录制回放；`pnpm snapshot:record` 重录 |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
-| `pnpm test:coverage:all` | **行口径 91.14%**（31233/34270）/ **包口径 15/16**（**CI/Ubuntu 口径**） | 两个口径必须一起说；未达标只有 `eval` 53.20%（`memory-store` 89.40% 已达标） |
+| `pnpm test:coverage:all` | **行口径 89.06%**（41749/46877）/ **包口径 16/18** | 两个口径必须一起说；未达 80% 的是 `memory-store` 72.68% 与 `eval` 43.12%（均为评测/记忆 harness 面，见台账注记） |
 评测平面（`pnpm eval`）：
 
 | 指标 | 实测 |
 |---|---|
-| 场景 | 66 个（Q12/T16/P10/S8/D10/K10），boot 8 次 |
+| 场景 | 71 个（Q12/T16/P10/S8/D15/K10），boot 8 次 |
 | 任务成功率 / 越权拦截率 / 拒答正确率 | 49/49 · 5/5 · 6/6，平均 1.25 步 |
 | 对抗集 | 45 例（分母 44，排除 1 例 `[unverified]` 来源），总拦截 41/44；注入 14/14、越权 15/15、幻觉 12/15 |
 
 ## 2. 工具：16 个（12 绿 / 2 黄 / 2 红）
+
+> 口径注脚：`goal_set` / `todo_write`（04 单）与 `intent_resolve` / `prompt_ask`（03 单）是
+> **runtime / interaction 内置绿级工具**，不在"银行工具目录 16 个"里——工具目录由
+> `pnpm tool-catalog` 生成、门禁逐字比对，本套单一个银行工具都没加（D9）。
 
 | # | 工具 | 级别 | 职责 |
 |---|---|---|---|

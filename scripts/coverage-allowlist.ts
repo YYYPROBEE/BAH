@@ -46,6 +46,16 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
   },
   {
     package: 'runtime',
+    scope: 'goal/',
+    why: '意图账本：状态转移表（非法转移 fail-loud）、active 上限、重放重建——账本说谎比崩溃更贵（04 单）',
+  },
+  {
+    package: 'runtime',
+    scope: 'todo/',
+    why: '派生清单：复用 replayPlan 的同源同序、中断窗口的 cancelled 镜像、全量覆写与上限（04 单）',
+  },
+  {
+    package: 'runtime',
     scope: 'tools/',
     why: '工具七段管线与判决顺序——顺序错了就是安全事故（施工单 03）',
   },

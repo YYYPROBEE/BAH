@@ -188,8 +188,8 @@ headless 走 `provider: router`（读消息现规划，不是固定磁带），�
 ### 4.4 一键自证（不需要密钥）
 
 ```bash
-pnpm test              # 260 文件 / 2990 用例（2026-10-29 实测；前端另有 139 例）
-pnpm test:snapshot     # 7 场景 / 8 文件 34 例，录制↔回放逐条全等
+pnpm test              # 264 文件 / 3047 用例（2026-10-29 实测；前端另有 338 例）
+pnpm test:snapshot     # 9 文件 39 例，录制↔回放逐条全等
 pnpm gate              # 44/44
 pnpm demo:verifier-fail # 判决件异常 → 结果被挡在模型之外（20 条断言）
 ```
@@ -287,7 +287,7 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>" --key "<demo:web 打印�
 
 ```bash
 pnpm gate                 # 44/44（不需要 BAH_ALLOW_NO_SNAPSHOT）
-pnpm test:snapshot        # 8 文件 / 34 例（录制↔回放逐条全等）
+pnpm test:snapshot        # 9 文件 / 39 例（录制↔回放逐条全等）
 pnpm demo:verifier-fail   # 退出码 0
 pnpm demo:web             # 另开终端；记下打印的“本次会话目录”
 curl -s http://127.0.0.1:7331/api/health   # 返回 JSON，且不含票据 ID

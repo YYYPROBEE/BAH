@@ -1,0 +1,26 @@
+=== typecheck ===
+
+> bah-monorepo@ typecheck D:\项目集\微众杯银行ai智能体\BAH\MonoRepo
+> tsc -b tsconfig.host.json && tsc -b tsconfig.client.json && tsc -p tsconfig.scripts.json
+
+=== lint ===
+ WARN  Unsupported engine: wanted: {"node":"^22.19 || >=24"} (current: {"node":"v22.17.0","pnpm":"10.34.7"})
+
+> bah-monorepo@ lint D:\项目集\微众杯银行ai智能体\BAH\MonoRepo
+> eslint "packages/*/src/**/*.ts" "scripts/**/*.ts"
+
+=== build ===
+packages/cli build:bundle: ℹ dist/index-Df0y_eh8.d.ts  18.77 kB │ gzip:  6.54 kB
+packages/cli build:bundle: ℹ 2 files, total: 99.02 kB
+packages/cli build:bundle: ✔ Build complete in 1515ms
+packages/cli build:bundle: Done
+=== test ===
+[2m      Tests [22m [1m[32m3047 passed[39m[22m[90m (3047)[39m
+[2m   Start at [22m 16:13:55
+[2m   Duration [22m 16.26s[2m (transform 9.73s, setup 0ms, collect 80.86s, tests 49.65s, environment 54ms, prepare 61.34s)[22m
+
+=== test:web ===
+[2m      Tests [22m [1m[32m338 passed[39m[22m[90m (338)[39m
+[2m   Start at [22m 16:14:15
+[2m   Duration [22m 4.28s[2m (transform 327ms, setup 0ms, collect 1.42s, tests 1.98s, environment 48.46s, prepare 5.52s)[22m
+

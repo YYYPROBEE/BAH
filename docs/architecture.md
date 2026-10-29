@@ -44,8 +44,8 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **26 项 / 46 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
-| 覆盖率 | **91.14%（行口径，31233/34270 行，实测 2026-10-28）；15/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
+| 注册表 / 门禁 | **26 项 / 47 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
+| 覆盖率 | **89.06%（行口径，41749/46877 行，实测 2026-10-29）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
 ## 3. 组件与依赖（20 个组件）
@@ -235,16 +235,16 @@ graph TB
   subgraph P_mobile["profiles/mobile"]
     p8_mobile["demo:echo"]
     p11_mobile["bank:knowledge"]
-    p19_mobile["bank:saga-bridge"]
-    p20_mobile["plan:dag（未装配）"]
+    p19_mobile["bank:saga-bridge（enabled: false）"]
+    p20_mobile["plan:dag"]
     p21_mobile["bah:memory-store"]
     p24_mobile["channel:web（未装配）"]
     p25_mobile["channel:mobile"]
   end
   classDef ghost stroke-dasharray: 5 5,stroke:#9aa4b2,color:#9aa4b2
   classDef off stroke-dasharray: 3 3,stroke:#c9822f,color:#c9822f
-  class p11_headless,p20_headless,p21_headless,p24_headless,p25_headless,p8_plan,p11_plan,p21_plan,p24_plan,p25_plan,p20_web,p25_web,p21_web-plan,p25_web-plan,p20_mobile,p24_mobile ghost
-  class p19_plan,p19_web-plan off
+  class p11_headless,p20_headless,p21_headless,p24_headless,p25_headless,p8_plan,p11_plan,p21_plan,p24_plan,p25_plan,p20_web,p25_web,p21_web-plan,p25_web-plan,p24_mobile ghost
+  class p19_plan,p19_web-plan,p19_mobile off
 ```
 <!-- END GENERATED:assembly -->
 
@@ -277,8 +277,8 @@ graph TB
 | bank:saga-store | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | bank:saga | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | bank:saga-audit | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
-| bank:saga-bridge | ● 生效 | ○ 关闭 | ● 生效 | ○ 关闭 | ● 生效 |
-| plan:dag | · 未装配 | ● 生效 | · 未装配 | ● 生效 | · 未装配 |
+| bank:saga-bridge | ● 生效 | ○ 关闭 | ● 生效 | ○ 关闭 | ○ 关闭 |
+| plan:dag | · 未装配 | ● 生效 | · 未装配 | ● 生效 | ● 生效 |
 | bah:memory-store | · 未装配 | · 未装配 | ● 生效 | · 未装配 | ● 生效 |
 | intent:plane | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | prompt:ask | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |

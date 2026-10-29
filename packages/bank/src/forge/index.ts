@@ -149,6 +149,26 @@ function buildDemo(now: number): DatasetParts {
     firstSeenAt: now - 30 * DAY_MS,
   }
 
+  // 生日案例（04 单）的两个商户收款人：常往商户，登记早已超过 30 天。
+  // 刻意用 `whitelist`：升红规则本身不动——"新收款人升红"是对的，
+  // 靠改规则让它不红才是造假；这里只是让演示数据具备"常往商户"的合理历史。
+  const flowerShop: Payee = {
+    id: bankIds.payee('p-2'),
+    userId: user.id,
+    name: '馨香花艺',
+    phone: '13900004444',
+    binding: 'whitelist',
+    firstSeenAt: now - 60 * DAY_MS,
+  }
+  const cakeShop: Payee = {
+    id: bankIds.payee('p-3'),
+    userId: user.id,
+    name: '甜心蛋糕坊',
+    phone: '13900006666',
+    binding: 'whitelist',
+    firstSeenAt: now - 60 * DAY_MS,
+  }
+
   const transactions: Transaction[] = [
     txn('t-1', current, now - 45 * DAY_MS, 1_500_000, 'in', '工资代发', 'salary', 'app'),
     txn('t-2', current, now - 40 * DAY_MS, 32_800, 'out', '盒马鲜生', 'consumption', 'app'),
@@ -189,7 +209,7 @@ function buildDemo(now: number): DatasetParts {
         status: 'active',
       },
     ],
-    payees: [payee],
+    payees: [payee, flowerShop, cakeShop],
   }
 }
 
