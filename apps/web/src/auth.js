@@ -55,10 +55,27 @@ async function postJson(path, body) {
     } catch {
       data = null
     }
-    return { ok: response.ok, status: response.status, data }
+    // 锁定回包带 `retry-after`（服务端按 IP 锁 15 分钟）：只说"稍后再试"等于不给时间。
+    const rawRetry = response.headers.get('retry-after')
+    const retryAfterSec = rawRetry === null ? undefined : Number(rawRetry)
+    return {
+      ok: response.ok,
+      status: response.status,
+      data,
+      ...(typeof retryAfterSec === 'number' && Number.isFinite(retryAfterSec) && retryAfterSec > 0
+        ? { retryAfterSec }
+        : {}),
+    }
   } catch {
     return { ok: false, status: 0, data: null }
   }
+}
+
+/** 锁定提示：把秒折算成"X 分钟 / X 秒后"。 */
+function lockedText(retryAfterSec) {
+  if (typeof retryAfterSec !== 'number') return '尝试过于频繁，请稍后再试'
+  if (retryAfterSec >= 60) return `尝试过于频繁，请 ${String(Math.ceil(retryAfterSec / 60))} 分钟后再试`
+  return `尝试过于频繁，请 ${String(retryAfterSec)} 秒后再试`
 }
 
 /** `GET /api/auth/me`（不抛）。 */
@@ -95,7 +112,8 @@ export function renderLoginCard(options) {
     placeholder: '口令',
     required: 'true',
   })
-  const message = el('p', { class: 'ds-hint', hidden: 'true' })
+  // `role=alert` + `aria-live`：错误提示不能只有视觉，屏读也必须播报（P2-7）。
+  const message = el('p', { class: 'ds-hint', role: 'alert', 'aria-live': 'assertive', hidden: 'true' })
   const submit = el('button', { class: 'ds-btn ds-btn--primary', type: 'submit', text: '登录' })
 
   const form = el('form', { class: 'login-card' }, [
@@ -121,9 +139,9 @@ export function renderLoginCard(options) {
       options.onAuthenticated()
       return
     }
-    // 409 = 锁定（给"稍后再试"），其余一律同一句（不区分"用户不存在"与"口令错"）
+    // 409 = 锁定（按 `retry-after` 给剩余时间），其余一律同一句（不区分"用户不存在"与"口令错"）
     message.hidden = false
-    message.textContent = result.status === 409 ? '尝试过于频繁，请稍后再试' : FAILED_TEXT
+    message.textContent = result.status === 409 ? lockedText(result.retryAfterSec) : FAILED_TEXT
     // TA-31 第 2 步：出错**不清空**字段（只选中，方便直接重输）
     password.focus()
     password.select()

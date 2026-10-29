@@ -64,6 +64,10 @@ export function renderDag(frame) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('class', 'dag')
   svg.setAttribute('viewBox', `0 0 ${String(width)} ${String(height)}`)
+  // 自然尺寸 + 容器横向滚动，**不**随 400px 面板等比缩放：
+  // `width:100%` 会把 5 节点图压到 scale 0.56，12px 标签实际显示约 6px。
+  svg.setAttribute('width', String(width))
+  svg.setAttribute('height', String(height))
   svg.setAttribute('role', 'img')
   svg.setAttribute('aria-label', `调用图：${frame.summary}`)
 

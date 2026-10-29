@@ -449,11 +449,16 @@ function approvalClass(decision: string): (typeof APPROVAL_DECISIONS)[number] {
   return 'other'
 }
 
-/** SLO 阈值判决（与 saga 的 `sloVerdict` 同一口径；telemetry 不依赖 saga，所以就地实现）。 */
+/**
+ * SLO 阈值判决（与 saga 的 `sloVerdict` 同一口径；telemetry 不依赖 saga，所以就地实现）。
+ *
+ * 阈值 0 表示"任何非零都算越阈"（`chainBreak`）：必须用严格大于，否则 0 会被判成 alert。
+ */
 function verdictOf(value: number | null, soft: number, hard: number): (typeof SLO_VERDICTS)[number] {
   if (value === null) return 'no-data'
-  if (value >= hard) return 'P0'
-  if (value >= soft) return 'alert'
+  const exceeds = (threshold: number): boolean => (threshold <= 0 ? value > 0 : value >= threshold)
+  if (exceeds(hard)) return 'P0'
+  if (exceeds(soft)) return 'alert'
   return 'ok'
 }
 

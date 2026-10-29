@@ -51,13 +51,32 @@ function yuanText(totalMicro) {
   return `¥${String(whole)}.${String(fen % 100).padStart(2, '0')}`
 }
 
+/** 数字去掉无意义的尾零（31.50 → 31.5，1.00 → 1）。 */
+function trimNumber(value) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '')
+}
+
+/**
+ * 时长 → 可读文本。
+ *
+ * 阈值原样直出没有信息量：`86400000 ms` 要读者自己去除，`0.00036506944444444445 天`
+ * 更是把 31.5 秒写成 20 位小数。面板只有 ~350px 宽，按量级折算成天/小时/分/秒。
+ */
+function durationText(ms) {
+  if (ms >= 86_400_000) return `${trimNumber(ms / 86_400_000)} 天`
+  if (ms >= 3_600_000) return `${trimNumber(ms / 3_600_000)} 小时`
+  if (ms >= 60_000) return `${trimNumber(ms / 60_000)} 分`
+  if (ms >= 1_000) return `${trimNumber(ms / 1_000)} 秒`
+  return `${trimNumber(ms)} 毫秒`
+}
+
 /** SLO 值按单位格式化（`null` = 无数据，不显示 0）。 */
 function sloText(value, unit) {
   if (value === null) return '无数据'
   if (unit === 'ratio') return `${(value * 100).toFixed(1)}%`
-  if (unit === 'ms') return `${String(value)} ms`
-  if (unit === 'days') return `${String(value)} 天`
-  return String(value)
+  if (unit === 'ms') return durationText(value)
+  if (unit === 'days') return durationText(value * 86_400_000)
+  return trimNumber(value)
 }
 
 /** 判决 → 样式类（ok/alert/P0/no-data 四值闭集）。 */
@@ -66,6 +85,14 @@ function verdictClass(verdict) {
   if (verdict === 'alert') return 'is-alert'
   if (verdict === 'P0') return 'is-danger'
   return 'is-muted'
+}
+
+/** 判决 → 色点类（与文字同色；不依赖第四列也能看出越阈）。 */
+function verdictDot(verdict) {
+  if (verdict === 'ok') return 'obs__dot--ok'
+  if (verdict === 'alert') return 'obs__dot--alert'
+  if (verdict === 'P0') return 'obs__dot--danger'
+  return 'obs__dot--muted'
 }
 
 /** 森林展平：`[{ span, depth }]`。 */
@@ -118,7 +145,32 @@ function kpiSection(metrics, trace) {
   ])
 }
 
-/** SLO 八行表；`null` = 本 profile 没装 saga（整表空态，不渲染 0）。 */
+/**
+ * 一行 SLO：两行堆叠，**不是**五列表格。
+ *
+ * 右侧面板固定 ~400px，扣掉内边距只剩 ~350px：五列（指标 + 值 + soft + hard + 判决）
+ * 实测把判决列挤出面板 111px，八行判决全部不可见。改成第一行"色点 + 指标 + 判决"、
+ * 第二行"值 / soft / hard"，判决色点同时挂在指标名前，不依赖任何一列的位置。
+ */
+function sloRow(name, sample) {
+  const verdict = sample.verdict ?? 'no-data'
+  const cls = verdictClass(verdict)
+  const unit = sample.unit
+  return el('div', { class: 'obs__slo-row', dataset: { metric: name, verdict } }, [
+    el('div', { class: 'obs__slo-head' }, [
+      el('span', { class: `obs__dot ${verdictDot(verdict)}`, 'aria-hidden': 'true' }),
+      el('span', { class: 'obs__slo-name obs__mono', text: name }),
+      el('span', { class: `obs__slo-verdict obs__verdict ${cls}`, text: verdict }),
+    ]),
+    el('div', { class: 'obs__slo-values' }, [
+      el('span', { class: 'obs__slo-value obs__mono', text: `值 ${sloText(num(sample.value), unit)}` }),
+      el('span', { class: 'obs__mono', text: `soft ${sloText(num(sample.soft), unit)}` }),
+      el('span', { class: 'obs__mono', text: `hard ${sloText(num(sample.hard), unit)}` }),
+    ]),
+  ])
+}
+
+/** SLO 八行；`null` = 本 profile 没装 saga（整表空态，不渲染 0）。 */
 function sloSection(slo) {
   if (slo === null || slo === undefined) {
     return el('section', { class: 'obs__slo' }, [
@@ -127,26 +179,13 @@ function sloSection(slo) {
     ])
   }
 
-  const rows = SLO_NAMES.map((name) => {
-    const sample = slo[name] ?? {}
-    const verdict = sample.verdict ?? 'no-data'
-    return el('tr', {}, [
-      el('td', { class: 'obs__mono', text: name }),
-      el('td', { class: 'obs__mono', text: sloText(num(sample.value), sample.unit) }),
-      el('td', { class: 'obs__mono', text: sloText(num(sample.soft), sample.unit) }),
-      el('td', { class: 'obs__mono', text: sloText(num(sample.hard), sample.unit) }),
-      el('td', { class: `obs__verdict ${verdictClass(verdict)}`, text: verdict }),
-    ])
-  })
-
   return el('section', { class: 'obs__slo' }, [
     el('h3', { class: 'obs__title', text: 'SLO 八指标' }),
-    el('table', { class: 'obs__table' }, [
-      el('thead', {}, [
-        el('tr', {}, ['指标', '值', 'soft', 'hard', '判决'].map((label) => el('th', { text: label }))),
-      ]),
-      el('tbody', {}, rows),
-    ]),
+    el(
+      'div',
+      { class: 'obs__slo-list' },
+      SLO_NAMES.map((name) => sloRow(name, slo[name] ?? {})),
+    ),
   ])
 }
 
@@ -186,7 +225,14 @@ function traceRow(row, maxDuration, expanded) {
     }),
   ])
 
-  const node = el('div', { class: 'obs__row' }, [name, bar])
+  const open0 = expanded.has(spanId)
+  // `role=button` + `tabindex=0`：这一行可以用鼠标点开，就必须也能用键盘打开
+  // （走查实测：没有 tabindex 时 `element.tabIndex === -1`，Tab 永远到不了）。
+  const node = el(
+    'div',
+    { class: 'obs__row', role: 'button', tabindex: '0', 'aria-expanded': open0 ? 'true' : 'false' },
+    [name, bar],
+  )
   node.style.setProperty('padding-inline-start', `${String(row.depth * 16)}px`)
 
   const attrs = Object.entries(span.attributes ?? {})
@@ -200,20 +246,23 @@ function traceRow(row, maxDuration, expanded) {
           el('dd', { text: String(value) }),
         ]),
   )
-  detail.hidden = !expanded.has(spanId)
-  node.classList.toggle('is-expanded', expanded.has(spanId))
+  detail.hidden = !open0
+  node.classList.toggle('is-expanded', open0)
   node.append(detail)
 
-  node.addEventListener('click', () => {
-    if (expanded.has(spanId)) {
-      expanded.delete(spanId)
-      detail.hidden = true
-      node.classList.remove('is-expanded')
-    } else {
-      expanded.add(spanId)
-      detail.hidden = false
-      node.classList.add('is-expanded')
-    }
+  const toggle = () => {
+    const open = expanded.has(spanId)
+    if (open) expanded.delete(spanId)
+    else expanded.add(spanId)
+    detail.hidden = open
+    node.classList.toggle('is-expanded', !open)
+    node.setAttribute('aria-expanded', open ? 'false' : 'true')
+  }
+  node.addEventListener('click', toggle)
+  node.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    toggle()
   })
   return node
 }

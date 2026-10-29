@@ -264,6 +264,23 @@ describe('审批弹窗 · 超时（T-WEB-004）', () => {
     expect([...dialog.querySelectorAll('button')].some((button) => button.textContent.includes('批准'))).toBe(false)
   })
 
+  it('结论生效后遮罩放行：passive 类、aria-modal=false，Esc 直接收起结果卡', () => {
+    const { root, controller } = setup(approval())
+    controller.close({
+      kind: 'approval-closed',
+      seq: 5,
+      ticketId: 'ticket:call-1',
+      decision: 'allowed-once',
+      label: '已批准（一次性）',
+    })
+    const backdrop = root.querySelector('.approval-backdrop')
+    expect(backdrop.classList.contains('approval-backdrop--passive')).toBe(true)
+    expect(root.querySelector('[role="dialog"]').getAttribute('aria-modal')).toBe('false')
+
+    root.querySelector('[role="dialog"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(root.querySelector('[role="dialog"]')).toBeNull()
+  })
+
   it('已批准的收尾显示结论与理由', () => {
     const { root, controller } = setup(approval())
     controller.close({

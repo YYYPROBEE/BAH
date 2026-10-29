@@ -146,6 +146,12 @@ export function createSessionControlClient(options = {}) {
     if (!response.ok) {
       const code = data?.error?.code ?? `http-${response.status}`
       const reason = data?.error?.reason ?? `请求失败（${response.status}）`
+      // 与 `createHttpApi` 同一条纪律：401 是**会话失效**，不是"这一次转人工失败"。
+      // 桌面壳的「转人工」也走这里；不派发事件的话，password 模式下只会弹一个 toast，
+      // 用户永远回不到登录卡片（其余 API 都派发，只有这条漏掉）。
+      if (response.status === 401 && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bah:unauthorized'))
+      }
       return { ok: false, status: response.status, code, reason }
     }
     return { ok: true, status: response.status, data }

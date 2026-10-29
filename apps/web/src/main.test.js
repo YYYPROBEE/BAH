@@ -51,11 +51,11 @@ function fakeTransport() {
 }
 
 /** 起一个应用。 */
-function mount(api = fakeApi()) {
+function mount(api = fakeApi(), extra = {}) {
   const root = document.createElement('div')
   document.body.append(root)
   const transport = fakeTransport()
-  const app = mountApp({ root, api, transport })
+  const app = mountApp({ root, api, transport, ...extra })
   return { root, api, transport, app }
 }
 
@@ -201,7 +201,7 @@ describe('mountApp · 独立运行（T-WEB-008）', () => {
     expect(root.querySelector('.app-banner').hidden).toBe(true)
   })
 
-  it('连接状态可见（连接中 → 已连接 → 已断开）', () => {
+  it('连接状态可见（连接中 → 已连接 → 已断开），断线同时升起横幅', () => {
     const { root, transport } = mount()
     const text = () => root.querySelector('.app-header__status-text').textContent
     expect(text()).toBe('连接中')
@@ -209,6 +209,21 @@ describe('mountApp · 独立运行（T-WEB-008）', () => {
     expect(text()).toBe('已连接')
     transport.status('offline')
     expect(text()).toBe('已断开（自动重连）')
+    // P2-2：断线不能只有顶栏 11px 文案；横幅不承诺"正在重连"（重试 10 次后已停）
+    const banner = root.querySelector('.app-banner')
+    expect(banner.hidden).toBe(false)
+    expect(banner.textContent).toContain('连接已断开')
+    expect(banner.textContent).toContain('可能不是最新')
+  })
+
+  it('服务重启换会话号 → 顶栏跟着换，并提示"会话已重置"', () => {
+    const { root, transport } = mount()
+    transport.push(snapshot())
+    expect(root.querySelector('.app-header__session').textContent).toContain('s-test')
+
+    transport.push({ kind: 'snapshot', sessionId: 's-new', maxSeq: 0, frames: [] })
+    expect(root.querySelector('.app-header__session').textContent).toContain('s-new')
+    expect(root.textContent).toContain('会话已重置')
   })
 
   it('流式草稿随 delta 增长，权威消息到达后消失', () => {
@@ -229,6 +244,44 @@ describe('mountApp · 独立运行（T-WEB-008）', () => {
 })
 
 describe('mountApp · 交互细节', () => {
+  it('「转人工」走 POST /api/handoff；接管帧到达后入口禁用', async () => {
+    const calls = []
+    const control = {
+      handoff: async (reason) => {
+        calls.push(reason)
+        return { ok: true, status: 200, data: { active: true } }
+      },
+      handoffStatus: async () => ({ ok: true, status: 200, data: { active: false } }),
+      resume: async () => ({ ok: true, status: 200, data: {} }),
+      fork: async () => ({ ok: true, status: 200, data: {} }),
+    }
+    const { root, transport } = mount(fakeApi(), { control })
+    const button = [...root.querySelectorAll('.composer button')].find((item) =>
+      item.textContent.includes('转人工'),
+    )
+    expect(button).not.toBeUndefined()
+    expect(button.disabled).toBe(false)
+
+    button.click()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(calls).toEqual(['客户请求人工'])
+    expect(root.textContent).toContain('已提交转人工请求')
+    // 成功即保持禁用：帧还没到时重新点亮，等于允许再点一次去撞 409
+    expect(button.disabled).toBe(true)
+    // 无关帧触发的 sync 也不能把它重新点亮
+    transport.push({ kind: 'message', seq: 2, at: 2, role: 'assistant', blocks: [{ type: 'text', text: '好' }] })
+    expect(button.disabled).toBe(true)
+
+    transport.push({ kind: 'handoff', seq: 1, at: 1, active: true, operator: '坐席小周' })
+    expect(button.disabled).toBe(true)
+    expect(root.querySelector('#handoff-banner').hidden).toBe(false)
+
+    // 交回帧到达后入口恢复可用
+    transport.push({ kind: 'handoff', seq: 3, at: 3, active: false })
+    expect(button.disabled).toBe(false)
+  })
+
   it('"回到上一步"显式禁用（施工单 14 未落地，不假装可用）', () => {
     const { root } = mount()
     const back = [...root.querySelectorAll('.composer button')].find((button) =>

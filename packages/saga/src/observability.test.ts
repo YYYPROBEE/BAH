@@ -33,6 +33,7 @@ import {
   replay,
   sagaTimeline,
   SLO_METRICS,
+  sloVerdict,
 } from './index.ts'
 import { installIdempotency } from './idempotency/index.ts'
 import { installTemplates } from './templates/index.ts'
@@ -170,6 +171,16 @@ describe('SA-13 观测·回放·告警', () => {
     expect(metrics.chainBreak.value).toBe(0)
     expect(metrics.danglingP95.value).toBeNull()
     expect(metrics.reconHeartbeat.value).toBeNull()
+  })
+
+  it('SLO 判决：阈值 0 表示"非零才算越阈"，0 不能被判 alert', () => {
+    // chainBreak：soft=0 / hard=1。0 是最好情况（audit.ts 的 sample 参数就是这组值）。
+    expect(sloVerdict(0, 0, 1)).toBe('ok')
+    expect(sloVerdict(1, 0, 1)).toBe('P0')
+    // 其它阈值维持 >=：恰好命中 soft 就是 alert。
+    expect(sloVerdict(300_000, 300_000, 300_000)).toBe('P0')
+    expect(sloVerdict(299_999, 300_000, 600_000)).toBe('ok')
+    expect(sloVerdict(null, 0, 1)).toBe('no-data')
   })
 
   it('T-SA13-002：五态分类覆盖 11 态，进行中桶含 CREATED/RUNNING', () => {

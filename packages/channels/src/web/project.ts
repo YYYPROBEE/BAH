@@ -576,7 +576,12 @@ export class WebProjector {
         const data = event.data
         const record = this.calls.get(data.callId)
         this.ticketOfCall.set(data.callId, data.ticketId)
-        const tier: FrameTier = record?.tier ?? 'unknown'
+        // 风险级别必须与 challenge 一致：`tool/call` 只能带**声明级别**（它在 pre-execute
+        // 之前落账），生效级别只出现在 bank 审计（不是会话事件）。而强验证挑战
+        // 只为红级签发（`requiresChallenge(level) === level==='red'`），所以
+        // "有 challenge" 就是红级；否则沿用声明级别。黄级徽标 + 短信强验证的
+        // 同框自相矛盾，根因就在这一行。
+        const tier: FrameTier = data.challenge === undefined ? (record?.tier ?? 'unknown') : 'red'
         const payee = payeeFromArgs(record?.args)
         const payeePhone = maskedPayeePhoneFromArgs(record?.args)
         const feeText =

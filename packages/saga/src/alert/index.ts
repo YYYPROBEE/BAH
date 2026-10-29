@@ -161,11 +161,18 @@ export function collectSloMetrics(
   }
 }
 
-/** 指标越阈等级：`null` 无数据；`P0` 越 hard；`alert` 越 soft；`ok` 未越阈。 */
+/**
+ * 指标越阈等级：`null` 无数据；`P0` 越 hard；`alert` 越 soft；`ok` 未越阈。
+ *
+ * `soft === 0` 的口径是"任何非零都算越阈"（`chainBreak` 就是 soft=0 / hard=1）：
+ * 用 `value >= soft` 会把**最好的 0** 判成 alert——2026-10-29 走查里满屏绿中唯一的黄。
+ * 阈值 0 一律按"严格大于 0"处理，其余阈值维持 `>=`。
+ */
 export function sloVerdict(value: number | null, soft: number, hard: number): 'ok' | 'alert' | 'P0' | 'no-data' {
   if (value === null) return 'no-data'
-  if (value >= hard) return 'P0'
-  if (value >= soft) return 'alert'
+  const exceeds = (threshold: number): boolean => (threshold <= 0 ? value > 0 : value >= threshold)
+  if (exceeds(hard)) return 'P0'
+  if (exceeds(soft)) return 'alert'
   return 'ok'
 }
 

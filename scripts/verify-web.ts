@@ -200,6 +200,13 @@ const gate: Gate = {
     }
     notes.push(`④ 令牌纪律扫描 ${String(pageCssFiles.length)} 个页面局部 css`)
 
+    // ④b `hidden` 兜底：DS 组件给 `.ds-backdrop` 显式设了 display，用 hidden 表达的节点
+    //    （凭证闸、审计面板、坐席骨架）会常驻可见。2026-10-29 走查的 P0-1/P0-2 都源于此，
+    //    这一条是它们的回归判据：改样式表时删掉兜底规则会立刻变红。
+    if (!/\[hidden\]\s*\{[^}]*display:\s*none\s*!important/.test(read(appCssPath) ?? '')) {
+      findings.push(`${WEB_DIR}/styles/app.css: 缺少 [hidden] { display: none !important } 兜底规则`)
+    }
+
     // ⑤ 入口页清单：apps/web 下每个 .html 都必须挂齐**该壳**的样式与一个模块入口，
     //    且入口文件真实存在（不能靠"index.html 一把梭"漏检 operator.html / m.html）。
     const htmlFiles = files.filter((file) => file.endsWith('.html'))

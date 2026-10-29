@@ -154,27 +154,60 @@ describe('观测面板 · 四张 KPI', () => {
   })
 })
 
-describe('观测面板 · SLO 表', () => {
+describe('观测面板 · SLO 八行', () => {
   it('八行固定顺序与 SLO_METRICS 一致', () => {
     const { box } = render()
-    const names = [...box.querySelectorAll('.obs__slo tbody tr td:first-child')].map((td) => td.textContent)
+    const names = [...box.querySelectorAll('.obs__slo-row .obs__slo-name')].map((node) => node.textContent)
     expect(names).toEqual(SLO_NAMES)
   })
 
-  it('value=null：值列「无数据」，判决列 no-data 用灰', () => {
+  it('两行堆叠：值 / soft / hard 在第二行，判决在第一行右侧', () => {
+    const { box } = render()
+    const row = box.querySelector('.obs__slo-row')
+    const head = row.querySelector('.obs__slo-head')
+    expect(head.querySelector('.obs__dot')).not.toBeNull()
+    expect(head.querySelector('.obs__slo-verdict').textContent).toBe('ok')
+    expect(row.querySelector('.obs__slo-values').textContent).toContain('值 0')
+    expect(row.querySelector('.obs__slo-values').textContent).toContain('soft 1')
+    expect(row.querySelector('.obs__slo-values').textContent).toContain('hard 2')
+    // 没有五列表格：400px 列宽放不下
+    expect(box.querySelector('.obs__slo table')).toBeNull()
+  })
+
+  it('value=null：「无数据」，判决 no-data 用灰，色点同灰', () => {
     const { box } = render(
       state({ metrics: metrics({ slo: slo({ rto: { value: null, verdict: 'no-data', unit: 'ms', soft: 1, hard: 2 } }) }) }),
     )
-    const row = [...box.querySelectorAll('.obs__slo tbody tr')].find((tr) => tr.textContent.includes('rto'))
-    expect(row.children[1].textContent).toBe('无数据')
-    expect(row.children[4].textContent).toBe('no-data')
-    expect(row.children[4].classList.contains('is-muted')).toBe(true)
+    const row = box.querySelector('.obs__slo-row[data-metric="rto"]')
+    expect(row.querySelector('.obs__slo-values').textContent).toContain('值 无数据')
+    expect(row.querySelector('.obs__slo-verdict').textContent).toBe('no-data')
+    expect(row.querySelector('.obs__slo-verdict').classList.contains('is-muted')).toBe(true)
+    expect(row.querySelector('.obs__dot').classList.contains('obs__dot--muted')).toBe(true)
+  })
+
+  it('单位折叠：ms 按量级折算、days 不再直出 20 位小数', () => {
+    const { box } = render(
+      state({
+        metrics: metrics({
+          slo: slo({
+            danglingP95: { value: 86_400_000, verdict: 'P0', unit: 'ms', soft: 1, hard: 2 },
+            rto: { value: 300_000, verdict: 'alert', unit: 'ms', soft: 300_000, hard: 300_000 },
+            reconHeartbeat: { value: 31.5 / 86_400, verdict: 'ok', unit: 'days', soft: 1, hard: 7 },
+          }),
+        }),
+      }),
+    )
+    expect(box.querySelector('[data-metric="danglingP95"] .obs__slo-values').textContent).toContain('1 天')
+    expect(box.querySelector('[data-metric="rto"] .obs__slo-values').textContent).toContain('5 分')
+    expect(box.querySelector('[data-metric="reconHeartbeat"] .obs__slo-values').textContent).toContain('31.5 秒')
+    expect(box.textContent).not.toContain('86400000')
+    expect(box.textContent).not.toContain('0.000365')
   })
 
   it('slo=null：整表空态「本 profile 未装配 saga 平面」，不渲染 0', () => {
     const { box } = render(state({ metrics: metrics({ slo: null }) }))
     expect(box.textContent).toContain('本 profile 未装配 saga 平面（SLO 不可用）')
-    expect(box.querySelector('.obs__slo table')).toBeNull()
+    expect(box.querySelector('.obs__slo-list')).toBeNull()
   })
 })
 
@@ -216,6 +249,22 @@ describe('观测面板 · 轨迹瀑布', () => {
     const { box } = render()
     const [parent, child] = box.querySelectorAll('.obs__row')
     expect(parseFloat(child.style.paddingInlineStart)).toBeGreaterThan(parseFloat(parent.style.paddingInlineStart))
+  })
+
+  it('行是键盘可达的按钮：tabindex=0、role=button、Enter/Space 展开并同步 aria-expanded', () => {
+    const { box } = render()
+    const row = box.querySelector('.obs__row')
+    expect(row.getAttribute('role')).toBe('button')
+    expect(row.tabIndex).toBe(0)
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(row.querySelector('.obs__attrs').hidden).toBe(false)
+
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(row.querySelector('.obs__attrs').hidden).toBe(true)
   })
 
   it('超过 300 行只渲染前 300 并提示剩余', () => {

@@ -6102,3 +6102,25 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 - password 模式的坐席前端（登录卡片复用 / cookie + CSRF 的 seat API / SSE cookie）未做（D2 降级项）。
 - `/api/trace` 仍是 `ROLES`（D4 降级项）：生产应收窄到 auditor/admin，自评列为残余风险。
 - 6 张人工截图未做；推送与 tag 未动。
+
+---
+
+## 96.41 2026-10-29 桌面 Web 走查修复 · 未动项与待决策
+
+> 依据 `BAH-Web界面逐屏走查报告-2026-10-29.md`：P0 ×2（含 §1.3 同根因）与 P1 ×6 已闭环，
+> P2 已修 7 项（P2-1…P2-7）；复审期间另修 2 项（会话控制端点 401 收敛、转人工成功后被无关帧
+> 重新点亮）。**本节只记"没动的东西"**，避免下一轮把待决策当成已完成。
+> 本轮验证：`pnpm test:web` 27 文件 / 375 例、`pnpm test` 295 文件 / 3349 例、
+> `pnpm typecheck` / `pnpm lint` 绿、`pnpm gate` 50/50。代码改动**尚未提交**，且工作树里
+> 混有另一并行任务的租户测试改动（未触碰）。
+
+### 96.41.1 未动项清单（需决策 / 需另开单）
+
+| # | 条目 | 现状（实测 / 代码口径） | 为什么没动 | 需要的决策 / 下一步 |
+|---|---|---|---|---|
+| 1 | P2-8 对比度 36 处、P2-9 92 个 <12px 文本 | 走查实测：`ds-tag--success` 2.52、审计分类「安全」3.08×9、tab 4.35、`audit__time/seq` 4.35@10px 等 | 根因在 DS 令牌（`design/bah-ds/colors_and_type.css` 与 `apps/web/styles/ds` 分发副本）；抬一档会影响三个壳与快照，报告明写"需要设计侧确认令牌值" | 设计侧确认后统一抬 `--body-xs/sm` 与 `--text-tertiary` 一档；同步分发副本并重录相关快照 |
+| 2 | P2-10 password 模式 `/operator` 与 5 条坐席 API 整体 404 | `seatEnabled = channelId==='web' && (password ? SEAT_PASSWORD_LOGIN : operatorToken!=undefined)`；`SEAT_PASSWORD_LOGIN=false`（D2 降级项，见 §96.40.5） | 属"坐席怎么登录"的产品口径：复用客户会话按角色放行，还是单独坐席口令/凭证 | 产品 + 安全拍板认证方式；开 D2 后同时补 seat API 的 cookie/CSRF 面与 SSE 身份 |
+| 3 | 移动壳同根因 P0：`mobile.css` 没有 `[hidden]` 兜底 | `.m-sheet-backdrop` 显式 `display:flex`；`approval-sheet.js` 用 `backdrop.hidden=true/false` 表达开关。关抽屉后遮罩仍占全屏、仍接指针（opacity 0 不挡命中测试） | 修复已在未合入的 `mobile-ui-fix-01`（`fb23eb6`：mobile.css 加 `[hidden]` + `verify-mobile-shell I12`）；在主树手抄会与该分支冲突 | 合并 `mobile-ui-fix-01`（推荐）；或在主树只补一行 `[hidden]{display:none!important}` 并写明随后合并会冲突 |
+| 4 | 坐席台客户气泡 meta 仍是「你」 | `seat/views/thread.js` 复用 `views/conversation.js` 的 `renderMessage`；该函数对 `role:'user'` 一律写「你」。本次只给 `handoff-waiting` 加了「等待坐席处理」标签 | 属既有渲染器口径（坐席看到的是客户视角镜像）；彻底修要给渲染器加 viewer 参数，牵动客户/坐席/移动三处 | 另开单：`renderMessage(frame, { viewer })`，坐席视角「客户」、客户视角「你」；补对应用例 |
+| 5 | P2-2 断线时发送按钮仍可点 | 已加断线横幅（「连接已断开，界面数据可能不是最新」）；`send.disabled` 不随 SSE 状态变化 | SSE 断开不等于 HTTP 不可用（代理可能只掐长连接）；按 SSE 状态禁用发送会误伤仍可提交的部署 | 若要禁：先确认部署口径（SSE 断开是否等价整站不可用）；否则维持现状，且文案不承诺"重连" |
+| 6 | 真浏览器冒烟门禁未入库 | 报告建议：CDP 加载 `/operator` → 断言 `#seat-gate display==='none'` → 真实点「认领」；本轮用一次性探针（`temp/web-ui-audit/s9-fix-verify.mjs`）实跑通过 | CI 无 Edge 与服务端，做进 `pnpm gate` 会让干净检出即红；仓内 `pnpm test:web` 是 jsdom，判不出 `[hidden]` 与命中测试 | 二选一：新增 `smoke:web`（本地/演示专用，不进 pre-commit）；或保持人工探针并列为答辩前检查项 |
