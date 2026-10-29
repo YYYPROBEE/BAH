@@ -6060,3 +6060,45 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 - **提交用 `--no-verify` 的原因（如实）**：18:20 起工作树出现两份**非本单产出**的未跟踪测试（`handlers/handoff-message.test.ts`、`handlers/metrics-handoff.test.ts`，19 例全过），使当前工作树的 `tracked-sources` 与 `assertions` 判红。按用户决定不替其作者提交；提交树不含这两个文件（干净 clone 上两门禁为绿），两份文件留在工作树等作者入库。
 - **证据**：`docs/evidence/2026-10-29-integration/`（合并说明 + 四份原始日志 + 自检日志）。
 - **仍未闭合（交施工单 02）**：鉴权仍是临时 `user`/`operator`（客户 token 打坐席 API 是 401 不是 403）；password 模式未涉及；`facts.md` 未重算（3047 → 3100，统一留给 02）；6 张人工截图未做；未推送、未动 tag。
+
+## 96.40 2026-10-29 合流：人机接管 01+02 + 租户与鉴权 01–04
+
+> 编号说明：96.39 已被施工单 01 占用，历史不重排；本节是施工单 02 的收口记录。
+
+### 96.40.1 人机接管合入
+
+- `tenant-04-delivery` 的 05 回归审查已先落一笔（`44f552e`，23 文件 / +337−85，tenant 线自跑 gate 44/44、eval 158/158）。
+- `integration/handoff-tenant` 上 `git merge --no-ff --no-commit tenant-04-delivery`：**17 个冲突**（施工单 02 预期 30 个，合完 handoff 后实际数量变化，以列表为准）。
+- 冲突处理原则：`web.ts` 整文件取 main 并把 tenant 的 auth 增量搬进 `web/channel.ts`；`router.ts` 以 tenant 的 `RouteSpec + roles` 为主并保留 main 的 `trace`/`fork` 与 5 条接管路由；快照 `reverified.json` 一律取 main 后由 `snapshot:reverify` 重算。
+
+### 96.40.2 租户与鉴权合入（含 05 回归审查）
+
+- `channel.ts` 接入 `createWebAuthRuntime`（会话存储 / 口令目录 / 节流 / 审计）与 `wireWebPipelines`（①②③ 三条管线只保留一份实现，web/mobile 不再分叉）；`deps.tenantId = run.tenantId`、`deps.tryAudit` 补齐。
+- 语义冲突五处（合流后新暴露、均已修）：
+  1. `handoff-store` 的 `HandoffSnapshot` 旧 `operator` 字符串 → `operatorId` / `operatorLabel` / `requestedBy`；
+  2. `audit-decisions.verifyAll` 的租户对账把截断告警吞掉 → 恢复 `host.audit-write-failed` 结构化日志；
+  3. `intent.test` 的 `bah:memory-store` 旧配置（`tenant` 键 + `:memory:` + `sessions/memory.db`）→ 租户根下的单段文件名，并补 `core:persistence`；
+  4. `audit-decisions.test` 的链目录补租户段（`<root>/demo/<sid>/audit.jsonl`）；
+  5. `mobile` patch 的 `bah:memory-store` 跟上新 schema（I8 两渠道配置一致）。
+
+### 96.40.3 身份平面统一与路由角色（static 双凭证 / 17 行矩阵）
+
+- `static` 双凭证：`BAH_WEB_TOKEN` → `svc:web` / `customer`，`BAH_OPERATOR_TOKEN` → `svc:operator` / `agent`；两 token 相同 boot 期拒绝（`web-operator-token-conflict`）。临时的 `presentedPrincipal` / `auth:'user'|'operator'` 删除。
+- `none` 主体收窄为 `['customer']`（不含 agent）：否则无凭证请求能打坐席 API。
+- 26 条路由：客户专属（turn / interrupt / approval / verify → `customer`）、fork（customer/admin）、trace（D4 暂按 ROLES）、坐席四动作（agent/admin）、queue（agent/auditor/admin）。
+- 越权矩阵 11 → **17 行（68 格）**；`verify-authz-coverage` 双向覆盖 0 findings。
+- password 模式的坐席登录本轮不做（D2）：`SEAT_PASSWORD_LOGIN=false` ⇒ `/operator` 与 5 条坐席 API 在 password 模式一律 404（在身份解析前判，不暴露存在性）。
+
+### 96.40.4 验证与证据
+
+- `pnpm typecheck` / `pnpm lint` / `pnpm build` 绿。
+- `pnpm test` **294 文件 / 3333 例**；`pnpm test:web` **27 文件 / 365 例**；`pnpm test:snapshot` **9 文件 / 39 例**；`pnpm eval:unit` **22 文件 / 158 例**。
+- `pnpm gate` **50/50**；`tenant-matrix` **8/8**；`verify-tenant-scope` 6 坏样本全抓 / 4 合法不误报；`verify-tenant-isolation` 4 坏样本全抓 / 3 合法不误报；`pnpm handoff:demo` 闭环通过。
+- 证据目录 `docs/evidence/2026-10-29-integration/`（本单新增 02–09 与 `SHA256SUMS`）。
+
+### 96.40.5 边界与未做
+
+- 一进程 N 租户、OS 级隔离、RAG 信封签名、外部锚定、retention、semver 门禁仍不做。
+- password 模式的坐席前端（登录卡片复用 / cookie + CSRF 的 seat API / SSE cookie）未做（D2 降级项）。
+- `/api/trace` 仍是 `ROLES`（D4 降级项）：生产应收窄到 auditor/admin，自评列为残余风险。
+- 6 张人工截图未做；推送与 tag 未动。
