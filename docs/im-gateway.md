@@ -12,7 +12,7 @@
                       ▼
                    session/supervisor（每用户一子进程）
                       │  spawn: node --import tsx packages/cli/src/main.ts
-                      │          --profile im --session <key> --patch <overlay> --jsonl <dir>
+                      │          --profile im --session <key> --patch <overlay> --jsonl <dir> --serve
                       ▼
                    子进程（channel:im，127.0.0.1:随机端口）
                       │  /api/health（公开）
