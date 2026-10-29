@@ -4,7 +4,10 @@
  * 拆分前这是一条 180 行的 `if` 链，闸与路由混在一起；现在闸按**路由表的 `auth` 字段**决定，
  * 顺序仍然逐字保留（W09 §2.3 的硬约束）：
  *
- * 限流 429 → 管理面（豁免）→ Bearer 401 → CSRF 403 → 业务 423/409 → 静态 404 → 405。
+ * 限流 429 → 管理面（豁免）→ **身份 401** → CSRF 403 → 业务 423/409 → 静态 404 → 405。
+
+ * 02 起"Bearer 401"换成"身份 401"：`static` 模式的身份解析内部仍做那个 Bearer 比对，
+ * `password` 模式读会话 cookie。**闸仍然只有这一处**——身份不通过的请求走不到 handler。
  *
  * 为什么闸不写在 handler 里：一条路由漏写就是一次绕过，而"漏写"在 `if` 链里看不出来。
  * 闸只有这一处，路由表只有方法/路径/状态码三元组。
@@ -24,14 +27,13 @@ import {
   handleSession,
   handleTurn,
 } from './handlers/session.ts'
+import { AUTH_HANDLERS } from './handlers/auth.ts'
 import { handleStatic } from './handlers/static.ts'
 import { handleHandoff } from './handlers/handoff.ts'
 import { handleMetrics } from './handlers/metrics.ts'
 import { sendError } from './http.ts'
 import { METHOD_NOT_ALLOWED_CODE, METHOD_NOT_ALLOWED_STATUS, matchRoute, type RouteHandler } from './router.ts'
 import { startHttpSpan } from './trace.ts'
-import { tokenMatches } from '../web-admin.ts'
-import { presentedWebToken } from '../web-auth.ts'
 
 /** 处理器查表（键与 `RouteHandler` 一一对应）。 */
 const HANDLERS: Readonly<Record<RouteHandler, WebHandler>> = {
@@ -45,6 +47,9 @@ const HANDLERS: Readonly<Record<RouteHandler, WebHandler>> = {
   verify: handleVerify,
   handoff: handleHandoff,
   admin: handleAdmin,
+  login: AUTH_HANDLERS.login,
+  logout: AUTH_HANDLERS.logout,
+  me: AUTH_HANDLERS.me,
   static: handleStatic,
 }
 
@@ -86,21 +91,22 @@ export function createDispatcher(
       }
     }
 
-    // Web 凭证检查（D5 最小集）：除探活与管理面外，所有 `/api/*` 一律先验 Bearer。
-    // SSE 例外：`EventSource` 不能设请求头，只能带 `?token=`——只对 GET /api/events 放宽。
-    if (isApi && !isAdmin && match?.spec.auth !== 'public') {
-      const queryToken =
-        method === 'GET' && path === '/api/events' ? url.searchParams.get('token') : null
-      if (!tokenMatches(deps.webToken, presentedWebToken(req.headers, queryToken))) {
-        sendError(res, 401, 'web-unauthorized', '缺少或错误的访问凭证')
-        return
-      }
+    // 身份解析（02 TA-25）：**唯一**一次；结果挂到 WebRequest，handler 不再自己解析。
+    // 失败且该路由需要主体 → 401。三种模式的区别都在 deps.auth.identify 内部，
+    // 这里不写任何 `mode === ...` 分支（否则闸就有第二份真相）。
+    const identity = deps.auth.identify(req, deps.now())
+    // 需要主体的判定沿用改动前的口径：除探活与管理面外，所有 `/api/` 前缀都要身份
+    // （包括**未命中**的 /api/ 路径：打不存在的接口不该是一次免鉴权探测）。
+    const needsIdentity = isApi && !isAdmin && match?.spec.auth !== 'public'
+    if (needsIdentity && identity.kind === 'anonymous') {
+      sendError(res, 401, 'web-unauthorized', '缺少或错误的访问凭证')
+      return
     }
 
     // W09 CSRF：鉴权之后、业务之前。管理面已在上一步排除（豁免 CLI 客户端）；
     // 缺凭证仍是 401，不会被 CSRF 抢成 403；`/api/turn` 的 HALT 423 仍由 agent.send 产生。
     if (config.csrf.enabled && isApi && !isAdmin && CSRF_METHODS.has(method)) {
-      const csrf = csrfVerdict(req, deps.csrfToken)
+      const csrf = csrfVerdict(req, deps.auth.csrfExpectation(identity))
       if (csrf !== 'pass') {
         sendError(
           res,
@@ -117,7 +123,7 @@ export function createDispatcher(
       return
     }
 
-    const request: WebRequest = { method, url, path, rest: match.rest }
+    const request: WebRequest = { method, url, path, rest: match.rest, identity }
     await HANDLERS[match.spec.handler](req, res, request, deps)
   }
 }

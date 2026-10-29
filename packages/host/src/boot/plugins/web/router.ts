@@ -27,6 +27,9 @@ export type RouteHandler =
   | 'verify'
   | 'handoff'
   | 'admin'
+  | 'login'
+  | 'logout'
+  | 'me'
   | 'static'
 
 /**
@@ -89,6 +92,40 @@ export const ROUTES: readonly RouteSpec[] = [
     statuses: [200],
     handler: 'health',
     note: '探活：`{ ok, lastSeq, pendingTicketCount }`（只给数量，不给票据 ID）',
+  },
+  {
+    methods: ['POST'],
+    // 登录是**公开**路由（还没身份），但**必须过 CSRF**：否则存在"登录 CSRF"
+    // （攻击者让受害者登录攻击者的账户，之后受害者的操作全部落在攻击者账上）
+    path: '/api/auth/login',
+    kind: 'exact',
+    auth: 'public',
+    csrf: true,
+    statuses: [200, 400, 401, 403, 409, 503],
+    handler: 'login',
+    note: '登录 `{ userId, password }` → 下发 HttpOnly 会话 cookie 并轮换 CSRF；失败与"用户不存在"同形',
+  },
+  {
+    methods: ['POST'],
+    path: '/api/auth/logout',
+    kind: 'exact',
+    // **public** 而不是 web：登出必须幂等（02 TA-26 的"再次 logout → 200"）。
+    // 如果要求主体，第二次登出（cookie 已失效）会变成 401——那就不叫幂等了。
+    auth: 'public',
+    csrf: true,
+    statuses: [200, 403],
+    handler: 'logout',
+    note: '登出（幂等：没有会话也 200，但会清 cookie；public + CSRF）',
+  },
+  {
+    methods: ['GET'],
+    path: '/api/auth/me',
+    kind: 'exact',
+    auth: 'web',
+    csrf: false,
+    statuses: [200, 401],
+    handler: 'me',
+    note: '自查：`{ tenant, userId, roles, expiresAt, mode }`（**不回 sid**）',
   },
   {
     methods: ['POST'],

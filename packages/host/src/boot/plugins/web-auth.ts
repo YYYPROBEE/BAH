@@ -6,6 +6,8 @@
  * 2. **不进仓库**：token 只从环境变量读或进程内生成，绝不写死、绝不落审计；
  * 3. **页面即凭证载体**：服务端在 `index.html` 注入 `<meta name="bah-web-token">`，
  *    同源页面读它，跨源页面读不到（没有 CORS）。这是"最小集"的边界，不是完整登录。
+ *    **`auth.mode: password` 下不得调用 `injectWebToken`**——调用等于把口令写进 HTML
+ *    （02 TA-28 的缺口 1）；那条路改用 HttpOnly 会话 cookie。
  *
  * SSE 的 `EventSource` 不能设请求头，所以 `GET /api/events` 额外接受 `?token=`；
  * 其余接口只认 `Authorization: Bearer`。这条差异写进 `docs/web-frontend.md`。
@@ -47,6 +49,23 @@ export function injectWebToken(html: string, token: string): string {
   const escaped = token.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
   const tag = `<meta name="${WEB_TOKEN_META}" content="${escaped}" />`
   const without = html.replace(new RegExp(`<meta name="${WEB_TOKEN_META}"[^>]*>\\s*`, 'i'), '')
+  if (!/<\/head>/i.test(without)) return `${tag}\n${without}`
+  return without.replace(/<\/head>/i, `    ${tag}\n  </head>`)
+}
+
+/** 页面里承载认证模式 的 meta 名（前端据此决定启动路径）。 */
+export const AUTH_MODE_META = 'bah-auth-mode'
+
+/**
+ * 注入认证模式标记（02 TA-31）。
+ *
+ * 为什么必须由服务端注入而不是前端探测：前端要知道"该不该先弹登录卡片"只能靠一个
+ * 明确的信号；靠"401 了就弹"会让静态模式多一次失败请求，也会把真正的鉴权错误
+ * 误当成"未登录"。**模式是服务端事实，别让客户端猜。**
+ */
+export function injectAuthModeMeta(html: string, mode: string): string {
+  const tag = `<meta name="${AUTH_MODE_META}" content="${mode}" />`
+  const without = html.replace(new RegExp(`<meta name="${AUTH_MODE_META}"[^>]*>\\s*`, 'i'), '')
   if (!/<\/head>/i.test(without)) return `${tag}\n${without}`
   return without.replace(/<\/head>/i, `    ${tag}\n  </head>`)
 }

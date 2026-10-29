@@ -40,7 +40,17 @@ export function csrfVerdict(req: IncomingMessage, expected: string): CsrfVerdict
   return cookie === presented && presented === expected ? 'pass' : 'mismatch'
 }
 
-/** index 页面下发 cookie 的完整头（`SameSite=Strict` + `Path=/`，不带 HttpOnly）。 */
-export function csrfCookieHeader(token: string): string {
-  return `${CSRF_COOKIE}=${token}; Path=/; SameSite=Strict`
+/**
+ * 下发 cookie 的完整头（`SameSite=Strict` + `Path=/`，**不带** HttpOnly）。
+ *
+ * @param token CSRF 令牌
+ * @param maxAgeSec 存活秒数。**登录后必须与 `bah_sid` 一致**（AR-07 陷阱 2）：
+ *   会话 cookie 是持久的而 CSRF 是会话 cookie 时，用户第二天打开页面 → 身份还在、CSRF 没了
+ *   → 每个写请求 403 `web-csrf-required`，而"刷新一下"未必修得好。
+ *   缺省不带 `Max-Age`（= 会话 cookie，与改动前的行为一致）。
+ */
+export function csrfCookieHeader(token: string, maxAgeSec?: number): string {
+  const parts = [`${CSRF_COOKIE}=${token}`, 'Path=/', 'SameSite=Strict']
+  if (maxAgeSec !== undefined) parts.push(`Max-Age=${String(Math.max(0, Math.floor(maxAgeSec)))}`)
+  return parts.join('; ')
 }

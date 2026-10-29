@@ -10,6 +10,7 @@
 import { BahError } from '@bah/util'
 
 import { readBoolean, readPositiveInteger, readString, rejectUnknownKeys } from '../../config.ts'
+import { DEFAULT_AUTH, resolveAuthSettings, type AuthSettings } from './auth/config.ts'
 
 /** `channel:web` 的配置（全部随部署变化 → 全部可校验）。 */
 export interface WebSettings {
@@ -30,6 +31,12 @@ export interface WebSettings {
   readonly csrf: {
     readonly enabled: boolean
   }
+  /**
+   * 认证面（02）。**整个块可选：不写 = `mode: 'static'` = 改动前的行为**（A3）。
+   *
+   * 这一条是本单能否合入的硬门槛：8 个 profile 与 7 个快照不写 auth 时必须一字不变。
+   */
+  readonly auth: AuthSettings
 }
 
 /** 默认配置。 */
@@ -40,6 +47,7 @@ export const DEFAULT_WEB: WebSettings = {
   heartbeatMs: 15_000,
   rateLimit: { windowMs: 60_000, maxRequests: 120 },
   csrf: { enabled: true },
+  auth: DEFAULT_AUTH,
 }
 
 /** 解析 `rateLimit` 配置（未写时用默认值）。 */
@@ -72,7 +80,15 @@ export function parseCsrf(value: unknown): WebSettings['csrf'] {
 }
 
 /** 本插件认的顶层键（`validate` 的白名单只此一份）。 */
-const WEB_SETTING_KEYS = ['port', 'host', 'staticRoot', 'heartbeatMs', 'rateLimit', 'csrf'] as const
+const WEB_SETTING_KEYS = [
+  'port',
+  'host',
+  'staticRoot',
+  'heartbeatMs',
+  'rateLimit',
+  'csrf',
+  'auth',
+] as const
 
 /**
  * 把原始配置解析成 `WebSettings`（未知键 / 非法值一律 fail-loud）。
@@ -95,6 +111,7 @@ export function resolveWebSettings(config: Readonly<Record<string, unknown>>): W
   const staticRoot = readString(config, 'staticRoot', 'channel:web')
   const rateLimit = parseRateLimit(config['rateLimit'])
   const csrf = parseCsrf(config['csrf'])
+  const auth = resolveAuthSettings(config['auth'])
 
   return {
     port: port ?? DEFAULT_WEB.port,
@@ -103,5 +120,6 @@ export function resolveWebSettings(config: Readonly<Record<string, unknown>>): W
     heartbeatMs: heartbeatMs ?? DEFAULT_WEB.heartbeatMs,
     rateLimit,
     csrf,
+    auth,
   }
 }

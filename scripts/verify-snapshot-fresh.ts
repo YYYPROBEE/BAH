@@ -122,6 +122,15 @@ const EXEMPT: readonly Exemption[] = [
       '背书面是 wire.test.ts 的逐分片映射断言（含缓存命中字段缺省语义）',
     backing: 'packages/llm/src/deepseek/wire.test.ts',
   },
+  {
+    file: 'packages/persistence/src/credentials/index.ts',
+    kind: 'unreachable',
+    reason:
+      '租户与鉴权 02 TA-27 只给 `bindSession` 增加可选第三参 `method`（默认 mock-login，向后兼容）；' +
+      '快照场景一律用 `bank:tools.demoUserId` 在启动期直绑身份，任何场景都不调用 `bindSession`。' +
+      '背书面是 bank-tools.test.ts：T-IDN-002（mock-login）与 TA-27-6（session-auth 载荷）',
+    backing: 'packages/host/src/boot/plugins/bank-tools.test.ts',
+  },
 ]
 
 interface SnapshotCase {

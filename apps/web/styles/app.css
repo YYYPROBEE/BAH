@@ -174,6 +174,56 @@ textarea {
   padding: var(--spacer-12) var(--spacer-24) 0;
 }
 
+/* ────────────────────────────── 登录卡片（02 TA-31；只在 password 模式出现） */
+
+.login {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: var(--spacer-24);
+}
+
+.login-card {
+  display: grid;
+  gap: var(--spacer-12);
+  width: min(360px, 100%);
+  padding: var(--spacer-24);
+  background: var(--bg-base-secondary);
+  border: 1px solid var(--border-neutral-l1);
+  border-radius: var(--radius-16);
+  box-shadow: var(--shadow-menu, none);
+}
+
+.login-card__title {
+  margin: 0;
+  font-family: var(--title-md-strong-font-family, inherit);
+  font-size: var(--title-md-strong-font-size, 20px);
+  font-weight: var(--title-md-strong-font-weight, 600);
+  color: var(--text-default);
+}
+
+.login-card__hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--body-sm-font-size);
+}
+
+.login-card .ds-input {
+  display: block;
+  height: 36px;
+}
+
+.login-card .ds-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.login-card .ds-hint {
+  margin: 0;
+  color: var(--status-error-default);
+  font-size: var(--body-sm-font-size);
+}
+
 .app-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 400px;

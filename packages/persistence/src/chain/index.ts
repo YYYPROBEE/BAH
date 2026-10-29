@@ -58,6 +58,12 @@ export const SIGNED_TYPES = [
   'saga/residual-recorded',
   'saga/manually-closed',
   'approval/decided',
+  // 租户与鉴权 02：认证事实也是证据（谁在何时登录/失败/登出/被锁）。
+  // 白名单只放行、不强制：缺钥时仍 unsigned 启动（见 `audit-decisions.ts` 的 boot 期判定）。
+  'auth/login',
+  'auth/logout',
+  'auth/login-failed',
+  'auth/login-locked',
 ] as const
 
 /** `bank:saga-audit` 的配置（SA-00 §10 / SA-11 §2）。 */

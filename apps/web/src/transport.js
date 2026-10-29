@@ -6,6 +6,8 @@
  * 不需要起真实服务（T-WEB-008 的"独立运行"就是这样验的）。
  */
 
+import { readAuthMode } from './auth.js'
+
 /**
  * 从页面读取服务端注入的访问 token。
  *
@@ -76,6 +78,11 @@ export function createHttpApi(options = {}) {
     if (!response.ok) {
       const code = data?.error?.code ?? `http-${response.status}`
       const reason = data?.error?.reason ?? `请求失败（${response.status}）`
+      // 会话失效（401）不是"某一次操作失败"：交给登录门统一收敛（password 模式才有监听者；
+      // static 模式下没人听，等于什么都不发生——保持改动前行为）。
+      if (response.status === 401 && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bah:unauthorized'))
+      }
       return { ok: false, status: response.status, code, reason }
     }
     return { ok: true, status: response.status, data }
@@ -135,7 +142,26 @@ export function connectEvents(options) {
   source.addEventListener('frame', handleFrame)
   source.addEventListener('fault', handleFault)
   source.addEventListener('open', () => options.onStatus?.('online'))
-  source.addEventListener('error', () => options.onStatus?.('offline'))
+  // password 模式下会话来失效时，SSE 连接会收到 401；而 `EventSource` 拿不到状态码，
+  // 默认行为是每几秒自动重连一次（重连风暴）。用一次 `/api/auth/me` 探测，失效就显式
+  // `close()` 并交回登录门（整页刷新）——这就是 TA-31 的"丢弃当前 SSE 连接"。
+  let probing = false
+  source.addEventListener('error', () => {
+    options.onStatus?.('offline')
+    if (probing || typeof fetch !== 'function' || readAuthMode() !== 'password') return
+    probing = true
+    void fetch('/api/auth/me', { credentials: 'same-origin' })
+      .then((response) => {
+        if (response.status === 401) {
+          source.close()
+          window.dispatchEvent(new CustomEvent('bah:unauthorized'))
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        probing = false
+      })
+  })
 
   return {
     close() {

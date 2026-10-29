@@ -19,6 +19,7 @@ import type { TenantId } from '@bah/util'
 import { PluginManager } from '../plugin-manager/index.ts'
 import type { PluginCatalog, ValidatedRow } from '../plugin-manager/index.ts'
 
+import { assertAuthCompatibility } from './auth-compat.ts'
 import { BOOT_PREFIX, bootError } from './config.ts'
 import {
   diffRows,
@@ -144,6 +145,9 @@ export interface BootedApp {
 export async function boot(options: BootOptions): Promise<BootedApp> {
   const manager = new PluginManager(options.catalog)
   let rows = manager.validate(mergeLayers(options.bundles, options.layers))
+  // 跨行约束（02 TA-27）：password 模式与 demoUserId / 静态画像不能共存。
+  // 放在建 ctx 之前：配置错误必须在任何副作用之前抛出。
+  assertAuthCompatibility(rows)
 
   const ctx = createContext()
   // 插件只能按键取 `bah:run`，所以告警出口必须随 run 上下文下发：

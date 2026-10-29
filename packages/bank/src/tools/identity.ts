@@ -17,7 +17,7 @@ import { BahError } from '@bah/util'
 import type { BankIdentity } from './types.ts'
 
 /** 绑定方式（审计用；09 的 credentials 会追加更多来源）。 */
-export type IdentityMethod = 'demo-config' | 'mock-login' | 'im-map'
+export type IdentityMethod = 'demo-config' | 'mock-login' | 'im-map' | 'session-auth'
 
 /**
  * 会话身份（01 TA-13b）。

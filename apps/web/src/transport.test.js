@@ -55,3 +55,43 @@ describe('transport · W09 CSRF', () => {
     expect(calls[0].init.headers['x-bah-csrf']).toBe('injected-token')
   })
 })
+
+describe('transport · 02 TA-31 会话失效收敛', () => {
+  it('任何 API 返回 401 → 派发 bah:unauthorized（登录门负责回登录卡片）', async () => {
+    const received = []
+    const listener = () => received.push('unauthorized')
+    window.addEventListener('bah:unauthorized', listener)
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: { code: 'web-unauthorized', reason: '缺少或失效的登录状态' } }),
+    }))
+    try {
+      const api = createHttpApi({ token: '' })
+      const result = await api.session()
+      expect(result.ok).toBe(false)
+      expect(result.status).toBe(401)
+      expect(received).toEqual(['unauthorized'])
+    } finally {
+      window.removeEventListener('bah:unauthorized', listener)
+    }
+  })
+
+  it('非 401 的失败不触发登录门（403/500 是单次操作失败，不是会话失效）', async () => {
+    const received = []
+    const listener = () => received.push('unauthorized')
+    window.addEventListener('bah:unauthorized', listener)
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { code: 'web-csrf-required', reason: '缺少 CSRF' } }),
+    }))
+    try {
+      const api = createHttpApi({ token: 'web-token' })
+      await api.turn('查余额')
+      expect(received).toEqual([])
+    } finally {
+      window.removeEventListener('bah:unauthorized', listener)
+    }
+  })
+})

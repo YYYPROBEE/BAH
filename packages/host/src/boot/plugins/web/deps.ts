@@ -21,6 +21,7 @@ import type { HandoffHandle } from './handoff.ts'
 import type { TelemetryHandle } from '../telemetry.ts'
 import type { createRateLimiter } from '../web-rate-limit.ts'
 import type { SseHub } from './sse.ts'
+import type { AuthRuntime, RequestIdentity } from './auth/index.ts'
 
 /** 限流器实例类型（`createRateLimiter` 的返回，不另立接口）。 */
 export type RateLimiter = ReturnType<typeof createRateLimiter>
@@ -36,6 +37,13 @@ export interface WebDeps {
    * 客户端声明的租户永远不可信（`verify-tenant-scope` 判据 3）。
    */
   readonly tenantId: TenantId
+  /**
+   * 认证运行期（02 TA-24）：**唯一的**身份解析入口。
+   *
+   * `dispatch` 每个请求调一次 `identify()`，把结果挂到 `WebRequest.identity`；
+   * 处理器只读那个结果，不自己再解析（否则就有第二份身份真相）。
+   */
+  readonly auth: AuthRuntime
   /** 审批 / 强验证的传输层（归属校验在适配器里）。 */
   readonly adapter: WebChannelAdapter
   /** SSE 广播与连接管理。 */
@@ -81,6 +89,14 @@ export interface WebRequest {
   readonly path: string
   /** 前缀路由的尾段（`/api/approval/t-1` → `t-1`）；其余为空串。 */
   readonly rest: string
+  /**
+   * 本次请求的身份（`dispatch` 解析后挂上来）。
+   *
+   * 为什么挂在请求上而不是让 handler 再 `identify()` 一次：同一个请求解析两次就有
+   * 第二份身份真相（一次读过 cookie 后会话被撤销，两次结果会不同）。
+   * 直接构造 `WebRequest` 的单测可以不给（handler 按"匿名"处理）。
+   */
+  readonly identity?: RequestIdentity
 }
 
 /** 处理器签名（4 个 handler 模块统一，dispatch 查表调用）。 */

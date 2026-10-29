@@ -88,6 +88,23 @@
     # 鉴权 fail-loud：sidecar 与宿主必须用同一 BAH_KNOWLEDGE_TOKEN（见 docs/knowledge.md）。
     required: false
 
+# 认证面（租户与鉴权 02）。**整块注释掉 = auth.mode: static = 改动前的行为**。
+# 打开 password 模式之前必须先做三件事（boot 期会 fail-loud）：
+#   1) cp auth/users.example.yml auth/users.yml 并换掉口令；
+#       目录缺失 → auth-directory-missing；tenant 不一致 → auth-directory-tenant-mismatch；
+#   2) 去掉 bank:tools 的 demoUserId（上面那行）→ 否则 auth-demo-user-conflict；
+#   3) 去掉 core:agent 的 runtimeContext.user（下面 name: 张三 那行）→ 否则 auth-static-user-conflict
+#      （姓名改由实体槽位现算；否则换个人登录时 slots-user-mismatch 会让每个 turn 失败）。
+#
+# - id: channel:web
+#   config:
+#     auth:
+#       mode: password
+#       cookie: { name: bah_sid, secure: false }   # 生产（HTTPS）必须 true
+#       session: { idleMs: 1800000, absoluteMs: 28800000 }
+#       directory: { path: auth/users.yml }
+#       login: { maxFailures: 5, lockMs: 900000, backoffBaseMs: 1000, backoffMaxMs: 60000 }
+
 - id: interaction:approval
   config:
     # Web 有弹窗：不设自动应答者，等人点（默认结论 unavailable = 拒绝，绝不默认放行）

@@ -22,7 +22,10 @@ import type { RateLimiter, WebDeps, WebRequest } from './deps.ts'
 import { createDispatcher } from './dispatch.ts'
 import { handleAdmin } from './handlers/admin.ts'
 import type { SseHub } from './sse.ts'
-import { DEFAULT_TENANT_ID } from '@bah/util'
+import { DEFAULT_TENANT_ID, normalizePrincipal } from '@bah/util'
+import { tokenMatches } from '../web-admin.ts'
+import { presentedWebToken } from '../web-auth.ts'
+import type { AuthRuntime } from './auth/index.ts'
 
 /** 测试固定的凭证（生产未配置时随机生成）。 */
 const WEB_TOKEN = 'tok-web'
@@ -112,6 +115,9 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
   return {
     session: session as unknown as SessionApi,
     tenantId: DEFAULT_TENANT_ID,
+    // 闸顺序的用例只关心"有没有身份"：给一个 static 模式的合成运行期，
+    // 真实的解析规则在 identity.test.ts 里逐条验（这里不重复）
+    auth: createStaticAuthRuntime(DEFAULT_TENANT_ID, WEB_TOKEN, CSRF_TOKEN),
     adapter: adapter as unknown as WebChannelAdapter,
     hub,
     // C5：矩阵测试只关心闸的顺序，接管状态给一个"永不接管"的桩
@@ -525,3 +531,33 @@ describe('D6 畸形百分号编码：输入错不许报成服务错', () => {
     expect((await call('POST', `/api/approval${MALFORMED}`, { body: '{}' })).status).toBe(401)
   })
 })
+
+/**
+ * 测试用：**复刻 static 模式的两个口径**——Bearer 比对与进程级 CSRF。
+ *
+ * 不能写成"identify 恒为 service"：那样"缺凭证 401"的用例会假绿（闸被桩绕过），
+ * 而闸顺序正是这个文件唯一要证的东西。
+ */
+function createStaticAuthRuntime(
+  tenantId: typeof DEFAULT_TENANT_ID,
+  staticToken: string,
+  serverCsrf: string,
+): AuthRuntime {
+  const principal = normalizePrincipal({
+    tenantId,
+    userId: 'svc:web',
+    roles: ['customer', 'agent', 'auditor'],
+    source: 'demo-config',
+  })
+  return {
+    mode: 'static',
+    cookie: { name: 'bah_sid', secure: false, maxAgeSec: 60 },
+    identify: (req) =>
+      tokenMatches(staticToken, presentedWebToken(req.headers))
+        ? { kind: 'service', principal }
+        : { kind: 'anonymous' },
+    csrfExpectation: () => serverCsrf,
+    login: async () => ({ ok: false, code: 'web-login-failed' }),
+    logout: () => false,
+  }
+}

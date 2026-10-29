@@ -250,6 +250,9 @@ confirmed(amount, callId) =
 | 方法 | 路径 | 语义 | 鉴权 | 状态码 |
 |---|---|---|---|---|
 | GET | `/api/health` | 探活：`{ ok, lastSeq, pendingTicketCount }`（只给数量，不给票据 ID） | 公开 | 200 |
+| POST | `/api/auth/login` | 登录 `{ userId, password }` → 下发 HttpOnly 会话 cookie 并轮换 CSRF；失败与"用户不存在"同形 | 公开 + CSRF | 200 / 400 / 401 / 403 / 409 / 503 |
+| POST | `/api/auth/logout` | 登出（幂等：没有会话也 200，但会清 cookie；public + CSRF） | 公开 + CSRF | 200 / 403 |
+| GET | `/api/auth/me` | 自查：`{ tenant, userId, roles, expiresAt, mode }`（**不回 sid**） | Bearer | 200 / 401 |
 | POST | `/api/admin/sentry/unfreeze` | 人工解冻断路器（默认关闭，见 §7.1） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 503 |
 | POST | `/api/admin/halt` | 人工进入 HALT（W07，见 §7.1.1）；`changed:false` 表示本来就在 HALT | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 503 |
 | POST | `/api/admin/halt/unfreeze-request` | 会话内发起一次 U 盾 MFA 审批，签发解除票据（无应答者 → 409） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 409 / 503 |
