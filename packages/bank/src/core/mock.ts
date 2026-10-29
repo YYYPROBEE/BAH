@@ -11,7 +11,7 @@
 
 import { BahError } from '@bah/util'
 
-import type { CardLostResult, SubscriptionCancelled } from './provider.ts'
+import type { CardLostResult, CardStateChange, SubscriptionCancelled } from './provider.ts'
 import type { ReversalResult } from './compensation.ts'
 
 import type { BankDataset } from '../forge/index.ts'
@@ -161,6 +161,30 @@ export class MockBankCore implements BankCoreProvider {
     return { cardId, tail: card.tail, status: 'lost' }
   }
 
+  async freezeCard(userId: UserId, cardId: CardId): Promise<CardStateChange> {
+    const card = this.cardOfUser(userId, cardId)
+    if (card.status === 'lost') {
+      throw new BahError('card-lost', 'bank: 该卡已挂失，只能补发新卡，不能冻结', { cardId })
+    }
+    if (card.status === 'frozen') return { cardId, tail: card.tail, status: 'frozen', changed: false }
+    this.cards = this.cards.map((item) =>
+      item.id === cardId ? { ...item, status: 'frozen' as const } : item,
+    )
+    return { cardId, tail: card.tail, status: 'frozen', changed: true }
+  }
+
+  async unfreezeCard(userId: UserId, cardId: CardId): Promise<CardStateChange> {
+    const card = this.cardOfUser(userId, cardId)
+    if (card.status === 'lost') {
+      throw new BahError('card-lost', 'bank: 该卡已挂失，解挂请走补发流程，不能解冻', { cardId })
+    }
+    if (card.status === 'normal') return { cardId, tail: card.tail, status: 'normal', changed: false }
+    this.cards = this.cards.map((item) =>
+      item.id === cardId ? { ...item, status: 'normal' as const } : item,
+    )
+    return { cardId, tail: card.tail, status: 'normal', changed: true }
+  }
+
   async cancelSubscription(
     userId: UserId,
     subscriptionId: SubscriptionId,
@@ -274,7 +298,9 @@ export class MockBankCore implements BankCoreProvider {
     // 本人账户命中优先于收款人表：否则「锁定账户(9012)」会被当成新收款人升红
     const selfTarget = this.resolveSelfTransfer(account, req.payee)
     const payee = selfTarget === undefined ? this.findPayee(account.userId, req.payee) : undefined
-    const dailyLimitCents = this.dailyLimitOf(account.id)
+    const viaCard =
+      req.viaCardId === undefined ? undefined : this.requireCardOf(account.id, req.viaCardId)
+    const dailyLimitCents = this.dailyLimitOf(account.id, req.viaCardId)
     const dailyUsedCents = this.dailyUsedCents(account.id, at)
     const risks = checkTransferRisks({
       amountCents: req.amountCents,
@@ -286,6 +312,7 @@ export class MockBankCore implements BankCoreProvider {
       duplicateRecent: this.hasRecentDuplicate(account.id, req.payee.name, req.amountCents, at),
       at,
       limits: this.limitsConfig,
+      ...(viaCard === undefined ? {} : { cardStatus: viaCard.status, cardTail: viaCard.tail }),
     })
     return {
       amountCents: req.amountCents,
@@ -303,6 +330,7 @@ export class MockBankCore implements BankCoreProvider {
         : risks.length > 0
           ? 'warn'
           : 'allow',
+      ...(viaCard === undefined ? {} : { viaCard: { tail: viaCard.tail, status: viaCard.status } }),
     }
   }
 
@@ -316,6 +344,18 @@ export class MockBankCore implements BankCoreProvider {
         accountId: account.id,
         status: account.status,
       })
+    }
+    // 卡状态是第二条守卫：预检里的 block 可能被绕过（工具可被直接调用），
+    // 核销之前必须再判一次，否则"冻结了却还能刷"就是结构性成立的。
+    if (req.viaCardId !== undefined) {
+      const card = this.requireCardOf(account.id, req.viaCardId)
+      if (card.status !== 'normal') {
+        throw new BahError(
+          'card-unavailable',
+          card.status === 'lost' ? 'bank: 该卡已挂失，不能用于支付' : 'bank: 该卡已冻结，请先解冻',
+          { cardId: card.id, status: card.status },
+        )
+      }
     }
     if (req.payee.name.trim().length === 0) {
       throw new BahError('payee-invalid', 'bank: 收款人姓名不能为空', { accountId: account.id })
@@ -393,7 +433,7 @@ export class MockBankCore implements BankCoreProvider {
     })
 
     const dailyUsedCents = this.dailyUsedCents(account.id, at)
-    const dailyLimitCents = this.dailyLimitOf(account.id)
+    const dailyLimitCents = this.dailyLimitOf(account.id, req.viaCardId)
     const result: TransferResult = {
       txnId: transaction.id,
       ticketId: ticket.ticketId,
@@ -657,10 +697,43 @@ export class MockBankCore implements BankCoreProvider {
    * 从 5000 降到 1000 之后，判决层按 1000 升红，而预览层仍显示"今日还可转 5000"——
    * 客户看到的是 5000，转 1200 就被要求强验证。展示口径必须与判决口径同源。
    */
-  private dailyLimitOf(accountId: AccountId): number {
-    const card = this.cards.find((item) => item.accountId === accountId && item.status === 'normal')
+  private dailyLimitOf(accountId: AccountId, cardId?: CardId): number {
+    const card =
+      cardId === undefined
+        ? this.cards.find((item) => item.accountId === accountId && item.status === 'normal')
+        : this.cards.find((item) => item.id === cardId)
     const configured = this.limitsConfig.dailyTransferLimitCents
     return card === undefined ? configured : Math.min(card.dailyLimitCents, configured)
+  }
+
+  /**
+   * 按账户 + 卡 ID 取卡（转账支付工具路径）。
+   *
+   * @throws `card-unknown` 卡不存在
+   * @throws `card-not-owned` 卡不属于该账户（跨账户用卡是越权，不是参数错）
+   */
+  private requireCardOf(accountId: AccountId, cardId: CardId): Card {
+    const card = this.cards.find((item) => item.id === cardId)
+    if (card === undefined) {
+      throw new BahError('card-unknown', `bank: 未知银行卡：${cardId}`, { cardId })
+    }
+    if (card.accountId !== accountId) {
+      throw new BahError('card-not-owned', 'bank: 该卡不属于本账户', { cardId, accountId })
+    }
+    return card
+  }
+
+  /** 归属校验（与 `reportCardLost` 同一口径）。 */
+  private cardOfUser(userId: UserId, cardId: CardId): Card {
+    const card = this.cards.find((item) => item.id === cardId)
+    if (card === undefined) {
+      throw new BahError('card-unknown', `bank: 未知银行卡：${cardId}`, { cardId })
+    }
+    const account = this.requireAccount(card.accountId)
+    if (account.userId !== userId) {
+      throw new BahError('card-not-owned', 'bank: 该卡不属于当前用户', { cardId })
+    }
+    return card
   }
 
   private requireAccount(accountId: AccountId): Account {

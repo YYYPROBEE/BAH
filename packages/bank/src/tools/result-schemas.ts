@@ -60,6 +60,19 @@ const CARD_VIEW: ToolSchema = {
   },
 }
 
+/** 卡片状态迁移结果（`CardStateResult`）。 */
+const CARD_STATE: ToolSchema = {
+  type: 'object',
+  required: ['cardId', 'tail', 'status', 'changed', 'at'],
+  properties: {
+    cardId: { type: 'string' },
+    tail: { type: 'string' },
+    status: { type: 'string', enum: ['frozen', 'normal'] },
+    changed: { type: 'boolean' },
+    at: { type: 'integer' },
+  },
+}
+
 export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSchema>>> = {
   account_list: {
     type: 'object',
@@ -191,6 +204,9 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
       risks: { type: 'array' },
       verdict: { type: 'string' },
       effectiveTier: { type: 'string', enum: ['green', 'yellow', 'red'] },
+      // 仅当传了 viaCardId 时出现（可选字段不进 required）
+      viaCardTail: { type: 'string' },
+      viaCardStatus: { type: 'string', enum: ['normal', 'frozen', 'lost'] },
       at: { type: 'integer' },
     },
   },
@@ -323,4 +339,7 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
       lockedUntil: { type: 'integer' },
     },
   },
+
+  card_freeze: CARD_STATE,
+  card_unfreeze: CARD_STATE,
 }

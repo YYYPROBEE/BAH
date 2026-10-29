@@ -141,7 +141,7 @@ export const DEFAULT_BANK_TOOLS: Omit<BankToolsSettings, 'demoUserId'> = {
    * （`core/mock.ts` 的 `dailyLimitOf` 也取 min）——改一处，两处一起变。
    */
   dailyTransferLimit: 1_000,
-  riskyOps: ['transfer_create', 'wealth_purchase'],
+  riskyOps: ['transfer_create', 'wealth_purchase', 'card_freeze', 'card_unfreeze'],
   riskyCallThreshold: 3,
   // W09：默认走测试网关适配器；`mock` 只是回滚开关（两者行为在演示档等价）。
   verify: { provider: 'gateway', successAfter: 1, maxAttempts: 3, lockMinutes: 30 },

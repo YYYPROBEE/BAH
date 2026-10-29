@@ -6,7 +6,7 @@
  * 模型能拿到"为什么这笔会被拦"的结构化理由，而不是只看到审批弹窗。
  */
 
-import type { PayeeBinding, BankLimits } from '../core/model.ts'
+import type { PayeeBinding, BankLimits, CardStatus } from '../core/model.ts'
 import { CN_TZ_OFFSET_MS } from '../core/model.ts'
 import type { RiskFinding } from '../core/provider.ts'
 
@@ -26,6 +26,10 @@ export interface TransferRiskInput {
   /** 发生时刻（epoch ms）。 */
   readonly at: number
   readonly limits: BankLimits
+  /** 本笔以哪张卡支付时的卡状态（未指定 `viaCardId` 时不出现）。 */
+  readonly cardStatus?: CardStatus
+  /** 该卡尾号（仅用于可读理由，不参与判定）。 */
+  readonly cardTail?: string
 }
 
 /**
@@ -36,6 +40,20 @@ export interface TransferRiskInput {
  */
 export function checkTransferRisks(input: TransferRiskInput): RiskFinding[] {
   const findings: RiskFinding[] = []
+
+  // 卡状态是最前置的硬约束：卡已冻结/挂失时，讨论余额与额度都没有意义。
+  if (input.cardStatus !== undefined && input.cardStatus !== 'normal') {
+    findings.push({
+      rule: 'card-status',
+      severity: 'block',
+      code: 'card-unavailable',
+      message:
+        input.cardStatus === 'lost'
+          ? `尾号 ${input.cardTail ?? ''} 的卡已挂失，不能用于支付`
+          : `尾号 ${input.cardTail ?? ''} 的卡已冻结，请先解冻`,
+      detail: { cardStatus: input.cardStatus },
+    })
+  }
 
   if (input.amountCents > input.availableCents) {
     findings.push({

@@ -3,7 +3,7 @@
 > 口径：只写本仓能回源码、回命令复核的事实。**未实装的逐条列在 §8，不用"设计中"充数**；
 > 每条结论后给落点，答辩时可按落点当场翻代码。
 > 对应赛题：§3.1 权限分级、§3.2 安全设计、§五.5 安全自评材料。
-> 最后核实：2026-10-30（门禁与测试面：`pnpm gate` 50/50、`pnpm test` 294 文件 / 3337 用例 + 前端 375 例、快照 9 文件 39 例；安全面结论沿用 2026-10-27，合流后补记 17 行角色矩阵与 static 双凭证）。
+> 最后核实：2026-10-30（门禁与测试面：`pnpm gate` 50/50、`pnpm test` 294 文件 / 3360 用例 + 前端 375 例、快照 9 文件 39 例；安全面结论沿用 2026-10-27，合流后补记 17 行角色矩阵与 static 双凭证）。
 
 ---
 
@@ -24,7 +24,7 @@ M0 的安全面不是"让模型自觉"，而是**确定性判定 + 默认拒绝 
 | 供应链 | Dependabot + npm audit（官方源）+ pip-audit 基线（暂不阻断） | `.github/dependabot.yml`、`.github/workflows/security.yml` |
 
 **未实装**：HP-2（知识响应签名与验签门）。
-**HP-4（工具出参契约）已实现**（2026-10-26 复核，W03：16 个工具的出参在运行时按 `resultSchema`
+**HP-4（工具出参契约）已实现**（2026-10-26 复核，W03：18 个工具的出参在运行时按 `resultSchema`
 校验，畸形返回报 `tool-result-invalid` 并落 `isError`，见 §8.1 R-03）；
 HP-1 只保留 S-1 形态（行动断言对账）。**HP-3（HALT 状态机与人工解除）已于 2026-10-25
 由 W07 施工**，逐条见 §6.1 与 §8.1。
@@ -286,10 +286,10 @@ plan 由宿主在进入引擎前拦截；解除只凭会话内 U 盾 MFA 票据�
 `packages/host/src/boot/plugins/halt-store.ts`、TC-W07-01…09 + C3 重启组。
 **已知限制**：headless 无远程控制入口。
 
-**R-03 / HP-4 已闭合（2026-10-26 复核，W03）**：16 个工具的出参在 `ToolPipeline` 每次调用后
+**R-03 / HP-4 已闭合（2026-10-26 复核，W03）**：18 个工具的出参在 `ToolPipeline` 每次调用后
 按 `resultSchema` 运行时校验，不符合报 `tool-result-invalid`，落账的 `tool/result` 带
 `isError: true`。证据：`packages/runtime/src/tools/pipeline.ts:285-292`、
-`packages/bank/src/tools/result-schemas.ts`（16 个键）、
+`packages/bank/src/tools/result-schemas.ts`（18 个键）、
 `packages/host/src/boot/plugins/bank-tools.ts:283-295`；直测
 `packages/runtime/src/tools/contracts.test.ts:172-197`（含"缺字段"与"金额非整数分"两例）。
 **边界**：校验的是返回值的结构与类型，不校验业务语义（卡号真伪、金额合理性仍靠下游规则）。
@@ -302,7 +302,7 @@ HP-1 不列为未施工：已退化为 **S-1**（行动断言与本 turn 工具�
 
 - **HP-2**：RAG 响应带可验证签名，且 TS 侧对**每次**响应验签（含跨语言黄金向量）。
 
-HP-4 已于 2026-10-26 满足原先写死的门槛（"16 个工具的出参在运行时按 schema 校验，畸形返回被拒
+HP-4 已于 2026-10-26 满足原先写死的门槛（"18 个工具的出参在运行时按 schema 校验，畸形返回被拒
 并落审计"），口径改为"**已实现**"，不再列入缺口。HP-2 仍不满足；被追问时按上表回答，
 不补充"其实做了一半"——那会把缺口讲成缺陷。
 
@@ -362,7 +362,7 @@ pnpm demo:verifier-fail
 ## 10. 复现命令
 
 ```bash
-pnpm test                                   # 294 文件 / 3337 用例（前端另有 375 例）
+pnpm test                                   # 294 文件 / 3360 用例（前端另有 375 例）
 pnpm vitest run packages/safety/src/sentry/halt.test.ts \
   packages/host/src/boot/plugins/halt.test.ts \
   packages/cli/src/cli/halt.test.ts         # HP-3 / W07 的 46 条（TC-W07-01…07）

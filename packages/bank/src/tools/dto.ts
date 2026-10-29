@@ -168,6 +168,9 @@ export interface TransferPreviewResult {
   readonly verdict: RiskVerdict
   /** 治理平面按「取高不取低」得出的级别（模型据此解释"为什么还要确认"）。 */
   readonly effectiveTier: 'green' | 'yellow' | 'red'
+  /** 本笔使用的卡尾号（未指定 `viaCardId` 时不出现）。 */
+  readonly viaCardTail?: string
+  readonly viaCardStatus?: CardStatus
   readonly at: number
 }
 

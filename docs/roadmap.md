@@ -3,7 +3,7 @@
 > **这是规划，不是实现。** 本文件不含任何"已支持"的暗示。
 > **2026-10-29 更新**：身份 / 租户两条线已由"租户与鉴权 01–04"落地（`docs/tenant.md`、
 > `docs/contracts/tenant-model.md`）；本文件保留原规划用于对照，§2.1 的实现状态以那两份为准。
-> 现状基线：租户 = 部署边界（一进程一租户） · 单会话 · 单进程 · Web + CLI 两个渠道 · 16 个工具。
+> 现状基线：租户 = 部署边界（一进程一租户） · 单会话 · 单进程 · Web + CLI 两个渠道 · 18 个工具。
 > 施工约束：全程一个施工者（AI），只能串行深度；所以下面每条都给了"能不能拆成独立小步"。
 
 ## 0. 现状（可核验，不含推测）
@@ -13,8 +13,8 @@
 | 渠道 | Web（7331）+ CLI；`apps/desktop`、`apps/im-gateway` 只有 M0 占位 README | `apps/desktop/README.md`、`apps/im-gateway/README.md` |
 | profile | `profiles/desktop|im|mobile|sdk` 四个目录**只有 `.gitkeep`** | `profiles/` |
 | 身份 | `password` 登录（scrypt + HttpOnly 会话 + 撤销）与路由角色矩阵；`static` 为兼容缺省；租户 = 部署边界（一进程一租户，ADR-0004）；**不做**进程内 N 租户 | `docs/tenant.md` |
-| 工具 | 16 个：账户 2、流水/账单/计算 4、转账 2、理财 3、强验证 3、卡挂失 1、订阅取消 1 | `packages/bank/src/tools/specs.ts` |
-| 场景纵深 | 卡：只有**挂失**；理财：只有**申购**；订阅：只有**取消**；转账：无定时/AA | 同上 |
+| 工具 | 18 个：账户 2、流水/账单/计算 4、转账 2、理财 3、强验证 3、卡 3（挂失/冻结/解冻）、订阅取消 1 | `packages/bank/src/tools/specs.ts` |
+| 场景纵深 | 卡：挂失/冻结/解冻 3 个动作；理财：只有**申购**；订阅：只有**取消**；转账：无定时/AA | 同上 |
 | 实体槽位 | `runtimeContext` 是 profile 里的**静态**配置，没有运行时写入方 | `profiles/web/patch.yml` |
 
 ## 1. 四条线的依赖关系

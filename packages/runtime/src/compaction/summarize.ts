@@ -178,7 +178,7 @@ export function estimateEventTokens(event: AnySessionEvent): number {
  * 一次**请求**的 token 估算：消息正文 + 工具 schema。
  *
  * 为什么不能只看会话事件：工具定义不在事件里（每次请求由注册表现算），
- * 只按事件估水位会漏掉 16 个工具的 name / description / JSON schema。
+ * 只按事件估水位会漏掉 18 个工具的 name / description / JSON schema。
  * 图片与推理块不计（与 `estimateEventTokens` 同口径：图片不折算文本，推理块不回放）。
  */
 export function estimateRequestTokens(request: LlmRequest): number {

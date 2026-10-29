@@ -14,7 +14,8 @@ import type { ToolDefinition } from '@bah/core'
 
 import type { CardId, SubscriptionId, UserId } from '../core/index.ts'
 import { requireUserId } from './accounts.ts'
-import { readString } from './args.ts'
+import { readOptionalString, readString } from './args.ts'
+import { cardStateCard } from './presenters.ts'
 import { specOf } from './specs.ts'
 import type { BankToolDeps } from './types.ts'
 import { clockOf } from './types.ts'
@@ -25,6 +26,16 @@ export interface CardReportedLostResult {
   readonly tail: string
   readonly status: 'lost'
   readonly reportedAt: number
+}
+
+/** 冻结/解冻共用的结果（ADR-0006）。 */
+export interface CardStateResult {
+  readonly cardId: string
+  readonly tail: string
+  readonly status: 'frozen' | 'normal'
+  /** 是否真的发生了迁移（幂等调用为 false）。 */
+  readonly changed: boolean
+  readonly at: number
 }
 
 /** `sub_cancel` 的结果。 */
@@ -97,4 +108,68 @@ export function createSubCancelTool(
       { type: 'text', text: `已取消对「${result.merchant}」的自动扣款订阅。` },
     ],
   }
+}
+
+/** 冻结/解冻共用实现（ADR-0006）。 */
+function cardStateTool(
+  kind: 'freeze' | 'unfreeze',
+  deps: BankToolDeps,
+): ToolDefinition<Readonly<Record<string, unknown>>, CardStateResult> {
+  const name = kind === 'freeze' ? 'card_freeze' : 'card_unfreeze'
+  const spec = specOf(name)
+  return {
+    name: spec.name,
+    description: spec.description,
+    schema: spec.schema,
+    tier: spec.tier,
+    execute: async (args, ctx) => {
+      const userId = requireUserId(deps, ctx.sessionId) as UserId
+      const cardId = readString(args, 'cardId', spec.name) as CardId
+      const note = readOptionalString(args, 'reason', spec.name)
+      const changed =
+        kind === 'freeze'
+          ? await deps.core.freezeCard(userId, cardId)
+          : await deps.core.unfreezeCard(userId, cardId)
+      const at = clockOf(deps)()
+      // 幂等调用不落状态迁移事件：重复点击的事实由 tool/result 记录，
+      // 不该污染 card/state-changed 的 from→to 链。
+      if (changed.changed) {
+        deps.audit.append('card/state-changed', {
+          cardId: changed.cardId,
+          tail: changed.tail,
+          from: kind === 'freeze' ? 'normal' : 'frozen',
+          to: kind === 'freeze' ? 'frozen' : 'normal',
+          reason: kind,
+          ...(note === undefined ? {} : { note }),
+          at,
+        })
+      }
+      const result: CardStateResult = Object.assign({}, changed, { at })
+      return result
+    },
+    projectContent: (result) => [
+      {
+        type: 'text',
+        text:
+          result.status === 'frozen'
+            ? `尾号 ${result.tail} 的卡已冻结${result.changed ? '' : '（此前已是冻结状态）'}，该卡不能用于支付，可随时解冻。`
+            : `尾号 ${result.tail} 的卡已解冻${result.changed ? '' : '（此前已是正常状态）'}，可恢复使用。`,
+      },
+    ],
+    presentResult: (_args, result) => cardStateCard(result),
+  } satisfies ToolDefinition<Readonly<Record<string, unknown>>, CardStateResult>
+}
+
+/** `card_freeze`：黄档写。 */
+export function createCardFreezeTool(
+  deps: BankToolDeps,
+): ToolDefinition<Readonly<Record<string, unknown>>, CardStateResult> {
+  return cardStateTool('freeze', deps)
+}
+
+/** `card_unfreeze`：红档写。 */
+export function createCardUnfreezeTool(
+  deps: BankToolDeps,
+): ToolDefinition<Readonly<Record<string, unknown>>, CardStateResult> {
+  return cardStateTool('unfreeze', deps)
 }
