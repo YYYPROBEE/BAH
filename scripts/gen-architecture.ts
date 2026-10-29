@@ -49,8 +49,8 @@ import { readLayers, readProfile } from '../packages/cli/src/profile.ts'
 import { HOST_PLUGINS, planPlugin } from '../packages/host/src/boot/plugins/index.ts'
 import { isMainModule, projectRoot } from './gate-lib.ts'
 
-/** 真正可运行的五个 profile（`profiles/` 下其余目录是空壳，没有 `profile.yml`）。 */
-const PROFILES = ['headless', 'plan', 'web', 'web-plan', 'mobile'] as const
+/** 真正可运行的 profile（`profiles/` 下其余目录是空壳，没有 `profile.yml`）。 */
+const PROFILES = ['headless', 'plan', 'web', 'web-plan', 'mobile', 'im'] as const
 type ProfileName = (typeof PROFILES)[number]
 
 /**
@@ -224,7 +224,9 @@ function renderFacts(facts: Facts): string {
     `| saga 状态 | **${String(facts.sagaStates.length)} 态**（${facts.sagaStates.join('、')}） | packages/saga/src/state-machine/transitions.ts 的 \`SAGA_TRANSITIONS\` |`,
     `| 票据 TTL / 计划预算 | **${String(facts.ticketTtlMs)} ms / ${String(facts.planTimeoutMs)} ms**（预算 < TTL） | \`PlanSettings.ticketTtlMs\` / \`planTimeoutMs\`（本行由 planPlugin.validate 实算） |`,
     `| 工具数 | **${String(facts.toolCount)} 个** | packages/bank/src/tools/specs.ts 的 \`BANK_TOOL_SPECS\` |`,
-    `| 注册表 / 门禁 | **${String(facts.registryCount)} 项 / ${String(facts.gateCount)} 项** | \`HOST_PLUGINS\`、\`scripts/verify-*.ts\` 计数 |`,
+    // 注册表用"个"、门禁用"项"：`verify-docs-consistency` 的过期口径规则按 "27 项" 判旧门禁数，
+    // 注册表写成"27 项"会被它误判（两个数只是恰好同值，不是同一件事）
+    `| 注册表 / 门禁 | **${String(facts.registryCount)} 个 / ${String(facts.gateCount)} 项** | \`HOST_PLUGINS\`、\`scripts/verify-*.ts\` 计数 |`,
     `| 覆盖率 | **${facts.coverageLine}；${facts.coveragePackage}** | docs/coverage-baseline.json（含测量命令） |`,
   ].join('\n')
 }

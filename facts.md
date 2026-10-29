@@ -10,7 +10,7 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **294 文件 / 3333 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **300 文件 / 3380 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **27 文件 / 365 用例** |
 
@@ -69,6 +69,7 @@
 | **7331** | Web UI / HTTP / SSE / 静态资源 | `127.0.0.1` | `pnpm web` / `pnpm demo:web`；端口占用**不自动换端口** |
 | **7801** | RAG sidecar | `127.0.0.1` | `bank:knowledge mode:http`；`required: false`，不起也能跑主场景 |
 | **7551** | 移动 H5 UI / HTTP / SSE | `127.0.0.1` | `pnpm bah --profile mobile`；与 7331 同族，端口占用**不自动换端口** |
+| **7552** | IM 子进程 HTTP / SSE（仅本机） | `127.0.0.1` | `pnpm bah --profile im`；IM 网关（02 单）逐用户拉起的最小宿主页，**公网不可达** |
 
 静态根 `apps/web`：原生 ES 模块，无构建步骤。
 
@@ -76,6 +77,7 @@
 |---|---|---|
 | `/` → `index.html` | `channel:web`（7331） | 桌面壳，`entries: [index.html]` |
 | `/` → `m.html` | `channel:mobile`（7551） | 移动壳，`entries: [m.html, index.html]`；`m.html` 也是 token 入口（注入 Bearer + CSRF cookie + `no-store`），其它 HTML 一律不注入 |
+| `/` → `m.html` | `channel:im`（7552） | IM 子进程**不提供 Web UI**：该入口只在本机 loopback 可达，仅供排障与 CSRF cookie 握手；`entries: [m.html]` |
 
 「前端不需要先 build」对两个壳同等成立：`m.html` 只引三份外链 css 与一个原生 ESM 入口。
 `pnpm demo:web` 每次新建 `sessions/demo-<stamp>-<随机>/`，日志、Saga 库与审计链都在该目录；

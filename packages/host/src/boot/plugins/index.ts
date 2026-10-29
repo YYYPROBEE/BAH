@@ -39,6 +39,8 @@ import { verifyPlugin } from './verify.ts'
 import { memoryPlugin } from './memory.ts'
 // 施工单 01：移动 H5 渠道（`channel:mobile`）。与 web 共用 `createHttpChannel`，薄壳。
 import { mobilePlugin } from './mobile.ts'
+// IM 网关 01：IM 渠道（`channel:im`）。同样薄壳，只多注册一段降权提示词。
+import { imPlugin } from './im.ts'
 import { webPlugin } from './web.ts'
 
 /** base bundle 的插件集（施工单 06 §3：内核 + 主循环 + 模型层 + 工具管线 + 持久化）。 */
@@ -84,6 +86,8 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   webPlugin,
   // 渠道（施工单 01）：移动 H5；同样只由 profiles/mobile 的 patch 显式装配
   mobilePlugin,
+  // IM 网关 01：IM 渠道；只由 profiles/im 的 patch 显式装配（不进 base bundle）
+  imPlugin,
 ].map(toAnyHostPlugin)
 
 export {
@@ -92,6 +96,7 @@ export {
   auditDecisionsPlugin,
   bankToolsPlugin,
   echoPlugin,
+  imPlugin,
   intentPlanePlugin,
   knowledgePlugin,
   memoryPlugin,
