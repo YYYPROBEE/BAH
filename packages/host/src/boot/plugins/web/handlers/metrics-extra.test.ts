@@ -228,6 +228,29 @@ describe('metrics-extra · 用量、成本与计划', () => {
       session: { used: 2200, limit: 5000, exhausted: 0 },
     })
   })
+
+  it('事件字段缺失按 0 / failed 归一：不产生 NaN，也不丢轮', () => {
+    const events = [
+      // 没有 turn / cachedInput / costMicroYuan 的 usage 事件
+      event('usage/summary', { input: 7, output: 2 }),
+      // 没有 status 的 plan 节点按 failed 计（失败不会被静默丢）
+      event('plan/node-result', {}),
+    ]
+    // http.request span 没有 status 属性：按 0 计（既不算 error 也不算 429）
+    const spans = [span({ attributes: {} })]
+    const extras = jsonExtrasOf(view({ events, handle: fakeHandle({ spans }), costConfigured: true }))
+
+    expect(extras['cost']).toMatchObject({
+      configured: true,
+      total: 0,
+      byTurn: [{ turn: 0, costMicroYuan: 0, input: 7, output: 2 }],
+    })
+    expect((extras['llm'] as Record<string, unknown>)['tokensPerTurn']).toEqual([
+      { turn: 0, input: 7, output: 2, cachedInput: 0 },
+    ])
+    expect(extras['http']).toMatchObject({ requests: 1, errors: 0, rateLimited: 0 })
+    expect(extras['plan']).toEqual({ nodes: { succeeded: 0, failed: 1, blocked: 0, skipped: 0 } })
+  })
 })
 
 describe('metrics-extra · SLO / 告警 / 进程 / 轨迹', () => {

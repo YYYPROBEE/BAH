@@ -5,6 +5,7 @@
  */
 export { AUDIT_HELP, AUDIT_USAGE, runAudit } from './audit.ts'
 export { parseCommand, type Command } from './command.ts'
+export { COST_HELP, COST_USAGE, parseCostArgs, renderCostTable, runCost, summarize, type CostReport } from './cost.ts'
 export {
   HALT_HELP,
   HALT_USAGE,
@@ -15,6 +16,16 @@ export {
   type HaltIo,
   type HaltRunOptions,
 } from './halt.ts'
+export { METRICS_HELP, METRICS_USAGE, parseMetricsArgs, runMetrics } from './metrics.ts'
+export {
+  OBS_DEFAULT_URL,
+  getText,
+  normalizeUrl,
+  positiveInt,
+  tokenOf,
+  type HttpOutcome,
+  type ObserveFetch,
+} from './observe-http.ts'
 export {
   SENTRY_HELP,
   SENTRY_USAGE,
@@ -22,6 +33,7 @@ export {
   type SentryIo,
   type SentryRunOptions,
 } from './sentry.ts'
+export { TRACE_HELP, TRACE_USAGE, parseTraceArgs, runTrace } from './trace.ts'
 export {
   HELP,
   USAGE,

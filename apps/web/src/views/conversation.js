@@ -46,7 +46,8 @@ export function renderFrame(frame) {
 /** 轮次分割线。 */
 export function renderTurn(frame) {
   const label = frame.turn === 0 ? '准备' : `第 ${String(frame.turn)} 轮`
-  const end = frame.phase === 'end' ? (END_LABEL[frame.endKind] ?? frame.endKind) : '进行中'
+  // 缺 `endKind` 的收尾帧不能渲染成"第 2 轮 · undefined"：服务端没说原因就写"已结束"。
+  const end = frame.phase === 'end' ? (END_LABEL[frame.endKind] ?? frame.endKind ?? '已结束') : '进行中'
   return el('div', { class: 'turn-divider', dataset: { turn: String(frame.turn) } }, [
     el('span', { class: 'turn-divider__line' }),
     el('span', { class: 'turn-divider__label', text: `${label} · ${end}` }),
@@ -76,13 +77,15 @@ export function renderMessage(frame) {
     ])
   }
 
-  // 只有工具调用的助手消息没有正文：不留一个空气泡，用一行说明代替
+  // 只有工具调用的助手消息没有正文：不留一个空气泡，用一行说明代替。
+  // 文案说"发起"而不是"调用中"：这条消息落账后不会随工具结果更新，
+  // 写"调用中…"会让一条早已完成的调用永远显示成进行中（工具状态只在卡片里更新）。
   const hasText = (frame.blocks ?? []).some(
     (block) => block.type !== 'text' || (typeof block.text === 'string' && block.text.trim().length > 0),
   )
   if (role === 'assistant' && !hasText) {
     return el('div', { class: 'message message--assistant message--tool-only', dataset: { seq: String(frame.seq) } }, [
-      el('div', { class: 'message__meta' }, [icon('agent', 14), 'BAH', el('span', { class: 'message__seq', text: '调用工具中…' })]),
+      el('div', { class: 'message__meta' }, [icon('agent', 14), 'BAH', el('span', { class: 'message__seq', text: '发起工具调用' })]),
     ])
   }
 

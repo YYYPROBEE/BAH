@@ -81,9 +81,10 @@ const gate: Gate = {
     const commandSource = sourceOf(root, 'packages/cli/src/cli/command.ts')
     const kinds = commandKinds(commandSource)
     // 契约会扩：HP-0 加了 `sentry`（人工解冻断路器），W07 加了 `halt` / `unfreeze`
-    // （全系统停机与 MFA 票据解除）。这里维护的是**允许集合**，新增子命令必须同步改这一行
+    // （全系统停机与 MFA 票据解除），可观测性 03 加了 `metrics` / `trace` / `cost`。
+    // 这里维护的是**允许集合**，新增子命令必须同步改这一行
     // ——门禁不是"记住最早那两个"，是"别悄悄多出来一个"。
-    const EXPECTED_KINDS = ['audit', 'run', 'sentry', 'halt', 'unfreeze'] as const
+    const EXPECTED_KINDS = ['audit', 'run', 'sentry', 'halt', 'unfreeze', 'metrics', 'trace', 'cost'] as const
     const missing = EXPECTED_KINDS.filter((kind) => !kinds.includes(kind))
     const extra = kinds.filter((kind) => !EXPECTED_KINDS.includes(kind as (typeof EXPECTED_KINDS)[number]))
     if (missing.length > 0 || extra.length > 0) {

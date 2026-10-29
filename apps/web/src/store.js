@@ -98,6 +98,11 @@ export function createStore() {
     }
 
     put(frame)
+    // 一轮的开始 / 结束都作废草稿：
+    // - `turn/end` 可能是 `failed` / `aborted` / `guard-stopped`，没有权威助手消息来收口，
+    //   不在这里清就是"半句话永久残留"，下一轮 delta 还会接在它后面；
+    // - `turn/start` 是新一轮的边界，上一轮的残稿不该跨轮活着。
+    if (frame.kind === 'turn') streamText = ''
     // 权威**助手**消息到达 → 丢弃草稿（避免"半句话永久残留"）。
     // 不能用任意 message 清：运行时上下文 / 纠正文本也是 message，会把正在生成的草稿抹掉。
     if (frame.kind === 'message' && frame.role === 'assistant') streamText = ''
@@ -125,6 +130,7 @@ export function createStore() {
     frames.clear()
     order = []
     streamText = ''
+    status = 'connecting'
     fault = null
     emit()
   }

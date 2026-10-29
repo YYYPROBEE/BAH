@@ -27,8 +27,11 @@ import { renderDumpConfig } from '../dump-config.ts'
 import { readDefaultProfile, readLayers, readProfile, type LayerOptions } from '../profile.ts'
 import { runAudit } from './audit.ts'
 import { parseCommand } from './command.ts'
+import { runCost } from './cost.ts'
 import { runHalt, runUnfreeze } from './halt.ts'
+import { runMetrics } from './metrics.ts'
 import { runSentryUnfreeze } from './sentry.ts'
+import { runTrace } from './trace.ts'
 
 /** 输出出口（测试注入收集器；生产是 console）。 */
 export interface CliIo {
@@ -84,6 +87,9 @@ export const HELP = [
   '  bah sentry unfreeze       人工解冻断路器（需运行中的 web 宿主 + BAH_ADMIN_TOKEN）',
   '  bah halt                  人工进入 HALT（全系统停机；需运行中的 web 宿主）',
   '  bah unfreeze              凭会话内 MFA 票据解除 HALT（没有 --force）',
+  '  bah metrics               读取运行中宿主的 /api/metrics（JSON / Prometheus）',
+  '  bah trace                 导出 /api/trace（JSON 森林 / Chrome Trace）',
+  '  bah cost                  离线汇总会话目录的 token 与成本',
 ].join('\n')
 
 /** 解析后的命令行。 */
@@ -133,6 +139,14 @@ export async function runCli(
       return runUnfreeze(argv.slice(1), io, {
         ...(options.env === undefined ? {} : { env: options.env }),
       })
+    case 'metrics':
+      // 只是 HTTP 客户端：不 boot app（指标属于运行中的那个进程）
+      return runMetrics(argv.slice(1), io, options)
+    case 'trace':
+      return runTrace(argv.slice(1), io, options)
+    case 'cost':
+      // 纯离线：只读 session.jsonl
+      return runCost(argv.slice(1), io, options)
     case 'run':
       break
     default:

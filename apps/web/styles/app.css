@@ -67,6 +67,10 @@ textarea {
 .icon--agent { --icon-url: url('../assets/icons/agent.svg'); }
 .icon--user { --icon-url: url('../assets/icons/UserCheck.svg'); }
 .icon--refresh { --icon-url: url('../assets/icons/Refresh.svg'); }
+/* `dom.js` 允许 `doc` / `search` / `up` 三个名字，这里补齐映射：缺一条就等于"图标画不出来"。 */
+.icon--doc { --icon-url: url('../assets/icons/doc.svg'); }
+.icon--search { --icon-url: url('../assets/icons/Search.svg'); }
+.icon--up { --icon-url: url('../assets/icons/arrow_up.svg'); }
 
 /* ────────────────────────────── 骨架布局 */
 
@@ -202,6 +206,9 @@ textarea {
   width: 100%;
   max-width: 760px;
   margin-inline: auto;
+  /* 长对话兜底（§5.1）：离屏条目跳过渲染，不手写虚拟滚动（纯原生 DOM 里容易抖动）。 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
 }
 
 .conversation__empty {
@@ -365,6 +372,35 @@ textarea {
   font-weight: var(--font-weight-strong);
 }
 
+.tool-card__subtitle {
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+}
+
+.tool-card__note {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+}
+
+/* `analysis` 卡片的计算过程默认收起（§5.2），结果字段仍露在外面。 */
+.tool-card__summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: var(--body-sm-font-size);
+  padding: var(--spacer-2) 0;
+}
+
+.tool-card__details[open] .tool-card__summary {
+  margin-bottom: var(--spacer-8);
+}
+
+/* 结构化表格：`ds-table` 自带 `min-width: 720px`，容器必须允许自己收窄并横向滚动。 */
+.tool-card__table {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .tool-card__id {
   margin-left: auto;
   font-family: var(--code-editor-font-family);
@@ -404,6 +440,12 @@ textarea {
   font-family: var(--code-editor-font-family);
   font-variant-numeric: tabular-nums;
 }
+
+/* 字段色调（`CardField.tone`）：理由码等危险信息不能和普通值一个颜色。 */
+.field__value--muted { color: var(--text-tertiary); }
+.field__value--success { color: var(--status-success-default); }
+.field__value--warning { color: var(--status-warning-default); }
+.field__value--danger { color: var(--status-error-default); }
 
 .field__value--unconfirmed {
   color: var(--text-tertiary);
@@ -496,7 +538,7 @@ textarea {
   flex-direction: column;
   min-height: 0;
   background: var(--bg-base-secondary);
-  border-left: 1px solid var(--border-neutral-l1);
+  /* 分隔线只留 `.app-left` 的 border-right：两侧各画一条会在桌面端叠成 2px。 */
 }
 
 .panel__tabs {
@@ -516,6 +558,31 @@ textarea {
   min-height: 0;
   overflow: auto;
   padding: var(--spacer-16);
+}
+
+/*
+ * 审计页：计数条钉在顶部，只有时间线自己滚动。
+ *
+ * 计数条是"三秒指给人看"的那三个数（§5.5）；跟着列表一起滚出屏幕，
+ * 等于把答辩时最该在眼前的东西弄丢了。
+ */
+.panel__section--audit {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel__section--audit .panel__summary {
+  flex: none;
+  padding: 0 0 var(--spacer-12);
+  border-bottom: 1px solid var(--border-neutral-l1);
+}
+
+.panel__section--audit .audit__list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-top: var(--spacer-12);
 }
 
 .audit__list {
@@ -621,6 +688,10 @@ textarea {
   stroke-width: 1.5;
 }
 
+/* SVG 里也要走令牌（属性 `font-size` 不吃 var()，改用 CSS 类）。 */
+.dag__label { font-size: var(--body-sm-font-size); }
+.dag__badge { font-size: var(--body-xs-font-size); }
+
 .dag__node--blocked text {
   opacity: 0.6;
 }
@@ -665,7 +736,8 @@ textarea {
   background: var(--bg-menu);
   border-radius: var(--radius-16);
   border: 1px solid var(--border-neutral-l1);
-  box-shadow: var(--shadow-lg, none);
+  /* 不写 box-shadow：BAH DS 没有 `--shadow-*` 令牌，上一版 `var(--shadow-lg, none)`
+     既取不到值、又同特异性覆盖掉 `.ds-dialog` 自带的阴影，弹窗因此变成扁平一块。 */
   display: flex;
   flex-direction: column;
   animation: rise var(--motion-base) var(--motion-standard);
@@ -820,8 +892,16 @@ textarea {
 }
 
 @media (max-width: 840px) {
+  /*
+   * 窄屏：面板是网格的第二行，**不再** fixed 覆盖。
+   *
+   * 曾经写 `position: fixed; bottom: 0; height: 42vh; z-index: 30`：面板浮在输入区上方，
+   * 600×900 实测输入框与发送按钮完全看不见（主功能不可用），对话流还得靠 46vh 的
+   * padding-bottom 硬留白。改成同一网格里的两行后，输入区始终可见，面板自己滚动。
+   */
   .app-body {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 38vh);
   }
 
   .app-left {
@@ -829,20 +909,12 @@ textarea {
   }
 
   .panel {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 42vh;
-    border-left: none;
+    min-height: 0;
     border-top: 1px solid var(--border-neutral-l1);
-    border-radius: var(--radius-16) var(--radius-16) 0 0;
-    z-index: 30;
   }
 
   .conversation {
     padding: var(--spacer-16);
-    padding-bottom: 46vh;
   }
 
   .composer {
@@ -856,6 +928,237 @@ textarea {
   .app-header__subtitle {
     display: none;
   }
+}
+
+/* ────────────────────────────── 观测面板（03；只用令牌，禁止左侧色带） */
+
+.obs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-16);
+  padding: var(--spacer-12);
+  overflow-y: auto;
+}
+
+.obs__kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacer-8);
+}
+
+.obs__kpi {
+  padding: var(--spacer-12);
+  border: var(--border-width-default) solid var(--border-neutral-l1);
+  border-radius: var(--radius-md);
+  background: var(--bg-base-secondary);
+}
+
+.obs__kpi-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.obs__kpi-value {
+  font-size: 20px;
+  color: var(--text-default);
+  font-variant-numeric: tabular-nums;
+}
+
+.obs__kpi-value.is-alert {
+  color: var(--status-alert-default);
+}
+
+.obs__kpi-value.is-danger {
+  color: var(--status-error-default);
+}
+
+.obs__kpi-value.is-muted {
+  color: var(--text-tertiary);
+}
+
+.obs__kpi-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.obs__title {
+  margin: 0 0 var(--spacer-6);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.obs__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.obs__table th,
+.obs__table td {
+  padding: var(--spacer-4) var(--spacer-6);
+  text-align: left;
+  border-bottom: var(--border-width-default) solid var(--border-neutral-l1);
+}
+
+.obs__mono {
+  font-variant-numeric: tabular-nums;
+}
+
+.obs__verdict.is-ok {
+  color: var(--status-success-default);
+}
+
+.obs__verdict.is-alert {
+  color: var(--status-alert-default);
+}
+
+.obs__verdict.is-danger {
+  color: var(--status-error-default);
+}
+
+.obs__verdict.is-muted {
+  color: var(--text-tertiary);
+}
+
+.obs__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-2);
+}
+
+.obs__row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 2fr;
+  align-items: center;
+  gap: var(--spacer-8);
+  padding-block: 2px;
+  cursor: pointer;
+}
+
+.obs__row-name {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-4);
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.obs__row-text,
+.obs__row-summary {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.obs__row-summary {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.obs__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: var(--radius-full);
+}
+
+.obs__dot--error {
+  background: var(--status-error-default);
+}
+
+.obs__bar {
+  position: relative;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--bg-overlay-l1);
+}
+
+.obs__bar-fill {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  min-width: 2px;
+  border-radius: var(--radius-full);
+  background: var(--viz-series-brand);
+}
+
+.obs__cat-http { background: var(--viz-series-sky); }
+.obs__cat-llm { background: var(--viz-series-violet); }
+.obs__cat-tool { background: var(--viz-series-brand); }
+.obs__cat-approval { background: var(--viz-series-amber); }
+.obs__cat-plan { background: var(--viz-series-teal); }
+.obs__cat-saga { background: var(--viz-series-mint); }
+.obs__cat-slate { background: var(--viz-series-slate); }
+
+.obs__rows.is-frozen .obs__bar-fill {
+  background: var(--viz-series-slate);
+  opacity: 0.5;
+}
+
+.obs__attrs {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacer-2) var(--spacer-8);
+  margin: 0;
+  padding: var(--spacer-4) var(--spacer-6);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.obs__attrs dt {
+  color: var(--text-secondary);
+}
+
+.obs__attrs dd {
+  margin: 0;
+}
+
+.obs__frozen {
+  margin: 0;
+  padding: var(--spacer-6) var(--spacer-8);
+  border-radius: var(--radius-md);
+  background: var(--bg-overlay-l1);
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.obs__empty {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.obs__more {
+  margin: var(--spacer-6) 0 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.obs__error {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-8);
+  padding: var(--spacer-6) var(--spacer-8);
+  border-radius: var(--radius-md);
+  background: var(--status-error-surface-l1);
+  color: var(--status-error-default);
+  font-size: 12px;
+}
+
+.obs__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacer-8);
+}
+
+.obs__stale {
+  font-size: 11px;
+  color: var(--text-tertiary);
 }
 
 @media (prefers-reduced-motion: reduce) {

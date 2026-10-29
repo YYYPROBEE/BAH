@@ -12,6 +12,7 @@
  */
 
 import { clear, el, icon } from './dom.js'
+import { createObservability } from './observability.js'
 import { approvalDecision, createStore, pendingApproval, viewKey } from './store.js'
 import { connectEvents, createHttpApi } from './transport.js'
 import {
@@ -23,6 +24,7 @@ import {
 import { createApprovalController } from './views/approval.js'
 import { renderAudit, renderAuditEmpty, renderAuditSummary } from './views/audit.js'
 import { renderDag, renderDagEmpty } from './views/dag.js'
+import { renderObserve } from './views/observe.js'
 
 /** 连接状态 → 文案与色调。 */
 const STATUS = {
@@ -90,15 +92,59 @@ export function mountApp(options) {
     id: 'conversation',
     'aria-label': '对话流',
   })
-  const dagBox = el('div', { class: 'panel__section', id: 'panel-dag' })
-  const auditList = el('ol', { class: 'audit__list', id: 'panel-audit' })
-  const auditBox = el('div', { class: 'panel__section', id: 'panel-audit-box', hidden: true }, [auditList])
+  const dagBox = el('div', {
+    class: 'panel__section',
+    id: 'panel-dag',
+    role: 'tabpanel',
+    'aria-labelledby': 'tab-dag',
+  })
   const auditSummary = el('div', { class: 'panel__summary' })
+  const auditList = el('ol', { class: 'audit__list', id: 'panel-audit' })
+  const auditBox = el('div', {
+    class: 'panel__section panel__section--audit',
+    id: 'panel-audit-box',
+    role: 'tabpanel',
+    'aria-labelledby': 'tab-audit',
+    hidden: true,
+  }, [auditSummary, auditList])
   const overlay = el('div', { class: 'overlay-root', id: 'overlay-root' })
   const toasts = el('div', { class: 'toasts', role: 'status', 'aria-live': 'polite' })
+  const obsBox = el('div', {
+    class: 'panel__section',
+    id: 'panel-observe',
+    role: 'tabpanel',
+    'aria-labelledby': 'tab-observe',
+    hidden: true,
+  })
 
-  const tabDag = el('button', { class: 'ds-tab is-active', type: 'button', role: 'tab', 'aria-selected': 'true' }, ['调用图'])
-  const tabAudit = el('button', { class: 'ds-tab', type: 'button', role: 'tab', 'aria-selected': 'false' }, ['审计'])
+  const tabDag = el('button', {
+    class: 'ds-tab is-active',
+    type: 'button',
+    role: 'tab',
+    id: 'tab-dag',
+    'aria-selected': 'true',
+    'aria-controls': 'panel-dag',
+    tabindex: '0',
+  }, ['调用图'])
+  const tabAudit = el('button', {
+    class: 'ds-tab',
+    type: 'button',
+    role: 'tab',
+    id: 'tab-audit',
+    'aria-selected': 'false',
+    'aria-controls': 'panel-audit-box',
+    tabindex: '-1',
+  }, ['审计'])
+  const tabObserve = el('button', {
+    class: 'ds-tab',
+    type: 'button',
+    role: 'tab',
+    id: 'tab-observe',
+    'aria-selected': 'false',
+    'aria-controls': 'panel-observe',
+    tabindex: '-1',
+  }, ['观测'])
+  const tabsBar = el('div', { class: 'panel__tabs ds-tabs', role: 'tablist' }, [tabDag, tabAudit, tabObserve])
 
   const composerInput = el('textarea', {
     class: 'ds-textarea composer__input',
@@ -133,10 +179,10 @@ export function mountApp(options) {
   ])
 
   const panel = el('aside', { class: 'panel', 'aria-label': '运行观察' }, [
-    el('div', { class: 'panel__tabs ds-tabs', role: 'tablist' }, [tabDag, tabAudit]),
-    auditSummary,
+    tabsBar,
     dagBox,
     auditBox,
+    obsBox,
   ])
 
   const banner = el('div', { class: 'app-banner', hidden: true })
@@ -223,10 +269,11 @@ export function mountApp(options) {
       if (empty === null) conversation.append(renderEmptyState())
     } else empty?.remove()
 
-    // ② DAG（只画最近一轮）
+    // ② DAG（只画最近一轮；有帧但没节点也走空态，不留一张空白 SVG）
     const dags = state.frames.filter((frame) => frame.kind === 'dag')
     const latestDag = dags[dags.length - 1]
-    if (latestDag === undefined) {
+    if (latestDag === undefined || (latestDag.nodes ?? []).length === 0) {
+      syncContainer(dagBox, dagRendered, [], renderDag)
       if (dagBox.firstChild === null) dagBox.append(renderDagEmpty())
     } else {
       syncContainer(dagBox, dagRendered, [latestDag], renderDag)
@@ -261,26 +308,38 @@ export function mountApp(options) {
   store.subscribe(sync)
 
   // 发送
+  //
+  // `sendButton.disabled` 只挡住鼠标，挡不住表单再次 submit（连按 Enter / 双击）：
+  // 同一句话会提交两轮，银行场景下就是两次工具调用、两次审批。用标志位把入口关死。
+  let inFlight = false
   composer.addEventListener('submit', async (event) => {
     event.preventDefault()
+    if (inFlight) return
     const text = composerInput.value.trim()
     if (text.length === 0) return
+    inFlight = true
     sendButton.disabled = true
-    const result = await api.turn(text)
-    sendButton.disabled = false
-    if (!result.ok) {
-      notify(result.reason, 'danger')
-      return
+    try {
+      const result = await api.turn(text)
+      if (!result.ok) {
+        notify(result.reason, 'danger')
+        return
+      }
+      composerInput.value = ''
+      composerInput.style.height = ''
+    } finally {
+      inFlight = false
+      sendButton.disabled = false
     }
-    composerInput.value = ''
-    composerInput.style.height = ''
   })
 
   composerInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault()
-      composer.requestSubmit()
-    }
+    if (event.key !== 'Enter' || event.shiftKey) return
+    // 中文输入法选词也是 Enter：`isComposing`（标准）与 keyCode 229（Safari/旧内核）都算输入中，
+    // 否则拼音选词回车会把没写完的话直接发出去。
+    if (event.isComposing || event.keyCode === 229) return
+    event.preventDefault()
+    composer.requestSubmit()
   })
 
   composerInput.addEventListener('input', () => {
@@ -299,22 +358,51 @@ export function mountApp(options) {
     notify('中断请求已提交', 'info')
   })
 
-  // 标签页
+  // 观测面板轮询控制器：拉取式（U-1 不许新增 SSE 帧）；非观测 tab 不发请求
+  const obs = createObservability({
+    api,
+    onState: (state) => renderObserve(obsBox, { ...state, onRefresh: () => obs.refreshOnce() }),
+  })
+
+  // 标签页（`role=tab` + `aria-controls` + 方向键，键盘用户不必按住 Tab 逐个穿）
+  const TAB_ORDER = ['dag', 'audit', 'observe']
+  const TAB_BUTTONS = { dag: tabDag, audit: tabAudit, observe: tabObserve }
+  let currentTab = 'dag'
+
   function selectTab(which) {
-    const dag = which === 'dag'
-    tabDag.classList.toggle('is-active', dag)
-    tabAudit.classList.toggle('is-active', !dag)
-    tabDag.setAttribute('aria-selected', String(dag))
-    tabAudit.setAttribute('aria-selected', String(!dag))
-    dagBox.hidden = !dag
-    auditBox.hidden = dag
+    currentTab = which
+    for (const name of TAB_ORDER) {
+      const active = name === which
+      TAB_BUTTONS[name].classList.toggle('is-active', active)
+      TAB_BUTTONS[name].setAttribute('aria-selected', String(active))
+      TAB_BUTTONS[name].setAttribute('tabindex', active ? '0' : '-1')
+    }
+    dagBox.hidden = which !== 'dag'
+    auditBox.hidden = which !== 'audit'
+    obsBox.hidden = which !== 'observe'
+    if (which === 'observe') obs.start()
+    else obs.stop()
   }
   tabDag.addEventListener('click', () => selectTab('dag'))
   tabAudit.addEventListener('click', () => selectTab('audit'))
+  tabObserve.addEventListener('click', () => selectTab('observe'))
+  tabsBar.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const step = event.key === 'ArrowLeft' ? -1 : 1
+    const index = (TAB_ORDER.indexOf(currentTab) + step + TAB_ORDER.length) % TAB_ORDER.length
+    const target = TAB_ORDER[index]
+    selectTab(target)
+    TAB_BUTTONS[target].focus()
+  })
 
   // 会话信息（失败不阻断：界面仍可从 SSE 取数）
   void api.session().then((result) => {
-    if (result.ok) sessionLabel.textContent = `会话 ${String(result.data.sessionId)}`
+    const sessionId = result.ok ? result.data?.sessionId : undefined
+    // 200 但 body 不是 JSON 时 `data` 为 null：判空后再渲染，别让顶栏显示 "会话 undefined"
+    if (typeof sessionId === 'string' && sessionId.length > 0) {
+      sessionLabel.textContent = `会话 ${sessionId}`
+    }
   })
 
   const connection = connect({
@@ -329,7 +417,15 @@ export function mountApp(options) {
 
   sync(store.state())
 
-  return { store, api, close: () => connection.close() }
+  return {
+    store,
+    api,
+    observe: obs,
+    close: () => {
+      obs.stop()
+      connection.close()
+    },
+  }
 }
 
 /** 自动挂载（浏览器里 `#app` 存在时；测试导入不会触发）。 */
