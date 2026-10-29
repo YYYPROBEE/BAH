@@ -1,0 +1,150 @@
+# desktop profile patch（层 2）。施工单 15 §2 / 桌面端 01。
+#
+# 语义是**整块替换**（施工单 06 §0 第 3 条）：每行 config 一出现就完全取代 base 的值。
+# 与 profiles/web/patch.yml 的差异**只有四处**：
+#   ① `core:agent.config.channel` = desktop；
+#   ② 渠道行 id/use = `channel:desktop`，且 port / entry / entries 不同；
+#   ③ 随渠道名走的两处文案：`bank:knowledge.channel` 与 `demo:echo.prefix`。
+# 其余各行与 web **逐字一致**（门禁 I8 比对规范化序列化）——桌面端不是第二套业务。
+#
+# 演示主路径与 web 相同：内置 router（离线、确定性）→ 黄级 → 桌面弹窗审批 → 核销。
+# 桌面壳只负责"同一页面、私有 host、断网可用"（02/03 单）。
+
+- id: core:model
+  config:
+    provider: router
+    model: router-chat
+    chunkSize: 4
+    # ── 可替换真实模型（DeepSeek V4.1 Flash / DashScope 兼容端点）──
+    # 切换时必须**同时**改这里与 core:agent.loop.model（两处成对，见 docs/deploy.md）：
+    # 把上面三行换成下面整块，并把 loop.model 改成 deepseek:deepseek-v4.1-flash-1017。
+    # provider: deepseek
+    # model: deepseek-v4.1-flash-1017
+    # baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
+    # apiKeyEnv: BAH_MODEL_KEY
+    # modelSpec:
+    #   displayName: DeepSeek V4.1 Flash（DashScope 兼容端点）
+    #   contextWindow: 131072
+    #   toolCall: true
+    #   reasoning: false
+    # requestTimeoutMs: 30000
+    # retryMax: 2
+    # retryBaseMs: 300
+    # pricing:
+    #   inputPerMTok: 2000000
+    #   cachedInputPerMTok: 500000
+    #   outputPerMTok: 8000000
+
+- id: policy:rules
+  config:
+    root: policies
+    active: { bank.tier: bank-tier/1.0.0 }
+    hotReload: true
+    requireSignature: false
+    shadow: { bank.tier: null }
+
+# 与 web 同：演示进程的单会话日志不需要逐条 fsync（代价与兜底见 web patch 的注释）。
+- id: core:persistence
+  config:
+    root: sessions
+    fsync: false
+
+- id: bank:tools
+  config:
+    demoUserId: u-1
+    seed: 7
+    datasetTier: demo
+    # 策略外置 S3：判决走外置规则；热重载由上方 policy:rules 行打开
+    policy: { engine: bundle }
+    # 实体槽位的数据层预算（七键都有界：越界是 boot 期 invalid-config）
+    contextSlots:
+      accounts: 3
+      transactions: 3
+      windowDays: 30
+      timeoutMs: 250
+      maxChars: 800
+      breakerFailures: 3
+      breakerOpenMs: 10000
+
+# 知识平面：base bundle 不含此行，必须显式开。channel 随渠道名变（① 之外的 ③）。
+- id: bank:knowledge
+  use: bank:knowledge
+  config:
+    mode: http
+    baseUrl: http://127.0.0.1:7801
+    channel: desktop
+    # required=false 让 sidecar 缺席时降级为 knowledge-unavailable（fail-closed）。
+    # 离线演示的诚实边界：桌面端不承诺 RAG 检索（sidecar 不在 zip 里）。
+    required: false
+
+- id: interaction:approval
+  config:
+    # 桌面有弹窗（D4 的 approvalSurface='dialog'）：同样不设自动应答者，等人点
+    # （默认结论 unavailable = 拒绝，绝不默认放行）
+    responder: none
+
+- id: safety:sentry
+  config:
+    # W08：审计 trace 显式落 durable 会话事件
+    trace:
+      sink: session
+    rules:
+      crossScenario: true
+
+- id: core:agent
+  config:
+    # ← 与 web 的差异 ①：渠道语气（CHANNEL_HINTS.desktop："桌面宽屏，可用双列与图表"）
+    channel: desktop
+    loop:
+      model: router:router-chat
+      maxSteps: 8
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
+    slots: { source: bank }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }
+      notes:
+        - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。
+
+# C4 跨会话记忆：base bundle 不含此行，由 profile 显式写（与 web 同）。
+# dbPath 是「租户根下的单段文件名」；桌面端的租户根来自 `run.jsonlDir`
+# （02 单把它指到 app.getPath('userData')），所以记忆库落在 userData 而不是 resources/app。
+- id: bah:memory-store
+  use: bah:memory-store
+  config:
+    dbPath: memory.db
+    userId: u-1
+    sensitivityCeiling: 2
+
+- id: demo:echo
+  use: demo:echo
+  config: { prefix: '[desktop] ' }
+
+# 渠道行（施工单 15 §2）：必须放在 interaction:approval 之后——本行 inject 审批服务，
+# 直接注册桌面渠道应答者。
+#
+# ⚠ `port: 0` 是桌面内嵌的**唯一正确值**（I-DT-02）：端口随每次启动变化，
+#   主进程从 DESKTOP_SERVER 读实际值。写死 7331 会在下一次启动就与 Web 演示撞车。
+#
+# ⚠ `host: 127.0.0.1` 不是可调项（I-DT-01）：桌面宿主是**私有**宿主，
+#   绑 0.0.0.0 等于把带 token 的 UI 暴露到局域网。
+#
+# ⚠ 入口只放 index.html：桌面窗口只加载这一份；名单外的 HTML 一律不注入 token
+#   （m.html 属移动线，放进白名单就等于给桌面进程多发一份凭证面）。
+#
+# ⚠ 部署纪律：**不要**给桌面进程设 BAH_ADMIN_TOKEN——admin 面只服务本机 CLI，
+#   未设即 404；本 profile 不提供 admin 开关（WebSettings 没有 admin 键）。
+- id: channel:desktop
+  use: channel:desktop
+  config:
+    port: 0
+    host: 127.0.0.1
+    # 纯原生 ES 模块：静态目录直接指向源码，不需要先 build
+    staticRoot: apps/web
+    heartbeatMs: 15000
+    entry: index.html
+    entries:
+      - index.html
+    # 人机接管（C5）：桌面单会话 + 坐席面无 token 即 404，SLA 只留痕不告警；
+    # 与 web 同值，换部署时可调。
+    handoff:
+      slaMs: 180000
