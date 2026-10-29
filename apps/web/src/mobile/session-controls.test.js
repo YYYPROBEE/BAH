@@ -1,7 +1,7 @@
 /**
  * 会话控制条用例（04 单 §5 / TC-XSC-24 的前端一半）。
  *
- * 钉三件事：接管横幅的显隐、恢复后横幅消失、"回到上一步"发的是**已完成 turn 号**。
+ * 钉三件事：接管横幅的显隐、"恢复"只能由坐席工作台完成、"回到上一步"发的是**已完成 turn 号**。
  * 端点的 HTTP 形状在 transport.js 的 `createSessionControlClient`；服务端闸（409/400/500）
  * 由 `packages/host/.../fork.test.ts` 证明，这里只注入假客户端，不重复造第二份 transport。
  */
@@ -10,12 +10,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createSessionControls } from './session-controls.js'
 
-/** 假端点客户端（与 `createSessionControlClient` 同形）。 */
+/** 假端点客户端（与 `createSessionControlClient` 同形；刻意没有 resume——移动壳不调坐席端点）。 */
 function fakeClient(overrides = {}) {
   return {
     handoffStatus: vi.fn(async () => ({ ok: true, status: 200, data: { active: false } })),
     handoff: vi.fn(async () => ({ ok: true, status: 200, data: { active: true } })),
-    resume: vi.fn(async () => ({ ok: true, status: 200, data: { active: false } })),
     fork: vi.fn(async () => ({ ok: true, status: 200, data: { sessionId: 's-fork-x' } })),
     ...overrides,
   }
@@ -37,7 +36,7 @@ describe('会话控制条', () => {
     host.remove()
   })
 
-  it('转人工 → 横幅出现、入口隐藏；恢复 → 横幅消失', async () => {
+  it('转人工 → 横幅出现、入口隐藏；不提供"恢复"（交回由坐席工作台完成）', async () => {
     const controls = createSessionControls(host, { client, onNotice: notify })
 
     expect(controls.banner.hidden).toBe(true)
@@ -45,10 +44,12 @@ describe('会话控制条', () => {
     await vi.waitFor(() => expect(controls.banner.hidden).toBe(false))
     expect(client.handoff).toHaveBeenCalledTimes(1)
     expect(host.querySelector('[data-role="handoff"]').hidden).toBe(true)
-
-    host.querySelector('[data-role="handoff-resume"]').click()
-    await vi.waitFor(() => expect(controls.banner.hidden).toBe(true))
-    expect(notify).toHaveBeenLastCalledWith('已交回会话：智能体恢复响应')
+    // 移动壳不渲染恢复钮：调坐席端点只会拿到 404（未配 BAH_OPERATOR_TOKEN 时不暴露存在性）
+    expect(host.querySelector('[data-role="handoff-resume"]')).toBeNull()
+    expect(controls.banner.textContent).toContain('坐席工作台')
+    expect(notify).toHaveBeenLastCalledWith(
+      '已请求人工接管：智能体暂停响应；你的消息会被记录，人工处理期间不会驱动智能体',
+    )
     controls.dispose()
   })
 

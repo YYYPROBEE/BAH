@@ -30,6 +30,18 @@ import type { WebServerInfo } from './channel.ts'
 
 const WEB_TOKEN = 'channel-parity-token'
 
+/**
+ * 注释外的凭证 meta。
+ *
+ * WHY 不用 `body.includes('bah-web-token')`：注释里的示例文本也算 contains，
+ * 但浏览器里没有这个元素（2026-10-29 移动走查 P0-1 的假绿就是这么来的）。
+ */
+function realTokenMeta(body: string): string | null {
+  const bare = body.replace(/<!--[\s\S]*?-->/g, '')
+  const match = /<meta name="bah-web-token" content="([^"]*)" \/>/.exec(bare)
+  return match === null ? null : (match[1] ?? '')
+}
+
 /** 两个壳：`/` 在 web 与 mobile 上落到不同文件。 */
 const INDEX_HTML =
   '<!doctype html><html><head><title>desk</title></head><body>desk</body></html>'
@@ -164,14 +176,14 @@ describe('两渠道同源：入口与白名单是唯一允许的静态差异', (
 
     const webM = await fetch(`${web.url}m.html`)
     expect(webM.status).toBe(200)
-    expect(await webM.text()).not.toContain('bah-web-token')
+    expect(realTokenMeta(await webM.text())).toBeNull()
 
     for (const path of ['m.html', 'index.html']) {
       const response = await fetch(`${mobile.url}${path}`)
-      expect(await response.text()).toContain('bah-web-token')
+      expect(realTokenMeta(await response.text())).toBe(WEB_TOKEN)
     }
     // 白名单外（other.html）在两个渠道都不注入
-    expect(await (await fetch(`${mobile.url}other.html`)).text()).not.toContain('bah-web-token')
+    expect(realTokenMeta(await (await fetch(`${mobile.url}other.html`)).text())).toBeNull()
   })
 })
 

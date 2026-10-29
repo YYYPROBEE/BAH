@@ -64,18 +64,34 @@ const CSRF_TOKEN = 'csrf-for-static-test'
 const OPERATOR_TOKEN = 'operator-token-secret'
 const HTML = '<!doctype html><html><head><title>shell</title></head><body>hi</body></html>'
 const SEAT_HTML = '<!doctype html><html><head><title>SEAT</title></head><body>SEAT</body></html>'
+/** 注释里写着 head 结束标记与同名 meta 示例的入口（P0-1 的真实形态）。 */
+const COMMENT_HTML =
+  '<!doctype html><html><head><!-- 响应时会在 </head> 前插入 <meta name="bah-web-token" content="…" /> --><title>trap</title></head><body>trap</body></html>'
 
 let root = ''
 
-/** 静态根：四个 HTML（index 在默认白名单，m/other/operator 不在）。 */
+/** 静态根：五个 HTML（index 在默认白名单，m/other/operator/comment 不在）。 */
 function makeRoot(): string {
   const dir = mkdtempSync(join(tmpdir(), 'bah-static-'))
   writeFileSync(join(dir, 'index.html'), HTML)
   writeFileSync(join(dir, 'm.html'), HTML)
   writeFileSync(join(dir, 'other.html'), HTML)
   writeFileSync(join(dir, 'operator.html'), SEAT_HTML)
+  writeFileSync(join(dir, 'comment.html'), COMMENT_HTML)
   writeFileSync(join(dir, 'package.json'), '{"name":"leak"}')
   return dir
+}
+
+/**
+ * 注释外的凭证 meta。
+ *
+ * WHY 不用 `body.includes('bah-web-token')`：注释里写一句示例文本也能让 contains 成立，
+ * 而浏览器里根本没有这个元素——2026-10-29 移动走查 P0-1 就是被这种断言放过去的。
+ */
+function realTokenMeta(body: string): string | null {
+  const bare = body.replace(/<!--[\s\S]*?-->/g, '')
+  const match = /<meta name="bah-web-token" content="([^"]*)" \/>/.exec(bare)
+  return match === null ? null : (match[1] ?? '')
 }
 
 /** 最小依赖面（只填 handleStatic 读到的字段）。 */
@@ -106,7 +122,7 @@ describe('静态入口：`/` 落点由 entry 决定（TC-MCH-12）', () => {
   it('entry=index.html ⇒ `/` 返回 index.html（注入 token）', async () => {
     const probe = await call(depsOf(), '/')
     expect(probe.status).toBe(200)
-    expect(probe.body).toContain('bah-web-token')
+    expect(realTokenMeta(probe.body)).toBe(WEB_TOKEN)
     expect(probe.body).toContain('<title>shell</title>')
   })
 
@@ -116,7 +132,17 @@ describe('静态入口：`/` 落点由 entry 决定（TC-MCH-12）', () => {
       '/',
     )
     expect(probe.status).toBe(200)
-    expect(probe.body).toContain('bah-web-token')
+    expect(realTokenMeta(probe.body)).toBe(WEB_TOKEN)
+  })
+
+  it('注释里的 head 结束标记不是注入点：DOM 里必须有真 meta（P0-1 回归）', async () => {
+    const probe = await call(
+      depsOf({ tokenEntries: [join(root, 'comment.html')] }),
+      '/comment.html',
+    )
+    expect(probe.status).toBe(200)
+    expect(realTokenMeta(probe.body)).toBe(WEB_TOKEN)
+    expect(probe.body).not.toContain('<!--')
   })
 })
 

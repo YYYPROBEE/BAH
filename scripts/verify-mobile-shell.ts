@@ -11,12 +11,14 @@
  * （D11 三句话 = TC-MOB-15、blocked 显式 = TC-MOB-23、手势不替代 verify = TC-MOB-07）。
  * 把语义判定塞进正则门禁，正是"findings 塞进 notes 绕过"的温床。
  *
- * 十条不变量（findings = 阻断，notes = 非阻断）：
+ * 十一条不变量（findings = 阻断，notes = 非阻断）：
  * I1 无框架/无 eval · I2 零远程资源 · I3 m.html 形态 · I4 无裸色值 · I4b theme-color 对齐令牌
  * I5 不自带第二份 transport/store · I6 DS 副本逐字节 · I7 触控 ≥44px · I8 安全区
  * I9 图标逐字节分发 + 尺寸集合 + 名字有映射 · I10 token 入口白名单
  * 另加 I11（R6）：mobile.css 引用的每个 `var(--…)` 必须有定义处——令牌名写错是
  * "静默失效、无色无报错"，只能靠机器查。
+ * 另加 I12（2026-10-29 移动走查 P0-2）：mobile.css 必须有 `[hidden]` 兜底显隐——
+ * DS 副本给遮罩等节点显式设了 display，会覆盖 UA 的 `[hidden]`，让"关着"的节点吞掉点击。
  */
 
 import { createHash } from 'node:crypto'
@@ -523,6 +525,20 @@ const gate: Gate = {
       }
       notes.push(
         `I11 令牌：定义处 ${String(defined.size)} 个、未定义引用 ${String(missing.size)} 个；运行期变量例外 ${String(Object.keys(RUNTIME_VARS).length)} 个（逐条带出处）`,
+      )
+    }
+
+    // ── I12 `hidden` 兜底显隐 ──────────────────────────────────────────────
+    // 判据是"有没有一条 `[hidden]` + `display: none !important`"：只要这条在，
+    // 遮罩/中断钮/空清单/折叠体都不会因为类上的 display 而常驻可见（P0-2 的一行修法）。
+    // 不逐类检查"用 hidden 的节点其 class 不得设 display"——那是语义级要求，
+    // 正则判不准（同一个 class 在别的状态下必须可见），交测试与走查。
+    if (
+      mobileCss !== undefined &&
+      !/\[hidden\]\s*\{[^}]*display\s*:\s*none\s*!important/.test(blankCssComments(mobileCss))
+    ) {
+      findings.push(
+        `I12 ${MOBILE_CSS} 缺 [hidden] 兜底规则（DS 副本的 display 会覆盖 hidden 属性，关着的遮罩会吞掉全部点击）`,
       )
     }
 

@@ -147,7 +147,8 @@ export function createSessionControlClient(options = {}) {
   return {
     handoffStatus: () => send('GET', '/api/handoff'),
     handoff: (reason) => send('POST', '/api/handoff', reason === undefined ? {} : { reason }),
-    resume: () => send('POST', '/api/handoff/resume', {}),
+    // 不提供 resume：交回是坐席凭证的端点，移动壳（不配 BAH_OPERATOR_TOKEN）调它只会 404。
+    // 坐席工作台用的是 apps/web/src/seat/api.js 里的那份（同一路径，但走坐席凭证）。
     fork: (turn) => send('POST', '/api/session/fork', { turn }),
   }
 }
