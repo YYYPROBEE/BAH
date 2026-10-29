@@ -6,7 +6,7 @@
  * 换成了同进程 HTTP server。
  */
 
-import { mkdirSync, mkdtemp, readFile, readdirSync, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -252,19 +252,22 @@ describe('闲置回收与上限（T-IM-014 / T-IM-018）', () => {
   it('同一 sessionKey 重启：旧会话目录被归档（宿主 create 排他）', async () => {
     const { supervisor } = supervisorWith(baseConfig())
     const handle = await supervisor.ensure('mock', 'u-1')
-    await supervisor.dispose()
+    // 主动停（不是 dispose：dispose 后 ensure 会拒绝），模拟"闲置回收后再次来消息"
+    await supervisor.stop(handle.sessionKey, 'idle')
 
     // 手工造出"上一轮写过的会话文件"（宿主的 session.jsonl）
     const sessionDir = join(root, 'sessions/im', handle.sessionKey, 'demo', handle.sessionKey)
-    await mkdirSync(sessionDir, { recursive: true })
+    await mkdir(sessionDir, { recursive: true })
     await writeFile(join(sessionDir, 'session.jsonl'), '{}\n', 'utf8')
 
     const again = await supervisor.ensure('mock', 'u-1')
     expect(again.sessionKey).toBe(handle.sessionKey)
-    const entries = await readdirSync(join(root, 'sessions/im', handle.sessionKey))
-    // 新目录在、旧目录被改名归档（保留审计证据）
-    expect(entries).toContain(handle.sessionKey)
-    expect(entries.some((name) => name.includes('-prev-'))).toBe(true)
+    const tenants = await readdir(join(root, 'sessions/im', handle.sessionKey))
+    expect(tenants).toContain('demo')
+    const sessions = await readdir(join(root, 'sessions/im', handle.sessionKey, 'demo'))
+    // 旧目录被改名归档（保留审计证据）；新目录由真实子进程在首次落盘时创建
+    expect(sessions.some((name) => name.includes('-prev-'))).toBe(true)
+    expect(sessions).not.toContain(handle.sessionKey)
     await supervisor.dispose()
   })
 
