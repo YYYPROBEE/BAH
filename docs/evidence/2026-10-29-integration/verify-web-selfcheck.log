@@ -1,0 +1,8 @@
+PASS 基线：index/operator/m 都绿
+PASS 反 1：m.html 缺 mobile.css ⇒ 红
+PASS 反 2：operator.html 缺 app.css ⇒ 红
+PASS 反 3：未登记入口 ⇒ 红
+PASS 复原后回到绿
+
+门禁自检 5/5 通过
+探针目录已清理

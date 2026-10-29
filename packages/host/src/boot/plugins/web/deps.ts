@@ -20,6 +20,7 @@ import type { HaltHandle, SentryHandle } from '@bah/safety'
 import type { HandoffHandle } from './handoff.ts'
 import type { TelemetryHandle } from '../telemetry.ts'
 import type { createRateLimiter } from '../web-rate-limit.ts'
+import type { Principal } from '../web-operator.ts'
 import type { SseHub } from './sse.ts'
 
 /** 限流器实例类型（`createRateLimiter` 的返回，不另立接口）。 */
@@ -35,6 +36,10 @@ export interface WebDeps {
   readonly hub: SseHub
   /** 本进程的 Web 访问凭证（未配置时随机生成，绝不写死）。 */
   readonly webToken: string
+  /** 坐席凭证（未配置时 undefined ⇒ `auth:'operator'` 路由一律 404）。 */
+  readonly operatorToken: string | undefined
+  /** 坐席显示名（`BAH_OPERATOR_NAME`，缺省 `坐席`）。 */
+  readonly operatorName: string
   /** 本进程的 CSRF 令牌（index 下发 cookie，前端回填请求头）。 */
   readonly csrfToken: string
   /** 每个来源的固定窗口限流。 */
@@ -59,8 +64,8 @@ export interface WebDeps {
   /** 惰性取 SLO 八项（没装 saga 时 `undefined`；`/api/metrics.slo` 显示 null）。 */
   readonly trySlo: () => Record<string, SloSample> | undefined
   /**
-   * 人工接管状态机（C5）。进程内状态 + `handoff/*` 事件留痕；
-   * 重启后回到未接管（见 `handoff.ts` 的"诚实边界"）。
+   * 人工接管状态机（C5）。状态落 `<root>/<sid>/handoff.json`；
+   * 同 `--session` 重启恢复接管状态，但 boot 不重放历史会话（见 `handoff.ts`）。
    */
   readonly handoff: HandoffHandle
   /** 已解析的静态根（绝对路径）。 */
@@ -75,6 +80,18 @@ export interface WebDeps {
    * 白名单比较用绝对路径精确等值（`handlers/static.ts`），不做模糊匹配。
    */
   readonly tokenEntries: readonly string[]
+  /**
+   * 坐席工作台入口（静态根下的绝对路径，`operator.html`）。
+   * 页面**零注入**：不含 token、不带 CSRF cookie，凭证由坐席自己粘贴。
+   */
+  readonly operatorEntry: string
+  /**
+   * 坐席面是否在本渠道开放。
+   *
+   * 只有 `channel:web` 且配了坐席 token 才为 true：移动壳没有坐席工作台，
+   * 不能让同一个 `/operator` 在移动渠道上变成"存在但打不开"的入口。
+   */
+  readonly seatEnabled: boolean
 }
 
 /** 解析好的请求行（避免每个 handler 各自 `new URL` 一遍）。 */
@@ -84,6 +101,13 @@ export interface WebRequest {
   readonly path: string
   /** 前缀路由的尾段（`/api/approval/t-1` → `t-1`）；其余为空串。 */
   readonly rest: string
+  /**
+   * 出示凭证的身份（dispatch 判定；`auth:'public'` 路由不填）。
+   *
+   * 不放 `deps` 上：`deps` 的生命周期是插件实例，`principal` 是一条请求——
+   * 混在一起就会出现"上一个请求的身份泄漏给下一个"。
+   */
+  readonly principal?: Principal
 }
 
 /** 处理器签名（4 个 handler 模块统一，dispatch 查表调用）。 */

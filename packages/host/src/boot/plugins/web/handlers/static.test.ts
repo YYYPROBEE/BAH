@@ -1,8 +1,15 @@
 /**
- * 静态资源的 token 白名单用例（施工单 01 §5 TC-MCH-12..16 / §3.8 安全不变量）。
+ * 静态资源的 token 白名单用例（施工单 01 §5 TC-MCH-12..16 / §3.8 安全不变量）
+ * + 坐席入口（人机接管 02 · B1）。
  *
  * 这里不启服务：直接调 `handleStatic` 并检查响应头 / 响应体，速度更快也更容易造
  * "白名单外的 HTML"。**真实 curl 矩阵**另存 `docs/evidence/.../01-static-matrix.txt`。
+ *
+ * 坐席入口的三条安全性质：
+ * 1. `seatEnabled=false`（未配 `BAH_OPERATOR_TOKEN` 或不是 web 渠道）⇒ `/operator` 与
+ *    `/operator.html` 都 404（不暴露存在性）；
+ * 2. 两个入口都**零注入**：响应体不含 web token / 坐席 token / `bah-web-token` meta；
+ * 3. 客户首页仍然照旧注入 token + CSRF cookie（回归，不许被 B1 带坏）。
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -54,16 +61,19 @@ async function call(deps: WebDeps, path: string, method = 'GET'): Promise<Probe>
 
 const WEB_TOKEN = 'token-for-static-test'
 const CSRF_TOKEN = 'csrf-for-static-test'
+const OPERATOR_TOKEN = 'operator-token-secret'
 const HTML = '<!doctype html><html><head><title>shell</title></head><body>hi</body></html>'
+const SEAT_HTML = '<!doctype html><html><head><title>SEAT</title></head><body>SEAT</body></html>'
 
 let root = ''
 
-/** 静态根：三个 HTML（index 在默认白名单，m/other 不在）。 */
+/** 静态根：四个 HTML（index 在默认白名单，m/other/operator 不在）。 */
 function makeRoot(): string {
   const dir = mkdtempSync(join(tmpdir(), 'bah-static-'))
   writeFileSync(join(dir, 'index.html'), HTML)
   writeFileSync(join(dir, 'm.html'), HTML)
   writeFileSync(join(dir, 'other.html'), HTML)
+  writeFileSync(join(dir, 'operator.html'), SEAT_HTML)
   writeFileSync(join(dir, 'package.json'), '{"name":"leak"}')
   return dir
 }
@@ -74,7 +84,11 @@ function depsOf(overrides: Partial<WebDeps> = {}): WebDeps {
     staticRoot: root,
     defaultEntry: join(root, 'index.html'),
     tokenEntries: [join(root, 'index.html')],
+    operatorEntry: join(root, 'operator.html'),
+    // 默认坐席面关闭：与"没配 BAH_OPERATOR_TOKEN"的部署一致
+    seatEnabled: false,
     webToken: WEB_TOKEN,
+    operatorToken: undefined,
     csrfToken: CSRF_TOKEN,
     ...overrides,
   } as unknown as WebDeps
@@ -205,5 +219,53 @@ describe('路径穿越与畸形编码回归（TC-MCH-16）', () => {
     const probe = await call(depsOf(), '/%E0%A4%A')
     expect(probe.status).toBe(400)
     expect(probe.body).toContain('web-invalid-path')
+  })
+})
+
+describe('坐席入口（B1：零注入、未启用即 404）', () => {
+  it('未启用坐席面 ⇒ /operator 与 /operator.html 都 404（存在性不白给）', async () => {
+    for (const path of ['/operator', '/operator.html']) {
+      const probe = await call(depsOf(), path)
+      expect(probe.status).toBe(404)
+      expect(probe.body).toContain('web-not-found')
+    }
+  })
+
+  it('启用 ⇒ /operator 200 text/html，零凭证、不写 CSRF cookie、可缓存', async () => {
+    const probe = await call(depsOf({ seatEnabled: true, operatorToken: OPERATOR_TOKEN }), '/operator')
+    expect(probe.status).toBe(200)
+    expect(probe.headers['content-type']).toContain('text/html')
+    expect(probe.body).toContain('SEAT')
+    expect(probe.body).not.toContain(WEB_TOKEN)
+    expect(probe.body).not.toContain(OPERATOR_TOKEN)
+    expect(probe.body).not.toContain('bah-web-token')
+    expect(probe.headers['set-cookie']).toBeUndefined()
+    expect(probe.headers['cache-control']).toBe('no-cache')
+  })
+
+  it('启用 ⇒ /operator.html 直接访问同样零注入', async () => {
+    const probe = await call(
+      depsOf({ seatEnabled: true, operatorToken: OPERATOR_TOKEN }),
+      '/operator.html',
+    )
+    expect(probe.status).toBe(200)
+    expect(probe.body).toContain('SEAT')
+    expect(probe.body).not.toContain('bah-web-token')
+    expect(probe.body).not.toContain(WEB_TOKEN)
+  })
+
+  it('误配进 token 白名单也不注入（operatorEntry 是硬排除，不靠配置自觉）', async () => {
+    const probe = await call(
+      depsOf({
+        seatEnabled: true,
+        operatorToken: OPERATOR_TOKEN,
+        tokenEntries: [join(root, 'index.html'), join(root, 'operator.html')],
+      }),
+      '/operator.html',
+    )
+    expect(probe.status).toBe(200)
+    expect(probe.body).not.toContain('bah-web-token')
+    expect(probe.headers['set-cookie']).toBeUndefined()
+    expect(probe.headers['cache-control']).toBe('no-cache')
   })
 })

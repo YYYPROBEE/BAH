@@ -1,0 +1,24 @@
+ WARN  Unsupported engine: wanted: {"node":"^22.19 || >=24"} (current: {"node":"v22.17.0","pnpm":"10.34.7"})
+
+> bah-monorepo@ handoff:demo D:\项目集\微众杯银行ai智能体\BAH\MonoRepo
+> tsx scripts/demo-handoff.ts
+
+{"ts":"2026-10-29T10:18:14.094Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+{"ts":"2026-10-29T10:18:14.104Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+[demo] bank:knowledge 健康检查失败（http://127.0.0.1:7801，required=false）：知识服务不可达；继续启动，knowledge 工具将返回 knowledge-unavailable
+[demo] 服务：http://127.0.0.1:6013/
+[demo] 会话：D:\项目集\微众杯银行ai智能体\BAH\MonoRepo\sessions\handoff-demo-4kwW6b\s-handoff-demo
+[demo] 审计根：D:\项目集\微众杯银行ai智能体\BAH\MonoRepo\sessions\handoff-demo-4kwW6b
+[demo] 客户 token：dev-web · 坐席 token：dev-op（坐席小周）
+[demo] 客户 /api/turn → 202 {"ok":true}
+[demo] 客户 /api/handoff → 200 {"active":true,"sessionId":"s-handoff-demo","lastSeq":66,"turns":1,"pendingTickets":1,"messages":[{"role":"user","text":"给王建国转 800 元"},{"role":"assistant","text":""},{"role":"assistant","text":""},{"role":"assistant","text":"已为你在模拟环境完成 800 元转账，审批与核销记录见上方工具卡。"}],"reason":"客户要求人工复核","at":1793269094294,"waitedMs":6,"overdue":false,"claimed":false,"turnsSinceHandoff":0,"operatorMessages":0}
+[demo] 坐席发言「您好，我是人工坐席」 → 200 {"ok":true,"seq":67}
+[demo] 坐席发言「正在核对收款人，请稍等」 → 200 {"ok":true,"seq":68}
+[demo] 坐席发言「已核对完成，马上为您处理」 → 200 {"ok":true,"seq":69}
+[demo] 客户等待中发言「我要问转账」 → 202 {"ok":true,"accepted":"queued-for-operator"}
+[demo] 客户等待中发言「在吗？」 → 202 {"ok":true,"accepted":"queued-for-operator"}
+[demo] 坐席交回 → 200 {"active":false,"sessionId":"s-handoff-demo","lastSeq":73,"turns":1,"pendingTickets":1,"messages":[{"role":"user","text":"给王建国转 800 元"},{"role":"assistant","text":""},{"role":"assistant","text":""},{"role":"assistant","text":"已为你在模拟环境完成 800 元转账，审批与核销记录见上方工具卡。"},{"role":"user","text":"我要问转账"},{"role":"user","text":"在吗？"}],"waitedMs":0,"overdue":false,"claimed":false,"turnsSinceHandoff":0,"operatorMessages":3,"at":1793269094294,"reason":"客户要求人工复核","operator":"坐席小周"}
+
+[demo] ✔ 闭环断言全部通过
+[demo] 审计：pnpm bah audit --dir "D:\项目集\微众杯银行ai智能体\BAH\MonoRepo\sessions\handoff-demo-4kwW6b" --no-signature
+[demo] 事件序列：handoff/requested → handoff/operator-message → handoff/operator-message → handoff/operator-message → handoff/resumed

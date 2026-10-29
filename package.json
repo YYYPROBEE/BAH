@@ -52,6 +52,7 @@
     "web": "tsx packages/cli/src/main.ts --profile web --serve",
     "web-plan": "tsx packages/cli/src/main.ts --profile web-plan --serve",
     "demo:web": "node scripts/demo-web.mjs",
+    "handoff:demo": "tsx scripts/demo-handoff.ts",
     "knowledge:sign": "tsx scripts/sign-knowledge.ts",
     "eval": "tsx scripts/eval.ts",
     "replay": "tsx scripts/replay.ts",

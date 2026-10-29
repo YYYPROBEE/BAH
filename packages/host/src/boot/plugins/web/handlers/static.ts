@@ -38,7 +38,16 @@ export async function handleStatic(
   request: WebRequest,
   deps: WebDeps,
 ): Promise<void> {
-  const pathname = request.path
+  // 坐席入口默认不存在：未配 BAH_OPERATOR_TOKEN（或不是 web 渠道）时 /operator 与
+  // /operator.html 都 404（不暴露"这系统有坐席台"）。页面里没有任何凭证，但存在性本身也不该白给。
+  const isOperatorEntry = request.path === '/operator' || request.path === '/operator.html'
+  if (isOperatorEntry && !deps.seatEnabled) {
+    sendError(res, 404, 'web-not-found', `没有这个资源：${request.path}`)
+    return
+  }
+  // 路径映射必须在 decodeURIComponent 之前：走同一条解码/规范化/越界判定。
+  // `operator.html` 不在 `deps.tokenEntries` 白名单里，所以天然不注入 token、不带 set-cookie。
+  const pathname = request.path === '/operator' ? '/operator.html' : request.path
   const headOnly = request.method === 'HEAD'
 
   // `decodeURIComponent` 对畸形百分号序列（如 `%E0%A4%A`）抛 `URIError`。
@@ -66,7 +75,8 @@ export async function handleStatic(
     const raw = await readFile(target)
     // 只有 token 入口白名单里的 HTML 才注入：注入后必须 no-store，避免浏览器缓存旧 token。
     // `no-store` / `set-cookie` / 注入三者**同生同灭**，判定必须来自同一个变量（01 §3.8 不变量 4）。
-    const isTokenEntry = deps.tokenEntries.includes(target)
+    // 坐席页是第二层硬排除：即便部署把 operator.html 误配进 entries，也不许它带凭证。
+    const isTokenEntry = deps.tokenEntries.includes(target) && target !== deps.operatorEntry
     const content = isTokenEntry
       ? Buffer.from(injectWebToken(raw.toString('utf8'), deps.webToken))
       : raw

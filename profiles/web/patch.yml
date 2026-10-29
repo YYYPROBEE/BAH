@@ -153,3 +153,7 @@
     # 纯原生 ES 模块：静态目录直接指向源码，不需要先 build
     staticRoot: apps/web
     heartbeatMs: 15000
+    # 人机接管（01）：3 分钟未处理 → 落 handoff/timeout-warned 并在坐席台亮红。
+    # 0 = 只记录不告警。**不自动交回**（自动把客户退回给模型比挂着更糟）。
+    handoff:
+      slaMs: 180000

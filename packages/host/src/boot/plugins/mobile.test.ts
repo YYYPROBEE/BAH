@@ -20,6 +20,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { RUN_SERVICE } from '../boot.ts'
 import { MOBILE_SERVER, mobilePlugin } from './mobile.ts'
+import { SESSION_FILES } from './persistence.ts'
 import { WEB_TOKEN_ENV } from './web-auth.ts'
 import { webPlugin } from './web.ts'
 
@@ -51,6 +52,11 @@ async function boot(): Promise<{ ctx: Context; url: string; restore: () => void 
   provideSession(ctx, { sessionId, now })
   provideAgents(ctx, new AgentRegistry())
   ctx.provide(APPROVAL_SERVICE, new ApprovalService({ sessionId, now }))
+  // 真 profile 里 `core:persistence` 一定在；接管状态要落与会话日志同目录
+  ctx.provide(SESSION_FILES, {
+    root: join(tmpdir(), 'bah-mobile-test-sessions'),
+    fileOf: (id) => join(tmpdir(), 'bah-mobile-test-sessions', String(id), 'session.jsonl'),
+  })
 
   const settings = mobilePlugin.validate({ port: 0, host: '127.0.0.1', staticRoot })
   await ctx.use(mobilePlugin.plugin, settings)

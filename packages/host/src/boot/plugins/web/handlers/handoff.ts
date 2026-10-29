@@ -37,9 +37,14 @@ export async function handleHandoff(
       sendError(res, 400, 'web-invalid-body', describeThrown(error))
       return
     }
-    const operator = readBodyString(body, 'operator')
-    const result = deps.handoff.resume(operator)
+    // 身份来自部署配置（`BAH_OPERATOR_NAME`），body 里的 `operator` 一律忽略（I1）
+    const handover = readBodyString(body, 'handover')
+    const result = deps.handoff.resume(deps.operatorName, handover)
     if (!result.ok) {
+      if (result.code === 'handoff-text-too-long') {
+        sendError(res, 400, result.code, '交接语超过 2000 字符上限')
+        return
+      }
       sendError(res, 409, result.code, '会话当前不在人工接管中，无需交回')
       return
     }

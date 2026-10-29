@@ -6041,3 +6041,22 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
   `git ls-remote` 21s 超时）；赛题 PPT / 演示视频仍 0 成品；`test:e2e` 无 key、`pnpm check` 未整体跑。
 - **口径更正**：§96.37 的"工作树脏 48 项 / 未推 28–30 / HEAD 04de7f1"是 14:32 的时点值，
   已被本节取代；docs/demo 目录仍不存在（赛题演示材料未产出）。
+
+## 96.39 2026-10-29 人机接管 01+02 合流（施工单 01）
+
+- **分支**：`integration/handoff-tenant`（自 `11f0eb3` 开出），`git merge --no-ff --no-commit handoff-02-workbench`（`9659006`，merge base `bbb7a80`）。`main` 未动；备份 tag `pre-merge-2026-10-29` + bundle `../bah-pre-merge-2026-10-29.bundle`。
+- **冲突 22 个，与施工单预期一致**。关键三处：
+  1. `web.ts` 取 main（60 行），handoff 增量全部搬进 `web/channel.ts`（`readOperatorConfig`、`createHandoff({files, slaMs})`、`operatorEntry`、`seatEnabled`）；
+  2. `dispatch.ts` / `router.ts` 并集：main 的 `trace`/`fork` 与 handoff 的 4 条坐席路由同表，路由 **23 条**；
+  3. 文档类全取 main 版，只有 `docs/web-frontend.md` §7 按 `web-routes.ts` 重生成。
+- **超出纯合并的六处修正**：
+  - `handoff-store` 构造参数改 `file`；`createHandoff` 用 `dirname(SessionFiles.fileOf(sid))` 推导，不再自己拼 `root/sessionId`；
+  - `static.ts` 坐席判定改 `deps.seatEnabled`；`operator.html` 即便误配进 `entries` 也不注入 token（第二层硬排除）；
+  - `verify-web.ts` 改**逐入口**声明样式（index/operator → `app.css`，`m.html` → `mobile.css`），未登记 `.html` 判红；
+  - `demo-handoff.ts` 的 `session.jsonl` 改由 `SESSION_FILES.fileOf` 推导；
+  - 接管指标派生拆到 `handlers/metrics-handoff.ts`，`metrics.ts` 221 → 187 行（handler < 200 行结构预算）；
+  - `mobile.test.ts` / `channel.test.ts` 补 `SESSION_FILES`（两渠道共用装配 ⇒ 都要求会话根）；`metrics.test.ts` 补 `handoff` 桩。
+- **验证（实跑）**：`typecheck` / `lint` 绿；`pnpm test` **266 文件 / 3100 例**；`pnpm test:web` **27 文件 / 361 例**；`pnpm gate` **47/47**（18:19 那次）；`pnpm handoff:demo` 闭环通过；`verify-web` 正反自检 **5/5**；`handoff.json` 落盘接线探针 **7/7**。断言基线 8872 → 9033 条 / 280 文件（`--update`，只增不减）。
+- **提交用 `--no-verify` 的原因（如实）**：18:20 起工作树出现两份**非本单产出**的未跟踪测试（`handlers/handoff-message.test.ts`、`handlers/metrics-handoff.test.ts`，19 例全过），使当前工作树的 `tracked-sources` 与 `assertions` 判红。按用户决定不替其作者提交；提交树不含这两个文件（干净 clone 上两门禁为绿），两份文件留在工作树等作者入库。
+- **证据**：`docs/evidence/2026-10-29-integration/`（合并说明 + 四份原始日志 + 自检日志）。
+- **仍未闭合（交施工单 02）**：鉴权仍是临时 `user`/`operator`（客户 token 打坐席 API 是 401 不是 403）；password 模式未涉及；`facts.md` 未重算（3047 → 3100，统一留给 02）；6 张人工截图未做；未推送、未动 tag。

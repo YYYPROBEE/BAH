@@ -293,3 +293,24 @@ describe('deriveMessages 的 wire 顺序恢复（R44）', () => {
     expect(messages.some((message) => message.role === 'assistant')).toBe(true)
   })
 })
+
+describe('handoff/* 领域事件（人机接管 01）', () => {
+  it('T-35 人工发言不进模型历史；交接语进（role=user）', () => {
+    const store = new SessionStore()
+    store.append('user/message', { content: '给王建国转 800 元' })
+    store.appendDomain(
+      'handoff/operator-message',
+      { text: '我是人工坐席', operator: 'A', at: 1 },
+      { ignorable: true },
+    )
+    store.append('user/message', { content: '已核对收款人，继续转账', source: 'handoff-handover' })
+
+    const messages = deriveMessages(store.events())
+    // 人工的嘴不进模型历史（D3）
+    expect(messages.some((message) => message.role === 'user' && message.content === '我是人工坐席')).toBe(false)
+    // 交接语进（D4）
+    expect(
+      messages.some((message) => message.role === 'user' && message.content === '已核对收款人，继续转账'),
+    ).toBe(true)
+  })
+})

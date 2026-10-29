@@ -13,6 +13,7 @@
 
 import { clear, el, icon } from './dom.js'
 import { createObservability } from './observability.js'
+import { formatWaited } from './format.js'
 import { approvalDecision, createStore, pendingApproval, viewKey } from './store.js'
 import { connectEvents, createHttpApi } from './transport.js'
 import {
@@ -152,6 +153,9 @@ export function mountApp(options) {
     placeholder: '说点什么，例如「给王建国转 800 元」（Enter 发送，Shift+Enter 换行）',
     'aria-label': '输入消息',
   })
+  /** 接管期间换成"消息会转给坐席"；交回后恢复。 */
+  const COMPOSER_PLACEHOLDER = composerInput.placeholder
+  const HANDOFF_PLACEHOLDER = '坐席正在处理，你的消息会转给坐席'
   const sendButton = el('button', {
     class: 'ds-btn ds-btn--brand ds-btn--md composer__send',
     type: 'submit',
@@ -186,6 +190,8 @@ export function mountApp(options) {
   ])
 
   const banner = el('div', { class: 'app-banner', hidden: true })
+  // D13：接管横幅是**另一个节点**，不复用 setBanner（后者写死了"连接异常"）。
+  const handoffBanner = el('div', { class: 'app-banner', id: 'handoff-banner', hidden: true })
 
   const shell = el('div', { class: 'app-shell' }, [
     el('header', { class: 'app-header' }, [
@@ -199,6 +205,7 @@ export function mountApp(options) {
       el('div', { class: 'app-header__meta' }, [sessionLabel, statusDot]),
     ]),
     banner,
+    handoffBanner,
     el('div', { class: 'app-body' }, [
       el('div', { class: 'app-left' }, [conversation, composer]),
       panel,
@@ -243,6 +250,79 @@ export function mountApp(options) {
         ]),
       ]),
     )
+  }
+
+  /** 接管横幅的计时器与一次性"已交回"提示。 */
+  let handoffTimer
+  let resumedNoticeTimer
+  let handoffWasActive = false
+
+  /**
+   * 同步接管横幅（D13：独立节点；`setBanner` 只负责连接异常）。
+   *
+   * `Date.now()` 在这里是**展示计时**，不是业务事实：权威等待时长在服务端
+   * `summary.waitedMs` / `heartbeat.waitedMs`，前端这一秒只是为了"在等"可感知。
+   */
+  function syncHandoffBanner(handoff, warn) {
+    if (handoff !== null && handoff !== undefined && handoff.active === true) {
+      if (resumedNoticeTimer !== undefined) {
+        clearTimeout(resumedNoticeTimer)
+        resumedNoticeTimer = undefined
+      }
+      handoffWasActive = true
+      composerInput.placeholder = HANDOFF_PLACEHOLDER
+      // 超时告警只在**本次接管**之后才算数（上一轮的红标不能跟到新接管）
+      const freshWarn = warn !== null && warn !== undefined && warn.seq > handoff.seq ? warn : null
+      const tick = () => {
+        const waited = formatWaited(Date.now() - (typeof handoff.at === 'number' ? handoff.at : Date.now()))
+        const overdue = freshWarn === null ? '' : ` · 已等待超过 ${String(Math.max(1, Math.round(freshWarn.slaMs / 60_000)))} 分钟`
+        handoffBanner.replaceChildren(
+          el('div', { class: 'ds-alert ds-alert--info' }, [
+            el('span', { class: 'ds-alert__icon' }, [icon('agent', 16)]),
+            el('div', {}, [
+              el('div', { class: 'ds-alert__title', text: '已转人工坐席' }),
+              el('p', {
+                class: 'ds-alert__desc',
+                text: `等待 ${waited} · 坐席回复会以「${handoff.operator ?? '人工坐席'}」标识${overdue}`,
+              }),
+            ]),
+          ]),
+        )
+        handoffBanner.hidden = false
+      }
+      tick()
+      if (handoffTimer === undefined) handoffTimer = setInterval(tick, 1000)
+      return
+    }
+
+    if (handoffTimer !== undefined) {
+      clearInterval(handoffTimer)
+      handoffTimer = undefined
+    }
+    composerInput.placeholder = COMPOSER_PLACEHOLDER
+    // 从"接管中"切到"已交回"：一次性提示 3 秒；之后到来的帧不许把它提前抹掉
+    if (handoffWasActive) {
+      handoffWasActive = false
+      handoffBanner.replaceChildren(
+        el('div', { class: 'ds-alert ds-alert--success' }, [
+          el('span', { class: 'ds-alert__icon' }, [icon('check', 16)]),
+          el('div', {}, [
+            el('div', { class: 'ds-alert__title', text: '已交回智能助手' }),
+            el('p', { class: 'ds-alert__desc', text: '之后的回复由智能助手继续' }),
+          ]),
+        ]),
+      )
+      handoffBanner.hidden = false
+      resumedNoticeTimer = setTimeout(() => {
+        resumedNoticeTimer = undefined
+        handoffBanner.hidden = true
+        handoffBanner.replaceChildren()
+      }, 3000)
+      return
+    }
+    if (resumedNoticeTimer !== undefined) return
+    handoffBanner.hidden = true
+    handoffBanner.replaceChildren()
   }
 
   /** 轻提示。 */
@@ -303,6 +383,7 @@ export function mountApp(options) {
     statusDot.className = `app-header__status ${status.cls}`
     statusDot.querySelector('.app-header__status-text').textContent = status.label
     setBanner(state.fault === null ? null : state.fault.reason)
+    syncHandoffBanner(state.handoff, state.handoffWarn)
   }
 
   store.subscribe(sync)

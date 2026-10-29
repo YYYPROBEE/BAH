@@ -43,6 +43,8 @@ function deps(slo?: Record<string, SloSample>): WebDeps {
     },
     hub: { size: () => 3 },
     now: () => T,
+    // 接管段：本文件不测状态机语义（见 handoff.test.ts），这里只要"没接管"
+    handoff: { active: false, slaMs: 0 },
     tryHalt: () => undefined,
     tryTelemetry: () => undefined,
     trySlo: () => slo,
