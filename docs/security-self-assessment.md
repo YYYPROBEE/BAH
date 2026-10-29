@@ -3,7 +3,7 @@
 > 口径：只写本仓能回源码、回命令复核的事实。**未实装的逐条列在 §8，不用"设计中"充数**；
 > 每条结论后给落点，答辩时可按落点当场翻代码。
 > 对应赛题：§3.1 权限分级、§3.2 安全设计、§五.5 安全自评材料。
-> 最后核实：2026-10-28（门禁与测试面：`pnpm gate` 42/42、`pnpm test` 244 文件 / 2722 用例 + 前端 55 例、快照 8 文件 34 例；安全面结论沿用 2026-10-27）。
+> 最后核实：2026-10-29（门禁与测试面：`pnpm gate` 43/43、`pnpm test` 244 文件 / 2722 用例 + 前端 55 例、快照 8 文件 34 例；安全面结论沿用 2026-10-27）。
 
 ---
 
@@ -262,7 +262,7 @@ saga/residual-recorded、saga/manually-closed、approval/decided
 | `/api/*` | 每请求验 `Authorization: Bearer`，缺/错 → 401 | `BAH_WEB_TOKEN` 未配置时每进程随机生成，注入页面 meta |
 | 健康探针 | 只返回数量（`pendingTicketCount`），不返回票据 ID | 防探针绕过页面直接调审批 |
 | SSE | `GET /api/events` 额外接受 `?token=` | `EventSource` 不能设请求头，故只对它放宽 |
-| 管理路由 | 未设 `BAH_ADMIN_TOKEN` → 404；非回环 → 403；token 走 `timingSafeEqual`；未知键 → 400 | 默认关闭、只绑回环、不加 CORS |
+| 管理路由 | 未设 `BAH_ADMIN_TOKEN` 且未设 `BAH_ADMIN_OPERATORS` → 404；非回环 → 403；token 走 `timingSafeEqual`；未知键（含 `by`）→ 400；多操作员的 `by` 从 token 派生 | 默认关闭、只绑回环、不加 CORS |
 | CSRF（W09） | 写请求（POST/PUT/DELETE）要求同源 `Origin` 或 `bah_csrf` cookie + `x-bah-csrf` 双提交；缺失/不符 → 403 | 管理路由豁免（CLI 客户端无 Origin/cookie）；SSE 是 GET，不受影响 |
 | 浏览器边界 | 所有响应带 CSP / XFO / XCTO / Referrer-Policy / Permissions-Policy | CSP 只允许同源脚本/样式/连接；不含 `unsafe-inline` |
 | 限流 | `/api/*` 每来源 60s / 120 次，超限 429 + `Retry-After` | `channel:web.config.rateLimit` 可调；单机限流，不替代网关 |

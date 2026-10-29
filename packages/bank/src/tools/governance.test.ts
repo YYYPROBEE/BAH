@@ -421,3 +421,63 @@ describe('W12 执行 lease（治理平面 → bank-core 核销点）', () => {
     }
   })
 })
+
+describe('03 TA-47 · 工具层租户闸（wrong-tenant 早于 no-identity）', () => {
+  it('TA-47-1 绑定租户与进程租户不一致 → deny wrong-tenant，工具体不执行', async () => {
+    const h = createPipelineHarness({
+      tenantId: 'demo',
+      identity: {
+        resolve: () => 'u-1',
+        resolveIdentity: () => ({ userId: 'u-1', tenantId: 'other' }),
+      },
+    })
+    try {
+      const execution = await h.run('account_balance')
+      expect(execution.result.isError).toBe(true)
+      expect(execution.result.code).toBe('wrong-tenant')
+      // 审计要看得见"有人在试跨租户"
+      expect(auditPayloads(h, 'tier/decided')[0]).toMatchObject({
+        verdict: 'deny',
+        code: 'wrong-tenant',
+      })
+      expect(payloads(h, 'approval/asked')).toHaveLength(0)
+    } finally {
+      await h.dispose()
+    }
+  })
+
+  it('TA-47-2 旧绑定没有 tenantId → 不误拒（正常执行）', async () => {
+    const h = createPipelineHarness({
+      tenantId: 'demo',
+      identity: {
+        resolve: () => 'u-1',
+        // 旧载荷：只有用户，没有租户（01 之前的 identity/bound）
+        resolveIdentity: () => ({ userId: 'u-1' }),
+      },
+    })
+    try {
+      const execution = await h.run('account_balance')
+      expect(execution.result.isError).toBe(false)
+    } finally {
+      await h.dispose()
+    }
+  })
+
+  it('TA-47-3 wrong-tenant 早于 no-identity（同时成立时先报租户）', async () => {
+    // 构造"看起来没身份、但租户对不上"的接缝：旧实现会先报 no-identity，
+    // 把"有人在试跨租户"藏进"没登录"里
+    const h = createPipelineHarness({
+      tenantId: 'demo',
+      identity: {
+        resolve: () => '',
+        resolveIdentity: () => ({ userId: '', tenantId: 'other' }),
+      },
+    })
+    try {
+      const execution = await h.run('account_balance')
+      expect(execution.result.code).toBe('wrong-tenant')
+    } finally {
+      await h.dispose()
+    }
+  })
+})

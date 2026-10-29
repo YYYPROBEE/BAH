@@ -72,7 +72,9 @@ export interface HandoffEventAppender {
 /** 接管平面在 `WebDeps` 上的形状（处理器只依赖这四项，测试可以给桩）。 */
 export interface HandoffHandle {
   readonly active: boolean
-  enter(reason?: string): HandoffEnterResult
+  /** `requestedBy` 来自登录主体（03 TA-45），不接受请求体自报。 */
+  enter(reason?: string, requestedBy?: string): HandoffEnterResult
+  /** `operator` 来自登录主体（03 TA-45），不接受请求体自报。 */
   resume(operator: string | undefined): HandoffResumeResult
   summary(): HandoffSummary
 }
@@ -85,7 +87,12 @@ export interface HandoffHandle {
  */
 export class HandoffRegistry implements HandoffHandle {
   private state:
-    | { readonly at: number; readonly reason?: string; operator?: string }
+    | {
+        readonly at: number
+        readonly reason?: string
+        readonly requestedBy?: string
+        operator?: string
+      }
     | undefined
 
   constructor(
@@ -101,14 +108,19 @@ export class HandoffRegistry implements HandoffHandle {
     return this.state !== undefined
   }
 
-  enter(reason?: string): HandoffEnterResult {
+  enter(reason?: string, requestedBy?: string): HandoffEnterResult {
     if (this.state !== undefined) return { ok: false, code: 'handoff-already-active' }
     const at = this.options.now()
-    this.state = { at, ...(reason === undefined ? {} : { reason }) }
+    this.state = {
+      at,
+      ...(reason === undefined ? {} : { reason }),
+      ...(requestedBy === undefined ? {} : { requestedBy }),
+    }
     // 先改状态再落事件：事件失败时状态已经是"待接管"，宁可少一条证据也不要
     // "日志说接管了、系统还在自动回话"
     this.options.append('handoff/requested', {
       ...(reason === undefined ? {} : { reason }),
+      ...(requestedBy === undefined ? {} : { requestedBy }),
       at,
     })
     return { ok: true, summary: this.summary() }

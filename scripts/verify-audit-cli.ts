@@ -22,6 +22,7 @@ import { isMainModule, runStandalone, type Gate, type GateResult } from './gate-
 
 const AUDIT_SOURCES = [
   'packages/cli/src/cli/audit.ts',
+  'packages/cli/src/cli/audit-approvals.ts',
   'packages/cli/src/cli/audit-projection.ts',
   'packages/cli/src/cli/audit-anchors.ts',
   'packages/persistence/src/chain/audit-report.ts',
@@ -33,6 +34,8 @@ const TOP_LEVEL_KEYS = [
   'chains',
   'anchors',
   'reverseGaps',
+  'approvals',
+  'approvalWarnings',
   'errors',
   'dbState',
   'ok',

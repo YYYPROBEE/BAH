@@ -52,6 +52,8 @@ const REUSED_EVENTS = new Set([
   'tool/result',
   'approval/asked',
   'approval/decided',
+  // 03 TA-46：审批操作者（"谁点的允许"），与 approval/decided 成对入链
+  'approval/actor',
   // 策略外置 S3（02 §4.4）：tier/decided 的链上镜像，复用会话链而非 saga 状态机
   'policy/decision',
 ])

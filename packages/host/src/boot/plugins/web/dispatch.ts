@@ -4,13 +4,14 @@
  * 拆分前这是一条 180 行的 `if` 链，闸与路由混在一起；现在闸按**路由表的 `auth` 字段**决定，
  * 顺序仍然逐字保留（W09 §2.3 的硬约束）：
  *
- * 限流 429 → 管理面（豁免）→ **身份 401** → CSRF 403 → 业务 423/409 → 静态 404 → 405。
-
- * 02 起"Bearer 401"换成"身份 401"：`static` 模式的身份解析内部仍做那个 Bearer 比对，
- * `password` 模式读会话 cookie。**闸仍然只有这一处**——身份不通过的请求走不到 handler。
+ * 限流 429 → 管理面（豁免）→ **身份 401** → **角色 403** → CSRF 403 → 业务 423/409 → 静态 404 → 405。
  *
- * 为什么闸不写在 handler 里：一条路由漏写就是一次绕过，而"漏写"在 `if` 链里看不出来。
- * 闸只有这一处，路由表只有方法/路径/状态码三元组。
+ * 02 起"Bearer 401"换成"身份 401"：`static` 模式的身份解析内部仍做那个 Bearer 比对，
+ * `password` 模式读会话 cookie。03 把"该不该进"集中到 `authz/authorize.ts`（Z1），
+ * 本文件只留一个调用点。**闸仍然只有这一处**——身份/角色不通过的请求走不到 handler。
+ *
+ * 为什么角色 403 排在 CSRF 之前：两处都回 403，但顺序反了会让跨站请求先被 CSRF 拦下，
+ * 日志里就看不出"越权意图"（03 TA-42 的反例）。身份仍在角色之前：匿名是 401，不是 403。
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -18,6 +19,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebSettings } from './config.ts'
 import { CSRF_METHODS, csrfVerdict } from './csrf.ts'
 import type { WebDeps, WebHandler, WebRequest } from './deps.ts'
+import { authorize, type AuthorizeSpec } from './authz/authorize.ts'
 import { handleAdmin } from './handlers/admin.ts'
 import { handleApproval, handleVerify } from './handlers/approval.ts'
 import {
@@ -52,6 +54,10 @@ const HANDLERS: Readonly<Record<RouteHandler, WebHandler>> = {
   me: AUTH_HANDLERS.me,
   static: handleStatic,
 }
+
+/** 未命中路由时的合成 spec（TA-42 边界 1/2）。 */
+const UNMATCHED_API_SPEC: AuthorizeSpec = { auth: 'web' }
+const UNMATCHED_STATIC_SPEC: AuthorizeSpec = { auth: 'static' }
 
 /**
  * 造一个请求监听器。
@@ -95,11 +101,18 @@ export function createDispatcher(
     // 失败且该路由需要主体 → 401。三种模式的区别都在 deps.auth.identify 内部，
     // 这里不写任何 `mode === ...` 分支（否则闸就有第二份真相）。
     const identity = deps.auth.identify(req, deps.now())
-    // 需要主体的判定沿用改动前的口径：除探活与管理面外，所有 `/api/` 前缀都要身份
-    // （包括**未命中**的 /api/ 路径：打不存在的接口不该是一次免鉴权探测）。
-    const needsIdentity = isApi && !isAdmin && match?.spec.auth !== 'public'
-    if (needsIdentity && identity.kind === 'anonymous') {
-      sendError(res, 401, 'web-unauthorized', '缺少或错误的访问凭证')
+    // 授权（03 TA-42）：**唯一**的角色判定点。未命中的路由也有合成 spec——
+    // `/api/*` 视为需要身份的业务面，其余视为静态面（走到 405）。
+    // 角色 403 必须排在 CSRF 之前（否则越权意图会被 CSRF 的 403 掩盖）。
+    const verdict = authorize({
+      identity,
+      spec: match?.spec ?? (isApi ? UNMATCHED_API_SPEC : UNMATCHED_STATIC_SPEC),
+      method,
+      path,
+      isApi,
+    })
+    if (!verdict.ok) {
+      sendError(res, verdict.status, verdict.code, verdict.reason)
       return
     }
 

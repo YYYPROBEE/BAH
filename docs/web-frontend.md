@@ -252,21 +252,21 @@ confirmed(amount, callId) =
 | GET | `/api/health` | 探活：`{ ok, lastSeq, pendingTicketCount }`（只给数量，不给票据 ID） | 公开 | 200 |
 | POST | `/api/auth/login` | 登录 `{ userId, password }` → 下发 HttpOnly 会话 cookie 并轮换 CSRF；失败与"用户不存在"同形 | 公开 + CSRF | 200 / 400 / 401 / 403 / 409 / 503 |
 | POST | `/api/auth/logout` | 登出（幂等：没有会话也 200，但会清 cookie；public + CSRF） | 公开 + CSRF | 200 / 403 |
-| GET | `/api/auth/me` | 自查：`{ tenant, userId, roles, expiresAt, mode }`（**不回 sid**） | Bearer | 200 / 401 |
+| GET | `/api/auth/me` | 自查：`{ tenant, userId, roles, expiresAt, mode }`（**不回 sid**） | Web 凭证 | 200 / 401 |
 | POST | `/api/admin/sentry/unfreeze` | 人工解冻断路器（默认关闭，见 §7.1） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 503 |
 | POST | `/api/admin/halt` | 人工进入 HALT（W07，见 §7.1.1）；`changed:false` 表示本来就在 HALT | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 503 |
 | POST | `/api/admin/halt/unfreeze-request` | 会话内发起一次 U 盾 MFA 审批，签发解除票据（无应答者 → 409） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 409 / 503 |
 | POST | `/api/admin/halt/unfreeze` | 凭票据解除 HALT（唯一解除路径；没有 `force`） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 409 / 503 |
-| GET | `/api/session` | 会话与能力位：`{ sessionId, lastSeq, capabilities }` | Bearer | 200 / 401 |
-| GET | `/api/events` | SSE：先全量快照，再推 frame / delta / 心跳注释；凭证可用 `?token=`；连接满 → 503 | Bearer | 200 / 400 / 401 / 503 |
-| GET | `/api/metrics` | 单机指标：turn / 工具成功失败 / 审批分布 / token 与成本 / 工具耗时分位 / SSE 连接数 | Bearer | 200 / 401 |
-| POST | `/api/turn` | 提交一轮输入 `{ text }` → 入队并驱动；202 = 已入队，HALT 期间 423 | Bearer + CSRF | 202 / 400 / 401 / 403 / 423 / 503 |
-| POST | `/api/interrupt` | 打断当前 turn `{ reason? }`（理由进审计） | Bearer + CSRF | 200 / 401 / 403 / 503 |
-| POST | `/api/approval/:ticketId` | 提交审批结论 `{ decision, reason? }`；跨会话票据 403 | Bearer + CSRF | 200 / 400 / 401 / 403 / 404 / 409 |
-| POST | `/api/verify/:ticketId` | 红级票据的强验证（挑战由 VerifyService 签发） | Bearer + CSRF | 200 / 400 / 401 / 403 / 404 |
-| GET | `/api/handoff` | 人工接管摘要：`{ active, sessionId, lastSeq, turns, pendingTickets, messages[], reason?, at? }` | Bearer | 200 / 401 |
-| POST | `/api/handoff` | 请求人工接管 `{ reason? }`：之后 `/api/turn` 一律 409，模型不再自动驱动 | Bearer + CSRF | 200 / 400 / 401 / 403 / 409 |
-| POST | `/api/handoff/resume` | 交回会话 `{ operator? }`；未接管时 409——不做"幂等成功"，交回必须是真的一次状态转移 | Bearer + CSRF | 200 / 400 / 401 / 403 / 409 |
+| GET | `/api/session` | 会话与能力位：`{ sessionId, lastSeq, capabilities }` | Web 凭证 | 200 / 401 |
+| GET | `/api/events` | SSE：先全量快照，再推 frame / delta / 心跳注释；static 模式凭证可用 `?token=`（password 模式只认 cookie）；连接满 → 503 | Web 凭证 | 200 / 400 / 401 / 503 |
+| GET | `/api/metrics` | 单机指标：turn / 工具成功失败 / 审批分布 / token 与成本 / 工具耗时分位 / SSE 连接数 | Web 凭证 | 200 / 401 |
+| POST | `/api/turn` | 提交一轮输入 `{ text }` → 入队并驱动；202 = 已入队，HALT 期间 423 | Web 凭证 + CSRF | 202 / 400 / 401 / 403 / 423 / 503 |
+| POST | `/api/interrupt` | 打断当前 turn `{ reason? }`（理由进审计） | Web 凭证 + CSRF | 200 / 401 / 403 / 503 |
+| POST | `/api/approval/:ticketId` | 提交审批结论 `{ decision, reason? }`；跨会话票据 403 | Web 凭证 + CSRF | 200 / 400 / 401 / 403 / 404 / 409 |
+| POST | `/api/verify/:ticketId` | 红级票据的强验证（挑战由 VerifyService 签发） | Web 凭证 + CSRF | 200 / 400 / 401 / 403 / 404 |
+| GET | `/api/handoff` | 人工接管摘要：`{ active, sessionId, lastSeq, turns, pendingTickets, messages[], reason?, at? }` | Web 凭证 | 200 / 401 |
+| POST | `/api/handoff` | 请求人工接管 `{ reason? }`：之后 `/api/turn` 一律 409，模型不再自动驱动 | Web 凭证 + CSRF | 200 / 400 / 401 / 403 / 409 |
+| POST | `/api/handoff/resume` | 交回会话（操作者从登录主体派生，body 不接受 `operator`）；未接管时 409——不做"幂等成功"，交回必须是真的一次状态转移 | Web 凭证 + CSRF | 200 / 400 / 401 / 403 / 409 |
 | GET / HEAD | `/*` | 静态资源（默认根目录见 §7.2；纯原生 ES 模块，无需构建）；畸形百分号编码 → 400 | 无（静态） | 200 / 400 / 404 |
 <!-- web-routes:end -->
 
@@ -277,33 +277,35 @@ confirmed(amount, callId) =
 Bearer 401 → CSRF 403 → 业务 423/409 → 静态 404 → 405。状态码列只列该路由自身可能产生的码，
 不含 429（逐路由相同）与 500（全局兜底：未归类异常一律 `web-internal`）。
 
-**W09 CSRF**：所有写路由（`POST/PUT/DELETE`）在 Bearer 之后额外校验——同源 `Origin`，
+**W09 CSRF**：所有写路由（`POST/PUT/DELETE`）在身份与角色之后额外校验——同源 `Origin`，
 或 `bah_csrf` cookie + `X-BAH-CSRF` 请求头双提交一致；缺失 403 `web-csrf-required`，
 不符 403 `web-csrf-forbidden`（详见 §7.2.2）。管理路由豁免（CLI 客户端没有 Origin/cookie）。
 
 ### 7.1 管理路由（`POST /api/admin/sentry/unfreeze`）
 
-只有一条，且**默认不存在**：没设 `BAH_ADMIN_TOKEN` 时返回 404（不暴露存在性）。
+只有一条，且**默认不存在**：`BAH_ADMIN_TOKEN` 与 `BAH_ADMIN_OPERATORS` 都没设时返回 404
+（不暴露存在性）。
 
 ```json
-// 请求
-{ "by": "ops-7", "reason": "客服复核：误报" }   // by 必填 ≤64；reason ≤200，缺省 operator-unfreeze
+// 请求（03 TA-44：只接受 reason；body 里的 by 一律 400）
+{ "reason": "客服复核：误报" }   // reason ≤200，缺省 operator-unfreeze
 
-// 响应
-{ "ok": true, "unfrozen": true }    // 真解除了
-{ "ok": true, "unfrozen": false }   // 本来没冻结（幂等 no-op，不是错误）
+// 响应：by / bySource 由服务端派生（命中的 admin token → 操作员 id）
+{ "ok": true, "unfrozen": true, "by": "ops-7", "bySource": "admin-token" }
+{ "ok": true, "unfrozen": false, "by": "ops-7", "bySource": "admin-token" }  // 幂等 no-op
 ```
 
 状态码顺序即安全顺序（**先问"路由存不存在"，再问"你是谁"，最后问"你要干什么"**）：
 
 | 顺序 | 条件 | 状态 | code |
 |---|---|---|---|
-| 1 | 未设 `BAH_ADMIN_TOKEN`（**任何方法**） | **404** | `web-not-found` |
+| 1 | 未设 `BAH_ADMIN_TOKEN` 且未设 `BAH_ADMIN_OPERATORS`（**任何方法**） | **404** | `web-not-found` |
 | 2 | 来源不是本机回环 | 403 | `web-admin-forbidden` |
-| 3 | 方法不是 `POST` | 405 | `web-method-not-allowed` |
-| 4 | 缺 / 错 `Authorization: Bearer` | 401 | `web-admin-unauthorized` |
-| 5 | body 非对象 / 缺 by / 未知键 / 超长 / 坏 JSON | 400 | `web-admin-invalid-body` |
-| 6 | profile 没有 `safety:sentry` | 503 | `sentry-absent` |
+| 3 | `BAH_ADMIN_OPERATORS` 不是合法 JSON / 空数组 / id 或 token 重复（fail-closed） | 503 | `web-admin-unavailable` |
+| 4 | 方法不是 `POST` | 405 | `web-method-not-allowed` |
+| 5 | 缺 / 错 `Authorization: Bearer` | 401 | `web-admin-unauthorized` |
+| 6 | body 非对象 / 未知键（含 `by`）/ 超长 / 坏 JSON | 400 | `web-admin-invalid-body` |
+| 7 | profile 没有 `safety:sentry` | 503 | `sentry-absent` |
 
 **404 必须排在 405 前面**：没配 token 时如果 `GET` 返回 405，等于告诉扫描器
 "这里有个管理口，只是方法不对"——那就不叫"不暴露存在性"了。
@@ -314,8 +316,12 @@ Bearer 401 → CSRF 403 → 业务 423/409 → 静态 404 → 405。状态码列
 - **token 只从环境变量读**：不进 URL、不进 argv、不进日志、不进审计；
 - **不加进 `webPlugin.plugin.inject`**：web 是渠道不是风控，没有 sentry 的 profile 也必须能起（此时路由 503）。
 
-CLI 侧对应命令是 `bah sentry unfreeze --by <operator>`（headless 无此入口，只能重启进程，
-见 `docs/sentry.md` §5.1）。
+**多操作员（03 TA-44）**：`BAH_ADMIN_OPERATORS='[{"id":"ops-li","token":"…"},…]'`
+优先于 `BAH_ADMIN_TOKEN`（后者兼容成 `{id:"admin"}`）。解冻的 `by` 从命中的 token
+派生，**不接受 body 自报**；坏配置 fail-closed 成 503（不会静默变 404）。
+
+CLI 侧对应命令是 `bah sentry unfreeze [--reason <text>]`（03 起不再有 `--by`；
+headless 无此入口，只能重启进程，见 `docs/sentry.md` §5.1）。
 
 ### 7.1.1 HALT 管理路由（W07）
 

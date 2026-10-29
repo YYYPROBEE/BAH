@@ -40,6 +40,14 @@ export interface BankToolsConfig {
 export interface BankIdentity {
   /** 会话 → 银行用户 ID；`undefined` = 未绑定（业务工具一律拒绝）。 */
   resolve(sessionId: SessionId): string | undefined
+  /**
+   * 会话 → 完整身份（用户 + 绑定时租户）。可选：只实现 `resolve` 的旧接缝仍可用，
+   * 此时租户闸跳过（`wrong-tenant` 需要两边都有租户才判）。
+   */
+  resolveIdentity?(sessionId: SessionId): {
+    readonly userId: string
+    readonly tenantId?: string
+  } | undefined
 }
 
 /** 受限计算请求（施工单 11 的 `compute-bounded` 档在 08 的可替换接缝）。 */

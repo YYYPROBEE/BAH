@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
 
-import { matchRoute, ROUTES } from './router.ts'
+import { matchRoute, ROUTES, assertRouteRoles } from './router.ts'
 import { renderRoutesMarkdown } from './routes-markdown.ts'
 
 /** 读同目录/上级目录的源码（`web.ts` 在上一层）；统一换行，免得 CRLF 让整行比较失效。 */
@@ -200,5 +200,28 @@ describe('W16 结构预算', () => {
         false,
       )
     }
+  })
+})
+
+describe('03 TA-40 · 路由角色声明（增量，不改既有元素）', () => {
+  it('TA-40-1 每条 auth:web 的路由都有 roles；其余一律不写', () => {
+    for (const route of ROUTES) {
+      if (route.auth === 'web') {
+        expect(route.roles, `${route.path} 缺 roles`).toBeDefined()
+        expect(route.roles!.length, `${route.path} 的 roles 为空`).toBeGreaterThan(0)
+      } else {
+        expect(route.roles, `${route.path}（${route.auth}）不该有 roles`).toBeUndefined()
+      }
+    }
+  })
+
+  it('TA-40-2 未知角色 / 空数组 / 顺序错 → assertRouteRoles 抛错', () => {
+    expect(() => assertRouteRoles('/api/x', ['root'] as never)).toThrow(/未知角色/)
+    expect(() => assertRouteRoles('/api/x', [])).toThrow(/不允许空数组/)
+    expect(() => assertRouteRoles('/api/x', ['admin', 'customer'])).toThrow(/ROLES 序/)
+  })
+
+  it('TA-40-3 指纹里没有角色信息（既有 19 行快照仍是唯一基线）', () => {
+    expect(ROUTES.map(fingerprint).join('\n')).not.toContain('customer')
   })
 })

@@ -16,7 +16,7 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **23 项 / 42 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
+| 注册表 / 门禁 | **23 项 / 43 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
 | 覆盖率 | **91.14%（行口径，31233/34270 行，实测 2026-10-28）；15/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
@@ -56,14 +56,14 @@
 |---|---|---|---|
 | 1 | 用户自然语言提示注入 | `sentry` ingress：归一化 6 步（base64/全角/零宽）+ 9 类签名；命中只升风险分并审计，**永不**直接拒绝（检测器不可信） | 语义变体（同义改写）不命中签名；靠"检测只升风险、阻断靠确定性规则"兜住 |
 | 2 | 工具参数注入 / 编码绕过 | `scanToolArgs` 在归一化后扫；危险规则 13 条 | 规则集是枚举，新编码要人工补 |
-| 3 | 越权：跨会话使用票据 | `TicketBinding.sessionId` + 审批服务同源会话；跨会话 403 | 无（同一 token 下的多会话不在威胁模型内） |
-| 4 | 越权：越用户调业务工具 | 会话绑定身份（`demoUserId`）；无身份一律 `no-identity` 拒绝 | 身份来自 profile 配置，不是登录态——这是仿真环境的前提 |
+| 3 | 越权：跨会话使用票据 | `TicketBinding.sessionId` + 审批服务同源会话；03 起再按**主体**判一次（`TicketOwner.sessionId/userId`），跨会话/跨用户仍是 403 `foreign-ticket` | 用户层判定只在票据视图带 `userId` 时生效（当前仲裁器尚未填）；会话层始终生效。跨租户由认证层 401 拦住，走不到资源层 |
+| 4 | 越权：越用户调业务工具 | 会话绑定身份（`demoUserId` / 登录态 `session-auth`）；无身份一律 `no-identity`；03 起会话绑定租户与进程租户不一致 → `wrong-tenant`（早于 `no-identity`） | 角色来自目录文件，改角色需重启；没有数据行级权限（单进程单数据集） |
 | 5 | 还原攻击：票据重放 | 一次性核销（`redeemed`）+ 参数指纹 + `expiresAt` | 无 |
 | 6 | 金额篡改（浮点/精度） | 金额一律整数分；`amountPath` 绑定金额；断言核验 | 历史数据里的"元"入参靠工具 schema 约束，不是运行时全量校验 |
 | 7 | 绕过审批直接写 | `tools/pre-execute` 是**唯一**阻断点；写工具没有票据即拒；`verify-tiers` 门禁防 tier 声明漂移 | 无（这是本项目的核心不变量） |
-| 8 | 伪造审批 HTTP 请求 | Bearer 401 → CSRF 403 → 同会话 403 三层；`/api/admin/*` 豁免 CSRF 但有独立 token + 回环来源 | 无 |
-| 9 | CSRF（跨站表单） | 双提交 cookie + 同源 Origin；顺序固定 401 → 403 → 业务 | 无 |
-| 10 | token 暴力破解 | 每进程随机生成（未配环境变量时）；限流 429；SSE 只允许查询参数带 token | token 无过期时间（单进程演示形态） |
+| 8 | 伪造审批 HTTP 请求 | 身份 401 → 角色 403（`authorize()` 唯一判定点）→ CSRF 403 → 同会话/同用户 403；03 起放行人落 `approval/actor`（先于 `approval/decided`） | 管理面走独立 token + 回环；用户层归属同第 3 行；**HALT / 票据解除的操作员仍未入链**（本轮只覆盖解冻的 `by`） |
+| 9 | CSRF（跨站表单） | 双提交 cookie + 同源 Origin；顺序固定 **401 → 角色 403 → CSRF 403 → 业务** | 无 |
+| 10 | token 暴力破解 | password 模式：scrypt + 失败计数 + 15 分钟锁定 + 指数退避提示；会话语 cookie 为 HttpOnly；static 模式 token 每进程随机生成（未配环境变量时） | static 模式 token 无过期时间；SSE 在 static 模式仍可用 `?token=`（password 模式只认 cookie） |
 | 11 | XSS（渲染模型输出） | 前端全量 `textContent`（禁 `innerHTML`）+ CSP `script-src 'self'`、`object-src 'none'`、`frame-ancestors 'none'` | 无 |
 | 12 | 点击劫持 / 嵌入 | `x-frame-options: DENY` + CSP `frame-ancestors 'none'` | 无 |
 | 13 | 大请求打爆内存 | `MAX_BODY_BYTES = 64 KiB` → 413；限流 | 无 |
@@ -76,8 +76,9 @@
 
 ### 3.1 三处"顺序即安全"的设计（顺序错了，上面一半的防线都会失效）
 
-1. **闸的顺序**：限流 → 管理面豁免 → Bearer 401 → CSRF 403 → 业务 423/409。
-   反过来会把"缺凭证"报成 403（信息泄漏），或把"停机"误报成跨站攻击。
+1. **闸的顺序**：限流 → 管理面豁免 → 身份 401 → 角色 403 → CSRF 403 → 业务 423/409。
+   反过来会把"缺凭证"报成 403（信息泄漏），或把"停机"误报成跨站攻击；
+   角色 403 必须排在 CSRF 之前，否则越权意图会被 CSRF 的 403 掩盖。
 2. **判定顺序**：危险规则 → PII（仅审计）→ 风险分 → 预算 → 熔断 → 签票。
    签票放最后，避免"票已发出才发现会话被冻结"。
 3. **HALT 与风险分**：`HALT` 判定在 `riskScore` 之前——停机是绝对状态，

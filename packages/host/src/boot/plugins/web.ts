@@ -37,6 +37,7 @@ import {
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
+import { DECISION_AUDIT } from './audit-decisions.ts'
 import { TELEMETRY } from './telemetry.ts'
 import { createWebAuthRuntime } from './web/auth/wire.ts'
 import { wireWebPipelines } from './web/wire.ts'
@@ -137,6 +138,7 @@ export const webPlugin: HostPlugin<WebSettings> = {
         ensureDriver,
         trySentry: () => tryService(ctx, SENTRY_SERVICE),
         tryHalt: () => tryService(ctx, HALT_SERVICE),
+        tryAudit: () => tryService(ctx, DECISION_AUDIT),
         tryTelemetry: () => tryService(ctx, TELEMETRY),
         staticRoot,
         indexPath: join(staticRoot, 'index.html'),

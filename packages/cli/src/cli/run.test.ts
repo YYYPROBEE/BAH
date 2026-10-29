@@ -601,7 +601,7 @@ describe('sentry 子命令分发（只是客户端，不 boot 宿主）', () => 
     process.env[ADMIN_TOKEN_ENV] = 'token-in-process-env'
     try {
       const { io, out, err } = capture()
-      expect(await runCli(['sentry', 'unfreeze', '--by', 'ops'], io, { env: {} })).toBe(2)
+      expect(await runCli(['sentry', 'unfreeze'], io, { env: {} })).toBe(2)
       expect(err.join('\n')).toContain(ADMIN_TOKEN_ENV)
       expect(err.join('\n')).not.toContain('token-in-process-env')
       expect(out).toEqual([])
@@ -621,14 +621,14 @@ describe('sentry 子命令分发（只是客户端，不 boot 宿主）', () => 
       (input: string | URL, init?: RequestInit) => {
         seen.push({ url: String(input), init })
         return Promise.resolve(
-          new Response(JSON.stringify({ ok: true, unfrozen: true }), { status: 200 }),
+          new Response(JSON.stringify({ ok: true, unfrozen: true, by: 'ops-9' }), { status: 200 }),
         )
       },
     )
     try {
       const { io, out, err } = capture()
       const code = await runCli(
-        ['sentry', 'unfreeze', '--by', 'ops-9', '--reason', '复核放行'],
+        ['sentry', 'unfreeze', '--reason', '复核放行'],
         io,
         { env: { BAH_ADMIN_TOKEN: 'cli-test-token' } },
       )
@@ -642,7 +642,7 @@ describe('sentry 子命令分发（只是客户端，不 boot 宿主）', () => 
       expect(seen[0]!.url).toBe('http://127.0.0.1:7331/api/admin/sentry/unfreeze')
       const headers = seen[0]!.init?.headers as Record<string, string>
       expect(headers['authorization']).toBe('Bearer cli-test-token')
-      expect(JSON.parse(String(seen[0]!.init?.body))).toEqual({ by: 'ops-9', reason: '复核放行' })
+      expect(JSON.parse(String(seen[0]!.init?.body))).toEqual({ reason: '复核放行' })
     } finally {
       vi.unstubAllGlobals()
     }

@@ -18,7 +18,7 @@
 
 | 命令 | 结果 | 说明 |
 |---|---|---|
-| `pnpm gate` | **42/42** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
+| `pnpm gate` | **43/43** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
 | `pnpm test:snapshot` | 8 文件 / 34 用例（34/34 绿） | 录制回放；`pnpm snapshot:record` 重录 |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
@@ -80,7 +80,7 @@
 
 其他：
 
-- `pnpm bah sentry unfreeze --by <operator>`：解冻断路器（只对运行中的 Web 宿主有效；headless 只能重启）。
+- `pnpm bah sentry unfreeze [--reason <text>]`：解冻断路器（操作者由 admin token 派生；只对运行中的 Web 宿主有效；headless 只能重启）。
 - `pnpm bah --profile headless --prompt "..."`：无头跑一轮。
 
 ## 5. 模型与演示路径

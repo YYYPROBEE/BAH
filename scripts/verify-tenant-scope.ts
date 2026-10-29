@@ -69,8 +69,16 @@ const isMemoryImplementation = (path: string): boolean =>
 /** 测试文件不参与判据 1/2（它们常常故意造"缺字段"的样本）。 */
 const isTest = (path: string): boolean => path.endsWith('.test.ts')
 
-/** 门禁自身不参与判据 3（它的检查模式就是那些字符串）。 */
-const isGateFile = (path: string): boolean => path.endsWith('verify-tenant-scope.ts')
+/**
+ * 门禁自身不参与任何判据。
+ *
+ * **所有** `scripts/verify-*.ts` 都跳过：它们的自检样本里**故意**写着坏代码（字符串常量），
+ * 只跳过自己会让下一个带反例样本的门禁误报（03 的 `verify-authz-coverage` 就撞过）。
+ */
+const isGateFile = (path: string): boolean => {
+  const normalized = path.replaceAll('\\', '/')
+  return /^scripts\/verify-[^/]+\.ts$/.test(normalized)
+}
 
 /** 去注释（本仓注释里**故意**写着反例，不剥会把纪律本身判成违规）。 */
 export function stripComments(source: string): string {

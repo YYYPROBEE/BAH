@@ -28,7 +28,8 @@ async function handleUnfreeze(
   method: string,
   deps: WebDeps,
 ): Promise<void> {
-  if (!(await guardAdmin(req, res, method, ADMIN_UNFREEZE_PATH))) return
+  const guard = await guardAdmin(req, res, method, ADMIN_UNFREEZE_PATH)
+  if (!guard.ok) return
 
   const body = await readAdminBody(req, res)
   if (!body.ok) return
@@ -44,8 +45,9 @@ async function handleUnfreeze(
     return
   }
 
-  const unfrozen = sentry.unfreeze(parsed.by, parsed.reason)
-  sendJson(res, 200, { ok: true, unfrozen })
+  // 操作者来自命中的 token，不来自 body（03 TA-44）
+  const unfrozen = sentry.unfreeze(guard.operator, parsed.reason)
+  sendJson(res, 200, { ok: true, unfrozen, by: guard.operator, bySource: 'admin-token' })
 }
 
 /**
@@ -59,7 +61,7 @@ async function handleHalt(
   method: string,
   deps: WebDeps,
 ): Promise<void> {
-  if (!(await guardAdmin(req, res, method, ADMIN_HALT_PATH))) return
+  if (!(await guardAdmin(req, res, method, ADMIN_HALT_PATH)).ok) return
 
   const body = await readAdminBody(req, res)
   if (!body.ok) return
@@ -95,7 +97,7 @@ async function handleHaltRequest(
   method: string,
   deps: WebDeps,
 ): Promise<void> {
-  if (!(await guardAdmin(req, res, method, ADMIN_HALT_REQUEST_PATH))) return
+  if (!(await guardAdmin(req, res, method, ADMIN_HALT_REQUEST_PATH)).ok) return
   // 消费请求体（keep-alive 下不读会把下一个请求的头当成 body）；本路由没有 body 契约
   const body = await readAdminBody(req, res)
   if (!body.ok) return
@@ -136,7 +138,7 @@ async function handleHaltUnfreeze(
   method: string,
   deps: WebDeps,
 ): Promise<void> {
-  if (!(await guardAdmin(req, res, method, ADMIN_HALT_UNFREEZE_PATH))) return
+  if (!(await guardAdmin(req, res, method, ADMIN_HALT_UNFREEZE_PATH)).ok) return
 
   const body = await readAdminBody(req, res)
   if (!body.ok) return

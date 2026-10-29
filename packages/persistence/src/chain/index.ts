@@ -58,6 +58,9 @@ export const SIGNED_TYPES = [
   'saga/residual-recorded',
   'saga/manually-closed',
   'approval/decided',
+  // 03：审批操作者（"谁点的允许"）。必须与 `approval/decided` 成对签名，
+  // 否则"人批必有主"只在一侧可验。
+  'approval/actor',
   // 租户与鉴权 02：认证事实也是证据（谁在何时登录/失败/登出/被锁）。
   // 白名单只放行、不强制：缺钥时仍 unsigned 启动（见 `audit-decisions.ts` 的 boot 期判定）。
   'auth/login',
