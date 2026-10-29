@@ -74,6 +74,18 @@ describe('parseWechatXml：合法报文（T-IM-009）', () => {
     expect(inbound.content).toBe('&#65;&#x41;')
   })
 
+  it('微信把 `]]>` 拆成两段 CDATA 时，解析还原原文（与 cdata() 对称）', () => {
+    const inbound = parsed(
+      xml(
+        '<ToUserName>gh</ToUserName><FromUserName>o</FromUserName><CreateTime>1793000000</CreateTime>' +
+          '<MsgType>text</MsgType><Content><![CDATA[a]]]]><![CDATA[>b]]></Content>',
+      ),
+    )
+    expect(inbound.kind).toBe('text')
+    if (inbound.kind !== 'text') return
+    expect(inbound.content).toBe('a]]>b')
+  })
+
   it('未知子标签忽略；自闭合标签取值空串；空白与缩进不影响解析', () => {
     const inbound = parsed(
       xml(

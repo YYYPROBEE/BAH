@@ -172,8 +172,14 @@ async function handlePlatformRequest(
     case 'message': {
       const outcome = await deps.handleMessage(parsed.inbound, parsed.reply)
       writePlatform(res, outcome.response)
-      // 后台任务（push / 拉取落库）不阻塞响应；它自己的失败已在 `deliverTurn` 里记过
-      void outcome.done
+      // 后台任务（push / 拉取落库）不阻塞响应；**必须 catch**：
+      // `void` 一个会 reject 的 Promise 就是 unhandledRejection，Node 默认直接退出进程。
+      void outcome.done.catch((error: unknown) => {
+        deps.log.warn('im-turn-failed', {
+          reason: 'background-failed',
+          detail: error instanceof Error ? error.message : 'unknown',
+        })
+      })
       return
     }
     case 'challenge':

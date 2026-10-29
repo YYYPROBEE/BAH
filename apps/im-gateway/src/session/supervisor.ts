@@ -284,8 +284,10 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     const inflight = starting.get(sessionKey)
     if (inflight !== undefined) return inflight
 
-    // 上限：先回收最久闲置；回收不出空间才拒绝（不静默排队）
-    if (registry.size() >= config.maxChildren) {
+    // 上限：先回收最久闲置；回收不出空间才拒绝（不静默排队）。
+    // 必须把 `starting` 也算进去：两个并发 ensure 都只看 registry.size() 会同时通过
+    // （记录要等 launch 进入 handshake 才落地），也就是 TOCTOU。
+    if (registry.size() + starting.size >= config.maxChildren) {
       const idle = registry
         .values()
         .filter((record) => nowMs() - record.lastSeen > config.idleTtlMs)

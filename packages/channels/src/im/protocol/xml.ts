@@ -224,7 +224,12 @@ function findTagEnd(text: string, from: number): number {
 function decodeValue(raw: string, name: string): string {
   const trimmed = raw.trim()
   if (trimmed.startsWith('<![CDATA[') && trimmed.endsWith(']]>')) {
-    return trimmed.slice('<![CDATA['.length, -']]>'.length)
+    // 与 `outbound.cdata()` 对称：出站把 `]]>` 拆成两段，入站必须拼回去，
+    // 否则用户发 `a]]>b` 时模型看到的是 `a]]]]><![CDATA[>b`（乱码）
+    return trimmed
+      .slice('<![CDATA['.length, -']]>'.length)
+      .split(']]]]><![CDATA[>')
+      .join(']]>')
   }
   if (trimmed.includes('<')) throw invalid(`<${name}> 里出现嵌套标签（不递归解析）`)
   // 单次扫描替换：`&amp;lt;` 是用户输入的**字面文本** `&lt;`，不能二次解码成 `<`

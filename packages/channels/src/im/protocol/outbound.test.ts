@@ -99,4 +99,12 @@ describe('prefixChunks', () => {
   it('预留预算不足时不重切（小上限的畸形配置）', () => {
     expect(prefixChunks(['a', 'b'], 10)).toEqual(['(1/2) a', '(2/2) b'])
   })
+
+  it('片数上千时前缀也计入预算（每片仍 ≤ 上限）', () => {
+    // 1000 片 → 前缀形如 `(1000/1000) ` 是 12 字节；按 10 字节预留会超限
+    const text = 'a'.repeat(WECHAT_TEXT_MAX_BYTES * 1000)
+    const chunks = prefixChunks(splitTextByBytes(text, WECHAT_TEXT_MAX_BYTES), WECHAT_TEXT_MAX_BYTES)
+    for (const chunk of chunks) expect(bytes(chunk)).toBeLessThanOrEqual(WECHAT_TEXT_MAX_BYTES)
+    expect(chunks.join('').replace(/\(\d+\/\d+\) /g, '')).toBe(text)
+  })
 })

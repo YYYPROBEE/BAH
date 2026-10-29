@@ -235,6 +235,18 @@ describe('闲置回收与上限（T-IM-014 / T-IM-018）', () => {
     await supervisor.dispose()
   })
 
+  it('并发 ensure 不突破 maxChildren（TOCTOU）', async () => {
+    const config = configWith({ maxChildren: 1, idleTtlMs: 10_000 })
+    const { supervisor } = supervisorWith(config)
+    const results = await Promise.allSettled([
+      supervisor.ensure('mock', 'u-1'),
+      supervisor.ensure('mock', 'u-2'),
+    ])
+    expect(results.filter((item) => item.status === 'fulfilled').length).toBe(1)
+    expect(supervisor.children()).toBeLessThanOrEqual(1)
+    await supervisor.dispose()
+  })
+
   it('dispose 停掉全部子进程', async () => {
     const { supervisor } = supervisorWith(baseConfig())
     await supervisor.ensure('mock', 'u-1')

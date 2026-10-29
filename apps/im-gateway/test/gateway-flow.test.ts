@@ -9,7 +9,7 @@ import type {
   TurnOutcome,
   SubscribeHandlers,
 } from '../src/session/client.ts'
-import type { WebFrame, ImInbound, PlatformReply, PlatformResponse } from '@bah/channels'
+import type { WebFrame, ImInbound, PlatformPushResult, PlatformReply, PlatformResponse } from '@bah/channels'
 import { deriveImSessionId } from '@bah/channels'
 
 import { ACK_TEXT, BUSY_TEXT, EMPTY_PULL_TEXT, FAILED_TEXT, MAINTENANCE_TEXT, QUEUE_FULL_TEXT, RATE_LIMITED_TEXT, loadConfig } from '../src/config.ts'
@@ -261,6 +261,26 @@ describe('deliverTurn（§2.13 的能力驱动）', () => {
     await result.done
     expect(pull.latest('k')).toBe('结果')
   })
+
+  it('passiveReply=false：不得调用被动出口（能力位与行为一致）', async () => {
+    const collector = createTurnCollector()
+    const reply = {
+      passive: (): PlatformResponse => {
+        throw new Error('passive-unavailable')
+      },
+      push: async (): Promise<PlatformPushResult> => ({ ok: true }),
+    }
+    const noPassive = { ...capabilities, passiveReply: false }
+    // 平台不能被动回复：同步响应必须是空体，不得把 ack 塞进 passive
+    const result = await deliverTurn({ mode: 'push', capabilities: noPassive, sessionKey: 'k', reply, collector, pull: createPullStore({ nowMs: () => NOW }), passiveWaitMs: 10, log })
+    expect(result.response.status).toBe(200)
+    expect(result.response.body).toBe('')
+    setTimeout(() => {
+      collector.push(messageFrame('结果'))
+      collector.push(endFrame())
+    }, 0)
+    await result.done
+  })
 })
 
 describe('handleInbound（T-IM-001 的编排面）', () => {
@@ -484,6 +504,29 @@ describe('HTTP 路由（T-IM-022）', () => {
     expect(response.status).toBe(500)
     // 服务仍可响应下一次请求
     expect((await fetch(`${app.base}/healthz`)).status).toBe(200)
+    await app.close()
+  })
+
+  it('后台任务拒绝 → 不产生 unhandledRejection（进程不崩）', async () => {
+    let unhandled = 0
+    const onUnhandled = (): void => {
+      unhandled += 1
+    }
+    process.on('unhandledRejection', onUnhandled)
+    const app = await startServer(async () => ({
+      response: { status: 200, headers: { 'content-type': 'text/plain' }, body: 'ok' },
+      done: Promise.reject(new Error('background-boom')),
+    }))
+    const response = await fetch(`${app.base}/im/mock/default?token=mock-token`, {
+      method: 'POST',
+      body: '{"userId":"u-1","text":"查余额"}',
+    })
+    expect(await response.text()).toBe('ok')
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50)
+    })
+    process.off('unhandledRejection', onUnhandled)
+    expect(unhandled).toBe(0)
     await app.close()
   })
 })
