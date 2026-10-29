@@ -10,7 +10,8 @@
  *    标准 `event.isComposing` 与 Safari/旧内核的 `keyCode === 229` 都算组合中（桌面壳同款判据），
  *    再叠一层 `ime.isComposing()`——因为 `visibilitychange` 之后浏览器可能不再派发
  *    `compositionend`，此时 `event.isComposing` 会一直为真而我们的状态机已被显式复位。
- * 2. **错误必须可见**：409（人工接管）与 429（限流）各有专属文案，不静默吞错、不弹 alert。
+ * 2. **状态必须可见**：接管期 202（只落账不驱动）与 429（限流）各有专属文案，
+ *    不静默吞错、不弹 alert——"发送成功但其实没人处理"是移动端最坏的假成功。
  */
 
 import { el, icon } from '../dom.js'
@@ -147,6 +148,11 @@ export function createComposer(host, deps) {
         autoGrow()
       }
       sendButton.disabled = false
+      // 接管期消息只落账、不驱动模型（服务端 202 accepted=queued-for-operator）：
+      // 不说这一句，用户会以为智能体没理他（P1-2 的"可见落点"）。
+      if (result.accepted === 'queued-for-operator') {
+        showError('消息已记录：人工接管期间不会驱动智能体，坐席处理后会回应。', true)
+      }
       return
     }
     sendButton.disabled = false

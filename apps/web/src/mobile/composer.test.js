@@ -81,6 +81,19 @@ describe('输入区', () => {
     expect(submit).toHaveBeenCalledTimes(1)
   })
 
+  it('接管期 202（queued-for-operator）⇒ 清输入但明说"不会驱动智能体"（不做假成功）', async () => {
+    submit.mockResolvedValue({ ok: true, code: 'ok', message: '', accepted: 'queued-for-operator' })
+    input().value = '帮我看看'
+
+    send().dispatchEvent(new Event('click'))
+    await flush()
+
+    expect(input().value).toBe('')
+    expect(errorText()).toContain('消息已记录')
+    expect(errorText()).toContain('不会驱动智能体')
+    expect(send().disabled).toBe(false)
+  })
+
   it('TC-MOB-28 429(retry-after:3) ⇒ 发送钮禁用 3 秒、文案含"3 秒"、3 秒后自动恢复', async () => {
     submit.mockResolvedValue({ ok: false, code: 'turn-rate-limited', message: '太频繁', retryAfterSeconds: 3 })
     input().value = '查余额'

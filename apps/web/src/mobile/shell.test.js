@@ -203,6 +203,13 @@ describe('uiErrorOf（错误归一化）', () => {
     expect(uiErrorOf({ ok: true, status: 200 })).toEqual({ ok: true, code: 'ok', message: '' })
   })
 
+  it('202 的 accepted 透传（接管期消息只落账不驱动，composer 要靠它说真话）', () => {
+    expect(uiErrorOf({ ok: true, status: 202, data: { accepted: 'queued-for-operator' } })).toMatchObject({
+      ok: true,
+      accepted: 'queued-for-operator',
+    })
+  })
+
   it('429 ⇒ turn-rate-limited + retryAfterSeconds（transport 不透出响应头时用缺省值）', () => {
     const mapped = uiErrorOf({ ok: false, status: 429, code: 'rate-limited', reason: '太频繁' })
     expect(mapped).toEqual({
@@ -478,6 +485,19 @@ describe('createMobileShell（装配与重连）', () => {
     expect(unknown.textContent).toBe('未知帧：brand-new-frame')
   })
 
+  it('handoff 帧只更新横幅，不当成"未知帧"灌进会话流', async () => {
+    const controlClient = {
+      handoffStatus: vi.fn(async () => ({ ok: true, status: 200, data: { active: false } })),
+      handoff: vi.fn(async () => ({ ok: true, status: 200, data: { active: true } })),
+      fork: vi.fn(async () => ({ ok: true, status: 200, data: {} })),
+    }
+    await start({ controlClient })
+    push({ kind: 'handoff', seq: 5, at: 5, active: true, reason: '客户要求人工' })
+
+    expect(root.querySelector('[data-role="unknown-frame"]')).toBeNull()
+    expect(root.querySelector('[data-role="handoff-banner"]').hidden).toBe(false)
+  })
+
   it('点 chip ⇒ 一条 user/message 走 POST /api/turn（与 D6 同一路径），且不本地回显', async () => {
     await start({ phrases: { items: [{ text: '转 500 给他', intent: '省略槽位' }] } })
 
@@ -533,8 +553,13 @@ describe('createMobileShell（装配与重连）', () => {
     expect(shell.lastSeq).toBe(20)
   })
 
-  it('空态只在真的没有内容时出现', async () => {
+  it('空态只在真的没有内容时出现，且重复 sync 不会把它自己删掉（P1-3）', async () => {
     await start()
+    expect(root.querySelector('.conversation__empty')).not.toBeNull()
+
+    // 状态变化（连接、重连、故障）都会再跑一次 sync：判据数容器子节点会把空态卡自己数进去
+    shell.sync()
+    shell.sync()
     expect(root.querySelector('.conversation__empty')).not.toBeNull()
 
     push({ kind: 'message', seq: 1, at: 1, role: 'user', blocks: [{ type: 'text', text: '你好' }] })
