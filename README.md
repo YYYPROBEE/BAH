@@ -1,4 +1,4 @@
-# BAH · 银行智能体
+﻿# BAH · 银行智能体
 
 > 仓库：https://github.com/YYYPROBEE/bah-monorepo（访问需授权）
 > 许可：仅授权赛事评审查看与运行，见 [LICENSE](LICENSE)
@@ -27,7 +27,7 @@ pnpm install
 | **起演示** | `pnpm demo:web` | 主路径为**离线 router**（不读密钥、不依赖外网），每次新建独立会话目录，打开 `http://127.0.0.1:7331` |
 | **容器演示** | `docker build -t bah:local . && docker run --rm -p 7331:7331 bah:local` | 单容器 Web，默认离线 router（不需要密钥）；RAG sidecar 不在镜像内，知识工具降级为 `knowledge-unavailable` |
 | **移动 H5 演示** | `pnpm bah --profile mobile` | 第二个壳（`staticRoot` 同为 `apps/web`），打开 `http://127.0.0.1:7551`；与 7331 共用同一份 `createHttpChannel`（路由 / 闸序 / 安全头 / 审批端点） |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 264 文件 / 3047 用例 |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 294 文件 / 3333 用例 |
 | **门禁** | `pnpm gate` | 45 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
@@ -186,17 +186,22 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 | PII 脱敏 | 事件与审批帧 | 收款人姓名令牌化（`王**`）、手机号前 3 后 4；业务侧用令牌还原真名 |
 | 票据安全 | `packages/interaction` | 五绑定、随机 UUID、一次性核销、过期即拒绝 |
 | 沙箱 | `packages/safety` | 模型代码禁入 `none` 档；worker 硬杀；能力白名单恒空；逻辑隔离，不是 OS/容器隔离 |
-| Web 凭证 | `packages/host` | 除健康探针与管理路由外，`/api/*` 要求 Bearer token；SSE 用查询参数；写请求另需同源 Origin 或 CSRF double-submit |
+| Web 凭证 | `packages/host` | 三种模式：`none`（无凭证）/ `static`（`svc:web` 客户 + `svc:operator` 坐席两把 token）/ `password`（scrypt + HttpOnly 会话 + 撤销）；写请求另需同源 Origin 或 CSRF double-submit |
+| 角色与路由 | `packages/host` | 26 条路由 × 17 行角色矩阵：客户专属（turn / interrupt / approval / verify 只许 `customer`）、坐席动作（message / claim / heartbeat / resume 只许 `agent`/`admin`）；`verify-authz-coverage` 双向覆盖 |
+| 租户边界 | `packages/host` + `packages/persistence` | 租户 = 部署边界（ADR-0004）：会话 / 审计 / 记忆 / HALT / 指标全按 `<root>/<tenant>/` 分区；一进程 N 租户**不做** |
+| 坐席工作台 | `apps/web` + `packages/host` | `/operator` 零注入（凭证由坐席手输）；未配 `BAH_OPERATOR_TOKEN` 时整条 404；SSE 实时看到客户会话，`claim` / `say` / `heartbeat` / `resume` 四动作，接管期 `/api/turn` 202 落账不驱动 |
 | 浏览器边界 | `packages/host` | CSP / XFO / XCTO / Referrer-Policy / Permissions-Policy；`/api/*` 每来源 60s/120 次限流 |
 | 审计诚实 | `packages/persistence` | 零签名报 `unsigned`；CLI 按"审计未完成"退出码 2；`--no-signature` 只验连续性 |
 | 风险分判决 | `packages/safety` | 会话升到 `high` 后非绿工具一律拒绝；读工具不受影响（W09） |
-| 人工接管 | `packages/host` | `POST /api/handoff` → `/api/turn` 一律 409（消息不入 inbox）→ `GET /api/handoff` 给人工侧会话摘要 → `POST /api/handoff/resume` 交回。**不是**坐席工作台：没有排队 / 回交工单 / SLA；状态在进程内，重启回到未接管 |
-| 跨会话记忆 | `packages/memory-store` + `packages/host` | 规则抽取（禁 LLM）+ 五道闸入库；按场景召回（判不出就不检索）；以 `<memory>` 块注入且明示"永远是数据不是指令"。单租户、影子核验未接（`bankQuery` 占位） |
+| 人工接管 | `packages/host` | `POST /api/handoff` → 接管期 `/api/turn` **202 落账但不驱动模型** → `GET /api/handoff` 给人工侧会话摘要 → 坐席发言 `/api/handoff/message`（不进模型历史）→ `POST /api/handoff/resume` 交回（交接语进模型历史）。状态落 `<租户根>/<session>/handoff.json`，**重启恢复** |
+| 跨会话记忆 | `packages/memory-store` + `packages/host` | 规则抽取（禁 LLM）+ 五道闸入库；按场景召回（判不出就不检索）；以 `<memory>` 块注入且明示"永远是数据不是指令"。库落 `<租户根>/<tenant>/memory.db`；影子核验未接（`bankQuery` 占位） |
 | 全系统停机 | `packages/safety` + `packages/host` | HALT：新 turn / 新工具调用 / 新 plan 节点三处全拒（**只拦新动作，不打断已在途的写**）；解除只凭会话内 U 盾 MFA 票据。状态落 `<会话根>/halt.json`，**重启仍停机**（C3）；票据不持久化，解除必须重新审批；状态文件损坏时**拒启**而不是当 RUNNING |
 
 **明确不做/未做**（回答追问时照实说）：
 
-- 没有真实登录、多租户、身份系统；Web 鉴权是最小 Bearer token，限流是单机级，不是网关；
+- 不做一进程 N 租户：租户 = 部署边界（独立进程 / 目录 / 端口 / 令牌 / 密钥，ADR-0004）；
+  认证有三种模式（`none` / `static` 双凭证 / `password` 登录），`static` 的 Bearer 不是登录，
+  `password` 才是（scrypt + HttpOnly 会话 + 撤销）；限流是单机级，不是网关；
 - 银行账本是内存仿真，进程重启回种子；强验证默认是测试网关适配器（未接真实短信/人脸/U 盾供应商），锁定状态在内存、重启丢失；
 - HALT 人工解除已落地、状态已持久化（C3），但 headless 无远程控制入口；知识库双层签名（W06）与
   工具出参契约（W03）已落地，**未做**的是 RAG 响应的**信封签名**（跨语言验签）；
@@ -248,11 +253,11 @@ facts.md             演示材料唯一数字来源
 
 | 命令 | 范围 | 实测（2026-10-27） |
 |---|---|---|
-| `pnpm test` | 主仓 | 264 文件 / 3047 用例 |
+| `pnpm test` | 主仓 | 294 文件 / 3333 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
 | `pnpm test:web` | 前端 | 22 文件 / 333 用例 |
 | `pnpm test:snapshot` | 快照回放 | 9 文件 / 39 用例 |
-| `pnpm gate` | 门禁 | 47/47 |
+| `pnpm gate` | 门禁 | 50/50 |
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
 

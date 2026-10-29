@@ -1,4 +1,4 @@
-# 测试地基（Testing）
+﻿# 测试地基（Testing）
 
 > 适用：底座阶段 2 起。规格依据：施工单 00 §9（纪律）、01 §5–§7（测试面 / 门禁 / 覆盖率）、
 > 12 §3（快照回放）。本文件是**操作手册**：改一行代码该跑哪条命令、新用例该怎么写。
@@ -7,7 +7,7 @@
 
 | 面 | 命令 | 配置 | 装什么 | 现状（2026-10-29 实测） |
 |---|---|---|---|---|
-| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 264 文件 / 3047 用例 |
+| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 294 文件 / 3333 用例 |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
 | snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 9 文件 / 39 用例 |
 | web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 前端 22 文件 / 333 用例 |
@@ -395,7 +395,7 @@ npx tsx scripts/replay.ts --snapshots snapshots/headless-basic/session.jsonl
 ### 12.3 eval 基线（W15）
 
 ```bash
-pnpm eval:unit          # vitest --config vitest.eval.config.ts（实测 155 例）
+pnpm eval:unit          # vitest --config vitest.eval.config.ts（实测 158 例）
 pnpm eval:smoke         # 对抗集每族 3 例（9 例，~4s）
 pnpm eval:baseline      # 跑全量 71 场景并与 packages/eval/baseline.json 比较
 pnpm eval:baseline:record  # 显式重录基线（commit/seed/指标/目标值）
@@ -403,7 +403,7 @@ pnpm eval:baseline:record  # 显式重录基线（commit/seed/指标/目标值�
 
 - 率下降 >5 个百分点、平均步数超过基线 5%、或分母缩小 → 退出码 1；
 - 基线文件入库，含 `commit` / `seed` / 四项指标 / 目标值 / 录制说明；
-- **实测 eval 用例数 = 155**（`npx vitest list --config vitest.eval.config.ts | grep -c " > "`）。
+- **实测 eval 用例数 = 158**（`npx vitest list --config vitest.eval.config.ts | grep -c " > "`）。
   施工文档 v1 的“133 例”是旧数、且当时不在任何 config 的 include 里；不要照抄。
 - CI 三步已接进 `scripts/ci.ts`（`eval:unit` / `eval:smoke` / `eval:baseline`），
   `.github/workflows/ci.yml` 通过 `pnpm check:ci` 统一执行。

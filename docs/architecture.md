@@ -44,7 +44,7 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **26 项 / 47 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
+| 注册表 / 门禁 | **26 项 / 50 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
 | 覆盖率 | **89.06%（行口径，41749/46877 行，实测 2026-10-29）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
@@ -128,6 +128,7 @@ graph LR
   p21 --> host["宿主运行时 boot()"]
   p21 --> p0
   p21 --> p3
+  p21 --> p6
   p24 --> host["宿主运行时 boot()"]
   p24 --> p0
   p24 --> p12
@@ -181,7 +182,7 @@ graph LR
 | bank:saga-audit | `bah:saga-clock`、`bah:session-files` | `bank:saga`、`core:persistence` |
 | bank:saga-bridge | —（无依赖） | — |
 | plan:dag | —（无依赖） | — |
-| bah:memory-store | `bah:run`、`runtime:session`、`runtime:system-prompt` | 宿主运行时 boot()、`core:session`、`core:prompt` |
+| bah:memory-store | `bah:run`、`runtime:session`、`runtime:system-prompt`、`bah:session-files` | 宿主运行时 boot()、`core:session`、`core:prompt`、`core:persistence` |
 | intent:plane | —（无依赖） | — |
 | prompt:ask | —（无依赖） | — |
 | channel:web | `bah:run`、`runtime:session`、`runtime:agents`、`interaction:approval` | 宿主运行时 boot()、`core:session`、`core:agent`、`interaction:approval` |

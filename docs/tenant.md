@@ -66,7 +66,9 @@ npx tsx scripts/migrate-tenant-layout.ts --root sessions --tenant demo --apply  
 | 变量 | 作用 | 缺省 | 必须 |
 |---|---|---|---|
 | `BAH_TENANT` | 租户（`--tenant` 优先） | `demo` | 生产必写 |
-| `BAH_WEB_TOKEN` | `static` 模式的共享令牌 | 随机生成 | `static` 模式必写 |
+| `BAH_WEB_TOKEN` | `static` 模式的**客户**共享令牌（`svc:web` / `customer`） | 随机生成 | `static` 模式必写 |
+| `BAH_OPERATOR_TOKEN` | `static` 模式的**坐席**令牌（`svc:operator` / `agent`）；未配置 = 坐席面整体 404 | 无 | 要坐席台就必写；**不得与 `BAH_WEB_TOKEN` 相同** |
+| `BAH_OPERATOR_NAME` | 坐席显示名（只进气泡与审计标签，**不是身份**） | `坐席` | 可选（≤64 字符） |
 | `BAH_ADMIN_TOKEN` | 单操作员管理令牌 | 未配置时回落到 `BAH_ADMIN_OPERATORS`；两者都不配 = 管理面 404 | 要管理面就至少配一个 |
 | `BAH_ADMIN_OPERATORS` | 多操作员 JSON `[{id,token}]` | 无 | 需要"谁操作"就必写 |
 | `BAH_KNOWLEDGE_TOKEN_<TENANT>` | 按租户知识库令牌 | 回退到 `BAH_KNOWLEDGE_TOKEN` | 非 `demo` 必写 |
@@ -112,9 +114,15 @@ BAH_TENANT=acme  BAH_WEB_TOKEN=... \
 `auth-directory-tenant-mismatch`。`directory.path` 相对**进程 cwd**（不是租户根）：
 同机两租户要用两份目录文件（如 `auth/demo-users.yml` / `auth/acme-users.yml`），不要共用。
 
-- `static`：`BAH_WEB_TOKEN` 的 Bearer；SSE 可用 `?token=`；页面 meta 注入 token。**不是登录**。
+- `static`：双凭证。`BAH_WEB_TOKEN` 的 Bearer = `svc:web`（`customer`）；
+  `BAH_OPERATOR_TOKEN` 的 Bearer = `svc:operator`（`agent`）。SSE 可用 `?token=`；页面 meta 注入 token。
+  **不是登录**；两把 token 相同会在 boot 期拒绝（`web-operator-token-conflict`）。
 - `password`：HttpOnly `bah_sid` 会话 cookie；`/api/auth/me` 自查；登录 / 登出 / 撤销落
   `auth/*` 审计；`?token=` 不再被接受；口令失败同形（不区分"用户不存在"）。
+
+> 坐席台的边界（合流 2026-10-29 / D2）：坐席前端只在 `static` 模式下开放（`/operator` 与 5 条坐席
+> API）；`password` 模式下坐席登录卡片尚未实现，`seatEnabled=false` ⇒ 整条 404（**不是** 401，
+> 401 会暴露存在性）。坐席凭证与客户凭证必须分离：同一串 token 启动即失败。
 - `none`：不验凭证，只用于内网测试装置。
 
 角色来自用户目录（customer / agent / auditor / admin），路由级判定在 `authorize()`；
