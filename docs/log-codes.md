@@ -24,6 +24,16 @@
 | `host.saga-tick-failed` | error | `packages/host/src/boot/plugins/saga-bridge.ts` | saga tick 定时器抛错 |
 | `host.saga-recovery-audit-failed` | error | `packages/host/src/boot/plugins/saga.ts` | 启动恢复失败连审计都写不进去 |
 | `saga-alert` | warn / error | `packages/host/src/boot/plugins/saga.ts` | saga 告警汇的 stderr 出口（P0 → error） |
+| `bank.saga-store-tenant-unmarked` | warn | `packages/host/src/boot/plugins/saga-store.ts` | 已存在 sqlite 但缺创建者标记，无法判断租户 |
+| `bank.saga-store-tenant-mismatch` | warn | `packages/host/src/boot/plugins/saga-store.ts` | sqlite 由别的租户创建（共用会把两租户事务混一起） |
+| `bank.saga-store-tenant-race` | warn | `packages/host/src/boot/plugins/saga-store.ts` | 并发启动时标记被另一租户先写入 |
+| `web.admin-config-invalid` | error | `packages/host/src/boot/plugins/web/admin-guard.ts` | 管理面操作员配置坏，fail-closed 503 |
+| `web.auth-directory-warn` | warn | `packages/host/src/boot/plugins/web/auth/directory.ts` | 口令目录加载的兜底告警（未注入 warn 出口时） |
+| `web.auth-session-store-warn` | warn | `packages/host/src/boot/plugins/web/auth/session-store.ts` | 认证会话存储的兜底告警（未注入 warn 出口时） |
+| `web.auth-password-hash-invalid` | warn | `packages/host/src/boot/plugins/web/auth/password.ts` | 口令编码串非法，该账户无法登录 |
+| `web.auth-audit-write-failed` | warn | `packages/host/src/boot/plugins/web/auth/identity.ts` | 认证审计写入失败（不影响登录结果） |
+| `web.approval-actor-write-failed` | warn | `packages/host/src/boot/plugins/web/handlers/approval.ts` | `approval/actor` 写链失败（审批照常处理） |
+| `web.channel-warn` | warn | `packages/host/src/boot/plugins/web/channel.ts` | 渠道装配的兜底告警（未注入 `RunContext.warn` 时） |
 | `saga-alert-file-failed` | warn | `packages/host/src/boot/plugins/saga.ts` | 可选告警文件出口写失败 |
 | `saga-recovery-failed` | error | `packages/host/src/boot/plugins/saga.ts` | 启动恢复失败 |
 | `model-retry` | warn | `packages/host/src/boot/plugins/model.ts` | 上游 429 / 5xx 退避重试 |
