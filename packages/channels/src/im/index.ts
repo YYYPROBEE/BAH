@@ -50,6 +50,16 @@ export {
   type PassiveTextInput,
 } from './protocol/outbound.ts'
 export { createWechatAdapter, type WechatAdapterDeps } from './protocol/wechat-adapter.ts'
+// 03 单：H5 审批链接（网关与 H5 页共用同一份签名实现，不复制）。
+export {
+  APPROVAL_LINK_MAX_TTL_MS,
+  APPROVAL_LINK_SECRET_MIN,
+  APPROVAL_LINK_VERSION,
+  signApprovalLink,
+  verifyApprovalLink,
+  type ApprovalLinkPayload,
+  type ApprovalLinkVerdict,
+} from './protocol/link-token.ts'
 export {
   IM_FORWARD_MARKER,
   prepareImInbound,

@@ -13,9 +13,16 @@ import type { Server } from 'node:http'
 import { createWechatAdapter } from '@bah/channels'
 import { BahError, configureLogging } from '@bah/util'
 
+import {
+  handleApprovalAsset,
+  handleApproveGet,
+  handleApproveSubmit,
+  createUsedLinkStore,
+} from './approval/page.ts'
 import { createPullStore, type PullStore } from './bridge/outbound.ts'
 import { handleInbound } from './bridge/turn.ts'
 import { loadConfig, type GatewayConfig, type PushMode } from './config.ts'
+import { handleSeatRequest } from './handoff/operator.ts'
 import { createDedupe, type Dedupe } from './ingress/dedupe.ts'
 import { createRateLimiter, type RateLimiter } from './ingress/ratelimit.ts'
 import { createImLogger, type ImLogger } from './log.ts'
@@ -23,6 +30,7 @@ import { createRegistry, type PlatformRegistry } from './platform/registry.ts'
 import { createTokenProvider } from './platform/wechat/token.ts'
 import { createNodeFetchJson, createWechatPushText } from './platform/wechat/transport.ts'
 import { createGatewayServer } from './server.ts'
+import { createSessionHub, type SessionHub } from './session/hub.ts'
 import { createSupervisor, REAP_INTERVAL_MS, type Supervisor } from './session/supervisor.ts'
 
 /** 一个装配好的网关（`server` 尚未 listen）。 */
@@ -34,6 +42,8 @@ export interface GatewayApp {
   readonly dedupe: Dedupe
   readonly rateLimiter: RateLimiter
   readonly pull: PullStore
+  /** 常驻会话运行态（审批 / 接管 / 迟到回复）。 */
+  readonly hub: SessionHub
   readonly log: ImLogger
   /** 停服务 + 停子进程 + 停定时器（可重复调用）。 */
   dispose(): Promise<void>
@@ -82,13 +92,28 @@ export function buildGateway(config: GatewayConfig, options: BuildOptions = {}):
   }
 
   const registry = createRegistry([wechat], { wechat: [config.wechat.accountKey] })
-  const supervisor = createSupervisor({ config, log, nowMs })
+  const effectiveConfig: GatewayConfig =
+    options.pushMode === undefined ? config : { ...config, pushMode: options.pushMode }
   const dedupe = createDedupe({ nowMs })
   const rateLimiter = createRateLimiter()
   const pull = createPullStore({ nowMs })
+  const hub = createSessionHub({ config: effectiveConfig, log, pull, nowMs })
+  const usedLinks = createUsedLinkStore({ nowMs })
+  const supervisor = createSupervisor({
+    config,
+    log,
+    nowMs,
+    onStop: (sessionKey) => hub.detach(sessionKey),
+  })
 
-  const effectiveConfig: GatewayConfig =
-    options.pushMode === undefined ? config : { ...config, pushMode: options.pushMode }
+  const pageDeps = {
+    config: effectiveConfig,
+    hub,
+    supervisor,
+    log,
+    usedLinks,
+    nowMs,
+  }
 
   const server = createGatewayServer({
     registry,
@@ -96,6 +121,13 @@ export function buildGateway(config: GatewayConfig, options: BuildOptions = {}):
     children: () => supervisor.children(),
     startedAtMs: nowMs(),
     nowMs,
+    approvePage: {
+      get: (token, res) => handleApproveGet(token, res, pageDeps),
+      submit: (token, body, res, kind) => handleApproveSubmit(token, body, res, pageDeps, kind),
+      asset: (name, res) => handleApprovalAsset(name, res),
+    },
+    seat: (input, res) => handleSeatRequest({ config: effectiveConfig, log, supervisor, hub }, input, res),
+    seatEnabled: effectiveConfig.operatorToken !== undefined,
     handleMessage: (inbound, reply) =>
       handleInbound(
         {
@@ -104,6 +136,7 @@ export function buildGateway(config: GatewayConfig, options: BuildOptions = {}):
           dedupe,
           rateLimiter,
           pull,
+          hub,
           log,
           capabilitiesOf: (platform, accountKey) => registry.get(platform, accountKey)?.capabilities,
         },
@@ -128,6 +161,7 @@ export function buildGateway(config: GatewayConfig, options: BuildOptions = {}):
     dedupe,
     rateLimiter,
     pull,
+    hub,
     log,
     async dispose(): Promise<void> {
       if (disposed) return
@@ -136,6 +170,7 @@ export function buildGateway(config: GatewayConfig, options: BuildOptions = {}):
       await new Promise<void>((resolve) => {
         server.close(() => resolve())
       })
+      hub.dispose()
       await supervisor.dispose()
     },
   }

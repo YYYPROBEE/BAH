@@ -20,6 +20,12 @@ export const DEFAULT_GATEWAY_PORT = 8080
 /** 会话盐最小长度（与会话键派生同口径）。 */
 export const MIN_SESSION_SALT = 16
 
+/** 链接密钥最小长度（施工单 03 §1：H5 审批链接的 HMAC 密钥）。 */
+export const MIN_LINK_SECRET = 32
+
+/** 坐席显示名缺省值（网关注入子进程 `BAH_OPERATOR_NAME`）。 */
+export const DEFAULT_OPERATOR_NAME = '坐席'
+
 /** 子进程缺省值。 */
 export const DEFAULT_CHILD_ENTRY = 'packages/cli/src/main.ts'
 export const DEFAULT_CHILD_LOADER = 'tsx'
@@ -86,10 +92,14 @@ export interface GatewayConfig {
   readonly passiveWaitMs: number
   readonly untrustedUsers: ReadonlySet<string>
   readonly logLevel: 'debug' | 'info' | 'warn' | 'error'
-  /** 03 单才必填；02 只读出来备用。 */
+  /** H5 公开基址（`https://`；本地联调允许 `http://127.0.0.1`）。 */
   readonly publicBaseUrl: string | undefined
-  readonly linkSecret: string | undefined
+  /** H5 链接签名密钥（03 单必填，≥32 字符）。 */
+  readonly linkSecret: string
+  /** 运营桥 token（未配置 → `/seat/*` 一律 404）。 */
   readonly operatorToken: string | undefined
+  /** 坐席显示名（注入子进程 `BAH_OPERATOR_NAME`）。 */
+  readonly operatorName: string
   readonly wechat: WechatConfig
 }
 
@@ -164,6 +174,16 @@ export function parseUntrustedUsers(raw: string | undefined): ReadonlySet<string
 }
 
 /**
+ * 校验 H5 公开基址：生产只许 `https://`；本地联调允许 `http://127.0.0.1[:port]`。
+ *
+ * WHY 不允许任意 http：H5 链接是**审批凭证**，明文 HTTP 上任何中间人可替换页面并窃取 token。
+ */
+function isPublicBaseUrl(value: string): boolean {
+  if (/^https:\/\/[^\s]+$/u.test(value)) return true
+  return /^http:\/\/127\.0\.0\.1(?::\d+)?$/u.test(value)
+}
+
+/**
  * 读全部配置。
  *
  * @throws `BahError('im-config-missing')` 必填缺失
@@ -181,11 +201,20 @@ export function loadConfig(env: Env, cwd: string): GatewayConfig {
 
   const root = optional(env, 'BAH_IM_ROOT') ?? cwd
   const publicBaseUrl = optional(env, 'BAH_IM_PUBLIC_BASE_URL')
-  const linkSecret = optional(env, 'BAH_IM_LINK_SECRET')
-  if (linkSecret !== undefined && linkSecret.length < 32) {
-    throw new BahError('im-config-invalid', 'im: BAH_IM_LINK_SECRET 必须至少 32 字符', {
-      key: 'BAH_IM_LINK_SECRET',
-    })
+  if (publicBaseUrl !== undefined && !isPublicBaseUrl(publicBaseUrl)) {
+    throw new BahError(
+      'im-config-invalid',
+      'im: BAH_IM_PUBLIC_BASE_URL 必须是 https://（本地联调允许 http://127.0.0.1）',
+      { key: 'BAH_IM_PUBLIC_BASE_URL' },
+    )
+  }
+  const linkSecret = required(env, 'BAH_IM_LINK_SECRET')
+  if (linkSecret.length < MIN_LINK_SECRET) {
+    throw new BahError(
+      'im-config-invalid',
+      `im: BAH_IM_LINK_SECRET 必须至少 ${String(MIN_LINK_SECRET)} 字符`,
+      { key: 'BAH_IM_LINK_SECRET' },
+    )
   }
 
   return {
@@ -205,9 +234,10 @@ export function loadConfig(env: Env, cwd: string): GatewayConfig {
     passiveWaitMs: readInt(env, 'BAH_IM_PASSIVE_WAIT_MS', DEFAULT_PASSIVE_WAIT_MS, 100, 4_500),
     untrustedUsers: parseUntrustedUsers(env['BAH_IM_UNTRUSTED_USERS']),
     logLevel: readEnum(env, 'BAH_IM_LOG', ['debug', 'info', 'warn', 'error'] as const, 'info'),
-    publicBaseUrl,
+    publicBaseUrl: publicBaseUrl === undefined ? undefined : publicBaseUrl.replace(/\/+$/u, ''),
     linkSecret,
     operatorToken: optional(env, 'BAH_IM_OPERATOR_TOKEN'),
+    operatorName: optional(env, 'BAH_OPERATOR_NAME') ?? DEFAULT_OPERATOR_NAME,
     wechat: {
       appId: required(env, 'BAH_WECHAT_APPID'),
       appSecret: required(env, 'BAH_WECHAT_SECRET'),

@@ -27,6 +27,41 @@ const MAX_BODY_BYTES = 64 * 1024
 /** `/im/:platform/:accountKey` 的路径形态（平台/账号名都只允许安全字符）。 */
 const IM_PATH = /^\/im\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{1,64})$/u
 
+/** H5 审批链接（`/a/<token>` 与 `/a/<token>/verify`）。 */
+const APPROVE_PATH = /^\/a\/([A-Za-z0-9_.-]{1,1024})(\/verify)?$/u
+
+/** H5 静态资源（只有两个文件，白名单）。 */
+const ASSET_PATH = /^\/assets\/(approve\.css|approve\.js)$/u
+
+/** 运营桥前缀（未配置 token 时整条 404，先于路径判定）。 */
+const SEAT_PREFIX = '/seat/'
+
+/** H5 审批页处理面（由 `approval/page.ts` 提供；server 只做路由）。 */
+export interface ApprovePageHandlers {
+  get(token: string, res: ServerResponse): void
+  submit(
+    token: string,
+    body: string,
+    res: ServerResponse,
+    kind: 'decision' | 'verify',
+  ): Promise<void>
+  /** `@returns false` = 不是审批页资源 */
+  asset(name: string, res: ServerResponse): boolean
+}
+
+/** 运营桥处理面（由 `handoff/operator.ts` 提供）。 */
+export interface SeatHandlers {
+  (
+    input: {
+      readonly method: 'GET' | 'POST'
+      readonly path: string
+      readonly headers: Readonly<Record<string, string | undefined>>
+      readonly body: string
+    },
+    res: ServerResponse,
+  ): Promise<void>
+}
+
 /** 统一的安全头（网关不是浏览器面，只加最低必要项）。 */
 const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   'x-content-type-options': 'nosniff',
@@ -43,6 +78,11 @@ export interface GatewayServerDeps {
   readonly children: () => number
   readonly startedAtMs: number
   readonly nowMs?: () => number
+  /** H5 审批页（03 单）；未提供时 `/a/*` 与 `/assets/*` 一律 404。 */
+  readonly approvePage?: ApprovePageHandlers
+  /** 运营桥（03 单）；`seatEnabled=false` 时 `/seat/*` 在鉴权前 404。 */
+  readonly seat?: SeatHandlers
+  readonly seatEnabled?: boolean
 }
 
 /** 直接写一个平台响应。 */
@@ -212,6 +252,52 @@ export function createGatewayServer(deps: GatewayServerDeps): Server {
 
       if (path === '/healthz' && (req.method === 'GET' || req.method === 'HEAD')) {
         handleHealthz(res, deps, nowMs)
+        return
+      }
+
+      // H5 审批资源（GET 静态 / GET 页面 / POST 决策与强验证）
+      if (deps.approvePage !== undefined) {
+        const asset = ASSET_PATH.exec(path)
+        if (asset !== null && req.method === 'GET') {
+          if (deps.approvePage.asset(asset[1] ?? '', res)) return
+        }
+        const approve = APPROVE_PATH.exec(path)
+        if (approve !== null) {
+          const token = approve[1] ?? ''
+          const verify = approve[2] === '/verify'
+          if (req.method === 'GET' && !verify) {
+            deps.approvePage.get(token, res)
+            return
+          }
+          if (req.method === 'POST') {
+            const body = await readBody(req)
+            if (body === undefined) {
+              writeError(res, 413, 'im-body-too-large', '请求体超过网关上限')
+              return
+            }
+            await deps.approvePage.submit(token, body, res, verify ? 'verify' : 'decision')
+            return
+          }
+        }
+      }
+
+      // 运营桥：未配 token 一律 404（先于方法/路径判定，不暴露存在性）
+      if (path.startsWith(SEAT_PREFIX)) {
+        if (deps.seatEnabled !== true || deps.seat === undefined) {
+          writeError(res, 404, 'im-not-found', '没有这个路径')
+          return
+        }
+        const method = req.method === 'POST' ? 'POST' : req.method === 'GET' ? 'GET' : undefined
+        if (method === undefined) {
+          writeError(res, 404, 'im-not-found', '没有这个路径')
+          return
+        }
+        const body = method === 'POST' ? await readBody(req) : ''
+        if (body === undefined) {
+          writeError(res, 413, 'im-body-too-large', '请求体超过网关上限')
+          return
+        }
+        await deps.seat({ method, path, headers: headersOf(req), body }, res)
         return
       }
 

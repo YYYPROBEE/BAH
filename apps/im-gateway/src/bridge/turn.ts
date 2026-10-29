@@ -14,12 +14,23 @@ import {
   deriveImSessionId,
   parseImCommand,
   prepareImInbound,
+  type ImCommand,
   type ImInbound,
   type PlatformCapabilities,
   type PlatformReply,
   type PlatformResponse,
 } from '@bah/channels'
 
+import { assertNever } from '@bah/util'
+
+import { planApprovalCommand, type ApprovalPlan } from '../approval/commands.ts'
+import { mapDecideResult, mapHandoffResult, mapVerifyResult } from '../approval/submit.ts'
+import {
+  composeDetailMessage,
+  NO_PENDING_TEXT,
+  QUEUED_FOR_OPERATOR_TEXT,
+  UNKNOWN_TICKET_TEXT,
+} from '../approval/texts.ts'
 import type { GatewayConfig } from '../config.ts'
 import {
   BUSY_TEXT,
@@ -33,6 +44,7 @@ import {
 import { inboundDedupeKey, type Dedupe } from '../ingress/dedupe.ts'
 import type { RateLimiter } from '../ingress/ratelimit.ts'
 import type { ImLogger } from '../log.ts'
+import type { SessionHub } from '../session/hub.ts'
 import type { ChildHandle, Supervisor } from '../session/supervisor.ts'
 import { createTurnCollector, deliverTurn, type PullStore } from './outbound.ts'
 
@@ -46,6 +58,8 @@ export interface InboundDeps {
   readonly dedupe: Dedupe
   readonly rateLimiter: RateLimiter
   readonly pull: PullStore
+  /** 常驻会话运行态（审批 / 接管 / 迟到回复的主动推送）。 */
+  readonly hub: SessionHub
   readonly log: ImLogger
   /** 平台能力位（由注册表给的适配器取出；未知平台返回 undefined）。 */
   readonly capabilitiesOf: (platform: string, accountKey: string) => PlatformCapabilities | undefined
@@ -115,11 +129,10 @@ export async function handleInbound(
     return immediate(plainReply(reply, OFFLINE_TEXT))
   }
 
-  // 文本指令：02 只接线"0 取回结果"；审批指令属 03 单，先按普通文本转发
-  if (parseImCommand(inbound.text)?.kind === 'fetch-latest') {
-    const sessionKey = deriveImSessionId(inbound.platform, inbound.userId, deps.config.sessionSalt)
-    const latest = deps.pull.latest(sessionKey)
-    return immediate(plainReply(reply, latest ?? EMPTY_PULL_TEXT))
+  // 文本指令：`0` / 审批 / 转人工先于普通消息（命中才走指令面，否则照常送模型）
+  const command = parseImCommand(inbound.text)
+  if (command !== undefined) {
+    return handleCommand(deps, inbound, reply, command, capabilities)
   }
 
   const prepared = prepareImInbound({
@@ -144,6 +157,9 @@ export async function handleInbound(
     return immediate(plainReply(reply, code === 'im-children-full' ? BUSY_TEXT : OFFLINE_TEXT))
   }
   deps.supervisor.touch(handle.sessionKey)
+  // 常驻订阅：审批 / 接管帧与迟到回复都由它处理；per-turn 订阅只负责本轮消息
+  deps.hub.attach(handle, inbound.platform, capabilities)
+  deps.hub.setReply(handle.sessionKey, reply)
 
   const first = await attemptTurn(deps, handle, prepared.text, reply, capabilities)
   if (first !== 'auth') return first
@@ -161,6 +177,125 @@ export async function handleInbound(
   return immediate(plainReply(reply, FAILED_TEXT))
 }
 
+/** 跑一条指令计划（审批 / 详情 / 强验证）。 */
+async function runApprovalPlan(
+  deps: InboundDeps,
+  sessionKey: string,
+  handle: ChildHandle,
+  plan: ApprovalPlan,
+  reply: PlatformReply,
+): Promise<InboundOutcome> {
+  switch (plan.kind) {
+    case 'reply':
+      return immediate(plainReply(reply, plan.text))
+    case 'detail': {
+      const ticket = deps.hub.pendingGet(sessionKey, plan.ticketId)
+      if (ticket === undefined) return immediate(plainReply(reply, UNKNOWN_TICKET_TEXT))
+      deps.log.info('im-approval-command', { sessionKey, ticketId: plan.ticketId, kind: 'detail' })
+      return immediate(
+        plainReply(
+          reply,
+          composeDetailMessage(ticket, {
+            sessionKey,
+            linkSecret: deps.config.linkSecret,
+            publicBaseUrl: deps.config.publicBaseUrl,
+            nowMs: Date.now(),
+          }),
+        ),
+      )
+    }
+    case 'decide': {
+      deps.log.info('im-approval-command', {
+        sessionKey,
+        ticketId: plan.ticketId,
+        kind: plan.decision === 'allowed-once' ? 'approve' : 'reject',
+      })
+      const result = await handle.client.decide(plan.ticketId, {
+        decision: plan.decision,
+        ...(plan.reason === undefined ? {} : { reason: plan.reason }),
+      })
+      const mapped = mapDecideResult(result, plan.decision)
+      deps.log.info('im-approval-result', {
+        sessionKey,
+        ticketId: plan.ticketId,
+        code: mapped.code ?? 'ok',
+      })
+      return immediate(plainReply(reply, mapped.text))
+    }
+    case 'verify': {
+      deps.log.info('im-approval-command', { sessionKey, ticketId: plan.ticketId, kind: 'verify' })
+      const result = await handle.client.verify(plan.ticketId)
+      const mapped = mapVerifyResult(result)
+      if (mapped.ok) deps.hub.markVerified(sessionKey, plan.ticketId)
+      deps.log.info('im-approval-result', {
+        sessionKey,
+        ticketId: plan.ticketId,
+        code: mapped.code ?? 'ok',
+      })
+      return immediate(plainReply(reply, mapped.text))
+    }
+    default:
+      return assertNever(plan, 'approval-plan')
+  }
+}
+
+/**
+ * 文本指令面（`0` / 审批 / 转人工）。
+ *
+ * 审批指令**不**为了一张不存在的票拉起子进程：没有就绪会话就直接回"当前没有待审批"。
+ * 转人工必须拉起子进程（`POST /api/handoff` 需要会话状态）。
+ */
+async function handleCommand(
+  deps: InboundDeps,
+  inbound: ImInbound,
+  reply: PlatformReply,
+  command: ImCommand,
+  capabilities: PlatformCapabilities,
+): Promise<InboundOutcome> {
+  const sessionKey = deriveImSessionId(inbound.platform, inbound.userId, deps.config.sessionSalt)
+
+  if (command.kind === 'fetch-latest') {
+    return immediate(plainReply(reply, deps.pull.latest(sessionKey) ?? EMPTY_PULL_TEXT))
+  }
+
+  if (command.kind === 'takeover') {
+    let handle: ChildHandle
+    try {
+      handle = await deps.supervisor.ensure(inbound.platform, inbound.userId)
+    } catch (error) {
+      const code =
+        error instanceof Object && 'code' in error ? String((error as { code?: unknown }).code) : ''
+      return immediate(plainReply(reply, code === 'im-children-full' ? BUSY_TEXT : OFFLINE_TEXT))
+    }
+    deps.supervisor.touch(handle.sessionKey)
+    deps.hub.attach(handle, inbound.platform, capabilities)
+    deps.hub.setReply(handle.sessionKey, reply)
+    deps.log.info('im-handoff-request', { sessionKey: handle.sessionKey })
+    const result = await handle.client.requestHandoff(command.reason)
+    // 200 即子进程已进入接管：先本地置位，避免下一条消息抢在 handoff 帧前被当普通 turn
+    if (result.status === 200) deps.hub.noteHandoffRequested(handle.sessionKey)
+    return immediate(plainReply(reply, mapHandoffResult(result).text))
+  }
+
+  // 审批类：只复用已就绪的会话，不为空票拉起子进程
+  const record = deps.supervisor.get(sessionKey)
+  if (record === undefined || record.status !== 'ready' || record.client === undefined) {
+    const text = command.kind === 'approve' ? NO_PENDING_TEXT : UNKNOWN_TICKET_TEXT
+    return immediate(plainReply(reply, text))
+  }
+  const handle: ChildHandle = { sessionKey, port: record.port, client: record.client }
+  deps.supervisor.touch(sessionKey)
+  deps.hub.attach(handle, inbound.platform, capabilities)
+  deps.hub.setReply(sessionKey, reply)
+  return runApprovalPlan(
+    deps,
+    sessionKey,
+    handle,
+    planApprovalCommand(command, deps.hub.pendingList(sessionKey)),
+    reply,
+  )
+}
+
 /** 跑一轮：订阅 → turn → 投递。 */
 async function attemptTurn(
   deps: InboundDeps,
@@ -170,6 +305,7 @@ async function attemptTurn(
   capabilities: PlatformCapabilities,
 ): Promise<AttemptOutcome> {
   const collector = createTurnCollector()
+  deps.hub.beginTurn(handle.sessionKey)
   let opened: (() => void) | undefined
   const openSignal = new Promise<void>((resolve) => {
     opened = resolve
@@ -177,7 +313,14 @@ async function attemptTurn(
 
   let closed = false
   const closeSubscription = handle.client.subscribe({
-    onFrame: (frame) => collector.push(frame),
+    // 审批 / 接管 / 坐席发言由常驻订阅处理：per-turn 只收本轮助手消息，避免重复推送
+    onFrame: (frame) => {
+      if (frame.kind === 'approval' || frame.kind === 'approval-closed' || frame.kind === 'handoff') {
+        return
+      }
+      if (frame.kind === 'message' && frame.role === 'operator') return
+      collector.push(frame)
+    },
     onOpen: () => opened?.(),
     onError: (error) => {
       deps.log.warn('im-turn-failed', {
@@ -191,6 +334,7 @@ async function attemptTurn(
     if (closed) return
     closed = true
     closeSubscription()
+    deps.hub.endTurn(handle.sessionKey)
   }
 
   // 等连接建立（最多 openWaitMs）；拿不到也继续（宁可少一帧，不拖过 5 秒窗口）
@@ -199,6 +343,11 @@ async function attemptTurn(
   const outcome = await handle.client.turn(text)
   switch (outcome.kind) {
     case 'accepted': {
+      if (deps.hub.handoffActive(handle.sessionKey)) {
+        // 接管期间子进程只落账不驱动：立即回"已记录"，不空等 4 秒
+        close()
+        return immediate(plainReply(reply, QUEUED_FOR_OPERATOR_TEXT))
+      }
       const delivered = await deliverTurn({
         mode: deps.config.pushMode,
         capabilities,

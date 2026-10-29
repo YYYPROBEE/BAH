@@ -54,11 +54,20 @@ export interface SupervisorDeps {
   readonly launcher?: ChildLauncher
   readonly reserve?: () => Promise<number>
   readonly handshake?: (port: number, timeoutMs: number) => Promise<{ csrf: string }>
-  readonly client?: (input: { port: number; token: string; csrf: string }) => ChildClient
+  readonly client?: (input: {
+    port: number
+    token: string
+    csrf: string
+    operatorToken: string
+  }) => ChildClient
   readonly nowMs?: () => number
   readonly randomToken?: () => string
+  /** 子进程运营凭证生成器（与 web token 必须不同；测试可注入）。 */
+  readonly randomOperatorToken?: () => string
   /** SIGTERM → SIGKILL 的宽限期（毫秒；测试用小值）。 */
   readonly terminateGraceMs?: number
+  /** 子进程被主动停止时回调（网关据此清掉审批/接管状态）。 */
+  readonly onStop?: (sessionKey: string, reason: 'idle' | 'auth' | 'dispose') => void
 }
 
 /** 对外的子进程句柄（`client` 与 `sessionKey` 是调用方唯一需要的两项）。 */
@@ -73,6 +82,8 @@ export interface Supervisor {
   /** 确保 `(platform,userId)` 有就绪子进程（复用或新建）。 */
   ensure(platform: string, userId: string): Promise<ChildHandle>
   get(sessionKey: string): ChildRecord | undefined
+  /** 当前登记的全部子进程（运营桥列表用；不含平台用户标识的原样输出由调用方裁剪）。 */
+  list(): readonly ChildRecord[]
   /** 累计 spawn 次数（T-IM-002：第二条消息不得再 spawn）。 */
   spawnCount(): number
   /** 当前存活记录数。 */
@@ -98,6 +109,11 @@ const SCRUBBED_ENV = /^(BAH_WECHAT_|BAH_IM_)/
 /** 造一个随机的子进程 Web token（32 字节 hex；不落日志）。 */
 function defaultRandomToken(): string {
   return randomBytes(24).toString('hex')
+}
+
+/** 造一个随机的子进程运营 token（32 字节 hex；不落日志，也不下发公网）。 */
+function defaultRandomOperatorToken(): string {
+  return randomBytes(32).toString('hex')
 }
 
 /** 从 `process.env` 里清洗掉平台密钥与会话盐。 */
@@ -141,11 +157,14 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
   const reserve = deps.reserve ?? ((): Promise<number> => reservePortWithRetry())
   const nowMs = deps.nowMs ?? ((): number => Date.now())
   const randomToken = deps.randomToken ?? defaultRandomToken
+  const randomOperatorToken = deps.randomOperatorToken ?? defaultRandomOperatorToken
   const terminateGraceMs = deps.terminateGraceMs ?? 5_000
   const handshake =
     deps.handshake ?? ((port: number, timeoutMs: number) => awaitChildReady({ port, timeoutMs }))
   const makeClient =
-    deps.client ?? ((input: { port: number; token: string; csrf: string }) => createChildClient(input))
+    deps.client ??
+    ((input: { port: number; token: string; csrf: string; operatorToken: string }) =>
+      createChildClient(input))
 
   const registry: ChildRegistry = createChildRegistry()
   /** 正在启动中的用户（并发第二条消息等同一个 Promise，避免双 spawn）。 */
@@ -189,6 +208,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     if (reason !== 'dispose') {
       log.info('im-child-reap', { sessionKey, reason, pid: record.pid })
     }
+    deps.onStop?.(sessionKey, reason)
   }
 
   const terminateAll = async (): Promise<void> => {
@@ -230,10 +250,19 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     const overlay = await writeOverlay(config.root, sessionKey, renderOverlay({ port }))
     const jsonl = prepareJsonlRoot(sessionKey)
     const token = randomToken()
+    const operatorToken = randomOperatorToken()
+    if (operatorToken === token) {
+      throw new BahError('im-config-invalid', 'im: 子进程运营凭证不能与 web token 相同')
+    }
     const started = launcher({
       port,
       args: argsFor(sessionKey, overlay, jsonl),
-      env: { BAH_WEB_TOKEN: token },
+      // 平台密钥/会话盐已在 scrubbedEnv 清洗；这里只注入本会话的两把凭证与坐席显示名
+      env: {
+        BAH_WEB_TOKEN: token,
+        BAH_OPERATOR_TOKEN: operatorToken,
+        BAH_OPERATOR_NAME: config.operatorName,
+      },
     })
     spawns += 1
 
@@ -266,7 +295,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     }
 
     record.csrf = ready.csrf
-    record.client = makeClient({ port, token, csrf: ready.csrf })
+    record.client = makeClient({ port, token, csrf: ready.csrf, operatorToken })
     record.status = 'ready'
     log.info('im-child-start', { sessionKey, pid: started.pid, port })
     log.info('im-child-ready', { sessionKey, pid: started.pid, port })
@@ -346,6 +375,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
   return {
     ensure,
     get: (sessionKey) => registry.get(sessionKey),
+    list: () => registry.values(),
     spawnCount: () => spawns,
     children: () => registry.size(),
 

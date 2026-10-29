@@ -173,6 +173,7 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
     tokenEntries: ['this-directory-does-not-exist/index.html'],
     operatorEntry: 'this-directory-does-not-exist/operator.html',
     seatEnabled: true,
+    seatApiEnabled: true,
     ...overrides,
   }
 }

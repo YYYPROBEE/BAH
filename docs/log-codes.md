@@ -61,6 +61,15 @@
 | `im-ratelimited` | info | `apps/im-gateway/src/bridge/turn.ts` | 用户/全局限流命中 |
 | `im-untrusted` | info | `apps/im-gateway/src/bridge/turn.ts` | untrusted 命中（reason=user/marker） |
 | `im-config-invalid` | error | `apps/im-gateway/src/config.ts` | 配置非法导致启动失败 |
+| `im-approval-command` | info | `apps/im-gateway/src/bridge/turn.ts` | 审批文本指令命中（sessionKey/ticketId/kind） |
+| `im-approval-result` | info | `apps/im-gateway/src/bridge/turn.ts` | 子进程审批结论（只打 code） |
+| `im-approval-expired` | info | `apps/im-gateway/src/session/hub.ts` | 收到 `unavailable` 收尾（按拒绝处理） |
+| `im-h5-open` | info | `apps/im-gateway/src/approval/page.ts` | H5 页面打开（token 哈希前 8 位） |
+| `im-h5-submit` | info | `apps/im-gateway/src/approval/page.ts` | H5 提交（ticketId/decision，理由只打长度） |
+| `im-h5-token-rejected` | warn | `apps/im-gateway/src/approval/page.ts` | 链接签名/过期/重放被拒 |
+| `im-handoff-request` | info | `apps/im-gateway/src/bridge/turn.ts` | 用户请求转人工 |
+| `im-seat-forward` | info | `apps/im-gateway/src/handoff/operator.ts` | 运营桥转发（路径/状态码，不含 token） |
+| `im-seat-denied` | warn | `apps/im-gateway/src/handoff/operator.ts` | 运营鉴权失败（code=missing/mismatch） |
 
 > 动态 code：`packages/host/src/boot/plugins/bank-tools.ts` 的 `warnContextSlots(code, …)`
 > 会把 bank 适配器给的 `bank.slots-*` 族直接透传；这些值来自闭集枚举，不是自由文本。

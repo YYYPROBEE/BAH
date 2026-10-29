@@ -167,7 +167,7 @@ function projectFrames(frames: readonly WebFrame[]): readonly ImOutbound[] {
 }
 
 /** 把出站合并成一条可缓存文本（拉取式只存文本）。 */
-function joinOutbounds(outbounds: readonly ImOutbound[]): string {
+export function joinOutbounds(outbounds: readonly ImOutbound[]): string {
   return outbounds
     .map(outboundText)
     .filter((text) => text.trim().length > 0)

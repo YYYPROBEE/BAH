@@ -31,6 +31,16 @@ export const IM_LOG_CODES = [
   'im-ratelimited',
   'im-untrusted',
   'im-config-invalid',
+  // 03 单：审批 / H5 / 运营桥（拒绝理由原文**不**入日志，只记长度）
+  'im-approval-command',
+  'im-approval-result',
+  'im-approval-expired',
+  'im-h5-open',
+  'im-h5-submit',
+  'im-h5-token-rejected',
+  'im-handoff-request',
+  'im-seat-forward',
+  'im-seat-denied',
 ] as const
 
 /** 日志码类型。 */

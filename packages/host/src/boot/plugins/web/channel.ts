@@ -151,6 +151,10 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
       })
   }
 
+  const operatorEntry = join(staticRoot, 'operator.html')
+  const webSeatEnabled =
+    options.channelId === 'web' &&
+    (config.auth.mode === 'password' ? SEAT_PASSWORD_LOGIN : operator.token !== undefined)
   const deps: WebDeps = {
     session,
     // 本进程服务的租户（01 TA-16）：只能来自启动期，绝不从请求头取
@@ -187,11 +191,10 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
     operatorEntry: join(staticRoot, 'operator.html'),
     // 坐席工作台只属于桌面 web 渠道：移动壳没有坐席 UI，开着入口就是"存在但打不开"。
     // password 模式的坐席登录本轮不做（D2）：`SEAT_PASSWORD_LOGIN=false` ⇒ 整条 404。
-    seatEnabled:
-      options.channelId === 'web' &&
-      (config.auth.mode === 'password'
-        ? SEAT_PASSWORD_LOGIN
-        : operator.token !== undefined),
+    // 03 单：IM 子进程没有坐席页面，但运营桥要转发 5 条坐席 API——API 面单独判。
+    seatEnabled: webSeatEnabled,
+    seatApiEnabled:
+      webSeatEnabled || (options.channelId === 'im' && operator.token !== undefined),
   }
 
   const handle = createDispatcher(config, deps)

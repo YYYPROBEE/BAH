@@ -115,6 +115,13 @@ export interface WebDeps {
    * 不能让同一个 `/operator` 在移动渠道上变成"存在但打不开"的入口。
    */
   readonly seatEnabled: boolean
+  /**
+   * 坐席 API 是否开放（03 单：IM 网关需要子进程的 `/api/handoff/claim|message|...`）。
+   *
+   * 与 `seatEnabled` 分开的原因：`/operator` 页面只属于桌面 web；IM 子进程没有坐席 UI，
+   * 但运营桥要转发坐席动作——把两者绑成一个布尔会让"没页面就不能有 API"。
+   */
+  readonly seatApiEnabled: boolean
 }
 
 /** 解析好的请求行（避免每个 handler 各自 `new URL` 一遍）。 */
