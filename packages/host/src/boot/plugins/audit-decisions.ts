@@ -40,6 +40,24 @@ import { SESSION_FILES } from './persistence.ts'
 /** 审批策略版本（与 `sentry-policy/2` 分开：两张判决面的规则来源不同）。 */
 export const APPROVAL_POLICY_VERSION = 'approval-policy/1'
 
+/**
+ * 认证事实的链上版本（02 TA-30）。
+ *
+ * 认证不是"判决"（没有 allow/deny 的业务含义），但它是**证据**：谁在何时登录/失败/登出。
+ * 单独一个 policyVersion 让审计报告能按"认证策略版本"分组，而不与审批策略混在一起。
+ */
+export const AUTH_POLICY_VERSION = 'auth-session/1'
+
+/** 链上允许的条目类型（判决三类 + 认证四类）。 */
+export type DecisionEntryType =
+  | 'sentry/decision'
+  | 'approval/decided'
+  | 'policy/decision'
+  | 'auth/login'
+  | 'auth/logout'
+  | 'auth/login-failed'
+  | 'auth/login-locked'
+
 /** 缺省私钥路径（与 `bank:saga-audit` 同源；演示/CI 通常不存在）。 */
 const DEFAULT_SIGNING_KEY_PATH = 'keys/saga-ed25519.pem'
 
@@ -57,7 +75,7 @@ export interface AuditDecisionsSettings {
 
 /** 一条待写链的判决（v2 信封字段由本层补齐）。 */
 export interface DecisionChainEntry {
-  readonly type: 'sentry/decision' | 'approval/decided' | 'policy/decision'
+  readonly type: DecisionEntryType
   readonly data: unknown
   readonly subject: string
   readonly decision: ChainDecision

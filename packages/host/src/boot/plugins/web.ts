@@ -38,6 +38,8 @@ import {
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
 import { TELEMETRY } from './telemetry.ts'
+import { createWebAuthRuntime } from './web/auth/wire.ts'
+import { wireWebPipelines } from './web/wire.ts'
 import { createRateLimiter } from './web-rate-limit.ts'
 import { generateWebToken, readWebToken } from './web-auth.ts'
 import { DEFAULT_WEB, resolveWebSettings, type WebSettings } from './web/config.ts'
@@ -99,34 +101,8 @@ export const webPlugin: HostPlugin<WebSettings> = {
         now: run.now,
       })
 
-      // ① 会话事件 → 帧（唯一的实时数据源）
-      ctx.effect(
-        ctx.events.on('session/event', (payload) => {
-          for (const frame of projector.apply(payload.event)) hub.publish(frame)
-        }),
-      )
-
-      // ② 流式分片 → ephemeral delta（不入日志；断线即丢，权威仍是 assistant/message）
-      ctx.effect(
-        ctx.events.on('llm/stream', (streamer, next) => {
-          const tapped: typeof streamer = async function* (call, signal) {
-            for await (const chunk of streamer(call, signal)) {
-              if (chunk.kind === 'text-delta') hub.publish(deltaFrame(chunk.text, run.now()))
-              yield chunk
-            }
-          }
-          return next(tapped)
-        }),
-      )
-
-      // ③ 审批应答者：只登记，结论从 HTTP 提交（人点按钮 → adapter.decide → view.answer）
-      const responder: ApprovalResponder = {
-        id: 'web',
-        attach(view) {
-          adapter.attachApproval(view)
-        },
-      }
-      ctx.effect(approval.attach(responder))
+      // ①②③ 三条事件管线（接线细节在 web/wire.ts；apply 有 120 行预算）
+      wireWebPipelines({ ctx, hub, projector, adapter, approval, now: run.now })
 
       // ④ agent 常驻驱动（首次提交时懒启动：headless 测试不会因空转挂住）
       let driver: Promise<void> | undefined
@@ -142,9 +118,13 @@ export const webPlugin: HostPlugin<WebSettings> = {
           })
       }
 
+      // 认证面（02）：装配在 web/auth/wire.ts（apply 有 120 行预算）
+      const auth = createWebAuthRuntime({ ctx, run, config, webToken, serverCsrf: csrfToken, warn: (m) => run.warn?.(m) })
+
       const deps: WebDeps = {
         session,
         tenantId: run.tenantId,
+        auth,
         adapter,
         hub, // C5 人工接管（装配细节见 web/handoff.ts）
         handoff: createHandoff({ session, now: run.now, pendingTickets: () => adapter.pendingTickets().length }),

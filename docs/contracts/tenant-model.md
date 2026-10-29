@@ -89,6 +89,12 @@ export function normalizePrincipal(input: PrincipalInput): Principal
 **角色不是业务权限**：角色是**渠道**身份（谁在操作），业务权限仍是绿/黄/红三级分级。
 两个平面正交，混起来就无法解释"同一笔转账换个角色级别为什么变红"。
 
+**合成服务主体**（`auth.mode: none` / `static` 用）：
+`{ userId: 'svc:web', roles: ['customer', 'agent', 'auditor'], source: 'demo-config' }`，
+**有意不含 `admin`**——管理面（`/api/admin/*`）仍要独立的 `BAH_ADMIN_TOKEN` + 回环来源，
+那是双因子；把 `admin` 塞进服务主体等于让一个 Web 口令就能管理停机开关。
+（02 · 鉴权平面落地；代码在 `packages/host/src/boot/plugins/web/auth/identity.ts` 的 `SERVICE_ROLES`。）
+
 ---
 
 ## 4 隔离边界（谁能看见谁）

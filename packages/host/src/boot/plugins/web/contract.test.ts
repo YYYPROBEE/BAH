@@ -41,9 +41,13 @@ function fingerprint(route: (typeof ROUTES)[number]): string {
 }
 
 describe('W16 路由表（拆分前后同一份期望）', () => {
-  it('16 条路由的三元组逐条不变（12 条 W16 基线 + 1 条 D2 指标 + 3 条 C5 接管）', () => {
+  it('19 条路由的三元组逐条不变（12 条 W16 基线 + 1 条 D2 指标 + 3 条 C5 接管 + 3 条 02 认证）', () => {
     expect(ROUTES.map(fingerprint)).toEqual([
       'GET /api/health exact public no-csrf 200 health',
+      // 02 新增：登录是**公开但受 CSRF 管**的路由（登录 CSRF 是真实攻击面）
+      'POST /api/auth/login exact public csrf 200,400,401,403,409,503 login',
+      'POST /api/auth/logout exact public csrf 200,403 logout',
+      'GET /api/auth/me exact web no-csrf 200,401 me',
       'POST /api/admin/sentry/unfreeze exact admin no-csrf 200,400,401,403,404,405,503 admin',
       'POST /api/admin/halt exact admin no-csrf 200,400,401,403,404,405,503 admin',
       'POST /api/admin/halt/unfreeze-request exact admin no-csrf 200,400,401,403,404,405,409,503 admin',
@@ -71,6 +75,9 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
     // 用 `handler 路径` 而不是只列 handler：C5 起同一个 handler 承担两条写路由
     // （`POST /api/handoff` 与 `/resume`），只列 handler 会看不出少的是哪一条闸
     expect(guarded.map((route) => `${route.handler} ${route.path}`)).toEqual([
+      // 02：登录本身也过 CSRF（否则"登录 CSRF"：攻击者让受害者登录攻击者的账户）
+      'login /api/auth/login',
+      'logout /api/auth/logout',
       'turn /api/turn',
       'interrupt /api/interrupt',
       'approval /api/approval/',
@@ -97,9 +104,12 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
     }
   })
 
-  it('唯一的公开路由是探活', () => {
+  it('公开路由只有探活、登录与登出（02 起多两条；两条写路由都受 CSRF 管）', () => {
     expect(ROUTES.filter((route) => route.auth === 'public').map((route) => route.path)).toEqual([
       '/api/health',
+      '/api/auth/login',
+      // 登出必须幂等（第二次没有会话也 200）⇒ 不能要求主体；防"跨站强制登出"靠 CSRF
+      '/api/auth/logout',
     ])
   })
 

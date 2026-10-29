@@ -680,6 +680,26 @@ describe('channel:web 静态资源安全', () => {
     }
   })
 
+  it('password 模式下 index 不注入口令（缺口 1），但仍下发 CSRF cookie 供登录用', async () => {
+    const harness = await boot({
+      auth: { ...DEFAULT_WEB.auth, mode: 'password', directory: { path: 'auth/users.example.yml' } },
+    })
+    try {
+      const index = await authedFetch(harness.url)
+      expect(index.status).toBe(200)
+      const html = await index.text()
+      // 任何能连端口的人都能拿到的口令，在 password 模式下必须消失
+      expect(html).not.toContain('bah-web-token')
+      expect(html).not.toContain(WEB_TOKEN)
+      // 登录请求本身也过 CSRF：页面必须带上 cookie
+      expect(index.headers.get('set-cookie') ?? '').toContain('bah_csrf=')
+      // 认证模式是服务端注入的事实，前端据此决定先验会话
+      expect(html).toContain('name="bah-auth-mode" content="password"')
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
   it('非 index 静态资源原样返回且 no-cache（不注入 token、不做 no-store）', async () => {
     const harness = await boot()
     try {

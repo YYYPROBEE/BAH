@@ -63,6 +63,7 @@ import {
   provideToolContracts,
 } from '@bah/runtime'
 import type { PolicyDescriptor, SessionApi } from '@bah/runtime'
+import { defineService, type ServiceKey } from '@bah/core'
 import { BahError, seededRandom } from '@bah/util'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
@@ -178,6 +179,23 @@ export function warnContextSlots(
   logJson('warn', code, fields)
 }
 
+/**
+ * 数据集用户目录（02 TA-22 的"userId 必须在银行数据集里"用）。
+ *
+ * 为什么由 bank:tools 提供而不是让 web 插件去读数据集：数据集是 bank 的事实，
+ * web 只是渠道。取不到（没有 bank:tools 的 profile）时口令目录跳过这条校验并告警——
+ * 那时也没有账户可查，登录后第一次工具调用自然会说 `no-identity`。
+ */
+export interface BankUserDirectory {
+  has(userId: string): boolean
+  list(): readonly string[]
+}
+
+/** 服务键：`bank:user-directory`（宿主内部接缝；不跨包）。 */
+export const BANK_USER_DIRECTORY: ServiceKey<BankUserDirectory> = defineService<BankUserDirectory>(
+  'bank:user-directory',
+)
+
 export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
   id: 'bank:tools',
 
@@ -225,6 +243,13 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         ctx.provide(BANK_COMPENSATION, {
           reverse: (txnId) => core.reverse(txnId),
           reversalOf: (txnId) => core.reversalOf(txnId),
+        }),
+      )
+
+      ctx.effect(
+        ctx.provide(BANK_USER_DIRECTORY, {
+          has: (userId: string) => dataset.users.some((user) => String(user.id) === userId),
+          list: () => dataset.users.map((user) => String(user.id)),
         }),
       )
 

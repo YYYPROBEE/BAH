@@ -1,10 +1,13 @@
 /**
- * 静态资源 handler（W16 从 `web.ts` 拆出）。
+ * `channel:web` 的静态资源 handler（W16 从 `web.ts` 拆出）。
  *
- * 两条安全约束不能因为搬家丢掉：
+ * 三条安全约束不能因为搬家丢掉：
  * 1. **穿越一律 404，不返回 403**——403 等于告诉探测者"这个路径存在，只是不让看"；
  * 2. **先去掉前导斜杠再规范化**——`path.normalize('/../../x')` 会把 `..` 夹在根上吞掉，
  *    直接 join 反而读到了 staticRoot 里的文件，这是"看起来安全"的穿越。
+ * 3. **`password` 模式下页面不再承载口令**（02 TA-28）：`index.html` 仍是 CSRF cookie 的
+ *    载体（登录请求要用），但**不注入** `bah-web-token`——那是"任何能连端口的人都能拿到口令"
+ *    的缺口 1。`static` / `none` 模式行为不变（快照与截图靠它）。
  */
 
 import { readFile } from 'node:fs/promises'
@@ -15,7 +18,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { csrfCookieHeader } from '../csrf.ts'
 import type { WebDeps, WebRequest } from '../deps.ts'
 import { SECURITY_HEADERS, sendError } from '../http.ts'
-import { injectWebToken } from '../../web-auth.ts'
+import { injectAuthModeMeta, injectWebToken } from '../../web-auth.ts'
 
 /** 静态资源 MIME（不引第三方库；未知类型一律 `application/octet-stream`）。 */
 const MIME: Readonly<Record<string, string>> = {
@@ -31,7 +34,7 @@ const MIME: Readonly<Record<string, string>> = {
   '.map': 'application/json; charset=utf-8',
 }
 
-/** `GET/HEAD` 兜底：解析路径、读文件、注入 token 与 CSRF cookie。 */
+/** `GET/HEAD` 兜底：解析路径、读文件、注入 token（或登录模式标记）与 CSRF cookie。 */
 export async function handleStatic(
   _req: IncomingMessage,
   res: ServerResponse,
@@ -62,17 +65,30 @@ export async function handleStatic(
 
   try {
     const raw = await readFile(target)
-    // index 是 token 的唯一载体：注入后必须 no-store，避免浏览器缓存旧 token
+    // index 是令牌/模式的唯一载体：注入后必须 no-store，避免浏览器缓存旧值
     const isIndex = target === deps.indexPath
+    const html = raw.toString('utf8')
     const content = isIndex
-      ? Buffer.from(injectWebToken(raw.toString('utf8'), deps.webToken))
+      ? Buffer.from(
+          // 顺序：先去 token 标记再注入（`password` 模式下不注入 token，等于把口令从页面拿走）。
+          // `bah-auth-mode` 只在 password 模式注入：static/none 的前端启动路径与改动前**逐字一致**
+          // （A3 零回归；多一个 meta 虽无害，但"不写 auth 配置就一字不变"是硬门槛）。
+          deps.auth.mode === 'password'
+            ? injectAuthModeMeta(
+                html.replace(/<meta name="bah-web-token"[^>]*>\s*/i, ''),
+                deps.auth.mode,
+              )
+            : injectWebToken(html, deps.webToken),
+        )
       : raw
     res.writeHead(200, {
       ...SECURITY_HEADERS,
       'content-type': MIME[extname(target).toLowerCase()] ?? 'application/octet-stream',
       'content-length': content.length,
       'cache-control': isIndex ? 'no-store' : 'no-cache',
-      // 不是 HttpOnly：double-submit 需要同源脚本读 cookie 回填请求头
+      // 不是 HttpOnly：double-submit 需要同源脚本读 cookie 回填请求头。
+      // `password` 模式下这条 cookie 仍然要发：**登录请求本身也过 CSRF**，
+      // 但它是"登录前"的进程值，登录成功后会被会话值覆盖（TA-26 的轮换）。
       ...(isIndex ? { 'set-cookie': csrfCookieHeader(deps.csrfToken) } : {}),
     })
     res.end(headOnly ? undefined : content)

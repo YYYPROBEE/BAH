@@ -39,6 +39,8 @@ export const REQUEST_ERROR_STATUS: Readonly<Record<string, number>> = {
   'web-invalid-json': 400,
   // HALT 期间的新 turn 不是"服务器错误"：423 Locked 让客户端知道"系统被停机"
   'safety-halted': 423,
+  // 认证会话达到上限：503 让客户端知道"现在签不出新会话"，不是内部错误
+  'web-auth-capacity': 503,
 }
 
 /** 发一个 JSON 响应。 */
