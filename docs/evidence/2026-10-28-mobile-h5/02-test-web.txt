@@ -1,0 +1,36 @@
+ WARN  Unsupported engine: wanted: {"node":"^22.19 || >=24"} (current: {"node":"v22.17.0","pnpm":"10.34.7"})
+
+> bah-monorepo@ test:web D:\项目集\微众杯银行ai智能体\BAH\MonoRepo
+> vitest run --config vitest.web.config.ts
+
+
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mD:/项目集/微众杯银行ai智能体/BAH/MonoRepo[39m
+
+ [32m✓[39m apps/web/src/mobile/plan-steps.test.js [2m([22m[2m22 tests[22m[2m)[22m[32m 99[2mms[22m[39m
+ [32m✓[39m apps/web/src/main.observe.test.js [2m([22m[2m6 tests[22m[2m)[22m[32m 72[2mms[22m[39m
+ [32m✓[39m apps/web/src/views/tool-card.test.js [2m([22m[2m12 tests[22m[2m)[22m[32m 38[2mms[22m[39m
+ [32m✓[39m apps/web/src/views/observe.test.js [2m([22m[2m20 tests[22m[2m)[22m[32m 264[2mms[22m[39m
+ [32m✓[39m apps/web/src/views/conversation.test.js [2m([22m[2m13 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m✓[39m apps/web/src/mobile/ime-input.test.js [2m([22m[2m19 tests[22m[2m)[22m[32m 66[2mms[22m[39m
+ [32m✓[39m apps/web/src/mobile/approval-sheet.test.js [2m([22m[2m36 tests[22m[2m)[22m[32m 259[2mms[22m[39m
+ [32m✓[39m apps/web/src/views/dag.test.js [2m([22m[2m7 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+ [32m✓[39m apps/web/src/main.test.js [2m([22m[2m18 tests[22m[2m)[22m[32m 221[2mms[22m[39m
+ [32m✓[39m apps/web/src/mobile/composer.test.js [2m([22m[2m15 tests[22m[2m)[22m[32m 80[2mms[22m[39m
+ [32m✓[39m apps/web/src/views/approval.test.js [2m([22m[2m19 tests[22m[2m)[22m[32m 98[2mms[22m[39m
+ [32m✓[39m apps/web/src/mobile/layout.test.js [2m([22m[2m10 tests[22m[2m)[22m[32m 27[2mms[22m[39m
+ [32m✓[39m apps/web/src/transport.test.js [2m([22m[2m7 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m apps/web/src/mobile/effects-list.test.js [2m([22m[2m7 tests[22m[2m)[22m[32m 33[2mms[22m[39m
+ [32m✓[39m apps/web/src/observability.test.js [2m([22m[2m11 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m apps/web/src/mobile/shell.test.js [2m([22m[2m44 tests[22m[2m)[22m[32m 244[2mms[22m[39m
+ [32m✓[39m apps/web/src/mobile/choice-card.test.js [2m([22m[2m9 tests[22m[2m)[22m[32m 52[2mms[22m[39m
+ [32m✓[39m apps/web/src/mobile/gesture-confirm.test.js [2m([22m[2m24 tests[22m[2m)[22m[32m 49[2mms[22m[39m
+ [32m✓[39m apps/web/src/mobile/quick-phrases.test.js [2m([22m[2m8 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32m✓[39m apps/web/src/views/audit.test.js [2m([22m[2m11 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m apps/web/src/store.test.js [2m([22m[2m11 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m apps/web/src/transport.observe.test.js [2m([22m[2m4 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m22 passed[39m[22m[90m (22)[39m
+[2m      Tests [22m [1m[32m333 passed[39m[22m[90m (333)[39m
+[2m   Start at [22m 14:14:52
+[2m   Duration [22m 4.30s[2m (transform 382ms, setup 0ms, collect 1.53s, tests 1.75s, environment 48.65s, prepare 5.66s)[22m
+

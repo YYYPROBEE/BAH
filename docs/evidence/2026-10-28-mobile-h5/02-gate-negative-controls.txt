@@ -1,0 +1,60 @@
+夹具基线：✔ 绿
+
+负控 27 条：
+✔ 抓住 I1-a · mobile 源码 import 'vue'
+        I1 apps/web/src/mobile/shell.js:1 引入了 'vue'（纯原生约束，命中 vue）
+✔ 抓住 I1-b · mobile 源码出现 eval(
+        I1 apps/web/src/mobile/shell.js:612 出现 eval(（CSP 不含 unsafe-eval，且这是代码注入面）
+✔ 抓住 I2 · m.html 引远程样式表
+        I2 apps/web/m.html: 引用了远程资源 https://cdn.example.com/x.css（必须本地化）
+✔ 抓住 I2-b · mobile.css 用协议相对 url()
+        I2 apps/web/styles/mobile.css: 引用了远程资源 //cdn.example.com/a.svg（必须本地化）
+✔ 抓住 I3-a · m.html 少引 mobile.css
+        I3 apps/web/m.html: 缺少 ./styles/mobile.css
+✔ 抓住 I3-b · m.html 出现 <style> 块
+        I3 apps/web/m.html: 出现 <style> 块（CSP style-src 'self' 会拒）
+✔ 抓住 I3-c · m.html 出现内联 style 属性
+        I3 apps/web/m.html:48 出现内联 style 属性（同上）
+✔ 抓住 I3-d · m.html 出现无 src 的内联脚本
+        I3 apps/web/m.html:50 出现无 src 的内联脚本
+✔ 抓住 I3-e · m.html 引了桌面 app.css
+        I3 apps/web/m.html: 引了桌面壳的 app.css（双壳的页面局部样式各自独立，00 D1）
+✔ 抓住 I4-a · mobile.css 写裸十六进制
+        I4 apps/web/styles/mobile.css:964 出现裸色值（只能用 var(--…) 令牌；含 fallback 形态）
+✔ 抓住 I4-b · B1 探针：fallback 藏裸值 var(--x, #fff)
+        I4 apps/web/styles/mobile.css:964 出现裸色值（只能用 var(--…) 令牌；含 fallback 形态）
+✔ 抓住 I4-c · mobile.css 写 rgb()
+        I4 apps/web/styles/mobile.css:964 出现裸色值（只能用 var(--…) 令牌；含 fallback 形态）
+✔ 抓住 I4b · B4 探针：theme-color 与 DS 令牌漂移
+        I4b apps/web/m.html: theme-color '#000000' 与 DS 令牌 --bg-base-default '#FFFFFF' 不一致（HTML 里长出了裸色值飞地）
+✔ 抓住 I5-a · B2 探针：子目录里藏第二份 fetch
+        I5 apps/web/src/mobile/lib/net.js:1 出现 'fetch('——共享层只有一份实现（00 D1，只许 import）
+✔ 抓住 I5-b · mobile 里重写 createStore
+        I5 apps/web/src/mobile/shell.js:612 出现 'function createStore'——共享层只有一份实现（00 D1，只许 import）
+✔ 抓住 I6 · 改动 styles/ds/components.css（副本不再逐字节）
+        I6 apps/web/styles/ds/components.css 与 design/bah-ds/components.css 不一致（移动施工期误改了 DS 副本）
+✔ 抓住 I7-a · 按钮 min-height 32px
+        I7 mobile.css:962 .m-shell button 的 min-height 是 32px，小于 44px
+✔ 抓住 I7-b · 抽掉 blanket 44px 规则（触控纪律没了落点）
+        I7 mobile.css 里没有任何"可交互选择器 + min-height ≥44px"的规则（触控纪律没有落点）
+✔ 抓住 I8-a · mobile.css 去掉 env(safe-area-inset-top)
+        I8 mobile.css 缺 env(safe-area-inset-top)（系统手势条会压住内容）
+✔ 抓住 I8-b · m.html viewport 去掉 viewport-fit=cover
+        I8 apps/web/m.html: viewport 缺 viewport-fit=cover（env(safe-area-inset-*) 会恒为 0）
+✔ 抓住 I9-a · B3 探针：图标换皮（内容改了，sha256 对不上）
+        I9 mobile.css:162 的图标 Lock.svg 与 design 侧同名文件 sha256 不一致（换皮了）
+✔ 抓住 I9-b · B3 探针：图标路径越出 apps/web
+        I9 mobile.css:162 的图标路径 '../../design/bah-ds/assets/icons/Lock.svg' 不在 ../assets/icons/*.svg 白名单内（不得越出 apps/web）
+✔ 抓住 I9-c · icon() 尺寸用了 20（00 §5.7 禁用档）
+        I9 apps/web/src/mobile/shell.js:612 icon('send', 20) 的尺寸不在 {14,16,24} 里（00 §5.7）
+✔ 抓住 I9-d · icon('nope') 在 mobile.css 里没有映射
+        I9 apps/web/src/mobile/shell.js:612 icon('nope') 在 mobile.css 里没有 .icon--nope 映射（图标画不出来）
+✔ 抓住 I10-a · 白名单外的文件出现 bah-web-token
+        I10 apps/web/src/leak.js 出现了 'bah-web-token'（token 面只许在白名单里）
+✔ 抓住 I10-b · m.html 里出现 __BAH_WEB_TOKEN__ 占位符
+        I10 apps/web/m.html 出现了 '__BAH_WEB_TOKEN__' 占位符（injectWebToken 不用占位符；写了就是假 token 字面量）
+✔ 抓住 I11 · R6：mobile.css 引用了不存在的令牌名
+        I11 mobile.css:964 引用了 var(--text-defualt)，但 DS 两份令牌文件与 mobile.css 里都没有它的定义（拼错会静默失效、无色无报错）
+
+还原后夹具：✔ 绿（还原干净）
+合计：27/27 条负控被抓住

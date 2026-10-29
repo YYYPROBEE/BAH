@@ -1,6 +1,6 @@
 # BAH 事实表（演示材料的唯一数字来源）
 
-> 更新：2026-10-28（S4 策略门禁 + `policy-externalized` 快照；可观测性 01 遥测内核与 `verify-telemetry`；测试数与 CI 覆盖率沿用 2026-10-28 口径）。任何 PPT / 视频 / 自评里的数字先查这里；
+> 更新：2026-10-29（移动 H5 02：`apps/web/m.html` + `src/mobile/` 10 模块 / 194 用例 + 门禁 `verify-mobile-shell`）。任何 PPT / 视频 / 自评里的数字先查这里；
 > 改代码后重跑对应命令再改本表。**不要把三行测试数相加成一个"总用例数"**。
 > 数字的取值命令与原始输出见 `docs/facts-sources.md`；门禁 `verify-facts` 逐项比对，不一致即红。
 > ⚠ 本表上一版停在 2026-10-24，被 W03–W17 甩在后面（门禁还写 27/27、工具还写 14 个、
@@ -12,13 +12,13 @@
 |---|---|---|
 | `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **250 文件 / 2830 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
-| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗） | **12 文件 / 139 用例** |
+| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **22 文件 / 333 用例** |
 
 其他口径：
 
 | 命令 | 结果 | 说明 |
 |---|---|---|
-| `pnpm gate` | **44/44** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
+| `pnpm gate` | **45/45** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
 | `pnpm test:snapshot` | 8 文件 / 34 用例（34/34 绿） | 录制回放；`pnpm snapshot:record` 重录 |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
@@ -67,6 +67,13 @@
 | **7551** | 移动 H5 UI / HTTP / SSE | `127.0.0.1` | `pnpm bah --profile mobile`；与 7331 同族，端口占用**不自动换端口** |
 
 静态根 `apps/web`：原生 ES 模块，无构建步骤。
+
+| 入口 | 渠道 | 说明 |
+|---|---|---|
+| `/` → `index.html` | `channel:web`（7331） | 桌面壳，`entries: [index.html]` |
+| `/` → `m.html` | `channel:mobile`（7551） | 移动壳，`entries: [m.html, index.html]`；`m.html` 也是 token 入口（注入 Bearer + CSRF cookie + `no-store`），其它 HTML 一律不注入 |
+
+「前端不需要先 build」对两个壳同等成立：`m.html` 只引三份外链 css 与一个原生 ESM 入口。
 `pnpm demo:web` 每次新建 `sessions/demo-<stamp>-<随机>/`，日志、Saga 库与审计链都在该目录；
 `pnpm gate` 用 `.tmp-saga-wiring/` 的独立库，不写 `sessions/`。
 

@@ -4,7 +4,7 @@
  * 1. **纯原生**：`apps/web` 不得依赖框架 / UI 组件库（在 `package.json` 与源码 import 两处查）；
  * 2. **零远程资源**：`src` / `href` / `url()` 里不得出现 `http(s)://`（离线演示、供应链最小面）；
  * 3. **令牌同步**：`apps/web/styles/ds/*.css` 必须与 `design/bah-ds/*.css` 逐字节一致；
- * 4. **令牌纪律**：`app.css` 不得出现裸色值（十六进制），只能用 `var(--…)`。
+ * 4. **令牌纪律**：页面局部样式（`styles/*.css`，排除 `ds/` 副本）不得出现裸色值，只能用 `var(--…)`。
  *
  * 为什么第 3 条必须门禁：`design/bah-ds` 是自研视觉基线的唯一定义处，`styles/ds` 是它的分发副本。
  * 没有这条，半年后没人说得清页面上的圆角到底是哪一版令牌。
@@ -136,32 +136,42 @@ const gate: Gate = {
       }
     }
 
-    // ④ 令牌纪律：app.css 不得出现裸色值
+    // ④ 令牌纪律：页面局部样式（styles/*.css，排除 ds/ 副本）不得出现裸色值
+    //
+    // 施工单 02 §6.2 / E10：扫描集合从 `app.css` 单文件扩到 `styles/*.css`（排除 `ds/`——
+    // 副本的内容纪律由 ③ 的 sha256 等价保证，不归本仓令牌纪律管）。
+    // **只增扫描面，不改判定正则**：扩容前后 `app.css` 的 findings 必须逐条一致。
     const appCssPath = join(root, WEB_DIR, 'styles', 'app.css')
-    const appCss = read(appCssPath)
-    if (appCss === undefined) {
+    if (read(appCssPath) === undefined) {
       findings.push(`${WEB_DIR}/styles/app.css 不存在`)
-    } else {
-      const lines = appCss.split('\n')
+    }
+    const pageCssFiles = walk(root, [join(WEB_DIR, 'styles')], (name) => name.endsWith('.css')).filter(
+      (file) => !relative(root, file).split('\\').join('/').includes('/styles/ds/'),
+    )
+    for (const cssPath of pageCssFiles) {
+      const where = relative(root, cssPath).split('\\').join('/')
+      const css = read(cssPath) ?? ''
+      const lines = css.split('\n')
       lines.forEach((line, index) => {
         // 允许注释里出现示例；只查声明值
         if (/^\s*(\/\*|\*)/.test(line)) return
         if (/#[0-9a-fA-F]{3,8}\b/.test(line)) {
-          findings.push(`${WEB_DIR}/styles/app.css:${String(index + 1)} 出现裸色值（请用 var(--…) 令牌）`)
+          findings.push(`${where}:${String(index + 1)} 出现裸色值（请用 var(--…) 令牌）`)
         }
       })
 
-      // 图标路径必须真实存在（防止改名后静默 404）
-      for (const match of appCss.matchAll(/--icon-url:\s*url\(['"]?([^'")]+)['"]?\)/g)) {
+      // 图标路径必须真实存在（防止改名后静默 404）。相对**消费它的那份 CSS** 解析（00 §5.7）。
+      for (const match of css.matchAll(/--icon-url:\s*url\(['"]?([^'")]+)['"]?\)/g)) {
         const urlPath = match[1] ?? ''
         if (isRemote(urlPath)) {
-          findings.push(`${WEB_DIR}/styles/app.css: 图标来自远程 ${urlPath}`)
+          findings.push(`${where}: 图标来自远程 ${urlPath}`)
           continue
         }
         const target = join(root, WEB_DIR, 'styles', urlPath)
-        if (!existsSync(target)) findings.push(`${WEB_DIR}/styles/app.css: 图标不存在 ${urlPath}`)
+        if (!existsSync(target)) findings.push(`${where}: 图标不存在 ${urlPath}`)
       }
     }
+    notes.push(`④ 令牌纪律扫描 ${String(pageCssFiles.length)} 个页面局部 css`)
 
     // ⑤ index.html 必须挂本地样式与入口
     const indexHtml = read(join(root, WEB_DIR, 'index.html'))

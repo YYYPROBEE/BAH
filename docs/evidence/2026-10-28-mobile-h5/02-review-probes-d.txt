@@ -1,0 +1,39 @@
+### D 口径探针：自己复算，不信文档
+门禁数：45
+facts.md 写的：**45/45**
+工具数（specs）：16
+快照文件：7
+test:web：[2m      Tests [22m [1m[32m333 passed[39m[22m[90m (333)[39m
+
+### D 反向失真：对外材料里有没有把'已实现'写成'未实现'
+$ grep -rn "apps 下无 mobile\|无 mobile\|m.html 不存在\|移动壳未" docs/*.md README.md facts.md
+(零命中)
+
+### D 不得把降级/预演写成真实
+$ grep -rn "定时任务已实现\|真定时\|识别准确率 [0-9]" docs/*.md README.md facts.md
+(零命中)
+
+### D 不得把手势/强验证写成安全控制项
+$ grep -rn "手势.*控制项\|强验证.*服务端强制" README.md docs/*.md
+README.md:59:3. 因此"手势"不得出现在任何安全自评的"控制项"里，只能出现在"人机工程/防误触"里。
+docs/handoff-2026-10-28-mobile-h5.md:103:| 强验证**不是**服务端强制（`http-adapter.ts` 的 `decide()` 不校验 `verify()`） | 已在 README / gesture-confirm 头注释 / 复审报告 C1 如实标注 | 后续单独立项（要动 `packages/**`） |
+
+### B 门禁是否把 findings 塞进 notes 绕过（本门禁的反向自查）
+283:    notes.push(`I1 框架判据打在 import/src 说明符上（裸文本匹配会被 'split' 里的 'lit' 之类假阳拖垮）`)
+392:            notes.push(`I7 豁免 ${rule.selector} 的 ${property}: ${String(value)}px（豁免清单必须逐条带 WHY）`)
+472:    notes.push(`I9 图标：mobile.css 引用 ${String(iconUrls.size)} 个，映射名 ${String(mappedNames.size)} 个`)
+500:    notes.push(`I10 token 面命中 ${String(tokenHits.length)} 个文件，占位符命中 ${String(placeholderHits.length)} 个`)
+522:      notes.push(
+527:    notes.push(`扫描面：mobile 生产源码 ${String(mobileSources.length)} 个文件、页面局部 css ${String(pageCssFiles.length)} 个`)
+
+### B 门禁是否真的被 run-gates 调度
+55:✔ mobile-shell
+
+### A 地板抬了有没有删用例（web 面：139 → 333，只增）
+桌面 12 文件仍在：
+12
+mobile 10 文件：
+10
+
+### A 有没有 it.only / it.skip / describe.only
+(零命中)

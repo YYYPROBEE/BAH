@@ -65,8 +65,9 @@ type Step = CommandStep | VitestStep | E2eStep | RagStep
  * 此后 W17–W20 与 §5.1/§5.2 修复加了两百多例，地板却没跟上——**删掉一整个测试文件
  * 仍会绿**，那条"删测试即红"的判据实际上早已失效。
  *
- * 现值：unit 实测 2830（地板 2829，移动 H5 01 收口抬）、snapshot 实测 34（地板 22）、web 实测 139（地板 54）。
- * snapshot / web 的地板是历史值，只增不减（施工单 01 没动 apps/web 与治理平面）。
+ * 现值：unit 实测 2830（地板 2829，移动 H5 01 收口抬）、snapshot 实测 34（地板 22）、
+ * web 实测 333（地板 332，移动 H5 02 收口抬：新增 apps/web/src/mobile 10 文件 / 194 例）。
+ * snapshot 地板是历史值，只增不减（施工单 02 没动治理平面）。
  * 余量刻意留小：地板的作用是钉住"没有大批丢失"，不是允许慢慢删。
  */
 const STEPS: readonly Step[] = [
@@ -86,7 +87,7 @@ const STEPS: readonly Step[] = [
   { kind: 'command', name: 'eval:baseline', command: 'pnpm eval:baseline' },
   { kind: 'e2e', name: 'test:e2e' },
   { kind: 'vitest', name: 'test:snapshot', config: 'vitest.snapshot.config.ts', minCases: 22 },
-  { kind: 'vitest', name: 'test:web', config: 'vitest.web.config.ts', minCases: 54 },
+  { kind: 'vitest', name: 'test:web', config: 'vitest.web.config.ts', minCases: 332 },
   { kind: 'rag', name: 'rag:check', minCases: 75 },
 ]
 

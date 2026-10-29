@@ -5944,3 +5944,29 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
   本单文件逐文件覆盖率 100%（lines/statements/functions）；
 - 继承红项：`pnpm test:coverage` 在并行「可观测性」线未提交的
   `packages/cli/src/cli/{cost,metrics,observe-http,trace}.ts` 上未达 100%（不属本单文件面）。
+
+## 96.36 移动 H5 · 02 移动壳与交互面（2026-10-29）
+
+- 新增静态壳 `apps/web/m.html`：三份 DS/页面外链样式 + 唯一原生 ESM 入口 `./src/mobile/shell.js`；
+  **无 token 占位 meta**（`injectWebToken` 是"先剥离同名 meta 再插入"，与 `index.html` 逐字同构；
+  写占位反而会在"未进白名单却被静态返回"时把假 token 交给前端）；
+  `theme-color` 的值由门禁 I4b 与 DS 令牌 `--bg-base-default` 机器比对；
+- 新增 `apps/web/src/mobile/` **10 个模块**：`shell`（装配/帧路由/重连退避）、`layout`（三区骨架 + visualViewport 键盘避让）、
+  `approval-sheet`（底部抽屉）、`gesture-confirm`（滑动确认，决策在纯函数 `reducePointerEvents`）、
+  `ime-input`（IME 组合态 + 可关提示）、`quick-phrases`（chips）、`plan-steps`（9 态分步清单）、
+  `choice-card`（D6 点选=一条用户消息）、`effects-list`（只读"已发生操作"）、`composer`；
+- 新增 `apps/web/styles/mobile.css`：零裸色值（含 fallback 形态）、blanket 44×44 触控、安全区、动效三时长、
+  `prefers-reduced-motion` 全降为 0 且功能不降级、无左侧竖色条；
+- **共享层零改动**：`transport.js` / `store.js` / `views/*` / `styles/app.css` 一行未动（并行「可观测性」线正压在这些文件上，
+  改它们就得替别人 `git add`）。重连调度改由 shell 层负责（只 import 共享工厂，不是第二份实现）；
+  delta 重放按 `at` 单调过滤（`DeltaFrame` 无 `seq`，方案文档"按 seq 过滤"与帧契约不符，见 §9 偏差）；
+- 5 个图标从 `design/bah-ds/assets/icons/` 逐字节复制（sha256 双向一致，门禁 I9 钉住）；
+- `profiles/mobile/patch.yml`：`entry: m.html`、`entries: [m.html, index.html]`（兑 01 单留的待办）；
+- 新门禁 `scripts/verify-mobile-shell.ts`（I1–I11）：**27 条负控逐条被抓**，
+  证据 `docs/evidence/2026-10-28-mobile-h5/02-gate-negative-controls.txt`；
+- `scripts/verify-web.ts` 第 4 条扫描面从 `app.css` 扩到 `styles/*.css`（排除 `ds/`），判定正则未改；
+- 地板：`scripts/ci.ts` 的 `test:web` `minCases` 54 → **332**（实测 333）；
+- 实测：`pnpm test:web` **22 文件 / 333 用例**（新增 10 文件 / 194 例）、`pnpm gate` **45/45**；
+- 继承红项：`assertions` / `tracked-sources` 两条仍属并行「可观测性」线（`cli/src/cli/observe-http.test.ts`），本单未修、未替别人 `git add`；
+- 如实登记的不做/边界：不做 SW/PWA、不做页面内语音识别（IME 口径，零麦克风权限）、
+  手势与强验证都是 UI 约束（服务端 `decide()` 不校验 `verify()`）、`todo` 帧只留只读渲染位、金额内联输入的 `inputmode=decimal` 分支暂无生产调用点。

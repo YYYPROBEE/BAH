@@ -28,7 +28,7 @@ pnpm install
 | **容器演示** | `docker build -t bah:local . && docker run --rm -p 7331:7331 bah:local` | 单容器 Web，默认离线 router（不需要密钥）；RAG sidecar 不在镜像内，知识工具降级为 `knowledge-unavailable` |
 | **移动 H5 演示** | `pnpm bah --profile mobile` | 第二个壳（`staticRoot` 同为 `apps/web`），打开 `http://127.0.0.1:7551`；与 7331 共用同一份 `createHttpChannel`（路由 / 闸序 / 安全头 / 审批端点） |
 | **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 250 文件 / 2830 用例 |
-| **门禁** | `pnpm gate` | 44 项静态与契约检查，任一红即失败 |
+| **门禁** | `pnpm gate` | 45 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
 主演示**不需要密钥**：`profiles/web/patch.yml` 默认 `provider: router`（读消息做意图路由，
@@ -46,6 +46,21 @@ BAH_MODEL_KEY=<你的模型密钥>
 并把同一 token 注入 sidecar 与宿主）。需要手工起 sidecar 时用 `pnpm rag:dev`（端口 7801），
 它会在未配置 token 时生成一次性演示 token 并打印；宿主必须用同一 `BAH_KNOWLEDGE_TOKEN`。
 sidecar 认证是 fail-loud（无 token 拒启），工具在缺 token 时按 `knowledge-denied` fail-closed。
+
+### 移动 H5 的能力边界（如实口径）
+
+**语音输入**：语音输入通过设备系统输入法完成，本页面**不申请麦克风权限、不采集音频、不做录音上传**；`Permissions-Policy` 保持 `camera=(), microphone=(), geolocation=()` 全关。
+真机上各输入法的听写质量不由本工程控制，**不承诺识别准确率**；桌面 DevTools 的移动模拟**没有 IME 语音**，故演示与 CI 一律用输入区上方的**快捷短语 chips**（离线、确定性）。
+
+**滑动确认**：
+
+1. 手势确认**不等于**强验证；红级操作仍需 U 盾/人脸/短信挑战（走 `/api/verify/:ticketId`）。
+2. 用脚本直接 `POST /api/approval/:ticketId` 而不滑动，**服务端会接受**——滑动是 UI 约束，不是凭证。
+3. 因此"手势"不得出现在任何安全自评的"控制项"里，只能出现在"人机工程/防误触"里。
+
+**同一条纪律也适用于强验证**（2026-10-29 实测补充）：`packages/channels/src/http-adapter.ts` 的 `decide()`
+只校验票据归属、结论合法性与拒绝理由，**不校验 `verify()` 是否已通过**。所以"红级必须先强验证"
+在桌面与移动两个壳里都是**界面层约束**，不是服务端强制；对外材料不得把它写成防线。
 
 ---
 
@@ -235,9 +250,9 @@ facts.md             演示材料唯一数字来源
 |---|---|---|
 | `pnpm test` | 主仓 | 250 文件 / 2830 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
-| `pnpm test:web` | 前端 | 12 文件 / 139 用例 |
+| `pnpm test:web` | 前端 | 22 文件 / 333 用例 |
 | `pnpm test:snapshot` | 快照回放 | 8 文件 / 34 用例 |
-| `pnpm gate` | 门禁 | 44/44 |
+| `pnpm gate` | 门禁 | 45/45 |
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
 
