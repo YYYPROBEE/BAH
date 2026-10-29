@@ -1,0 +1,33 @@
+{"ts":"2026-10-29T07:23:00.727Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+{"ts":"2026-10-29T07:23:00.736Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[1] input> 上次那个转账再来一次
+    tool/call  intent_resolve {"utterance":"上次那个转账再来一次","scene":"transfer"}
+    tool/result intent_resolve {"kind":"vague","decision":"proceed","confidence":0.75,"requiresPreview":true,"filled":[{"name":"payee","value":"王建国","source":"memory","confidence":0.8},{"name":"amountCents","value":80000,"source":"memory","confidence":0.8}],"missing":[],"conflicts":[],"prop
+    tool/call  transfer_preview {"amount":800,"payee":{"name":"王建国"}}
+    tool/result transfer_preview 试算：向 王建国（已绑定）转账 ¥800.00，手续费 ¥0.00。当日已用 ¥0.00，剩余 ¥1,000.00。风控结论 allow，执行级别「yellow」。
+    assistant  已按上次的参数生成预演：向王建国转 800 元。确认后才发起。
+
+[2] input> 转500给他
+    tool/call  intent_resolve {"utterance":"转500给他","scene":"transfer"}
+    tool/result intent_resolve {"kind":"vague","decision":"ask","confidence":0.5,"requiresPreview":true,"filled":[{"name":"amountCents","value":50000,"source":"utterance","confidence":0.95}],"missing":["payee"],"conflicts":[],"proposals":[],"askHint":{"slot":"payee","question":"要转给谁？可以选一个，也
+    tool/call  prompt_ask {"question":"要转给谁？请给出收款人姓名。","slot":"payee","candidates":[{"label":"王建国","value":"王建国"},{"label":"张伟","value":"张伟"}]}
+    tool/result prompt_ask {"question":"要转给谁？请给出收款人姓名。","choices":[{"label":"张伟","value":"张伟","kind":"candidate"},{"label":"王建国","value":"王建国","kind":"candidate"},{"label":"手动输入","value":"__manual__","kind":"manual"}],"allowFreeText":true,"degraded":false,"askExhausted":false}
+    assistant  请选择一下，或者直接输入。
+
+[3] input> 我爱人生日快到了
+    tool/call  intent_resolve {"utterance":"我爱人生日快到了","scene":"unknown"}
+    tool/result intent_resolve {"kind":"implicit","decision":"propose","confidence":0.6,"requiresPreview":false,"filled":[],"missing":[],"conflicts":[],"proposals":[{"title":"为爱人生日准备一笔心意金？","rationale":"识别到场景线索「生日」且这句话没有动作指令（R-IMP-1）","ruleId":"R-IMP-1","candidateActions":["transfer_preview
+    assistant  这件事我只提建议，不会直接操作。要不要先看看心意金或稳健理财方案？（执行编排在 04 单落地后接 plan_propose）
+
+[4] input> 把转账卡的钱还上
+    tool/call  intent_resolve {"utterance":"把转账卡的钱还上","scene":"transfer"}
+    tool/result intent_resolve {"kind":"ambiguous","decision":"ask","confidence":0.4,"requiresPreview":false,"filled":[],"missing":[],"conflicts":[],"proposals":[],"askHint":{"slot":"targetScene","question":"您想继续哪个场景的事？","candidates":[{"name":"targetScene","value":"转账给收款人","source":"session
+    assistant  请说得具体一点：是要给谁转账，还是还信用卡？
+
+[5] input> 把那边的事接着办
+    tool/call  intent_resolve {"utterance":"把那边的事接着办","scene":"cross_scene"}
+    tool/result intent_resolve {"kind":"vague","decision":"ask","confidence":0.59,"requiresPreview":true,"filled":[],"missing":["targetScene"],"conflicts":[],"proposals":[],"askHint":{"slot":"targetScene","question":"您是想在「转账」那边继续吗？我不确定，先跟您确认一下。","candidates":[]},"evidence":[{"ruleId":"R-XS-
+    assistant  您是想继续上次的转账，还是账单那边的事？我不确定，先问一下。
+
+（会话目录 D:\项目集\微众杯银行ai智能体\BAH\MonoRepo\.tmp-demo-intent；确定性正则路由，不是 URL/模型调用）

@@ -44,7 +44,7 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **24 项 / 45 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
+| 注册表 / 门禁 | **26 项 / 46 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
 | 覆盖率 | **91.14%（行口径，31233/34270 行，实测 2026-10-28）；15/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
@@ -67,7 +67,7 @@
 | ⑥ 编排原语（plan） | `plan:dag` | 1 |
 | ⑦ 渠道（channel） | `channel:web`、`channel:mobile` | 2 |
 | ⑧ 演示件（demo） | `demo:echo` | 1 |
-| **合计** | — | **24** |
+| **合计** | — | **26** |
 <!-- END GENERATED:layers -->
 
 ### 3.1 依赖图（谁向谁要服务）
@@ -97,8 +97,10 @@ graph LR
   p19["bank:saga-bridge"]
   p20["plan:dag"]
   p21["bah:memory-store"]
-  p22["channel:web"]
-  p23["channel:mobile"]
+  p22["intent:plane"]
+  p23["prompt:ask"]
+  p24["channel:web"]
+  p25["channel:mobile"]
   p0 --> host["宿主运行时 boot()"]
   p1 --> host["宿主运行时 boot()"]
   p1 --> p0
@@ -126,14 +128,14 @@ graph LR
   p21 --> host["宿主运行时 boot()"]
   p21 --> p0
   p21 --> p3
-  p22 --> host["宿主运行时 boot()"]
-  p22 --> p0
-  p22 --> p12
-  p22 --> p5
-  p23 --> host["宿主运行时 boot()"]
-  p23 --> p0
-  p23 --> p12
-  p23 --> p5
+  p24 --> host["宿主运行时 boot()"]
+  p24 --> p0
+  p24 --> p12
+  p24 --> p5
+  p25 --> host["宿主运行时 boot()"]
+  p25 --> p0
+  p25 --> p12
+  p25 --> p5
   p5 --> host["宿主运行时 boot()"]
   p5 --> p0
   p5 --> p4
@@ -180,6 +182,8 @@ graph LR
 | bank:saga-bridge | —（无依赖） | — |
 | plan:dag | —（无依赖） | — |
 | bah:memory-store | `bah:run`、`runtime:session`、`runtime:system-prompt` | 宿主运行时 boot()、`core:session`、`core:prompt` |
+| intent:plane | —（无依赖） | — |
+| prompt:ask | —（无依赖） | — |
 | channel:web | `bah:run`、`runtime:session`、`runtime:agents`、`interaction:approval` | 宿主运行时 boot()、`core:session`、`core:agent`、`interaction:approval` |
 | channel:mobile | `bah:run`、`runtime:session`、`runtime:agents`、`interaction:approval` | 宿主运行时 boot()、`core:session`、`core:agent`、`interaction:approval` |
 <!-- END GENERATED:dependencies -->
@@ -198,8 +202,8 @@ graph TB
     p19_headless["bank:saga-bridge"]
     p20_headless["plan:dag（未装配）"]
     p21_headless["bah:memory-store（未装配）"]
-    p22_headless["channel:web（未装配）"]
-    p23_headless["channel:mobile（未装配）"]
+    p24_headless["channel:web（未装配）"]
+    p25_headless["channel:mobile（未装配）"]
   end
   subgraph P_plan["profiles/plan"]
     p8_plan["demo:echo（未装配）"]
@@ -207,8 +211,8 @@ graph TB
     p19_plan["bank:saga-bridge（enabled: false）"]
     p20_plan["plan:dag"]
     p21_plan["bah:memory-store（未装配）"]
-    p22_plan["channel:web（未装配）"]
-    p23_plan["channel:mobile（未装配）"]
+    p24_plan["channel:web（未装配）"]
+    p25_plan["channel:mobile（未装配）"]
   end
   subgraph P_web["profiles/web"]
     p8_web["demo:echo"]
@@ -216,8 +220,8 @@ graph TB
     p19_web["bank:saga-bridge"]
     p20_web["plan:dag（未装配）"]
     p21_web["bah:memory-store"]
-    p22_web["channel:web"]
-    p23_web["channel:mobile（未装配）"]
+    p24_web["channel:web"]
+    p25_web["channel:mobile（未装配）"]
   end
   subgraph P_web-plan["profiles/web-plan"]
     p8_web-plan["demo:echo"]
@@ -225,8 +229,8 @@ graph TB
     p19_web-plan["bank:saga-bridge（enabled: false）"]
     p20_web-plan["plan:dag"]
     p21_web-plan["bah:memory-store（未装配）"]
-    p22_web-plan["channel:web"]
-    p23_web-plan["channel:mobile（未装配）"]
+    p24_web-plan["channel:web"]
+    p25_web-plan["channel:mobile（未装配）"]
   end
   subgraph P_mobile["profiles/mobile"]
     p8_mobile["demo:echo"]
@@ -234,12 +238,12 @@ graph TB
     p19_mobile["bank:saga-bridge"]
     p20_mobile["plan:dag（未装配）"]
     p21_mobile["bah:memory-store"]
-    p22_mobile["channel:web（未装配）"]
-    p23_mobile["channel:mobile"]
+    p24_mobile["channel:web（未装配）"]
+    p25_mobile["channel:mobile"]
   end
   classDef ghost stroke-dasharray: 5 5,stroke:#9aa4b2,color:#9aa4b2
   classDef off stroke-dasharray: 3 3,stroke:#c9822f,color:#c9822f
-  class p11_headless,p20_headless,p21_headless,p22_headless,p23_headless,p8_plan,p11_plan,p21_plan,p22_plan,p23_plan,p20_web,p23_web,p21_web-plan,p23_web-plan,p20_mobile,p22_mobile ghost
+  class p11_headless,p20_headless,p21_headless,p24_headless,p25_headless,p8_plan,p11_plan,p21_plan,p24_plan,p25_plan,p20_web,p25_web,p21_web-plan,p25_web-plan,p20_mobile,p24_mobile ghost
   class p19_plan,p19_web-plan off
 ```
 <!-- END GENERATED:assembly -->
@@ -276,6 +280,8 @@ graph TB
 | bank:saga-bridge | ● 生效 | ○ 关闭 | ● 生效 | ○ 关闭 | ● 生效 |
 | plan:dag | · 未装配 | ● 生效 | · 未装配 | ● 生效 | · 未装配 |
 | bah:memory-store | · 未装配 | · 未装配 | ● 生效 | · 未装配 | ● 生效 |
+| intent:plane | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| prompt:ask | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | channel:web | · 未装配 | · 未装配 | ● 生效 | ● 生效 | · 未装配 |
 | channel:mobile | · 未装配 | · 未装配 | · 未装配 | · 未装配 | ● 生效 |
 <!-- END GENERATED:matrix -->

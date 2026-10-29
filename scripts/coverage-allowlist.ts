@@ -36,6 +36,16 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
   },
   {
     package: 'runtime',
+    scope: 'intent/',
+    why: '意图平面：规则序、整数评分、0.6 拒借闸门、金额单位与 PII 脱敏——每一条未覆盖分支都可能是「猜」的藏身处（03 单）',
+  },
+  {
+    package: 'interaction',
+    scope: 'prompt/',
+    why: '追问候选：去重/确定性排序/上限 3/恒含手动出口/空候选 fail-loud 与防死循环上限（03 单）',
+  },
+  {
+    package: 'runtime',
     scope: 'tools/',
     why: '工具七段管线与判决顺序——顺序错了就是安全事故（施工单 03）',
   },

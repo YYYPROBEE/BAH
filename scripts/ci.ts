@@ -74,8 +74,8 @@ const STEPS: readonly Step[] = [
   { kind: 'command', name: 'typecheck', command: 'pnpm typecheck' },
   { kind: 'command', name: 'lint', command: 'pnpm lint' },
   { kind: 'command', name: 'build', command: 'pnpm build' },
-  { kind: 'vitest', name: 'test (unit)', minCases: 2829 },
-  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 2829 },
+  { kind: 'vitest', name: 'test (unit)', minCases: 2989 },
+  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 2989 },
   // W17：全仓覆盖率口径（分母 = packages/*/src 全量，不是 allowlist 名单）。
   // 上一步的 `test:coverage` 守"名单内逐文件 100%"，这一步报"全仓行口径 ≥80% / 包口径 ≥14/16"。
   // 两步都要：只有前者会"分母只算一半"，只有后者会丢掉"确定性组件必须 100%"的硬约束。

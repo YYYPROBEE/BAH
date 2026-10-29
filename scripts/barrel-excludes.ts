@@ -37,6 +37,14 @@ export const BARREL_EXCLUSIONS: readonly BarrelExclusion[] = [
     why: 'boot 逻辑模块入口：只 re-export boot/config/hmr/plugins 的实现',
   },
   {
+    path: 'packages/runtime/src/intent/index.ts',
+    why: '意图平面入口：只 re-export types/lexicon/slots/evidence/recall/resolve/result/tool（03 单，纯 barrel）',
+  },
+  {
+    path: 'packages/interaction/src/prompt/index.ts',
+    why: '追问模块入口：只 re-export types/candidates/deps/result-schema/tool（03 单，纯 barrel）',
+  },
+  {
     path: 'packages/interaction/src/approval/index.ts',
     why: '审批模块入口：只 re-export 应答者/票据生命周期实现',
   },

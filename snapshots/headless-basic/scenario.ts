@@ -37,8 +37,14 @@ export const CASE = {
   name: 'headless-basic',
   /** 录制时用的 profile（仅供人看；回放不读它）。 */
   profile: 'headless',
-  /** 依次送入的输入（每个跑一个 turn）。 */
-  prompts: ['帮我查一下余额'],
+  /**
+   * 依次送入的输入（每个跑一个 turn）。
+   *
+   * 第二个 turn 是 03 单加的：它走 demo router 的 `recall` 路由 → `intent_resolve`
+   * → 空记忆下追问。加它的理由不是"多测一点"，而是让本场景**真的跑到**意图平面
+   * （`coveredSources` 声明了 `runtime/src/intent/`，声明必须有实物背书）。
+   */
+  prompts: ['帮我查一下余额', '上次那个转账再来一次'],
   /** 会话 ID（固定值，回放必须逐字相同）。 */
   sessionId: 's-snapshot-headless-basic',
   /** 确定性时钟（epoch ms）：起点取一个固定整数，绝不读真实时间。 */
@@ -62,6 +68,10 @@ export const CASE = {
     // W04：治理平面每次判决都会走 `runtime:policy` 的默认实现（createTierPolicy）
     'packages/runtime/src/policy/',
     'packages/runtime/src/seams.ts',
+    // 03 单：第二个 turn 走 intent_resolve（断言路径 B 端到端，含纯函数规则引擎）
+    'packages/runtime/src/intent/',
+    // 03 单：prompt_ask 在空记忆下不发射，但 choice 帧的投影规则在这里编译/装载
+    'packages/interaction/src/prompt/',
     'packages/llm/src/llm/',
     'packages/llm/src/mock/',
     // 离线路由（默认 provider）：`router` 读消息现规划，本场景真的走了它

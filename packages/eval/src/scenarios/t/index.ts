@@ -1,12 +1,12 @@
 /**
- * T 族 · 转账主链（12）。
+ * T 族 · 转账主链（16）。
  *
  * 顺序有意义：三条金额边界试算必须在任何扣款之前（日累计会改判升级），
  * 之后两笔真实转账把日累计推到 1000 元整，再证明第 1001 元被拦。
  * 期望值来自 `docs/bank-tools.md` 的日累计 1000 元口径，不来自某次运行结果。
  */
 
-import { outcomeStep, toolCallStep } from '@bah/llm/mock'
+import { outcomeStep, textStep, toolCallStep } from '@bah/llm/mock'
 
 import { scenario, clarifySteps, transferSteps } from '../helpers.ts'
 import type { EvalScenario } from '../../scenario/types.ts'
@@ -174,4 +174,109 @@ export const T_SCENARIOS: readonly EvalScenario[] = [
       ],
     },
   }),
+
+  /**
+   * 03 单：意图平面的四条。判据是「工具形态也能被审计与断言」，
+   * 不是「函数单测过了」——这四条跑的是真实七段管线 + 真实契约校验。
+   */
+  scenario({
+    id: 'T-13',
+    family: 'T',
+    title: '模糊复现：「上次那个转账再来一次」⇒ 意图解析 ⇒ 必经预演，确认前零扣款',
+    turns: ['上次那个转账再来一次'],
+    expect: [
+      { kind: 'tool-sequence', tools: ['intent_resolve', 'transfer_preview'], mode: 'contains' },
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'kind', equals: 'vague' },
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'requiresPreview', equals: true },
+      { kind: 'no-event', type: 'transfer/created' },
+    ],
+    metric: 'task-success',
+    action: {
+      kind: 'script',
+      steps: [
+        toolCallStep('c-intent', 'intent_resolve', { utterance: '上次那个转账再来一次', scene: 'transfer' }),
+        toolCallStep('c-prev', 'transfer_preview', { amount: 800, payee: { name: '王建国' } }),
+        textStep('已按上次的参数生成预演：向王建国转 800 元。确认后才发起。'),
+      ],
+    },
+  }),
+  scenario({
+    id: 'T-14',
+    family: 'T',
+    title: '槽位缺失：「转500给他」⇒ 出选择题，不猜收款人、不调资金工具',
+    turns: ['转500给他'],
+    expect: [
+      { kind: 'tool-sequence', tools: ['intent_resolve', 'prompt_ask'], mode: 'contains' },
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'decision', equals: 'ask' },
+      { kind: 'tool-result', tool: 'prompt_ask', path: 'degraded', equals: false },
+      { kind: 'no-event', type: 'tool/call', where: { name: 'transfer_preview' } },
+      { kind: 'no-event', type: 'transfer/created' },
+    ],
+    metric: 'task-success',
+    action: {
+      kind: 'script',
+      steps: [
+        toolCallStep('c-intent', 'intent_resolve', { utterance: '转500给他', scene: 'transfer' }),
+        toolCallStep('c-ask', 'prompt_ask', {
+          question: '要转给谁？',
+          slot: 'payee',
+          candidates: [
+            { label: '王建国', value: '王建国' },
+            { label: '张伟', value: '张伟' },
+          ],
+        }),
+        textStep('请选择收款人，或直接输入姓名。'),
+      ],
+    },
+  }),
+  scenario({
+    id: 'T-15',
+    family: 'T',
+    title: '歧义收款人：两个「张伟」⇒ ambiguous ⇒ 候选 + 手动输入出口',
+    turns: ['给张伟转200'],
+    expect: [
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'kind', equals: 'ambiguous' },
+      { kind: 'tool-sequence', tools: ['intent_resolve', 'prompt_ask'], mode: 'contains' },
+      { kind: 'tool-result', tool: 'prompt_ask', path: 'allowFreeText', equals: true },
+      { kind: 'no-event', type: 'transfer/created' },
+    ],
+    metric: 'task-success',
+    action: {
+      kind: 'script',
+      steps: [
+        toolCallStep('c-intent', 'intent_resolve', { utterance: '给张伟转200', scene: 'transfer' }),
+        toolCallStep('c-ask', 'prompt_ask', {
+          question: '找到两位张伟，转给哪位？',
+          slot: 'payee',
+          candidates: [
+            { label: '张伟（同事）', value: '张伟（同事）' },
+            { label: '张伟（房东）', value: '张伟（房东）' },
+          ],
+        }),
+        textStep('请选择收款人。'),
+      ],
+    },
+  }),
+  scenario({
+    id: 'T-16',
+    family: 'T',
+    title: '隐含意图：「我爱人生日快到了」⇒ 只出提案，绝不执行任何资金工具',
+    turns: ['我爱人生日快到了'],
+    expect: [
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'kind', equals: 'implicit' },
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'decision', equals: 'propose' },
+      { kind: 'no-event', type: 'tool/call', where: { name: 'transfer_create' } },
+      { kind: 'no-event', type: 'tool/call', where: { name: 'wealth_purchase' } },
+      { kind: 'no-event', type: 'transfer/created' },
+    ],
+    metric: 'task-success',
+    action: {
+      kind: 'script',
+      steps: [
+        toolCallStep('c-intent', 'intent_resolve', { utterance: '我爱人生日快到了', scene: 'unknown' }),
+        textStep('生日快到了，要不要先看看心意金方案？我只提建议，不会直接操作。'),
+      ],
+    },
+  }),
 ]
+

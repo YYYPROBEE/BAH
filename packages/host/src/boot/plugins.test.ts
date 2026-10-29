@@ -159,6 +159,9 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       'plan:dag',
       // C4 跨会话记忆：同样只登记不默认装配（记忆会改变模型输入，由 profile 显式开）
       'bah:memory-store',
+      // 03 单：意图平面与追问。两行按序装配（prompt:ask 取 intent:plane 的会话状态）
+      'intent:plane',
+      'prompt:ask',
       // 渠道（施工单 13）：不在 base bundle 里，由 profiles/web 的 patch 加行
       'channel:web',
       // 渠道（施工单 01）：同样只登记不默认装配，由 profiles/mobile 的 patch 加行

@@ -1,7 +1,6 @@
-/**
- * @bah/interaction · 逻辑模块 prompt（M0 占位）。
- *
- * 本文件只声明模块位置，不实现任何运行逻辑；
- * 实装见施工单 09、14。
- */
-export {}
+/** 追问平面（03 单）：纯 barrel，只允许 export，不允许任何语句。 */
+export * from './types.ts'
+export * from './candidates.ts'
+export * from './deps.ts'
+export * from './result-schema.ts'
+export * from './tool.ts'

@@ -1,0 +1,122 @@
+=== A1 eval 断言是否为具体值（T-13..16 / Q-11..12）===
+      { kind: 'tool-sequence', tools: ['intent_resolve', 'transfer_preview'], mode: 'contains' },
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'kind', equals: 'vague' },
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'requiresPreview', equals: true },
+      { kind: 'no-event', type: 'transfer/created' },
+      kind: 'script',
+--- Q-11/Q-12
+      { kind: 'tool-sequence', tools: ['intent_resolve'], mode: 'exact' },
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'decision', equals: 'ask' },
+      { kind: 'no-event', type: 'tool/call', where: { name: 'transfer_preview' } },
+      { kind: 'no-event', type: 'transfer/created' },
+      kind: 'script',
+      { kind: 'tool-sequence', tools: ['prompt_ask', 'prompt_ask', 'prompt_ask'], mode: 'contains' },
+      { kind: 'tool-result', tool: 'prompt_ask', path: 'askExhausted', equals: true },
+      { kind: 'no-event', type: 'transfer/created' },
+      kind: 'script',
+
+=== A4 findings 是否绑定 ok（不得把违规塞 notes）===
+228:    return { ok: findings.length === 0, findings, notes }
+
+=== A5 地板与名单只增不减 ===
+-  { kind: 'vitest', name: 'test (unit)', minCases: 2829 },
+-  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 2829 },
++  { kind: 'vitest', name: 'test (unit)', minCases: 2989 },
++  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 2989 },
++  {
++    package: 'runtime',
++    scope: 'intent/',
++    why: '意图平面：规则序、整数评分、0.6 拒借闸门、金额单位与 PII 脱敏——每一条未覆盖分支都可能是「猜」的藏身处（03 单）',
++  },
++  {
++    package: 'interaction',
++    scope: 'prompt/',
++    why: '追问候选：去重/确定性排序/上限 3/恒含手动出口/空候选 fail-loud 与防死循环上限（03 单）',
++  },
+
+=== A6 快照由 record/reverify 产生（reverified.json 改动伴随 session.jsonl）===
+      3 compaction
+      3 entity-slots
+      5 headless-basic
+      2 plan
+      3 policy-externalized
+      3 sandbox-compute
+      3 web-channel
+
+=== B3 只声明没构造？（IntentProposal 构造点）===
+46:  IntentProposal,
+180:  const add = (ruleId: string, span: string, slot?: SlotName, slotSource?: FilledSlot['source']): void => {
+380:export function buildProposals(utterance: string): readonly IntentProposal[] {
+389:          ruleId: 'R-IMP-1',
+401:        ruleId: 'R-IMP-2',
+
+=== B4 interaction barrel 导出 prompt ===
+5: * `src/prompt/`（追问选择题，03 单落地；点选结果是一条普通用户消息，不走审批通道）。
+8:export * from './prompt/index.ts'
+
+=== C4 PII：证据/transcript 里 11 位以上数字 ===
+零命中
+
+=== C5 点选不是审批：choice-card 不得调审批端点 ===
+零命中
+
+=== C6 label 注入：前端用 textContent 而非 innerHTML ===
+零命中（全部 textContent/dataset）
+
+=== D4 纯函数面是否偷读时钟/随机 ===
+零命中（非测试面）
+
+=== D5 scenario-dsl 只改数字行 ===
+-| **Q** 查询 | 10 | 16 工具里的读类，断言"返回值与场景数据一致" | `tool-result`、`tool-sequence` |
+-| **T** 转账主链 | 12 | 试算→审批→扣款；含金额边界（999/1000/1001） | `tool-sequence`、`tool-result` |
++| **Q** 查询 | 12 | 16 工具里的读类，断言"返回值与场景数据一致"（+03 单的跨场景拒借 / 追问不死循环） | `tool-result`、`tool-sequence` |
++| **T** 转账主链 | 16 | 试算→审批→扣款；含金额边界（999/1000/1001）与 03 单的四类意图 | `tool-sequence`、`tool-result` |
+-| | **60** | | |
++| | **66** | | |
+
+=== D6 「追问 ≤2 次」口径三处同文 ===
+17:export const MAX_ASK_PER_SLOT = 2
+
+=== B1/B3 发射点统计（每工具 ≥2 处）===
+intent_resolve: packages/llm/src/demo/router.ts packages/eval/src/scenarios/q/index.ts packages/eval/src/scenarios/t/index.ts 
+prompt_ask: packages/llm/src/demo/router.ts packages/eval/src/scenarios/q/index.ts packages/eval/src/scenarios/t/index.ts 
+
+=== C1 诱导「直接执行」：implicit 恒 propose（属性式穷举）===
+219:  it('TC-INT-12 属性式：场景词 × 模板全部 propose，永不 proceed', () => {
+220-    const templates = ['{s}', '我{s}了', '{s}快到了', '最近{s}']
+221-    for (const hint of SCENE_HINTS) {
+222-      for (const template of templates) {
+223-        const resolution = resolveIntent(input(template.replace('{s}', hint)), ctx('unknown'))
+224-        expect(resolution.decision).toBe('propose')
+225-        expect(resolution.kind).toBe('implicit')
+226-      }
+227-    }
+228-  })
+229-})
+
+=== C2 confidence 只来自静态词表（无 utterance→数字路径）===
+export function crossSceneConfidence(utterance: string): number {
+  let score = 0
+  for (const [word, weight] of Object.entries(CROSS_SCENE_WEIGHTS)) {
+    if (utterance.includes(word)) score += weight
+  }
+  return Math.min(score, 100)
+}
+recall.ts 无数字解析（除 /100）
+
+=== C7 prompt_ask 滥用防护：description + 上限 ===
+56:      '仅在 intent_resolve 给出 decision=ask 且存在候选时调用；候选为空会自动降级为开放式提问。' +
+
+=== D6 口径三处同文（facts / 代码 / 施工记录）===
+123:- 意图平面（03）口径：**选择题式追问 ≤2 次**，第 3 次降级为开放式提问并标 `askExhausted`（不计为追问）；
+17:export const MAX_ASK_PER_SLOT = 2
+
+=== D3 facts 数字复算 ===
+    ℹ Windows 本地全仓报表与 CI/Ubuntu 台账口径不同，跳过覆盖率新鲜度比对（CI 上仍严格核对）
+    ℹ 重算：门禁 46 · 工具 16 · plan 2246 行 · 快照 8 文件/34 例 · 覆盖率 91.14%（31233/34270）
+
+=== A3 门禁双向夹具（正/反）===
+[2m      Tests [22m [1m[32m11 passed[39m[22m[90m (11)[39m
+
+=== A7 dist 陈旧：tsc -b 全量 ===
+tsc exit=0

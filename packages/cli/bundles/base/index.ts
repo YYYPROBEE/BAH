@@ -51,6 +51,11 @@ export const bundle: Bundle = {
     { id: 'bank:saga-store' },
     { id: 'bank:saga' },
     { id: 'bank:saga-audit' },
+    // 意图平面与追问（03 单）：两个内置绿级工具，零新事件键（落账走 tool/call + tool/result）。
+    // 排在 core:tools 之后（注册工具要求工具面就绪）；两行顺序固定：prompt:ask 取 intent:plane 的状态。
+    // 记忆未装配时用插件配置里的确定性夹具（生产 profile 不写），见 plugins/intent.ts 的「诚实边界」。
+    { id: 'intent:plane' },
+    { id: 'prompt:ask' },
     // 接线层（施工单 SA-07 的缺口补丁）：把"写工具"接进协调器。
     // - `maxAttempts: 1` 是安全约束，不是保守：幂等键没传给银行核心，重试 = 真的多扣一次钱
     // - `tickIntervalMs: 60000` 给收敛 job 一个发射点（无发射者时三个 job 永不执行）

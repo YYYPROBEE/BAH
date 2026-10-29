@@ -1,0 +1,145 @@
+
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mD:/项目集/微众杯银行ai智能体/BAH/MonoRepo[39m
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2m全量 66：全部通过、boot=8、报告按族→ID 排序、仓库 sessions/ 无新增
+[22m[39m{"ts":"2026-10-29T07:23:44.647Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+{"ts":"2026-10-29T07:23:44.648Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+{"ts":"2026-10-29T07:23:44.648Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+{"ts":"2026-10-29T07:23:44.648Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+{"ts":"2026-10-29T07:23:44.648Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2m全量 66：全部通过、boot=8、报告按族→ID 排序、仓库 sessions/ 无新增
+[22m[39m{"ts":"2026-10-29T07:23:44.649Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+{"ts":"2026-10-29T07:23:44.657Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+{"ts":"2026-10-29T07:23:44.671Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+{"ts":"2026-10-29T07:23:44.683Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+{"ts":"2026-10-29T07:23:44.696Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+{"ts":"2026-10-29T07:23:44.709Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2m全量 66：全部通过、boot=8、报告按族→ID 排序、仓库 sessions/ 无新增
+[22m[39m{"ts":"2026-10-29T07:23:44.722Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+(node:61508) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2m全量 66：全部通过、boot=8、报告按族→ID 排序、仓库 sessions/ 无新增
+[22m[39m{"ts":"2026-10-29T07:23:49.295Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2m全量 66：全部通过、boot=8、报告按族→ID 排序、仓库 sessions/ 无新增
+[22m[39m{"ts":"2026-10-29T07:23:49.300Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2m全量 66：全部通过、boot=8、报告按族→ID 排序、仓库 sessions/ 无新增
+[22m[39m{"ts":"2026-10-29T07:23:50.497Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2m全量 66：全部通过、boot=8、报告按族→ID 排序、仓库 sessions/ 无新增
+[22m[39m{"ts":"2026-10-29T07:23:50.501Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+(node:61508) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61508) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61508) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[33m[39m[32m·[39m[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-02 同 seed 两次全等；--shard=1 与 --shard=6 结果全等
+[22m[39m{"ts":"2026-10-29T07:23:51.278Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-02 同 seed 两次全等；--shard=1 与 --shard=6 结果全等
+[22m[39m{"ts":"2026-10-29T07:23:51.282Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+(node:61508) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-02 同 seed 两次全等；--shard=1 与 --shard=6 结果全等
+[22m[39m{"ts":"2026-10-29T07:23:52.483Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-02 同 seed 两次全等；--shard=1 与 --shard=6 结果全等
+[22m[39m{"ts":"2026-10-29T07:23:52.486Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-02 同 seed 两次全等；--shard=1 与 --shard=6 结果全等
+[22m[39m{"ts":"2026-10-29T07:23:54.057Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-02 同 seed 两次全等；--shard=1 与 --shard=6 结果全等
+[22m[39m{"ts":"2026-10-29T07:23:54.061Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+(node:61508) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-02 同 seed 两次全等；--shard=1 与 --shard=6 结果全等
+[22m[39m{"ts":"2026-10-29T07:23:55.274Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-02 同 seed 两次全等；--shard=1 与 --shard=6 结果全等
+[22m[39m{"ts":"2026-10-29T07:23:55.277Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-02 同 seed 两次全等；--shard=1 与 --shard=6 结果全等
+[22m[39m{"ts":"2026-10-29T07:23:56.871Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-02 同 seed 两次全等；--shard=1 与 --shard=6 结果全等
+[22m[39m{"ts":"2026-10-29T07:23:56.876Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-02 同 seed 两次全等；--shard=1 与 --shard=6 结果全等
+[22m[39m{"ts":"2026-10-29T07:23:57.293Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-02 同 seed 两次全等；--shard=1 与 --shard=6 结果全等
+[22m[39m{"ts":"2026-10-29T07:23:57.296Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+(node:61508) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[33m[39m[32m·[39m[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-06 --filter 按族/ID 跑子集（boot 也只起需要的组）
+[22m[39m{"ts":"2026-10-29T07:23:59.601Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-06 --filter 按族/ID 跑子集（boot 也只起需要的组）
+[22m[39m{"ts":"2026-10-29T07:23:59.605Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-06 --filter 按族/ID 跑子集（boot 也只起需要的组）
+[22m[39m{"ts":"2026-10-29T07:23:59.838Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/scenario/runner.test.ts[2m > [22m[2mW13 · 66 场景端到端[2m > [22m[2mTC-W13-06 --filter 按族/ID 跑子集（boot 也只起需要的组）
+[22m[39m{"ts":"2026-10-29T07:23:59.842Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[33m[39m[32m·[39m[90mstderr[2m | packages/eval/tests/adversarial/runner.test.ts[2m > [22m[2mW14 · 对抗集端到端[2m > [22m[2m全量 45：注入 14/14、越权 15/15、幻觉 12/15，总拦截率 ≥90%，未拦均有归因
+[22m[39m{"ts":"2026-10-29T07:24:01.360Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+{"ts":"2026-10-29T07:24:01.361Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+{"ts":"2026-10-29T07:24:01.361Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/adversarial/runner.test.ts[2m > [22m[2mW14 · 对抗集端到端[2m > [22m[2m全量 45：注入 14/14、越权 15/15、幻觉 12/15，总拦截率 ≥90%，未拦均有归因
+[22m[39m{"ts":"2026-10-29T07:24:01.369Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+{"ts":"2026-10-29T07:24:01.384Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+{"ts":"2026-10-29T07:24:01.397Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | packages/eval/tests/adversarial/runner.test.ts[2m > [22m[2mW14 · 对抗集端到端[2m > [22m[2m全量 45：注入 14/14、越权 15/15、幻觉 12/15，总拦截率 ≥90%，未拦均有归因
+[22m[39m{"ts":"2026-10-29T07:24:04.374Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/adversarial/runner.test.ts[2m > [22m[2mW14 · 对抗集端到端[2m > [22m[2m全量 45：注入 14/14、越权 15/15、幻觉 12/15，总拦截率 ≥90%，未拦均有归因
+[22m[39m{"ts":"2026-10-29T07:24:04.378Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[33m[39m[32m·[39m[90mstderr[2m | packages/eval/tests/adversarial/runner.test.ts[2m > [22m[2mW14 · 对抗集端到端[2m > [22m[2mTC-W14-09 --smoke（每族 3 例）≤30s
+[22m[39m{"ts":"2026-10-29T07:24:05.447Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/adversarial/runner.test.ts[2m > [22m[2mW14 · 对抗集端到端[2m > [22m[2mTC-W14-09 --smoke（每族 3 例）≤30s
+[22m[39m{"ts":"2026-10-29T07:24:05.451Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | packages/eval/tests/adversarial/runner.test.ts[2m > [22m[2mW14 · 对抗集端到端[2m > [22m[2mTC-W14-09 --smoke（每族 3 例）≤30s
+[22m[39m{"ts":"2026-10-29T07:24:05.975Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/adversarial/runner.test.ts[2m > [22m[2mW14 · 对抗集端到端[2m > [22m[2mTC-W14-09 --smoke（每族 3 例）≤30s
+[22m[39m{"ts":"2026-10-29T07:24:05.979Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[90mstderr[2m | packages/eval/tests/adversarial/runner.test.ts[2m > [22m[2mW14 · 对抗集端到端[2m > [22m[2mTC-W14-09 --smoke（每族 3 例）≤30s
+[22m[39m{"ts":"2026-10-29T07:24:06.226Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/adversarial/runner.test.ts[2m > [22m[2mW14 · 对抗集端到端[2m > [22m[2mTC-W14-09 --smoke（每族 3 例）≤30s
+[22m[39m{"ts":"2026-10-29T07:24:06.230Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+
+[33m[39m[32m·[39m[90mstderr[2m | packages/eval/tests/replay/replay.test.ts[2m > [22m[2mW15 · 独立重放[2m > [22m[2mTC-W15-01 正常会话：事件/判决/票据重建，diff=0
+[22m[39m{"ts":"2026-10-29T07:24:07.185Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/replay/replay.test.ts[2m > [22m[2mW15 · 独立重放[2m > [22m[2mTC-W15-02/03 篡改/删除链上一条 → chain-broken 指出序号
+[22m[39m{"ts":"2026-10-29T07:24:07.212Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[90mstderr[2m | packages/eval/tests/replay/replay.test.ts[2m > [22m[2mW15 · 独立重放[2m > [22m[2mTC-W15-04 EvidencePack 三件套 + manifest；sha256 可离线复核
+[22m[39m{"ts":"2026-10-29T07:24:07.226Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m
+
+[2m Test Files [22m [1m[32m22 passed[39m[22m[90m (22)[39m
+[2m      Tests [22m [1m[32m158 passed[39m[22m[90m (158)[39m
+[2m   Start at [22m 15:23:42
+[2m   Duration [22m 30.92s[2m (transform 1.45s, setup 0ms, collect 4.66s, tests 21.86s, environment 2ms, prepare 2.02s)[22m
+

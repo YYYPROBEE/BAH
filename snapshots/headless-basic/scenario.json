@@ -2,7 +2,8 @@
   "name": "headless-basic",
   "profile": "headless",
   "prompts": [
-    "帮我查一下余额"
+    "帮我查一下余额",
+    "上次那个转账再来一次"
   ],
   "sessionId": "s-snapshot-headless-basic",
   "clock": {
@@ -64,6 +65,13 @@
       "use": "core:persistence",
       "config": {
         "root": "sessions"
+      }
+    },
+    {
+      "id": "obs:telemetry",
+      "use": "obs:telemetry",
+      "config": {
+        "maxSpans": 2000
       }
     },
     {
@@ -135,6 +143,16 @@
       "config": {}
     },
     {
+      "id": "intent:plane",
+      "use": "intent:plane",
+      "config": {}
+    },
+    {
+      "id": "prompt:ask",
+      "use": "prompt:ask",
+      "config": {}
+    },
+    {
       "id": "bank:saga-bridge",
       "use": "bank:saga-bridge",
       "config": {
@@ -178,6 +196,8 @@
     "packages/runtime/src/tools/",
     "packages/runtime/src/policy/",
     "packages/runtime/src/seams.ts",
+    "packages/runtime/src/intent/",
+    "packages/interaction/src/prompt/",
     "packages/llm/src/llm/",
     "packages/llm/src/mock/",
     "packages/llm/src/demo/",
@@ -190,7 +210,6 @@
     "packages/safety/src/sentry/",
     "packages/safety/src/verify/",
     "packages/interaction/src/approval/",
-    "packages/saga/src/gates/",
     "packages/saga/src/recovery/",
     "packages/saga/src/index.ts",
     "packages/saga/src/tick/"
