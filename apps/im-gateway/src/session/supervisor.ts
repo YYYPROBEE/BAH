@@ -15,6 +15,7 @@
 
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { deriveImSessionId } from '@bah/channels'
@@ -168,6 +169,9 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       overlay,
       '--jsonl',
       jsonl,
+      // CLI 只有带 `--serve` 才常驻；缺它会在 boot 期要求 `--prompt`（真机部署才发现，
+      // 施工单 §2.11 的 spawn 形状漏写了这一项）
+      '--serve',
     ]
   }
 
@@ -194,6 +198,27 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
     }
   }
 
+  /**
+   * 准备子进程的 `--jsonl` 根，并归档上一次的会话目录。
+   *
+   * WHY：宿主 `core:persistence` 对同一 `sessionId` 是**一次 create 排他**
+   * （`jsonl: 会话已存在，拒绝覆写`）。同一 sessionKey 重启时若不归档，
+   * 子进程的每个 `session/event` 都会失败（真机部署实测：11 条 error 后仍能对话，
+   * 但会话不落盘）。归档保留旧文件（审计可查），新进程从空会话开始——
+   * 跨进程上下文延续需要宿主持久化插件支持 append/open，已登记为边界。
+   */
+  const prepareJsonlRoot = (sessionKey: string): string => {
+    const base = join(config.jsonlBase, sessionKey)
+    mkdirSync(base, { recursive: true })
+    for (const entry of readdirSync(base, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const sessionDir = join(base, entry.name, sessionKey)
+      if (!existsSync(join(sessionDir, 'session.jsonl'))) continue
+      renameSync(sessionDir, `${sessionDir}-prev-${String(nowMs())}`)
+    }
+    return base
+  }
+
   const launch = async (
     platform: string,
     userId: string,
@@ -203,7 +228,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
   ): Promise<ChildHandle> => {
     const port = await reserve()
     const overlay = await writeOverlay(config.root, sessionKey, renderOverlay({ port }))
-    const jsonl = join(config.jsonlBase, sessionKey)
+    const jsonl = prepareJsonlRoot(sessionKey)
     const token = randomToken()
     const started = launcher({
       port,

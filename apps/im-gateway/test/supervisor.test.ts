@@ -6,7 +6,7 @@
  * 换成了同进程 HTTP server。
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdirSync, mkdtemp, readFile, readdirSync, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -140,6 +140,8 @@ describe('spawn 形状与 overlay（§2.11）', () => {
     expect(launch.args).toContain(handle.sessionKey)
     expect(launch.args).toContain('--patch')
     expect(launch.args).toContain('--jsonl')
+    // CLI 只有 `--serve` 才常驻；缺它子进程会在 boot 期要求 `--prompt` 并退出
+    expect(launch.args).toContain('--serve')
     expect(launch.env).toEqual({ BAH_WEB_TOKEN: 'web-token-fixed' })
     expect(launch.port).toBe(handle.port)
     await supervisor.dispose()
@@ -244,6 +246,25 @@ describe('闲置回收与上限（T-IM-014 / T-IM-018）', () => {
     ])
     expect(results.filter((item) => item.status === 'fulfilled').length).toBe(1)
     expect(supervisor.children()).toBeLessThanOrEqual(1)
+    await supervisor.dispose()
+  })
+
+  it('同一 sessionKey 重启：旧会话目录被归档（宿主 create 排他）', async () => {
+    const { supervisor } = supervisorWith(baseConfig())
+    const handle = await supervisor.ensure('mock', 'u-1')
+    await supervisor.dispose()
+
+    // 手工造出"上一轮写过的会话文件"（宿主的 session.jsonl）
+    const sessionDir = join(root, 'sessions/im', handle.sessionKey, 'demo', handle.sessionKey)
+    await mkdirSync(sessionDir, { recursive: true })
+    await writeFile(join(sessionDir, 'session.jsonl'), '{}\n', 'utf8')
+
+    const again = await supervisor.ensure('mock', 'u-1')
+    expect(again.sessionKey).toBe(handle.sessionKey)
+    const entries = await readdirSync(join(root, 'sessions/im', handle.sessionKey))
+    // 新目录在、旧目录被改名归档（保留审计证据）
+    expect(entries).toContain(handle.sessionKey)
+    expect(entries.some((name) => name.includes('-prev-'))).toBe(true)
     await supervisor.dispose()
   })
 
