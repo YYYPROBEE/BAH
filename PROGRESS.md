@@ -6212,3 +6212,69 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 
 02 出口九条中八条有实跑证据；第 7 条（真机 D0）因 Q1 凭据缺失**如实登记为未执行**，
 不以 Mock 结果冒充真机。03 开工前置：拿到凭据后补 D0，并把 `BAH_IM_PUSH_MODE` 的默认值按实测结论定稿。
+
+---
+
+## 96.43 IM 网关 02 · 对抗式复审记录（2026-10-30）
+
+> 对应提交：实现 `648ef73`、审查修复 `9ceb2b9`、本记录单独提交。
+> 方法：临时探针（跑完删除）+ 门禁负控（跑完还原）+ 对**修复项**补回归测试。
+
+### 96.43.1 对抗探针（9 条，全绿）
+
+| # | 攻击 | 结果 |
+|---|---|---|
+| A1 | 重放 601 秒前的签名 | `im-sig-stale`（401），不解析 XML |
+| A2 | 改 nonce 但保留原签名 | `im-sig-mismatch` |
+| A3 | 同名 `signature` 参数（正确在前、伪造在后） | 401（`URLSearchParams` 取最后一个，伪造覆盖正确） |
+| A4 | 20 KiB 报文 | 413；响应体不含原文 marker |
+| A5 | `<!DOCTYPE>` + 实体膨胀 | 400；`handleMessage` 未调用 |
+| A6 | `/im/feishu/default`（未注册平台） | 404；不 spawn、不跑 turn |
+| A7 | GET 无 `echostr` | 400（不是 200 空体） |
+| A8 | 日志字段带 `userId/openid` | 整条丢弃（只剩 `reason`） |
+| A9 | 把 mock 适配器挂到同一 HTTP 路由 | 正常分派（路由不认微信；契约可替换） |
+
+> 探针自身先修过两处错误（`nowMs` 未注入导致误报 stale；mock 重复注册导致 404）。
+> 结论：**对抗结论必须建立在正确的探针上**，探针红先查探针。
+
+### 96.43.2 门禁负控（6 条，全红并还原）
+
+| # | 注入 | 首轮结果 | 处置 |
+|---|---|---|---|
+| G1 | `config.ts` 写 `wx0123456789abcdef` | 红 | 还原 |
+| G5 | overlay `host: 0.0.0.0` | 红 | 还原 |
+| G7 | `log.warn` 参数加 `userId`（跨行写） | **未红** → 修门禁后红 | 还原；门禁改括号配对扫描 |
+| G10 | `server.ts` import `protocol/xml.ts` | 红 | 还原 |
+| G11 | `main.ts` import `createMockAdapter` | 红（两处） | 还原 |
+| G13 | apps 里复制 `interface PlatformAdapter` | 红 | 删除 |
+
+**G7 首轮未红是本次复审最重要的发现**：按行扫描会把跨行日志参数漏掉，
+等于"日志泄露 userId"这条判据在最常见的写法下失效。已改为 `logCalls()`（括号配对跨行）。
+
+### 96.43.3 修复项（5 个代码缺陷 + 1 个门禁缺陷）
+
+| ID | 级别 | 缺陷 | 证据（修复前红） | 修复 |
+|---|---|---|---|---|
+| R-01 | 高 | `passiveReply=false` 平台仍调 `reply.passive`（能力位与行为不一致） | 回归例 `passive-unavailable` 抛出 | `deliverTurn` 的 ack 按能力位给空体 |
+| R-02 | 高 | `server.ts` 的 `void outcome.done` 未 catch → unhandledRejection 可致进程退出 | 回归例 `unhandled=1` | server 层 `catch` + `im-turn-failed` |
+| R-03 | 中 | `prefixChunks` 固定预留 10 字节；1000 片时前缀 12 字节 → 2049 > 2048 | 回归例 2049 > 2048 | 按实际片数迭代预算 |
+| R-04 | 中 | `maxChildren` 未计 `starting` → 并发 ensure 突破上限（TOCTOU） | 回归例 2 个 fulfilled | `registry.size() + starting.size` |
+| R-05 | 中 | 入站 CDATA 未还原 `]]>` 拆分（与 `cdata()` 不对称，用户发 `]]>` 会看到乱码） | 回归例解析出转义串 | `decodeValue` 反向 split/join |
+| R-06 | 高 | G7 门禁按行扫描漏跨行日志调用 | 负控未红（见 §96.43.2） | `logCalls()` 括号配对 |
+
+修复后：`pnpm test` **309 文件 / 3547 例**、`pnpm typecheck` 0 error、`pnpm gate` **51/51**、
+`channels/im/**` 覆盖率行/语句/函数 100%。
+
+### 96.43.4 登记但不修
+
+| ID | 级别 | 事项 | 判断 |
+|---|---|---|---|
+| R-07 | 信息 | 01 的 F-01（无 `sessionId` 适配器接受任意票据）仍无门禁 | 生产路径 `channel.ts:92-95` **必传** `sessionId: String(session.sessionId)`；02 的子进程也经 `createHttpChannel` 装配 ⇒ 实际风险闭合，但缺机器判据 |
+| R-08 | 信息 | 子进程 env 清洗（`SCRUBBED_ENV`）无直接单测 | 注入 launcher 只能验证显式 env（只有 `BAH_WEB_TOKEN`）；默认 launcher 的 `scrubbedEnv()` 靠代码审阅。补测需导出该函数，属可做未做 |
+| R-09 | 信息 | 去重窗口进程内、重启即丢 | §2.10 已登记；微信只重试 3 次，不承诺跨重启幂等 |
+
+### 96.43.5 结论
+
+- 02 判定：**复审通过**。5 个代码缺陷均先有红灯回归、再有修复；1 个门禁缺陷（G7 跨行盲区）已修。
+- 遗留只在"真机 D0"与"无凭据的客服消息权限"上，且已如实登记，不以 Mock 冒充。
+- 03 开工前置：① Q1 凭据到位后补 D0 并定稿 `BAH_IM_PUSH_MODE`；② 03 落地时把 G6/G9 从"未落地断言"转强制。
