@@ -58,5 +58,7 @@ export function testRunContext(partial: Partial<RunContext> = {}): RunContext {
     ...(partial.mintTicketId === undefined ? {} : { mintTicketId: partial.mintTicketId }),
     ...(partial.warn === undefined ? {} : { warn: partial.warn }),
     ...(partial.probe === undefined ? {} : { probe: partial.probe }),
+    ...(partial.restoreSession === undefined ? {} : { restoreSession: partial.restoreSession }),
+    ...(partial.restoreEvents === undefined ? {} : { restoreEvents: partial.restoreEvents }),
   }
 }

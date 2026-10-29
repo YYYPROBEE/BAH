@@ -10,9 +10,16 @@
  *    只由注入时钟决定，不依赖真实时间或 sleep（插件线 09 硬约束 7）。
  */
 
-import type { SessionId } from '@bah/core'
+import type { SessionId, TicketAuthorization } from '@bah/core'
 
 import type { InteractionRecordSink } from './events.ts'
+
+/**
+ * 授权来源（ADR-0006）：`human` = 用户点击；`window` = 授权窗口代签。
+ *
+ * 与 `@bah/core` 的 `TicketAuthorization` 同形（不是第二份真相源：别名而非复制）。
+ */
+export type AuthorizationRef = TicketAuthorization
 
 /** 审批结论（与运行时的 `ApprovalDecision` 同值集；本包不 import 运行时）。 */
 export type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
@@ -83,6 +90,13 @@ export interface ApprovalInputLike {
   readonly summary: ApprovalSummary
   /** 红级操作要求的强验证渠道；缺省 = 不需要挑战。 */
   readonly challenge?: ChallengeChannel
+  /**
+   * 授权来源（ADR-0006）。
+   *
+   * 缺省 = 人工点击。窗口代签只由受控执行器（`plan_wake`）经管线注入；
+   * 渠道面（Web / IM）永远不写这个字段——页面端不可自证"我是窗口"。
+   */
+  readonly authorization?: AuthorizationRef
   /** 当前结论（默认 `unavailable` = 无人应答即拒绝）。 */
   readonly decision: ApprovalAnswer
 }

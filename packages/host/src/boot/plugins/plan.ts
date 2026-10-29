@@ -29,7 +29,7 @@
  * 包裹层只拿到 `call`），所以 turn 被取消后，已进入的 plan 节点仍会跑完。
  */
 
-import { BANK_TOOL_NAME_SET, yuanToCents } from '@bah/bank'
+import { BANK_IDENTITY, BANK_TOOL_NAME_SET, yuanToCents } from '@bah/bank'
 import { defineService } from '@bah/core'
 import { HALT_SERVICE } from '@bah/safety'
 import {
@@ -45,8 +45,22 @@ import {
   ToolPipeline,
   kahnSort,
   planDigest,
+  checkWindow,
+  duePlans,
+  executedInstanceKeys,
+  idempotencyKey,
+  occurrenceOf,
+  replayArmedPlans,
+  DEFAULT_NOTIFY_BUDGET,
+  deriveNotify,
+  PLAN_ARM_TOOL,
+  PLAN_DISARM_TOOL,
+  PLAN_WAKE_TOOL,
+  type ArmedPlan,
+  type NotifyHistoryItem,
   type Plan,
   type PlanAbortReason,
+  type PlanApiRunOptions,
   type PlanApi,
   type PlanEventType,
   type PlanInvoker,
@@ -55,15 +69,21 @@ import {
   type PlanRunSnapshot,
   type PlanRunSummary,
   type PreExecuteInput,
+  type Recurrence,
   type ToolDefinition,
   type ToolRegistry,
+  type WindowCondition,
+  type WorldSnapshot,
 } from '@bah/runtime'
-import { BahError, canonicalJson, sha256Hex } from '@bah/util'
+import { BahError, canonicalJson, errorCodeOf, sha256Hex } from '@bah/util'
 
 import type { HaltHandle } from '@bah/safety'
+import type { TicketAuthorization } from '@bah/core'
 
 import type { HostPlugin, ValidatedRow } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
+import { BANK_BALANCE_PROBE } from './bank-tools.ts'
+import { FACT_SERVICE, type FactStore } from './fact.ts'
 import {
   bootError,
   readBoolean,
@@ -318,6 +338,74 @@ export interface PlanExecutedResult {
  */
 export const PLAN_SERVICE = defineService<PlanApi>('bah:plan')
 
+/** 一次唤醒里单个计划的结局。 */
+export interface PlanWakeEntry {
+  readonly planId: string
+  readonly windowId: string
+  readonly occurrence: string
+  readonly key: string
+  readonly status: 'executed' | 'skipped' | 'downgraded' | 'failed'
+  /** `skipped` 的理由（`already-ran` / `dry-run`）或 `failed` 的理由码。 */
+  readonly reason?: string
+  /** 窗口判决摘要（成立的与失守的都带；回放据此重算）。 */
+  readonly digest?: string
+  /** 失守码（`window-expired` / `condition-failed` / `plan-cancelled` / `window-clock-ahead`）。 */
+  readonly code?: string
+  /** 失守条件明细（`expected` / `actual`）。 */
+  readonly failed?: readonly { readonly kind: string; readonly expected: string; readonly actual: string }[]
+  /** 执行摘要（`executed` 时存在）。 */
+  readonly summary?: {
+    readonly status: string
+    readonly succeeded: number
+    readonly failed: number
+    readonly blocked: number
+    readonly durationMs: number
+  }
+}
+
+/** 唤醒报告（工具出参 / CLI 输出 / 调度日志共用一份形状）。 */
+export interface PlanWakeReport {
+  readonly at: number
+  readonly now: number
+  readonly source: PlanWakeSource
+  readonly ok: boolean
+  readonly code?: string
+  readonly entries: readonly PlanWakeEntry[]
+  /**
+   * 应用内播报建议（**不投递**：本版本没有 IM 通道）。
+   * 计数来自进程内历史，非 durable——诚实边界写在这里。
+   */
+  readonly notified: readonly {
+    readonly key: string
+    readonly send: boolean
+    readonly channel: string
+    readonly reason: string
+  }[]
+}
+
+/** 唤醒的触发来源（进报告，不进事件）。 */
+export type PlanWakeSource = 'tool' | 'boot' | 'tick' | 'cli'
+
+/** 唤醒执行器（调度器 / CLI / `plan_wake` 工具共用的唯一入口）。 */
+export interface PlanWakeRunner {
+  wake(input?: {
+    readonly at?: number
+    readonly planId?: string
+    readonly dryRun?: boolean
+    readonly source?: PlanWakeSource
+  }): Promise<PlanWakeReport>
+}
+
+/** 服务键：`bah:plan-wake`（调度器与 CLI 都从它取）。 */
+export const PLAN_WAKE_SERVICE = defineService<PlanWakeRunner>('bah:plan-wake')
+
+/** 服务键：`bah:plan-armed`（只读视图；计划卡与 CLI `list` 用）。 */
+export interface ArmedPlansView {
+  readonly list: () => readonly ArmedPlan[]
+}
+
+export const PLAN_ARMED_SERVICE = defineService<ArmedPlansView>('bah:plan-armed')
+
 /** 内容摘要（审计只认摘要，不认原文——金额与收款人不得进日志）。 */
 function digestOf(payload: unknown): string {
   try {
@@ -328,6 +416,153 @@ function digestOf(payload: unknown): string {
     /* v8 ignore next 3 */
     return sha256Hex(String(payload))
   }
+}
+
+/**
+ * 计划里的转账总额（分）——"不擅自加价"的硬校验。
+ *
+ * 只累加**静态**金额（`transfer_create` 节点上的数字 `amount`）。动态 args
+ * （`${node.<id>.<path>}`）在 v1 里算不出，会漏算——这条限制登记在已知风险里，
+ * 不假装它能覆盖：宁可少算后如实说，也不要为了"看起来完整"编一个数。
+ */
+function staticSpendCents(plan: Plan): number {
+  let total = 0
+  for (const node of plan.nodes) {
+    if (node.tool !== 'transfer_create') continue
+    const amount = node.args['amount']
+    if (typeof amount === 'number' && Number.isFinite(amount) && amount > 0) {
+      total += yuanToCents(amount)
+    }
+  }
+  return total
+}
+
+/** 解析 ISO 时刻（`plan_arm` 的 `dueAt` / `expiresAt`）。 */
+function parseIsoTime(value: unknown, field: string): number {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new BahError('plan-arm-invalid', `授权窗口的 ${field} 必须是 ISO 时间字符串`, { field })
+  }
+  const parsed = Date.parse(value)
+  if (!Number.isFinite(parsed)) {
+    throw new BahError('plan-arm-invalid', `授权窗口的 ${field} 不是合法时间：${value}`, { field })
+  }
+  return parsed
+}
+
+/** 授权档（封闭联合；模型传别的值即拒）。 */
+function parseTier(value: unknown): 'strict' | 'standard' | 'wide' {
+  if (value === undefined) return 'standard'
+  if (value === 'strict' || value === 'standard' || value === 'wide') return value
+  throw new BahError('plan-arm-invalid', `授权档必须是 strict / standard / wide：${String(value)}`, {})
+}
+
+/** 预算（模型传元，落账一律分）。 */
+function parseBudgetYuan(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    throw new BahError('plan-arm-invalid', '授权窗口预算必须是正数（元）', {})
+  }
+  return yuanToCents(value)
+}
+
+/** 周期规则：`once` 用 `dueAt`，其余要求 `at: 'HH:mm'`。 */
+function parseRecurrence(raw: unknown, dueAt: number): Recurrence {
+  if (raw === undefined) return { every: 'once', dueAt }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new BahError('plan-arm-invalid', 'recurrence 必须是对象', {})
+  }
+  const record = raw as Readonly<Record<string, unknown>>
+  const every = record['every']
+  if (every === 'once') return { every: 'once', dueAt }
+  const at = record['at']
+  if (typeof at !== 'string') {
+    throw new BahError('plan-arm-invalid', '周期计划必须给 at（HH:mm）', {})
+  }
+  switch (every) {
+    case 'daily':
+      return { every: 'daily', at }
+    case 'monthly': {
+      const day = record['day']
+      if (typeof day !== 'number' || day < 1 || day > 31) {
+        throw new BahError('plan-arm-invalid', 'monthly 计划必须给 day（1–31）', {})
+      }
+      return { every: 'monthly', day, at }
+    }
+    case 'yearly': {
+      const month = record['month']
+      const day = record['day']
+      if (typeof month !== 'number' || month < 1 || month > 12) {
+        throw new BahError('plan-arm-invalid', 'yearly 计划必须给 month（1–12）', {})
+      }
+      if (typeof day !== 'number' || day < 1 || day > 31) {
+        throw new BahError('plan-arm-invalid', 'yearly 计划必须给 day（1–31）', {})
+      }
+      return { every: 'yearly', month, day, at }
+    }
+    default:
+      throw new BahError('plan-arm-invalid', `未知的周期规则：${String(every)}`, {})
+  }
+}
+
+/** 条件列表（逐条收窄；未知种类即拒）。 */
+function parseConditions(raw: unknown): readonly WindowCondition[] {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) {
+    throw new BahError('plan-arm-invalid', 'conditions 必须是数组', {})
+  }
+  const conditions: WindowCondition[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      throw new BahError('plan-arm-invalid', 'conditions 的每一项必须是对象', {})
+    }
+    const record = entry as Readonly<Record<string, unknown>>
+    switch (record['kind']) {
+      case 'balance-at-least': {
+        const cents = record['cents']
+        if (typeof cents !== 'number' || !Number.isInteger(cents) || cents < 0) {
+          throw new BahError('plan-arm-invalid', 'balance-at-least 需要整数 cents', {})
+        }
+        conditions.push({ kind: 'balance-at-least', cents })
+        break
+      }
+      case 'fact-unchanged': {
+        const factId = record['factId']
+        const version = record['version']
+        if (typeof factId !== 'string' || typeof version !== 'number') {
+          throw new BahError('plan-arm-invalid', 'fact-unchanged 需要 factId 与 version', {})
+        }
+        conditions.push({ kind: 'fact-unchanged', factId, version })
+        break
+      }
+      case 'plan-not-cancelled': {
+        const planId = record['planId']
+        if (typeof planId !== 'string') {
+          throw new BahError('plan-arm-invalid', 'plan-not-cancelled 需要 planId', {})
+        }
+        conditions.push({ kind: 'plan-not-cancelled', planId })
+        break
+      }
+      case 'amount-within': {
+        const cents = record['cents']
+        if (typeof cents !== 'number' || !Number.isInteger(cents) || cents < 0) {
+          throw new BahError('plan-arm-invalid', 'amount-within 需要整数 cents', {})
+        }
+        conditions.push({ kind: 'amount-within', cents })
+        break
+      }
+      case 'address-unchanged': {
+        const addressId = record['addressId']
+        const version = record['version']
+        if (typeof addressId !== 'string' || typeof version !== 'number') {
+          throw new BahError('plan-arm-invalid', 'address-unchanged 需要 addressId 与 version', {})
+        }
+        conditions.push({ kind: 'address-unchanged', addressId, version })
+        break
+      }
+      default:
+        throw new BahError('plan-arm-invalid', `未知的条件种类：${String(record['kind'])}`, {})
+    }
+  }
+  return conditions
 }
 
 export const planPlugin: HostPlugin<PlanSettings> = {
@@ -388,6 +623,10 @@ export const planPlugin: HostPlugin<PlanSettings> = {
           sessionId: session.sessionId,
           now: run.now,
           signal: ictx.signal,
+          // 授权窗口代签：整次 run 的每个节点审批都会带上它（ADR-0006）
+          ...(runAuthorization.get(ictx.planId) === undefined
+            ? {}
+            : { authorization: runAuthorization.get(ictx.planId) }),
           // 验收面（快照回放）注入确定性票号；生产不传，仍走随机 UUID
           ...(run.mintTicketId === undefined ? {} : { mintTicketId: run.mintTicketId }),
         })
@@ -430,6 +669,25 @@ export const planPlugin: HostPlugin<PlanSettings> = {
 
       // 下线时在跑的 plan 全部 abort（reason: 'disposed'）
       ctx.effect(() => engine.dispose())
+
+      /** 模型入口的节点上限（`plan_arm` 与 `plan_execute` 共用同一条上限）。 */
+      const modelPlanLimit = Math.min(settings.maxNodes, settings.modelMaxNodes)
+
+      /** 把工具入参解析成合法 `Plan`（结构解析 + 引擎校验），失败即抛。 */
+      const planFromArgs = (raw: unknown, callId: string): Plan => {
+        const parsed = parseModelPlan(raw, `plan-${callId}`, modelPlanLimit)
+        const issues =
+          parsed.plan === undefined ? parsed.issues : [...parsed.issues, ...engine.validate(parsed.plan)]
+        if (parsed.plan === undefined || issues.length > 0) {
+          const first = issues[0]
+          throw new BahError(
+            'plan-invalid',
+            `计划校验失败（${String(issues.length)} 项）：${first?.message ?? '未知问题'}`,
+            { issues },
+          )
+        }
+        return parsed.plan
+      }
 
       /**
        * HALT 面（W07 §2.2）：惰性取，plan 可以在没有 `safety:sentry` 的装配里存在。
@@ -519,11 +777,16 @@ export const planPlugin: HostPlugin<PlanSettings> = {
       }
 
       const api: PlanApi = {
-        run(plan: Plan, options?: { readonly dryRun?: boolean }): Promise<PlanRunSummary> {
+        run(plan: Plan, options?: PlanApiRunOptions): Promise<PlanRunSummary> {
           const dryRun = options?.dryRun ?? settings.dryRunDefault
 
           const halted = haltedSummary(plan, dryRun)
           if (halted !== undefined) return Promise.resolve(halted)
+
+          // 授权来源只在本 run 的生命周期内生效；结束必须还原（同 plan 可被重新武装）
+          const previousAuth = runAuthorization.get(plan.planId)
+          if (options?.authorization === undefined) runAuthorization.delete(plan.planId)
+          else runAuthorization.set(plan.planId, options.authorization)
 
           return withRunSlot(plan.planId, (signal) =>
             engine.run(plan, {
@@ -532,7 +795,10 @@ export const planPlugin: HostPlugin<PlanSettings> = {
               // 发起方一律取会话：`PlanApi.run` 不接受这个参数（方案 §5「额外一条」）
               initiator: ctx.get(SESSION_SERVICE).sessionId,
             }),
-          )
+          ).finally(() => {
+            if (previousAuth === undefined) runAuthorization.delete(plan.planId)
+            else runAuthorization.set(plan.planId, previousAuth)
+          })
         },
 
         resume(plan: Plan, options?: PlanResumeOptions): Promise<PlanRunSummary> {
@@ -590,6 +856,176 @@ export const planPlugin: HostPlugin<PlanSettings> = {
       )
       ctx.effect(registry().register(createTodoWriteTool({ now: clock })))
 
+      /* ──────────────────────────────────────────────────────────────────────
+       * G1/G2：授权窗口 + 到期唤醒（R2/R3）。
+       *
+       * 三条纪律：
+       * 1. 零新事件键：武装 / 撤销 / 唤醒都只落 `tool/call` + `tool/result`；
+       * 2. `plan_wake` **不进模型可见面**（`exposure:'internal'`）：模型若能调它，
+       *    就能对任意未到期计划发起唤醒；
+       * 3. 执行期无 LLM：唤醒的调用链只有纯函数 + `PlanApi.run`。
+       * ────────────────────────────────────────────────────────────────────── */
+      const armedStore = replayArmedPlans(session.events())
+
+      /** 本次 run 的授权来源（按 planId 暂存；引擎的 invoker 只能从这里取到）。 */
+      const runAuthorization = new Map<string, TicketAuthorization>()
+
+      const factStoreOf = (): FactStore | undefined => {
+        try {
+          return ctx.get(FACT_SERVICE)
+        } catch {
+          return undefined
+        }
+      }
+
+      /** 复验世界：余额 / 事实版本 / 取消集合。取不到的项按"缺失"处理（fail-closed）。 */
+      const snapshotFor = async (item: ArmedPlan): Promise<WorldSnapshot> => {
+        const needsBalance = item.conditions.some(
+          (condition) => condition.kind === 'balance-at-least' || condition.kind === 'amount-within',
+        )
+        let balanceCents = 0
+        if (needsBalance) {
+          const userId = ctx.get(BANK_IDENTITY).resolve(session.sessionId)
+          if (userId !== undefined) {
+            balanceCents = await ctx.get(BANK_BALANCE_PROBE).availableCents(userId)
+          }
+        }
+        return {
+          now: clock(),
+          balanceCents,
+          factVersions: factStoreOf()?.versions() ?? {},
+          cancelledPlans: armedStore
+            .list()
+            .filter((plan) => plan.state === 'cancelled')
+            .map((plan) => plan.planId),
+          // v1 没有地址账本：带 `address-unchanged` 条件的计划会以"缺失"失守（fail-closed）
+          addressVersions: {},
+        }
+      }
+
+      /** 播报历史（进程内；非 durable——诚实边界写在 `PlanWakeReport.notified` 的注释里）。 */
+      const notifyHistory: NotifyHistoryItem[] = []
+
+      const wake: PlanWakeRunner = {
+        wake: async (input = {}) => {
+          const at = input.at ?? clock()
+          const now = clock()
+          const source = input.source ?? 'tool'
+          const scan = duePlans(armedStore.list(), at, now)
+          if (!scan.ok) {
+            return { at, now, source, ok: false, code: scan.code, entries: [], notified: [] }
+          }
+          const candidates =
+            input.planId === undefined
+              ? scan.due
+              : scan.due.filter((item) => item.planId === input.planId)
+          const executed = executedInstanceKeys(session.events(), candidates)
+          const entries: PlanWakeEntry[] = []
+          const notified: PlanWakeReport['notified'][number][] = []
+
+          for (const item of candidates) {
+            const occurrence = occurrenceOf(item.recurrence, item.dueAt)
+            const key = idempotencyKey(item.planId, occurrence)
+            const base = {
+              planId: item.planId,
+              windowId: item.windowId,
+              occurrence,
+              key,
+            }
+            if (executed.has(key)) {
+              entries.push({ ...base, status: 'skipped', reason: 'already-ran' })
+              continue
+            }
+
+            const verdict = checkWindow(item, await snapshotFor(item), at)
+            if (!verdict.ok) {
+              // 窗口失守：不执行、降级为人工确认（`downgrade:'ask'`）
+              entries.push({
+                ...base,
+                status: 'downgraded',
+                code: verdict.code,
+                digest: verdict.digest,
+                failed: verdict.failed,
+              })
+              const decision = deriveNotify(
+                notifyHistory,
+                { priority: 'alert', at: now, key },
+                DEFAULT_NOTIFY_BUDGET,
+              )
+              notified.push({ key, send: decision.send, channel: decision.channel, reason: decision.reason })
+              if (decision.send) notifyHistory.push({ priority: 'alert', at: now, key })
+              continue
+            }
+
+            // 预算硬校验：窗口通过了条件，也仍然要守住"不擅自加价"
+            const spend = staticSpendCents(item.plan)
+            if (spend > item.budgetCents) {
+              entries.push({
+                ...base,
+                status: 'downgraded',
+                code: 'condition-failed',
+                digest: verdict.digest,
+                failed: [
+                  {
+                    kind: 'amount-within',
+                    expected: `<= ${String(item.budgetCents)}`,
+                    actual: String(spend),
+                  },
+                ],
+              })
+              continue
+            }
+
+            if (input.dryRun === true) {
+              entries.push({ ...base, status: 'skipped', reason: 'dry-run', digest: verdict.digest })
+              continue
+            }
+
+            try {
+              const summary = await api.run(item.plan, {
+                authorization: { kind: 'window', ref: item.windowId, digest: verdict.digest },
+              })
+              entries.push({
+                ...base,
+                status: 'executed',
+                digest: verdict.digest,
+                summary: {
+                  status: summary.status,
+                  succeeded: summary.succeeded,
+                  failed: summary.failed,
+                  blocked: summary.blocked,
+                  durationMs: summary.durationMs,
+                },
+              })
+              const decision = deriveNotify(
+                notifyHistory,
+                { priority: summary.failed > 0 || summary.blocked > 0 ? 'alert' : 'exec', at: now, key },
+                DEFAULT_NOTIFY_BUDGET,
+              )
+              notified.push({ key, send: decision.send, channel: decision.channel, reason: decision.reason })
+              if (decision.send) {
+                notifyHistory.push({
+                  priority: summary.failed > 0 || summary.blocked > 0 ? 'alert' : 'exec',
+                  at: now,
+                  key,
+                })
+              }
+            } catch (error) {
+              entries.push({
+                ...base,
+                status: 'failed',
+                reason: errorCodeOf(error, 'wake-failed'),
+                digest: verdict.digest,
+              })
+            }
+          }
+          return { at, now, source, ok: true, entries, notified }
+        },
+      }
+
+      ctx.effect(ctx.provide(PLAN_WAKE_SERVICE, wake))
+      ctx.effect(ctx.provide(PLAN_ARMED_SERVICE, { list: () => armedStore.list() }))
+
       /**
        * B1：模型可见的规划入口。
        *
@@ -598,24 +1034,7 @@ export const planPlugin: HostPlugin<PlanSettings> = {
        * 也就是说：模型能提出 DAG，但不能绕过任何一层审批 / Sentry / 审计 / 沙箱。
        */
       if (settings.modelTools) {
-        const modelPlanLimit = Math.min(settings.maxNodes, settings.modelMaxNodes)
-
-        const planOrThrow = (raw: unknown, callId: string): Plan => {
-          const parsed = parseModelPlan(raw, `plan-${callId}`, modelPlanLimit)
-          const issues =
-            parsed.plan === undefined
-              ? parsed.issues
-              : [...parsed.issues, ...engine.validate(parsed.plan)]
-          if (parsed.plan === undefined || issues.length > 0) {
-            const first = issues[0]
-            throw new BahError(
-              'plan-invalid',
-              `模型提交的计划校验失败（${String(issues.length)} 项）：${first?.message ?? '未知问题'}`,
-              { issues },
-            )
-          }
-          return parsed.plan
-        }
+        const planOrThrow = (raw: unknown, callId: string): Plan => planFromArgs(raw, callId)
 
         const planSchema = {
           type: 'object',
@@ -719,11 +1138,166 @@ export const planPlugin: HostPlugin<PlanSettings> = {
           ],
         }
 
+        /**
+         * `plan_arm`：签发授权窗口（G1）。
+         *
+         * 用户确认的是"**在条件快照成立的前提下**执行"，不是"未来任何情况都执行"。
+         * 把整张 DAG + 预算上限 + 条件快照一起哈希进 digest；唤醒时必须复验。
+         */
+        const armSchema = {
+          type: 'object',
+          description: '为一张工具调用 DAG 签发授权窗口（黄级，需要人工确认整张图）',
+          properties: {
+            planId: { type: 'string', description: '计划 ID（缺省用本次调用 ID）' },
+            title: { type: 'string', description: '计划标题（展示用）' },
+            nodes: {
+              type: 'array',
+              description: `节点数组（最多 ${String(modelPlanLimit)} 个）`,
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', description: '节点 ID：[A-Za-z0-9_-]{1,64}' },
+                  tool: { type: 'string', description: '银行工具名（必须已注册）' },
+                  args: { type: 'object', description: '工具入参（可用 ${node.<id>.<path>} 取上游字段）' },
+                  deps: { type: 'array', items: { type: 'string' }, description: '依赖的节点 ID' },
+                  optional: { type: 'boolean', description: '上游失败时跳过而不是阻断' },
+                },
+                required: ['id', 'tool'],
+              },
+            },
+            tier: {
+              type: 'string',
+              enum: ['strict', 'standard', 'wide'],
+              description: '授权档（缺省 standard）；红级动作永不无人执行',
+            },
+            budgetYuan: { type: 'number', description: '预算上限（元）' },
+            dueAt: { type: 'string', description: '到期时刻（ISO 8601，如 2026-10-22T10:00:00+08:00）' },
+            expiresAt: { type: 'string', description: '窗口过期时刻（ISO 8601；可选）' },
+            recurrence: {
+              type: 'object',
+              description: '周期（可选；缺省一次性）',
+              properties: {
+                every: { type: 'string', enum: ['once', 'daily', 'monthly', 'yearly'] },
+                at: { type: 'string', description: 'HH:mm（daily/monthly/yearly 必填）' },
+                day: { type: 'number', description: '每月/每年第几天' },
+                month: { type: 'number', description: '每年第几月' },
+              },
+              required: ['every'],
+            },
+            conditions: {
+              type: 'array',
+              description: '条件快照（唤醒时逐条复验；失守即降级人工）',
+              items: {
+                type: 'object',
+                properties: {
+                  kind: {
+                    type: 'string',
+                    enum: [
+                      'balance-at-least',
+                      'fact-unchanged',
+                      'plan-not-cancelled',
+                      'amount-within',
+                      'address-unchanged',
+                    ],
+                  },
+                  cents: { type: 'number' },
+                  factId: { type: 'string' },
+                  planId: { type: 'string' },
+                  addressId: { type: 'string' },
+                  version: { type: 'number' },
+                },
+                required: ['kind'],
+              },
+            },
+          },
+          required: ['title', 'nodes', 'budgetYuan', 'dueAt'],
+        } as const
+
+        const arm: ToolDefinition<Readonly<Record<string, unknown>>, ArmedPlan> = {
+          name: PLAN_ARM_TOOL,
+          description:
+            '为一张计划签发"授权窗口"：用户只需确认一次整张图，到期由系统在条件快照成立时自动执行。' +
+            '只在用户明确同意"到点自动办"时使用；条件快照必须来自用户确认过的事实（预算、余额门槛、事实版本）。' +
+            '红级动作（挂失等）不允许放进宽档。',
+          schema: armSchema,
+          tier: { level: 'yellow' },
+          sideEffect: 'write',
+          execute: async (args, ictx) => {
+            const plan = planFromArgs(
+              {
+                ...(args['planId'] === undefined ? {} : { planId: args['planId'] }),
+                nodes: args['nodes'],
+                meta: { title: String(args['title'] ?? '') },
+              },
+              ictx.callId,
+            )
+            const dueAt = parseIsoTime(args['dueAt'], 'dueAt')
+            const tier = parseTier(args['tier'])
+            if (tier === 'wide') {
+              const redNodes = plan.nodes.filter((node) => {
+                const spec = registry().get(node.tool)
+                return spec.tier.level === 'red'
+              })
+              if (redNodes.length > 0) {
+                throw new BahError(
+                  'plan-arm-invalid',
+                  `宽档不允许包含红级动作：${redNodes.map((node) => node.tool).join(', ')}`,
+                  { planId: plan.planId },
+                )
+              }
+            }
+            const armed: ArmedPlan = {
+              planId: plan.planId,
+              windowId: `w-${ictx.callId}`,
+              planDigest: planDigest(plan),
+              title: plan.meta?.title ?? plan.planId,
+              tier,
+              conditions: parseConditions(args['conditions']),
+              budgetCents: parseBudgetYuan(args['budgetYuan']),
+              dueAt,
+              recurrence: parseRecurrence(args['recurrence'], dueAt),
+              ...(args['expiresAt'] === undefined
+                ? {}
+                : { expiresAt: parseIsoTime(args['expiresAt'], 'expiresAt') }),
+              plan,
+              armedAt: clock(),
+              state: 'armed',
+            }
+            armedStore.arm(armed)
+            return armed
+          },
+          // 不写 projectContent：出参必须是 **结构化 JSON**（ArmedPlan），
+          // `replayArmedPlans` 与计划卡都按 JSON 读；投影成一句人话会让两者同时断粮。
+        }
+
+        const disarm: ToolDefinition<Readonly<Record<string, unknown>>, { readonly windowId: string; readonly planId: string; readonly state: string }> = {
+          name: PLAN_DISARM_TOOL,
+          description: '撤销一个授权窗口（不可逆；未执行则不再执行）。需要人工审批并逐字输入确认词。',
+          schema: {
+            type: 'object',
+            properties: { windowId: { type: 'string', description: '要撤销的窗口 id' } },
+            required: ['windowId'],
+          },
+          tier: { level: 'yellow' },
+          sideEffect: 'write',
+          execute: async (args) => {
+            const windowId = typeof args['windowId'] === 'string' ? args['windowId'] : ''
+            if (windowId.length === 0) {
+              throw new BahError('plan-arm-invalid', 'plan_disarm: windowId 必填', {})
+            }
+            const cancelled = armedStore.disarm(windowId)
+            return { windowId: cancelled.windowId, planId: cancelled.planId, state: cancelled.state }
+          },
+        }
+
+        ctx.effect(registry().register(arm))
+        ctx.effect(registry().register(disarm))
+
         ctx.effect(registry().register(propose))
         ctx.effect(registry().register(execute))
 
         /**
-         * `plan_execute` 的人工批准（黄级 ask）。
+         * 计划域三个写工具的人工批准（黄级 ask）。
          *
          * 不把 `plan_execute` 定成红级：红级会再叠加一次强验证挑战，而真正动钱的是节点，
          * 节点自己会各走一次完整审批。这一层的职责是"用户确认这张图"，不是"再验一次身份"。
@@ -731,8 +1305,13 @@ export const planPlugin: HostPlugin<PlanSettings> = {
          */
         ctx.effect(
           ctx.events.on('tools/pre-execute', async (payload: PreExecuteInput, next) => {
+            // 先交还控制权：下游（bank 治理 / sentry）的 deny 永远优先
             const downstream = await next(payload)
-            if (payload.call.name !== PLAN_EXECUTE_TOOL) return downstream
+            const asksUser =
+              payload.call.name === PLAN_EXECUTE_TOOL ||
+              payload.call.name === PLAN_ARM_TOOL ||
+              payload.call.name === PLAN_DISARM_TOOL
+            if (!asksUser) return downstream
             if (downstream.verdict.kind !== 'allow') return downstream
             return {
               ...downstream,
@@ -747,6 +1326,40 @@ export const planPlugin: HostPlugin<PlanSettings> = {
           }),
         )
       }
+
+      /**
+       * `plan_wake`：扫到期计划并执行。
+       *
+       * **`exposure:'internal'`**：不进模型可见 schema。模型若能调它，就能对任意未到期
+       * 计划发起唤醒——"主动"变成"模型想什么时候花就什么时候花"。真正的触发者是
+       * 调度器（boot 补跑 + `saga/tick`）与 CLI。
+       */
+      const wakeTool: ToolDefinition<
+        { readonly at?: string; readonly planId?: string; readonly dryRun?: boolean },
+        PlanWakeReport
+      > = {
+        name: PLAN_WAKE_TOOL,
+        description: '扫描到期计划并执行（内部工具；不暴露给模型）。',
+        schema: {
+          type: 'object',
+          properties: {
+            at: { type: 'string', description: '判定时刻（ISO 8601；缺省 = 现在）' },
+            planId: { type: 'string', description: '只唤醒指定计划' },
+            dryRun: { type: 'boolean', description: '只判定不执行' },
+          },
+        },
+        tier: { level: 'yellow' },
+        sideEffect: 'write',
+        exposure: 'internal',
+        execute: async (args) =>
+          wake.wake({
+            ...(args.at === undefined ? {} : { at: parseIsoTime(args.at, 'at') }),
+            ...(args.planId === undefined ? {} : { planId: args.planId }),
+            ...(args.dryRun === undefined ? {} : { dryRun: args.dryRun }),
+            source: 'tool',
+          }),
+      }
+      ctx.effect(registry().register(wakeTool))
     },
   },
 

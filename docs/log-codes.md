@@ -23,6 +23,10 @@
 | `host.policy-shadow-eval-failed` | warn | `packages/host/src/boot/plugins/policy.ts` | 影子策略求值失败（不影响生效判决） |
 | `host.saga-tick-failed` | error | `packages/host/src/boot/plugins/saga-bridge.ts` | saga tick 定时器抛错 |
 | `host.saga-recovery-audit-failed` | error | `packages/host/src/boot/plugins/saga.ts` | 启动恢复失败连审计都写不进去 |
+| `host.plan-wake` | info | `packages/host/src/boot/plugins/scheduler.ts` | 一次唤醒执行了到期计划（boot / tick） |
+| `host.plan-wake-refused` | warn | `packages/host/src/boot/plugins/scheduler.ts` | 判定时刻越界，唤醒被拒（一条都不执行） |
+| `host.plan-wake-failed` | error | `packages/host/src/boot/plugins/scheduler.ts` | 唤醒流程抛错（计划内节点失败另走 plan/*） |
+| `host.plan-catchup-unavailable` | warn | `packages/host/src/boot/plugins/scheduler.ts` | 启动补跑等不到 `bah:plan-wake`（plan 插件未装配） |
 | `saga-alert` | warn / error | `packages/host/src/boot/plugins/saga.ts` | saga 告警汇的 stderr 出口（P0 → error） |
 | `bank.saga-store-tenant-unmarked` | warn | `packages/host/src/boot/plugins/saga-store.ts` | 已存在 sqlite 但缺创建者标记，无法判断租户 |
 | `bank.saga-store-tenant-mismatch` | warn | `packages/host/src/boot/plugins/saga-store.ts` | sqlite 由别的租户创建（共用会把两租户事务混一起） |

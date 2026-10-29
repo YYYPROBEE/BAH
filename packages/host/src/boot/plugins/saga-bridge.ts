@@ -460,7 +460,9 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
           void ctx.events
             .serial('saga/tick', {
               now: ctx.get(SAGA_CLOCK).now(),
-              dueJobs: ['janitor', 'recon', 'anchor'],
+              // `plan-wake` 是 G2 的到期扫描 job：与 janitor / recon / anchor 共用**同一个**时钟源
+              // （第二个定时器 = 两份 due 判定，演示当天一定对不上）。
+              dueJobs: ['janitor', 'recon', 'anchor', 'plan-wake'],
             })
             .catch((error: unknown) => {
               // 定时器里抛错没人接：只能落日志；job 自身失败另有告警汇。

@@ -83,6 +83,17 @@
 # ★ 关掉 saga-bridge（与 web-plan 同款理由）：plan 节点本身就是 preview → create 两步，
 #   再叠一层 bridge 会把 transfer_create 展开两次。计划里的转账因此失去自动补偿——
 #   这一取舍在 docs/mobile.md 的诚实边界里写明。
+
+# G2/G3（跨场景主动能力）：生活事实库 + 到期唤醒驱动器。
+# 两者都零新事件键：事实走 tool/call+tool/result，唤醒复用 saga/tick 与 boot 补跑。
+- id: fact:store
+  use: fact:store
+  config: { enabled: true }
+
+- id: plan:scheduler
+  use: plan:scheduler
+  config: { enabled: true, catchUpOnBoot: true }
+
 - id: bank:saga-bridge
   config:
     enabled: false

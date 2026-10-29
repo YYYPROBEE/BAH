@@ -68,3 +68,13 @@
     # 默认 web / headless 的工具面不变（生产 profile 不因为多了个能力就放宽）。
     modelTools: true
     modelMaxNodes: 8
+
+# G2/G3（跨场景主动能力）：生活事实库 + 到期唤醒驱动器。
+# 两者都零新事件键：事实走 tool/call+tool/result，唤醒复用 saga/tick 与 boot 补跑。
+- id: fact:store
+  use: fact:store
+  config: { enabled: true }
+
+- id: plan:scheduler
+  use: plan:scheduler
+  config: { enabled: true, catchUpOnBoot: true }

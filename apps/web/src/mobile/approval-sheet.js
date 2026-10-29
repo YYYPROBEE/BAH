@@ -268,6 +268,19 @@ export function createApprovalSheet(host, handlers, deps = {}) {
   function build(frame) {
     const reasonRequired = frame.rejectReasonRequired === true
     const needsChallenge = frame.challenge !== undefined
+    // 打字确认（删除 / 撤销类操作）：前端只做提示与提前拦截，判定在服务端。
+    const confirmText = frame.confirmText
+    const confirmInput =
+      confirmText === undefined
+        ? null
+        : el('input', {
+            class: 'ds-input m-sheet-confirm',
+            type: 'text',
+            autocomplete: 'off',
+            dataset: { role: 'confirm' },
+            placeholder: `逐字输入「${confirmText}」以确认`,
+            'aria-label': `确认词：${confirmText}`,
+          })
     let verified = false
     let gestureConfirmed = !gestureEnabled
     let submitting = false
@@ -364,6 +377,7 @@ export function createApprovalSheet(host, handlers, deps = {}) {
         ]),
         ...(challengeBox === null ? [] : [challengeBox]),
         gestureEnabled ? gestureHost : null,
+        ...(confirmInput === null ? [] : [confirmInput]),
         el('label', { class: 'm-sheet-reason' }, [
           el('span', {
             class: 'm-sheet-reason__label',
@@ -398,7 +412,11 @@ export function createApprovalSheet(host, handlers, deps = {}) {
       setState('submitting')
       syncInterlock()
       clearError()
-      const result = await handlers.decide(frame.ticketId, decision, reason)
+      // 没有确认词就保持三参调用：既有渠道/测试的签名不受影响
+      const result =
+        confirmInput === null
+          ? await handlers.decide(frame.ticketId, decision, reason)
+          : await handlers.decide(frame.ticketId, decision, reason, confirmInput.value.trim())
       if (result?.ok === true) {
         // 成功不自己关：等 `approval-closed` 帧来收尾（结论以服务端为准）
         return
@@ -445,6 +463,12 @@ export function createApprovalSheet(host, handlers, deps = {}) {
     async function onApprove() {
       if (approveButton.disabled) return
       clearError()
+      // 打字确认先于强验证：确认词不对就不该消耗一次验证次数
+      if (confirmInput !== null && confirmInput.value.trim() !== confirmText) {
+        showError(`请逐字输入「${confirmText}」以确认`)
+        confirmInput.focus()
+        return
+      }
       // 红级：先强验证。失败/取消 ⇒ 回 open + inline 错误，**decide 零调用**（TC-MOB-07）
       if (needsChallenge && !verified) {
         setState('verifying')

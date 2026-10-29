@@ -93,10 +93,13 @@ export function createHttpApi(options = {}) {
     health: () => request('GET', '/api/health'),
     turn: (text) => request('POST', '/api/turn', { text }),
     interrupt: (reason) => request('POST', '/api/interrupt', { reason }),
-    decide: (ticketId, decision, reason) =>
-      request('POST', `/api/approval/${encodeURIComponent(ticketId)}`, reason === undefined
-        ? { decision }
-        : { decision, reason }),
+    decide: (ticketId, decision, reason, confirmText) =>
+      request('POST', `/api/approval/${encodeURIComponent(ticketId)}`, {
+        decision,
+        ...(reason === undefined ? {} : { reason }),
+        // 打字确认（删除/撤销类操作）：服务端校验，缺省不带就过不了
+        ...(confirmText === undefined ? {} : { confirmText }),
+      }),
     verify: (ticketId) => request('POST', `/api/verify/${encodeURIComponent(ticketId)}`),
     // 观测面板（03）：GET 只读，不参与 CSRF；`?format=chrome` 留给 CLI/curl，UI 不用。
     metrics: () => request('GET', '/api/metrics'),

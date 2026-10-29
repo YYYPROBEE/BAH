@@ -14,6 +14,7 @@ import { approvalPlugin } from './approval.ts'
 import { auditDecisionsPlugin } from './audit-decisions.ts'
 import { bankToolsPlugin } from './bank-tools.ts'
 import { echoPlugin } from './echo.ts'
+import { factPlugin } from './fact.ts'
 import { knowledgePlugin } from './knowledge.ts'
 import { intentPlanePlugin } from './intent.ts'
 import { modelPlugin } from './model.ts'
@@ -28,6 +29,7 @@ import { sagaAuditPlugin } from './saga-audit.ts'
 import { sagaBridgePlugin } from './saga-bridge.ts'
 import { sagaStorePlugin } from './saga-store.ts'
 import { sandboxPlugin } from './sandbox.ts'
+import { schedulerPlugin } from './scheduler.ts'
 import { sentryPlugin } from './sentry.ts'
 import { sessionPlugin } from './session.ts'
 // 可观测性 01：遥测内核（只读旁路，不产生会话事件）
@@ -73,6 +75,9 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   // 编排原语（plan:dag）：只在新 profile `plan` 里被 patch 显式启用。
   // 登记在这里 = "可以被 use 引用"，**不等于**会被装配（`enabled: true` 必须写在 patch 里）
   planPlugin,
+  // G2/G3：到期唤醒驱动器与生活事实库（登记 = 可被 use 引用，装配由 profile 决定）
+  schedulerPlugin,
+  factPlugin,
   // C4：跨会话记忆。登记 = 可被 use 引用；真正装配由 profile 的 patch 决定
   // （默认不装：记忆会改变模型输入，不做静默开启）
   memoryPlugin,
@@ -88,6 +93,7 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
 
 export {
   agentPlugin,
+  factPlugin,
   approvalPlugin,
   auditDecisionsPlugin,
   bankToolsPlugin,
@@ -107,6 +113,7 @@ export {
   sagaBridgePlugin,
   sagaStorePlugin,
   sandboxPlugin,
+  schedulerPlugin,
   sentryPlugin,
   sessionPlugin,
   telemetryPlugin,
@@ -116,7 +123,16 @@ export {
 }
 
 // 编排原语的服务键（`bah:plan`）：消费方按 key 取 `PlanApi`，不 import 插件实现
-export { PLAN_SERVICE } from './plan.ts'
+export {
+  PLAN_ARMED_SERVICE,
+  PLAN_SERVICE,
+  PLAN_WAKE_SERVICE,
+  type ArmedPlansView,
+  type PlanWakeEntry,
+  type PlanWakeReport,
+  type PlanWakeRunner,
+  type PlanWakeSource,
+} from './plan.ts'
 
 // 03 单：意图平面的会话状态服务键（`prompt:ask` 与诊断面按 key 取用）
 export { INTENT_STATE_SERVICE } from './intent.ts'

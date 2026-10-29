@@ -162,6 +162,13 @@ export interface ApprovalFrame {
   readonly challenge?: 'face' | 'sms' | 'ushield'
   /** 拒绝理由是否必填（红级 / 资金类）。 */
   readonly rejectReasonRequired: boolean
+  /**
+   * 必须逐字输入的确认词（删除 / 撤销类操作）。
+   *
+   * 渲染用的同一份规则由 `confirm.ts` 提供；**判定在服务端**（`http-adapter.ts` 的 `decide`），
+   * 前端只负责要求用户打字。
+   */
+  readonly confirmText?: string
 }
 
 /** 审批收尾。 */
@@ -400,6 +407,47 @@ export interface EffectItem {
   readonly tone: FrameTone
 }
 
+/** 计划卡的一条条件（授权快照的可见形态）。 */
+export interface PlanCardCondition {
+  /** 条件种类（`balance-at-least` / `fact-unchanged` / …）。 */
+  readonly kind: string
+  /** 期望值（`>= 100000`、`f-1@2`、`未被撤销`）。 */
+  readonly expected: string
+  /** 当前状态：武装时 `unknown`，唤醒失守时 `failed`。 */
+  readonly state: 'ok' | 'failed' | 'unknown'
+  /** 实际值（失守时有值）。 */
+  readonly actual?: string
+}
+
+/**
+ * 计划卡（G7）："我在替你做什么"的唯一承载帧。
+ *
+ * 投影源是 `plan_arm` / `plan_disarm` / `plan_wake` 的 **`tool/result`**，
+ * 不是 `plan/created`（后者保持"不产帧"的既有约定，见 `project.ts` 的注释）。
+ */
+export interface PlanCardFrame {
+  readonly kind: 'plan-card'
+  readonly seq: number
+  readonly at: number
+  readonly windowId: string
+  readonly planId: string
+  readonly title: string
+  readonly tier: 'strict' | 'standard' | 'wide'
+  readonly budgetText: string
+  /** 到期时刻（判定时钟的目标；不是落账时刻）。 */
+  readonly dueAt: number
+  /** 本次实例键（`2026-10-22` / `2026-10` / `once:<dueAt>`）。 */
+  readonly occurrence: string
+  readonly state: 'armed' | 'due' | 'running' | 'done' | 'failed' | 'cancelled'
+  readonly conditions: readonly PlanCardCondition[]
+  /** 最近一次唤醒的判决（`failed` 态必填）。 */
+  readonly lastVerdict?: { readonly code: string; readonly at: number }
+  /** 节点数（卡片摘要用；明细在 DAG 帧）。 */
+  readonly nodeCount: number
+  /** 计划内容摘要（与 `plan/created.digest` 同源）。 */
+  readonly digest: string
+}
+
 /** 全部帧。 */
 export type WebFrame =
   | TurnFrame
@@ -418,6 +466,7 @@ export type WebFrame =
   | HandoffFrame
   | HandoffWarnFrame
   | SnapshotFrame
+  | PlanCardFrame
 
 /** 帧的稳定键：同一键的新帧**替换**旧帧（不追加），这是三态与 DAG 更新的基础。 */
 export function frameKey(frame: WebFrame): string {
@@ -461,6 +510,9 @@ export function frameKey(frame: WebFrame): string {
       return 'handoff-warn'
     case 'snapshot':
       return 'snapshot'
+    case 'plan-card':
+      // 一个窗口一张卡（跨 turn 存活；撤销与唤醒都是替换语义）
+      return `plan-card:${frame.windowId}`
     default:
       return assertNever(frame, 'web-frame')
   }

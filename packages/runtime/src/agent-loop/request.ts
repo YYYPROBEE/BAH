@@ -20,7 +20,7 @@
 
 import { assertNever } from '@bah/util'
 
-import type { ContentBlock as SessionBlock } from '@bah/core'
+import type { ContentBlock as SessionBlock, ToolDefinition } from '@bah/core'
 import type {
   ContentBlock as ModelBlock,
   LlmMessage,
@@ -147,9 +147,14 @@ export function toSessionBlocks(content: readonly ModelBlock[]): SessionBlock[] 
  * 2. 装配（纯函数：不落账、不改队列之外的状态）
  * ──────────────────────────────────────────────────────────────────────────── */
 
+/** 模型可见的工具定义（`exposure:'internal'` 的只由宿主/CLI 调用，不下发给模型）。 */
+function modelVisible(registry: ToolRegistry): readonly ToolDefinition<unknown, unknown>[] {
+  return registry.list().filter((definition) => definition.exposure !== 'internal')
+}
+
 /** 工具定义 → 提示词装配用的收窄视图。 */
 export function toolDescriptorsOf(registry: ToolRegistry): ToolDescriptor[] {
-  return registry.list().map((definition) => ({
+  return modelVisible(registry).map((definition) => ({
     name: definition.name,
     description: definition.description,
     schema: definition.schema,
@@ -159,7 +164,7 @@ export function toolDescriptorsOf(registry: ToolRegistry): ToolDescriptor[] {
 
 /** 工具定义 → 模型侧 schema（不带执行体与卡片）。 */
 export function toolSpecsOf(registry: ToolRegistry): ToolSpec[] {
-  return registry.list().map((definition) => ({
+  return modelVisible(registry).map((definition) => ({
     name: definition.name,
     description: definition.description,
     schema: definition.schema,

@@ -27,6 +27,7 @@ import type {
   ContentBlock,
   Context,
   PreExecuteVerdict,
+  TicketAuthorization,
   TicketId,
   TicketRef,
   ToolDefinition,
@@ -75,6 +76,13 @@ export interface ToolPipelineOptions {
    * 这条断言成立——「不可预测属生产、可复现属验收」。
    */
   readonly mintTicketId?: (callId: string) => TicketId
+  /**
+   * 授权来源（ADR-0006）：唤醒执行器为整次 run 注入，逐节点落到 `ticket/*`。
+   *
+   * 只由受控执行器（`plan_wake`）设置；页面端永远不会走到这里。
+   * ask 判决自带 `authorization` 时以判决为准（更内层、更具体）。
+   */
+  readonly authorization?: TicketAuthorization
 }
 
 export class ToolPipeline {
@@ -88,6 +96,7 @@ export class ToolPipeline {
   private readonly renderContent: ContentRenderer
   private readonly emitResult: (result: ToolResultData) => void
   private readonly mintTicketId: (callId: string) => TicketId
+  private readonly authorization: TicketAuthorization | undefined
 
   constructor(options: ToolPipelineOptions) {
     this.ctx = options.ctx
@@ -108,6 +117,7 @@ export class ToolPipeline {
       })
     this.mintTicketId =
       options.mintTicketId ?? ((_callId) => `ticket:${randomUUID()}` as TicketId)
+    this.authorization = options.authorization
   }
 
   /**
@@ -428,6 +438,10 @@ export class ToolPipeline {
       name: call.name,
       summary: { title: `执行 ${call.name}`, amount: ticket.amount, tier: definition.tier.level },
       challenge,
+      // 授权来源（ADR-0006）：ask 判决自带的优先；否则用执行器为整次 run 注入的那一份
+      ...(ask.authorization === undefined && this.authorization === undefined
+        ? {}
+        : { authorization: ask.authorization ?? this.authorization }),
       // 无人应答 = 拒绝（available 的反面；施工单 00 §11）
       decision: { decision: 'unavailable' },
     }

@@ -17,6 +17,7 @@ export {
   type HaltRunOptions,
 } from './halt.ts'
 export { METRICS_HELP, METRICS_USAGE, parseMetricsArgs, runMetrics } from './metrics.ts'
+export { PLAN_USAGE, parsePlanArgs, runPlan, type PlanCommand, type PlanCommonArgs } from './plan.ts'
 export {
   OBS_DEFAULT_URL,
   getText,
