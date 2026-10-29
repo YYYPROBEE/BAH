@@ -8,7 +8,7 @@
 ## 1. 机器可读块（门禁只读这一段）
 
 <!-- facts:sources:start -->
-gates=51
+gates=52
 tools=16
 plan_lines=2260
 snapshot_files=10

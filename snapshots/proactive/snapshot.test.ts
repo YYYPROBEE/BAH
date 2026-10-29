@@ -17,7 +17,23 @@ import { fileURLToPath } from 'node:url'
 import { compareEvents, loadSnapshot, recordSnapshot } from '@bah/test-support'
 import { describe, expect, it } from 'vitest'
 
+import { digestOfInputs } from '../../packages/runtime/src/authorization/window.ts'
 import { CASE, runRecord, runReplay } from './scenario.ts'
+
+/** 从 `plan_wake` 的工具结果里读报告（正文是 JSON）。 */
+function readReport(event: {
+  readonly data: unknown
+}): {
+  readonly entries: readonly {
+    readonly status: string
+    readonly digest?: string
+    readonly inputs?: Parameters<typeof digestOfInputs>[0]
+  }[]
+} {
+  const data = event.data as { readonly content?: readonly { readonly text?: string }[] }
+  const text = data.content?.[0]?.text ?? '{}'
+  return JSON.parse(text) as ReturnType<typeof readReport>
+}
 
 const DIR = join(fileURLToPath(new URL('../', import.meta.url)), CASE.name)
 const RECORDING = process.env['BAH_SNAPSHOT_RECORD'] === '1'
@@ -73,12 +89,30 @@ describe(`快照回放 · ${CASE.name}`, () => {
     )
     expect(armResults).toHaveLength(2)
 
-    // 事实版本 +1 的条件失守：wake 报告里必须有 downgraded
+    // 两次唤醒各一条工具结果；失守的那次必须 downgraded
     const wakeResults = events.filter(
       (event) => event.type === 'tool/result' && (event.data as { name?: string }).name === 'plan_wake',
     )
-    // 本场景直接调服务而非工具，所以这里应为 0（零工具调用也是证据）
-    expect(wakeResults).toHaveLength(0)
+    expect(wakeResults).toHaveLength(2)
+    const second = readReport(wakeResults[1])
+    expect(second.entries.some((entry) => entry.status === 'downgraded')).toBe(true)
+
+    // 判决可重算（I13 的快照侧证据）：digest 必须等于 inputs 的规范化摘要，
+    // 且执行成功的那次 digest 必须出现在票据的 authorization 里
+    for (const result of wakeResults) {
+      for (const entry of readReport(result).entries) {
+        if (entry.digest === undefined || entry.inputs === undefined) continue
+        expect(digestOfInputs(entry.inputs)).toBe(entry.digest)
+        if (entry.status === 'executed') {
+          const hit = approved.some(
+            (event) =>
+              (event.data as { authorization?: { ref?: string; digest?: string } }).authorization
+                ?.digest === entry.digest,
+          )
+          expect(hit).toBe(true)
+        }
+      }
+    }
   })
 
   it('零新事件键：不存在 wake/ 或 armed/ 前缀事件', () => {

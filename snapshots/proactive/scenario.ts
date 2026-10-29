@@ -20,7 +20,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { loadBundles, readLayers, readProfile } from '@bah/cli'
-import { boot, createCatalog, PLAN_WAKE_SERVICE, RUN_SERVICE, testRunContext } from '@bah/host'
+import { boot, createCatalog, RUN_SERVICE, testRunContext } from '@bah/host'
 import { LLM_ADAPTERS } from '@bah/llm'
 import { SESSION_SERVICE, TOOLS_SERVICE, ToolGuard, ToolPipeline } from '@bah/runtime'
 import { asSessionId } from '@bah/test-support'
@@ -136,8 +136,11 @@ async function runActs(app: BootedApp, clock: { readonly now: () => number; jump
   })
 
   // 判定时钟推进到到期（落账时刻也跟着走，两者都来自同一个注入钟）
+  // 走 `plan_wake` **工具**而不是直接调服务：判决输入要落进 `tool/result`，I13 才能重算
   clock.jumpTo(DUE)
-  const first = await app.ctx.get(PLAN_WAKE_SERVICE).wake({ at: DUE, source: 'cli' })
+  const first = (await callTool(app, 'call-wake-1', 'plan_wake', {
+    at: new Date(DUE).toISOString(),
+  })) as { ok: boolean; entries: readonly { status: string }[] }
   if (!first.ok || first.entries[0]?.status !== 'executed') {
     throw new Error(`快照场景：第一幕应执行，实际 ${JSON.stringify(first.entries)}`)
   }
@@ -165,7 +168,9 @@ async function runActs(app: BootedApp, clock: { readonly now: () => number; jump
       },
     ],
   })
-  const second = await app.ctx.get(PLAN_WAKE_SERVICE).wake({ at: DUE, source: 'cli' })
+  const second = (await callTool(app, 'call-wake-2', 'plan_wake', {
+    at: new Date(DUE).toISOString(),
+  })) as { entries: readonly { status: string; code?: string }[] }
   const downgraded = second.entries.find((entry) => entry.status === 'downgraded')
   if (downgraded === undefined || downgraded.code !== 'condition-failed') {
     throw new Error(`快照场景：第二幕应失守，实际 ${JSON.stringify(second.entries)}`)

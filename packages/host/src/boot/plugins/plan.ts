@@ -73,6 +73,7 @@ import {
   type ToolDefinition,
   type ToolRegistry,
   type WindowCondition,
+  type WindowVerdictInputs,
   type WorldSnapshot,
 } from '@bah/runtime'
 import { BahError, canonicalJson, errorCodeOf, sha256Hex } from '@bah/util'
@@ -349,6 +350,13 @@ export interface PlanWakeEntry {
   readonly reason?: string
   /** 窗口判决摘要（成立的与失守的都带；回放据此重算）。 */
   readonly digest?: string
+  /**
+   * 判决输入（`WindowVerdictInputs` 原样）。
+   *
+   * 只有 digest 不够："摘要对得上"证明不了"当时余额是多少"。把输入一起落进
+   * `tool/result`，任何人事后都能用同一份快照重跑 `checkWindow`（门禁 I13）。
+   */
+  readonly inputs?: WindowVerdictInputs
   /** 失守码（`window-expired` / `condition-failed` / `plan-cancelled` / `window-clock-ahead`）。 */
   readonly code?: string
   /** 失守条件明细（`expected` / `actual`）。 */
@@ -945,6 +953,7 @@ export const planPlugin: HostPlugin<PlanSettings> = {
                 status: 'downgraded',
                 code: verdict.code,
                 digest: verdict.digest,
+                inputs: verdict.inputs,
                 failed: verdict.failed,
               })
               const decision = deriveNotify(
@@ -965,6 +974,7 @@ export const planPlugin: HostPlugin<PlanSettings> = {
                 status: 'downgraded',
                 code: 'condition-failed',
                 digest: verdict.digest,
+                inputs: verdict.inputs,
                 failed: [
                   {
                     kind: 'amount-within',
@@ -989,6 +999,7 @@ export const planPlugin: HostPlugin<PlanSettings> = {
                 ...base,
                 status: 'executed',
                 digest: verdict.digest,
+                inputs: verdict.inputs,
                 summary: {
                   status: summary.status,
                   succeeded: summary.succeeded,
