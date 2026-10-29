@@ -84,4 +84,13 @@ describe('DAG · 可访问性', () => {
     const svg = renderDag({ kind: 'dag', seq: 1, at: 1, turn: 1, nodes: [], edges: [], summary: '空' })
     expect(svg.getAttribute('viewBox')).toContain('0 0')
   })
+
+  it('字号走 CSS 类（令牌），不再硬编码 font-size 属性', () => {
+    const svg = renderDag(dagFrame())
+    const label = svg.querySelector('[data-node-id="call:A"] .dag__label')
+    const badge = svg.querySelector('[data-node-id="call:A"] .dag__badge')
+    expect(label).not.toBeNull()
+    expect(label.getAttribute('font-size')).toBeNull()
+    expect(badge.getAttribute('font-size')).toBeNull()
+  })
 })

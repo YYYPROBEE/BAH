@@ -73,15 +73,21 @@ export function createApprovalController(root, handlers) {
     destroy()
 
     const tier = TIER[frame.tier] ?? TIER.unknown
+    // 拒绝理由是否必填由帧决定（红级 / 资金类必填，其余可选），前端不一律强制。
+    const reasonRequired = frame.rejectReasonRequired !== false
     const reasonInput = el('textarea', {
       class: 'ds-textarea approval__reason',
       rows: 2,
       maxlength: 500,
-      placeholder: '拒绝理由（拒绝时必填，会写入审计）',
+      placeholder: reasonRequired ? '拒绝理由（必填，会写入审计）' : '拒绝理由（可选，会写入审计）',
       'aria-label': '拒绝理由',
     })
     const hint = el('p', { class: 'approval__hint', role: 'status' })
     const waited = el('span', { class: 'approval__waited', text: '已等待 00:00' })
+    // 红级挑战是否已通过；提交是否在飞。两者决定"批准"入口与 Esc 是否可用。
+    let verified = false
+    let submitting = false
+    const needsChallenge = frame.challenge !== undefined
 
     const approve = el(
       'button',
@@ -89,7 +95,7 @@ export function createApprovalController(root, handlers) {
         class: 'ds-btn ds-btn--brand ds-btn--md',
         type: 'button',
         onclick: async () => {
-          if (frame.challenge !== undefined) {
+          if (needsChallenge && !verified) {
             hint.textContent = '红级操作必须先完成强验证'
             return
           }
@@ -106,12 +112,12 @@ export function createApprovalController(root, handlers) {
         type: 'button',
         onclick: async () => {
           const reason = reasonInput.value.trim()
-          if (reason.length === 0) {
+          if (reasonRequired && reason.length === 0) {
             hint.textContent = '拒绝必须填写理由'
             reasonInput.focus()
             return
           }
-          await submit('rejected', reason)
+          await submit('rejected', reason.length === 0 ? undefined : reason)
         },
       },
       ['拒绝'],
@@ -136,8 +142,11 @@ export function createApprovalController(root, handlers) {
                 onclick: async () => {
                   hint.textContent = '验证中…'
                   const result = await handlers.onVerify(frame.ticketId)
-                  hint.textContent = result.ok ? '验证通过，可批准执行' : `验证未通过：${result.reason}`
-                  approve.disabled = !result.ok
+                  // 成功后必须把 `verified` 记下来：否则"批准"被点时会再撞一次
+                  // "必须先完成强验证"的拦路话，红级路径永远走不到 allowed-once。
+                  verified = result.ok === true
+                  hint.textContent = verified ? '验证通过，可批准执行' : `验证未通过：${result.reason}`
+                  approve.disabled = !verified
                 },
               },
               ['开始验证'],
@@ -181,7 +190,11 @@ export function createApprovalController(root, handlers) {
               el('dd', { class: 'field__value' }, [waited]),
             ]),
           ]),
-          el('label', { class: 'approval__reason-label', for: 'approval-reason', text: '拒绝理由' }),
+          el('label', {
+            class: 'approval__reason-label',
+            for: 'approval-reason',
+            text: `拒绝理由（${reasonRequired ? '必填' : '可选'}）`,
+          }),
           reasonInput,
           hint,
           ...(challengeBox === null ? [] : [challengeBox]),
@@ -195,9 +208,23 @@ export function createApprovalController(root, handlers) {
     )
 
     reasonInput.id = 'approval-reason'
-    if (frame.challenge !== undefined) approve.disabled = true
+    if (needsChallenge) approve.disabled = true
 
     const overlay = el('div', { class: 'ds-backdrop approval-backdrop' }, [dialog])
+    // §5.3：点击遮罩 = 取消。弹窗内部的点击不能冒泡成"取消"，
+    // 否则填理由时点一下输入框就把票据取消了。
+    dialog.addEventListener('click', (event) => event.stopPropagation())
+    // 只认"按下与抬起都在遮罩上"的点击：在理由框里拖选文本、松开时鼠标跑到遮罩上，
+    // 浏览器会把 click 落在共同祖先（这里就是遮罩）——光看 click 会误判成"点了遮罩"。
+    let pressedOnBackdrop = false
+    overlay.addEventListener('mousedown', (event) => {
+      pressedOnBackdrop = event.target === overlay
+    })
+    overlay.addEventListener('click', (event) => {
+      const onBackdrop = pressedOnBackdrop && event.target === overlay
+      pressedOnBackdrop = false
+      if (onBackdrop) void submit('cancelled')
+    })
     const startedAt = Date.now()
     const timer = setInterval(() => {
       waited.textContent = `已等待 ${clock(Date.now() - startedAt)}`
@@ -205,15 +232,22 @@ export function createApprovalController(root, handlers) {
 
     /** 提交结论。 */
     async function submit(decision, reason) {
+      // 在飞锁：批准 / 拒绝 / 关闭 / Esc 都走这里，否则第二次结论会以
+      // `already-decided` 被服务端驳回，前端弹"提交失败"和已生效的结论打架。
+      if (submitting) return
+      submitting = true
       approve.disabled = true
       reject.disabled = true
       hint.textContent = '提交中…'
       const result = await handlers.onDecision(frame.ticketId, decision, reason)
-      if (!result.ok) {
-        hint.textContent = `提交失败：${result.reason}`
-        approve.disabled = false
-        reject.disabled = false
-      }
+      // 成功：保持禁用，等 `approval-closed` 帧来收尾（`close()` 会替换按钮区）。
+      if (result.ok) return
+      submitting = false
+      hint.textContent = `提交失败：${result.reason}`
+      // 回滚要回到"提交前"的可用性：红级挑战未通过时批准必须是禁用的
+      // （服务端仍会二次校验，但界面不能摆一个假入口）。
+      approve.disabled = needsChallenge && !verified
+      reject.disabled = false
     }
 
     // 焦点锁定 + Esc 取消
@@ -254,21 +288,21 @@ export function createApprovalController(root, handlers) {
   function close(frame) {
     if (current === null || current.ticketId !== frame.ticketId) return
     clearInterval(current.timer)
-    // 提示位（`role="status"`）不能停在"提交中…"：结论帧已经到达，这里不收尾的话，
-    // 同一个弹窗里会同时出现"提交中…"和"已批准（一次性）"两句互相打脸的话。
+    // 结论文案以帧里的 `label` 为准（服务端已按 `decision` 译好），前端不再维护第二份映射。
+    const label = frame.label ?? DECISION_LABEL[frame.decision] ?? frame.decision
     const hint = current.node.querySelector('.approval__hint')
     if (hint !== null) hint.textContent = '结论已生效'
     const dialog = current.node.querySelector('.approval')
     if (dialog !== null) {
       dialog.dataset.state = frame.decision
-      dialog.setAttribute('aria-label', DECISION_LABEL[frame.decision] ?? frame.decision)
+      dialog.setAttribute('aria-label', label)
     }
     const foot = current.node.querySelector('.ds-dialog__foot')
     if (foot !== null) {
       foot.replaceChildren(
         el('div', { class: `approval__result approval__result--${frame.decision}` }, [
           icon(frame.decision === 'allowed-once' ? 'check' : 'error', 16),
-          el('strong', { text: DECISION_LABEL[frame.decision] ?? frame.decision }),
+          el('strong', { text: label }),
           ...(frame.reason === undefined ? [] : [el('span', { class: 'approval__result-reason', text: frame.reason })]),
           ...(frame.decision === 'unavailable' || frame.decision === 'cancelled'
             ? [el('span', { class: 'ds-tag ds-tag--warning', text: '未执行' })]
@@ -285,10 +319,12 @@ export function createApprovalController(root, handlers) {
         ),
       )
     }
+    // 结论已生效：弹窗只剩"关掉它"，不再是"待应答"（`isOpen()` 的口径）。
+    current.closed = true
     current.ticketId = `${frame.ticketId}:closed`
   }
 
-  return { show, close, clear: destroy, isOpen: () => current !== null }
+  return { show, close, clear: destroy, isOpen: () => current !== null && current.closed !== true }
 }
 
 /** 普通字段。 */

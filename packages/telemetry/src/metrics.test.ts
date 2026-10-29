@@ -51,6 +51,21 @@ function httpSpan(overrides: Partial<TelemetrySpan> = {}): TelemetrySpan {
   }
 }
 
+function llmSpan(overrides: Partial<TelemetrySpan> = {}): TelemetrySpan {
+  return {
+    traceId: 't'.repeat(32),
+    spanId: 'l'.repeat(16),
+    parentSpanId: null,
+    name: 'llm.call',
+    startMs: 1_000,
+    endMs: 1_500,
+    status: 'ok',
+    attributes: { model: 'router-chat', ttftMs: 150 },
+    source: 'recorded',
+    ...overrides,
+  }
+}
+
 describe('metrics · 空输入与进程面', () => {
   it('空事件：计数为 0 而不是 NaN，进程 gauge 有值', () => {
     const families = collectMetrics(inputs())
@@ -228,5 +243,117 @@ describe('metrics · HTTP / 遥测 / 日志 / 告警', () => {
       }),
     )
     expect(family(families, 'bah_alerts_total').samples).toHaveLength(2)
+  })
+})
+
+describe('metrics · 轮次与步骤', () => {
+  it('turn/start→end 计一次轮次，按结束原因分 series，时长进直方图', () => {
+    const events = [
+      event('turn/start', { turn: 1 }, 1_000),
+      event('step/end', { turn: 1, step: 1 }, 1_500),
+      event('turn/end', { turn: 1, reason: { kind: 'completed' } }, 4_000),
+    ]
+    const families = collectMetrics(inputs({ events }))
+    expect(family(families, 'bah_turns_total').samples).toEqual([{ labels: {}, value: 1 }])
+    expect(family(families, 'bah_steps_total').samples).toEqual([{ labels: {}, value: 1 }])
+    expect(family(families, 'bah_turn_end_total').samples).toEqual([
+      { labels: { reason: 'completed' }, value: 1 },
+    ])
+    const hist = family(families, 'bah_turn_duration_seconds').samples[0]!.histogram!
+    expect(hist.count).toBe(1)
+    expect(hist.sum).toBeCloseTo(3, 10)
+  })
+
+  it('turn/end 缺 reason 时按 failed 记账（轮次不静默丢失原因）', () => {
+    const families = collectMetrics(inputs({ events: [event('turn/end', { turn: 9 })] }))
+    expect(family(families, 'bah_turn_end_total').samples[0]!.labels).toEqual({ reason: 'failed' })
+  })
+})
+
+describe('metrics · 工具错误分类', () => {
+  it('code 前缀归成五类；同一工具按 codeClass 分 series', () => {
+    const codes = ['approval-rejected', 'tool-schema-invalid', 'sandbox-escape', 'tool-failed', 'PRV-002', undefined]
+    const events = codes.map((code, index) =>
+      event('tool/result', {
+        callId: `c${String(index)}`,
+        name: 'transfer_create',
+        isError: true,
+        ...(code === undefined ? {} : { code }),
+      }),
+    )
+    const samples = family(collectMetrics(inputs({ events })), 'bah_tool_errors_total').samples
+    expect(samples.map((sample) => sample.labels['codeClass']).sort()).toEqual([
+      'approval',
+      'internal',
+      'other',
+      'sandbox',
+      'validation',
+    ])
+    expect(samples.every((sample) => sample.labels['tool'] === 'transfer_create')).toBe(true)
+    // 未知码与缺码都是 other：同类错误合并成同一个 series（值累加，不新增基数）。
+    expect(samples.find((sample) => sample.labels['codeClass'] === 'other')!.value).toBe(2)
+  })
+})
+
+describe('metrics · 计划平面', () => {
+  it('节点结果 / 阻塞 / 计划时长各归其位；缺 durationMs 不产生样本', () => {
+    const events = [
+      event('plan/node-result', { planId: 'p1', nodeId: 'n1', status: 'succeeded' }),
+      event('plan/node-result', { planId: 'p1', nodeId: 'n2', status: 'failed' }),
+      event('plan/node-result', { planId: 'p1', nodeId: 'n3', status: 'skipped' }),
+      event('plan/node-blocked', { planId: 'p1', nodeId: 'n4' }),
+      event('plan/completed', { planId: 'p1', status: 'succeeded', durationMs: 2_500 }),
+    ]
+    const families = collectMetrics(inputs({ events }))
+    expect(family(families, 'bah_plan_nodes_total').samples.map((sample) => sample.labels['status']).sort()).toEqual([
+      'blocked',
+      'failed',
+      'skipped',
+      'succeeded',
+    ])
+    const duration = family(families, 'bah_plan_duration_seconds').samples
+    expect(duration).toHaveLength(1)
+    expect(duration[0]!.labels).toEqual({ status: 'succeeded' })
+    expect(duration[0]!.histogram!.count).toBe(1)
+    expect(duration[0]!.histogram!.sum).toBeCloseTo(2.5, 10)
+
+    const withoutDuration = collectMetrics(
+      inputs({ events: [event('plan/completed', { planId: 'p1', status: 'failed' })] }),
+    )
+    expect(family(withoutDuration, 'bah_plan_duration_seconds').samples).toEqual([])
+  })
+})
+
+describe('metrics · SLO 阈值', () => {
+  it('soft/hard 用 >=：恰好等于阈值即升级', () => {
+    const families = collectMetrics(
+      inputs({
+        slo: {
+          dlqDepth: { value: 5, soft: 10, hard: 20, unit: 'count' },
+          chainBreak: { value: 10, soft: 10, hard: 20, unit: 'count' },
+          rto: { value: 20, soft: 10, hard: 20, unit: 'seconds' },
+        },
+      }),
+    )
+    expect(
+      family(families, 'bah_slo_value').samples
+        .map((sample) => `${sample.labels['metric']}/${sample.labels['verdict']}`)
+        .sort(),
+    ).toEqual(['chainBreak/alert', 'dlqDepth/ok', 'rto/P0'])
+  })
+})
+
+describe('metrics · LLM TTFT', () => {
+  it('llm.call 的 ttftMs 进直方图；缺失或负值跳过', () => {
+    const spans = [
+      llmSpan(),
+      llmSpan({ spanId: 'm'.repeat(16), attributes: { model: 'router-chat' } }),
+      llmSpan({ spanId: 'n'.repeat(16), attributes: { model: 'router-chat', ttftMs: -1 } }),
+    ]
+    const samples = family(collectMetrics(inputs({ spans })), 'bah_llm_ttft_seconds').samples
+    expect(samples).toHaveLength(1)
+    expect(samples[0]!.labels).toEqual({ model: 'router-chat' })
+    expect(samples[0]!.histogram!.count).toBe(1)
+    expect(samples[0]!.histogram!.sum).toBeCloseTo(0.15, 10)
   })
 })

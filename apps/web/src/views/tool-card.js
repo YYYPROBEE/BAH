@@ -28,7 +28,14 @@ function tagClass(tone) {
       ? 'ds-tag ds-tag--danger'
       : tone === 'warning'
         ? 'ds-tag ds-tag--warning'
-        : 'ds-tag'
+        : tone === 'brand'
+          ? 'ds-tag ds-tag--brand'
+          : 'ds-tag'
+}
+
+/** 字段色调 → class（`default` 不额外着色）。 */
+function toneClass(tone) {
+  return tone === undefined || tone === 'default' ? '' : `field__value--${tone}`
 }
 
 /**
@@ -38,16 +45,30 @@ function tagClass(tone) {
  * @returns {HTMLElement}
  */
 export function renderTool(frame) {
-  const state = STATE[frame.state] ?? STATE.pending
+  // 未知状态退回"待执行"：否则会产出 `tool-card--undefined` 这种没有样式的类。
+  const stateKey = STATE[frame.state] === undefined ? 'pending' : frame.state
+  const state = STATE[stateKey]
   const stateLabel = frame.reasonKind === 'failed' ? '执行失败' : state.label
   const card = frame.card
 
   const fields = (card?.fields ?? []).map((field) => renderField(field, frame.amountConfirmed))
+  // 卡片徽标（"理财非存款" / "知识校验" / "未执行"）：合规与拒答标识不能只留在数据里。
+  const tags = (card?.tags ?? []).map((tag) => el('span', { class: tagClass(tag.tone), text: tag.text }))
+  // `analysis` 卡片可折叠（§5.2）：计算过程长，默认收起，结果字段仍在外面。
+  const body =
+    card?.body === undefined
+      ? null
+      : card.template === 'analysis'
+        ? el('details', { class: 'tool-card__details' }, [
+            el('summary', { class: 'tool-card__summary', text: '查看计算过程' }),
+            el('pre', { class: 'tool-card__body', text: card.body }),
+          ])
+        : el('pre', { class: 'tool-card__body', text: card.body })
 
   return el(
     'section',
     {
-      class: `ds-card tool-card tool-card--${frame.state}`,
+      class: `ds-card tool-card tool-card--${stateKey}`,
       dataset: { callId: frame.callId, state: frame.state, tier: frame.tier },
       'aria-label': `${frame.title}：${stateLabel}`,
     },
@@ -56,20 +77,26 @@ export function renderTool(frame) {
         el('span', { class: 'tool-card__icon' }, [icon(state.icon, 16)]),
         el('div', { class: 'tool-card__heading' }, [
           el('strong', { class: 'tool-card__title', text: card?.title ?? frame.title }),
+          ...(card?.subtitle === undefined
+            ? []
+            : [el('span', { class: 'tool-card__subtitle', text: card.subtitle })]),
           el('span', { class: tagClass(state.tone), text: stateLabel }),
           el('span', {
             class: `ds-tag ${frame.tier === 'red' ? 'ds-tag--danger' : frame.tier === 'yellow' ? 'ds-tag--warning' : ''}`.trim(),
             text: TIER[frame.tier] ?? TIER.unknown,
           }),
+          ...tags,
         ]),
         el('code', { class: 'tool-card__id', text: frame.callId }),
       ]),
 
       ...(fields.length === 0 ? [] : [el('dl', { class: 'tool-card__fields' }, fields)]),
 
-      ...(card?.body === undefined
-        ? []
-        : [el('pre', { class: 'tool-card__body', text: card.body })]),
+      ...(body === null ? [] : [body]),
+
+      ...(card?.table === undefined ? [] : [renderTable(card.table)]),
+
+      ...(card?.note === undefined ? [] : [el('p', { class: 'tool-card__note', text: card.note })]),
 
       ...(card?.disclaimer === undefined
         ? []
@@ -100,6 +127,20 @@ export function renderTool(frame) {
 }
 
 /**
+ * 结构化表格（`CardView.table`，账户列表 / 交易流水用）。
+ *
+ * @param {{ headers: readonly string[], rows: readonly (readonly string[])[] }} table
+ */
+function renderTable(table) {
+  return el('div', { class: 'tool-card__table ds-table-card' }, [
+    el('table', { class: 'ds-table' }, [
+      el('thead', {}, [el('tr', {}, table.headers.map((header) => el('th', { text: header })))]),
+      el('tbody', {}, table.rows.map((row) => el('tr', {}, row.map((cell) => el('td', { text: cell }))))),
+    ]),
+  ])
+}
+
+/**
  * 一个字段行（金额未确认时降级）。
  *
  * @param {{ label: string, value: string, amount?: boolean, mono?: boolean, tone?: string }} field
@@ -110,6 +151,7 @@ export function renderField(field, amountConfirmed) {
   const valueClass = [
     'field__value',
     field.mono === true ? 'field__value--mono' : '',
+    toneClass(field.tone),
     unconfirmed ? 'field__value--unconfirmed' : '',
   ]
     .filter(Boolean)

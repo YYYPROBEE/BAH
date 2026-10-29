@@ -54,6 +54,36 @@ describe('store · 帧归并', () => {
     expect(store.state().streamText).toBe('')
   })
 
+  it('失败收尾后草稿不残留（没有权威助手消息的路径）', () => {
+    const store = createStore()
+    store.apply({ kind: 'delta', at: 1, text: '已经为您' })
+    store.apply({ kind: 'turn', seq: 2, at: 2, turn: 1, phase: 'end', endKind: 'failed' })
+    expect(store.state().streamText).toBe('')
+  })
+
+  it('新一轮开始也丢掉上一轮残稿', () => {
+    const store = createStore()
+    store.apply({ kind: 'delta', at: 1, text: '半句话' })
+    store.apply({ kind: 'turn', seq: 2, at: 2, turn: 2, phase: 'start' })
+    expect(store.state().streamText).toBe('')
+  })
+
+  it('reset 清空帧、草稿与连接状态（不是只清帧）', () => {
+    const store = createStore()
+    store.apply(notice(1))
+    store.apply({ kind: 'delta', at: 1, text: '草稿' })
+    store.setStatus('online')
+    store.setFault({ code: 'x', reason: 'y' })
+
+    store.reset()
+
+    const state = store.state()
+    expect(state.frames).toEqual([])
+    expect(state.streamText).toBe('')
+    expect(state.status).toBe('connecting')
+    expect(state.fault).toBeNull()
+  })
+
   it('订阅能收到状态；退订后不再收到', () => {
     const store = createStore()
     let calls = 0

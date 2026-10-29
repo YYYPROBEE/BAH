@@ -1,0 +1,172 @@
+# 2026-10-29T08:26:13+08:00  GET /api/metrics?format=prometheus (Bearer demo)
+# HELP bah_up Process is up
+# TYPE bah_up gauge
+bah_up 1
+# HELP bah_build_info Build information
+# TYPE bah_build_info gauge
+bah_build_info{node="v22",version="0.1.0"} 1
+# HELP bah_process_start_time_seconds Process start time since epoch
+# TYPE bah_process_start_time_seconds gauge
+bah_process_start_time_seconds 1793233478.218
+# HELP bah_process_uptime_seconds Process uptime in seconds
+# TYPE bah_process_uptime_seconds gauge
+bah_process_uptime_seconds 95.6574218
+# HELP bah_nodejs_rss_bytes Resident set size
+# TYPE bah_nodejs_rss_bytes gauge
+bah_nodejs_rss_bytes 82493440
+# HELP bah_nodejs_heap_used_bytes Heap used
+# TYPE bah_nodejs_heap_used_bytes gauge
+bah_nodejs_heap_used_bytes 21411608
+# HELP bah_nodejs_eventloop_lag_p99_seconds Event loop delay p99
+# TYPE bah_nodejs_eventloop_lag_p99_seconds gauge
+bah_nodejs_eventloop_lag_p99_seconds 5.11e-7
+# HELP bah_http_requests_total Completed HTTP requests
+# TYPE bah_http_requests_total counter
+bah_http_requests_total{method="GET",route="/api/health",status="200"} 1
+bah_http_requests_total{method="POST",route="/api/turn",status="400"} 1
+bah_http_requests_total{method="POST",route="/api/turn",status="202"} 1
+bah_http_requests_total{method="GET",route="/api/metrics",status="200"} 1
+# HELP bah_http_request_duration_seconds HTTP request duration
+# TYPE bah_http_request_duration_seconds histogram
+bah_http_request_duration_seconds_bucket{route="/api/health",le="0.005"} 1
+bah_http_request_duration_seconds_bucket{route="/api/health",le="0.01"} 1
+bah_http_request_duration_seconds_bucket{route="/api/health",le="0.025"} 1
+bah_http_request_duration_seconds_bucket{route="/api/health",le="0.05"} 1
+bah_http_request_duration_seconds_bucket{route="/api/health",le="0.1"} 1
+bah_http_request_duration_seconds_bucket{route="/api/health",le="0.25"} 1
+bah_http_request_duration_seconds_bucket{route="/api/health",le="0.5"} 1
+bah_http_request_duration_seconds_bucket{route="/api/health",le="1"} 1
+bah_http_request_duration_seconds_bucket{route="/api/health",le="2.5"} 1
+bah_http_request_duration_seconds_bucket{route="/api/health",le="5"} 1
+bah_http_request_duration_seconds_bucket{route="/api/health",le="10"} 1
+bah_http_request_duration_seconds_bucket{route="/api/health",le="30"} 1
+bah_http_request_duration_seconds_bucket{route="/api/health",le="+Inf"} 1
+bah_http_request_duration_seconds_sum{route="/api/health"} 0.002
+bah_http_request_duration_seconds_count{route="/api/health"} 1
+bah_http_request_duration_seconds_bucket{route="/api/turn",le="0.005"} 1
+bah_http_request_duration_seconds_bucket{route="/api/turn",le="0.01"} 1
+bah_http_request_duration_seconds_bucket{route="/api/turn",le="0.025"} 2
+bah_http_request_duration_seconds_bucket{route="/api/turn",le="0.05"} 2
+bah_http_request_duration_seconds_bucket{route="/api/turn",le="0.1"} 2
+bah_http_request_duration_seconds_bucket{route="/api/turn",le="0.25"} 2
+bah_http_request_duration_seconds_bucket{route="/api/turn",le="0.5"} 2
+bah_http_request_duration_seconds_bucket{route="/api/turn",le="1"} 2
+bah_http_request_duration_seconds_bucket{route="/api/turn",le="2.5"} 2
+bah_http_request_duration_seconds_bucket{route="/api/turn",le="5"} 2
+bah_http_request_duration_seconds_bucket{route="/api/turn",le="10"} 2
+bah_http_request_duration_seconds_bucket{route="/api/turn",le="30"} 2
+bah_http_request_duration_seconds_bucket{route="/api/turn",le="+Inf"} 2
+bah_http_request_duration_seconds_sum{route="/api/turn"} 0.024
+bah_http_request_duration_seconds_count{route="/api/turn"} 2
+bah_http_request_duration_seconds_bucket{route="/api/metrics",le="0.005"} 1
+bah_http_request_duration_seconds_bucket{route="/api/metrics",le="0.01"} 1
+bah_http_request_duration_seconds_bucket{route="/api/metrics",le="0.025"} 1
+bah_http_request_duration_seconds_bucket{route="/api/metrics",le="0.05"} 1
+bah_http_request_duration_seconds_bucket{route="/api/metrics",le="0.1"} 1
+bah_http_request_duration_seconds_bucket{route="/api/metrics",le="0.25"} 1
+bah_http_request_duration_seconds_bucket{route="/api/metrics",le="0.5"} 1
+bah_http_request_duration_seconds_bucket{route="/api/metrics",le="1"} 1
+bah_http_request_duration_seconds_bucket{route="/api/metrics",le="2.5"} 1
+bah_http_request_duration_seconds_bucket{route="/api/metrics",le="5"} 1
+bah_http_request_duration_seconds_bucket{route="/api/metrics",le="10"} 1
+bah_http_request_duration_seconds_bucket{route="/api/metrics",le="30"} 1
+bah_http_request_duration_seconds_bucket{route="/api/metrics",le="+Inf"} 1
+bah_http_request_duration_seconds_sum{route="/api/metrics"} 0.004
+bah_http_request_duration_seconds_count{route="/api/metrics"} 1
+# HELP bah_http_in_flight In-flight HTTP requests
+# TYPE bah_http_in_flight gauge
+bah_http_in_flight 1
+# HELP bah_http_rate_limited_total Rate limited requests
+# TYPE bah_http_rate_limited_total counter
+bah_http_rate_limited_total 0
+# HELP bah_sse_clients Connected SSE clients
+# TYPE bah_sse_clients gauge
+bah_sse_clients 0
+# HELP bah_sse_frames_total SSE frames published
+# TYPE bah_sse_frames_total counter
+bah_sse_frames_total{event="frame"} 47
+bah_sse_frames_total{event="fault"} 0
+# HELP bah_turns_total Finished turns
+# TYPE bah_turns_total counter
+bah_turns_total 1
+# HELP bah_turn_duration_seconds Turn duration
+# TYPE bah_turn_duration_seconds histogram
+bah_turn_duration_seconds_bucket{le="0.005"} 0
+bah_turn_duration_seconds_bucket{le="0.01"} 0
+bah_turn_duration_seconds_bucket{le="0.025"} 1
+bah_turn_duration_seconds_bucket{le="0.05"} 1
+bah_turn_duration_seconds_bucket{le="0.1"} 1
+bah_turn_duration_seconds_bucket{le="0.25"} 1
+bah_turn_duration_seconds_bucket{le="0.5"} 1
+bah_turn_duration_seconds_bucket{le="1"} 1
+bah_turn_duration_seconds_bucket{le="2.5"} 1
+bah_turn_duration_seconds_bucket{le="5"} 1
+bah_turn_duration_seconds_bucket{le="10"} 1
+bah_turn_duration_seconds_bucket{le="30"} 1
+bah_turn_duration_seconds_bucket{le="+Inf"} 1
+bah_turn_duration_seconds_sum 0.021
+bah_turn_duration_seconds_count 1
+# HELP bah_turn_end_total Turns by end reason
+# TYPE bah_turn_end_total counter
+bah_turn_end_total{reason="completed"} 1
+# HELP bah_steps_total Finished steps
+# TYPE bah_steps_total counter
+bah_steps_total 2
+# HELP bah_llm_requests_total LLM requests
+# TYPE bah_llm_requests_total counter
+bah_llm_requests_total{model="router-chat",status="request"} 2
+# HELP bah_llm_tokens_total LLM tokens
+# TYPE bah_llm_tokens_total counter
+bah_llm_tokens_total{kind="input"} 200
+bah_llm_tokens_total{kind="cached_input"} 0
+bah_llm_tokens_total{kind="output"} 40
+# HELP bah_llm_cost_micro_yuan_total LLM cost in micro yuan
+# TYPE bah_llm_cost_micro_yuan_total counter
+bah_llm_cost_micro_yuan_total{model="router-chat"} 0
+# HELP bah_llm_cost_configured Whether pricing is configured
+# TYPE bah_llm_cost_configured gauge
+bah_llm_cost_configured 0
+# HELP bah_tool_calls_total Tool calls
+# TYPE bah_tool_calls_total counter
+bah_tool_calls_total{tier="green",tool="account_balance"} 1
+# HELP bah_tool_duration_seconds Tool execution duration
+# TYPE bah_tool_duration_seconds histogram
+bah_tool_duration_seconds_bucket{tool="account_balance",le="0.001"} 0
+bah_tool_duration_seconds_bucket{tool="account_balance",le="0.005"} 0
+bah_tool_duration_seconds_bucket{tool="account_balance",le="0.01"} 1
+bah_tool_duration_seconds_bucket{tool="account_balance",le="0.025"} 1
+bah_tool_duration_seconds_bucket{tool="account_balance",le="0.05"} 1
+bah_tool_duration_seconds_bucket{tool="account_balance",le="0.1"} 1
+bah_tool_duration_seconds_bucket{tool="account_balance",le="0.25"} 1
+bah_tool_duration_seconds_bucket{tool="account_balance",le="0.5"} 1
+bah_tool_duration_seconds_bucket{tool="account_balance",le="1"} 1
+bah_tool_duration_seconds_bucket{tool="account_balance",le="2.5"} 1
+bah_tool_duration_seconds_bucket{tool="account_balance",le="5"} 1
+bah_tool_duration_seconds_bucket{tool="account_balance",le="+Inf"} 1
+bah_tool_duration_seconds_sum{tool="account_balance"} 0.006
+bah_tool_duration_seconds_count{tool="account_balance"} 1
+# HELP bah_slo_value SLO values
+# TYPE bah_slo_value gauge
+bah_slo_value{metric="compFailureRate",verdict="ok"} 0
+bah_slo_value{metric="danglingP95",verdict="no-data"} NaN
+bah_slo_value{metric="posNegMismatchRate",verdict="no-data"} NaN
+bah_slo_value{metric="dlqDepth",verdict="ok"} 0
+bah_slo_value{metric="chainBreak",verdict="alert"} 0
+bah_slo_value{metric="rto",verdict="no-data"} NaN
+bah_slo_value{metric="reconHeartbeat",verdict="ok"} 0.0004037037037037037
+bah_slo_value{metric="residualDiffRate",verdict="no-data"} NaN
+# HELP bah_telemetry_spans Spans in ring buffer
+# TYPE bah_telemetry_spans gauge
+bah_telemetry_spans 11
+# HELP bah_telemetry_spans_dropped_total Dropped spans
+# TYPE bah_telemetry_spans_dropped_total counter
+bah_telemetry_spans_dropped_total{reason="capacity"} 0
+# HELP bah_log_lines_total Log lines by level
+# TYPE bah_log_lines_total counter
+bah_log_lines_total{level="debug"} 0
+bah_log_lines_total{level="info"} 1
+bah_log_lines_total{level="warn"} 1
+bah_log_lines_total{level="error"} 1
+# HELP bah_alerts_total Alert deliveries
+# TYPE bah_alerts_total counter
+bah_alerts_total{level="P0",result="stderr"} 1

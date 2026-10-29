@@ -128,6 +128,41 @@ describe('审批弹窗 · 六要素（T-WEB-003）', () => {
     expect(calls[0]).toEqual(['ticket:call-1', 'cancelled', undefined])
   })
 
+  it('点击遮罩 = 取消；点击弹窗内部不取消（§5.3）', async () => {
+    const outside = setup(approval())
+    const backdrop = outside.root.querySelector('.approval-backdrop')
+    backdrop.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await Promise.resolve()
+    expect(outside.calls[0]).toEqual(['ticket:call-1', 'cancelled', undefined])
+
+    const inside = setup(approval())
+    inside.root.querySelector('.approval__reason').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await Promise.resolve()
+    expect(inside.calls).toEqual([])
+  })
+
+  it('在理由框里拖选、松开时落到遮罩上 → 不算点遮罩（不误取消）', async () => {
+    const { root, calls } = setup(approval())
+    const textarea = root.querySelector('.approval__reason')
+    const backdrop = root.querySelector('.approval-backdrop')
+    // 按下在输入框、抬起在遮罩：click 会落在共同祖先（遮罩）上
+    textarea.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await Promise.resolve()
+    expect(calls).toEqual([])
+  })
+
+  it('rejectReasonRequired=false 时不填理由也能拒绝', async () => {
+    const { root, calls } = setup(approval({ rejectReasonRequired: false }))
+    const reject = [...root.querySelectorAll('.ds-dialog__foot button')].find((button) =>
+      button.textContent.includes('拒绝'),
+    )
+    reject.click()
+    await Promise.resolve()
+    expect(calls[0]).toEqual(['ticket:call-1', 'rejected', undefined])
+  })
+
   it('安全默认：打开即聚焦"拒绝"', () => {
     const { root } = setup(approval())
     expect(document.activeElement.textContent).toContain('拒绝')
@@ -139,9 +174,9 @@ describe('审批弹窗 · 红级强验证', () => {
     document.body.innerHTML = ''
   })
 
-  it('有挑战时批准按钮先禁用，验证通过后可用', async () => {
+  it('有挑战时批准按钮先禁用，验证通过后可用且真能提交', async () => {
     const frame = approval({ tier: 'red', challenge: 'face' })
-    const { root } = setup(frame)
+    const { root, calls } = setup(frame)
     const approve = [...root.querySelectorAll('.ds-dialog__foot button')].find((button) =>
       button.textContent.includes('批准'),
     )
@@ -152,6 +187,65 @@ describe('审批弹窗 · 红级强验证', () => {
     await Promise.resolve()
     expect(approve.disabled).toBe(false)
     expect(root.querySelector('.approval__hint').textContent).toContain('验证通过')
+
+    // 验证通过后必须真的能批准：否则红级路径永远到不了 allowed-once
+    approve.click()
+    await Promise.resolve()
+    expect(calls[0]).toEqual(['ticket:call-1', 'allowed-once', undefined])
+  })
+
+  it('红级：提交失败不解锁"批准"（挑战态不因回滚被绕过）', async () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const controller = createApprovalController(root, {
+      onDecision: async () => ({ ok: false, reason: 'already-decided' }),
+      onVerify: async () => ({ ok: true }),
+    })
+    controller.show(approval({ tier: 'red', challenge: 'face' }))
+    controllers.push(controller)
+
+    const approve = [...root.querySelectorAll('.ds-dialog__foot button')].find((button) =>
+      button.textContent.includes('批准'),
+    )
+    expect(approve.disabled).toBe(true)
+
+    root.querySelector('[role="dialog"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(root.querySelector('.approval__hint').textContent).toContain('提交失败')
+    expect(approve.disabled).toBe(true)
+  })
+
+  it('提交在飞时按 Esc 不再发第二条结论', async () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const decisions = []
+    let release = () => undefined
+    const controller = createApprovalController(root, {
+      onDecision: (ticketId, decision) => {
+        decisions.push(decision)
+        return new Promise((resolve) => {
+          release = () => resolve({ ok: true })
+        })
+      },
+      onVerify: async () => ({ ok: true }),
+    })
+    controller.show(approval())
+    controllers.push(controller)
+
+    const approve = [...root.querySelectorAll('.ds-dialog__foot button')].find((button) =>
+      button.textContent.includes('批准'),
+    )
+    approve.click()
+    await Promise.resolve()
+    expect(decisions).toEqual(['allowed-once'])
+
+    root.querySelector('[role="dialog"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await Promise.resolve()
+    expect(decisions).toEqual(['allowed-once'])
+
+    release()
   })
 })
 
@@ -202,6 +296,19 @@ describe('审批弹窗 · 定时器', () => {
     const { controller } = setup(approval())
     expect(controller.isOpen()).toBe(true)
     controller.clear()
+    expect(controller.isOpen()).toBe(false)
+  })
+
+  it('结论收尾后不再是"待应答"（isOpen 表示待办，不是节点存在）', () => {
+    const { controller } = setup(approval())
+    expect(controller.isOpen()).toBe(true)
+    controller.close({
+      kind: 'approval-closed',
+      seq: 5,
+      ticketId: 'ticket:call-1',
+      decision: 'allowed-once',
+      label: '已批准（一次性）',
+    })
     expect(controller.isOpen()).toBe(false)
   })
 })

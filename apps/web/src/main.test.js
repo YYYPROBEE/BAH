@@ -247,12 +247,82 @@ describe('mountApp · 交互细节', () => {
     expect(root.querySelector('#panel-dag').hidden).toBe(true)
   })
 
+  it('标签页补齐 ARIA 关系，方向键可切换', () => {
+    const { root } = mount()
+    const [dagTab, auditTab] = root.querySelectorAll('.panel__tabs .ds-tab')
+    expect(dagTab.getAttribute('aria-controls')).toBe('panel-dag')
+    expect(auditTab.getAttribute('aria-controls')).toBe('panel-audit-box')
+    expect(root.querySelector('#panel-dag').getAttribute('role')).toBe('tabpanel')
+    expect(root.querySelector('#panel-audit-box').getAttribute('role')).toBe('tabpanel')
+
+    dagTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    expect(auditTab.getAttribute('aria-selected')).toBe('true')
+    expect(auditTab.tabIndex).toBe(0)
+    expect(root.querySelector('#panel-audit-box').hidden).toBe(false)
+  })
+
+  it('计数条只出现在审计页，切到调用图时一并隐藏', () => {
+    const { root, transport } = mount()
+    transport.push(snapshot())
+    const summary = root.querySelector('.panel__summary')
+    expect(summary.closest('#panel-audit-box')).not.toBeNull()
+    expect(root.querySelector('#panel-audit-box').hidden).toBe(true)
+  })
+
+  it('DAG 帧没有节点时走空态，不留空白 SVG', () => {
+    const { root, transport } = mount()
+    transport.push({ kind: 'dag', seq: 1, at: 1, turn: 1, nodes: [], edges: [], summary: '第 1 轮 · 0 个调用' })
+    expect(root.querySelector('#panel-dag svg.dag')).toBeNull()
+    expect(root.querySelector('#panel-dag .ds-empty')).not.toBeNull()
+  })
+
+  it('/api/session 返回非 JSON 时顶栏不显示 undefined', async () => {
+    const api = fakeApi({ session: async () => ({ ok: true, status: 200, data: null }) })
+    const { root } = mount(api)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(root.querySelector('.app-header__session').textContent).toBe('会话 —')
+  })
+
   it('空输入不发请求', async () => {
     const api = fakeApi()
     const { root } = mount(api)
     root.querySelector('.composer__input').value = '   '
     root.querySelector('#composer').dispatchEvent(new Event('submit', { cancelable: true }))
     await Promise.resolve()
+    expect(api.calls).toEqual([])
+  })
+
+  it('在飞时再次提交不重复发请求（连按 Enter / 双击）', async () => {
+    const calls = []
+    let release = () => undefined
+    const api = {
+      ...fakeApi(),
+      turn: (text) => {
+        calls.push(text)
+        return new Promise((resolve) => {
+          release = () => resolve({ ok: true, status: 202, data: { ok: true } })
+        })
+      },
+    }
+    const { root } = mount(api)
+    const form = root.querySelector('#composer')
+    root.querySelector('.composer__input').value = '查余额'
+
+    form.dispatchEvent(new Event('submit', { cancelable: true }))
+    form.dispatchEvent(new Event('submit', { cancelable: true }))
+    await Promise.resolve()
+
+    expect(calls).toEqual(['查余额'])
+    release()
+  })
+
+  it('输入法组合中的 Enter 不发送（中文选词不误提交）', () => {
+    const api = fakeApi()
+    const { root } = mount(api)
+    const input = root.querySelector('.composer__input')
+    input.value = '转账'
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }))
     expect(api.calls).toEqual([])
   })
 

@@ -103,6 +103,54 @@ describe('工具卡片 · 合规与正文', () => {
     expect(alert.className).toContain('ds-alert--warning')
   })
 
+  it('卡片徽标与字段色调都渲染（合规标签不能只留在数据里）', () => {
+    const node = renderTool(
+      tool({
+        state: 'done',
+        amountConfirmed: true,
+        card: {
+          kind: 'tool.knowledge_answer',
+          template: 'knowledge',
+          title: '知识问答',
+          tags: [{ text: '知识校验', tone: 'brand' }],
+          fields: [{ label: '理由码', value: 'KB-001', mono: true, tone: 'danger' }],
+        },
+      }),
+    )
+    expect(node.textContent).toContain('知识校验')
+    expect(node.querySelector('.ds-tag--brand')).not.toBeNull()
+    expect(node.querySelector('.field__value').className).toContain('field__value--danger')
+  })
+
+  it('副标题 / 备注 / 表格按契约渲染', () => {
+    const node = renderTool(
+      tool({
+        state: 'done',
+        amountConfirmed: true,
+        card: {
+          kind: 'tool.account_list',
+          template: 'ledger',
+          title: '账户列表',
+          subtitle: '共 2 个账户',
+          fields: [],
+          tags: [],
+          note: '金额单位为元',
+          table: {
+            headers: ['账户', '余额'],
+            rows: [
+              ['储蓄卡', '¥1,000.00'],
+              ['信用卡', '¥0.00'],
+            ],
+          },
+        },
+      }),
+    )
+    expect(node.textContent).toContain('共 2 个账户')
+    expect(node.textContent).toContain('金额单位为元')
+    expect(node.querySelector('table.ds-table')).not.toBeNull()
+    expect(node.querySelectorAll('tbody td')).toHaveLength(4)
+  })
+
   it('正文用 pre 保留换行（模型给的多行结果不被压平）', () => {
     const node = renderTool(
       tool({
@@ -112,5 +160,29 @@ describe('工具卡片 · 合规与正文', () => {
     const body = node.querySelector('.tool-card__body')
     expect(body.tagName).toBe('PRE')
     expect(body.textContent).toContain('\n')
+  })
+
+  it('analysis 卡片正文默认折叠（计算过程长）', () => {
+    const node = renderTool(
+      tool({
+        state: 'done',
+        amountConfirmed: true,
+        card: { kind: 'tool.analysis_calc', template: 'analysis', title: '受限计算', fields: [], tags: [], body: '1 + 1 = 2' },
+      }),
+    )
+    const details = node.querySelector('details.tool-card__details')
+    expect(details).not.toBeNull()
+    expect(details.open).toBe(false)
+    expect(details.querySelector('summary').textContent).toContain('查看计算过程')
+    expect(details.querySelector('pre').textContent).toContain('1 + 1 = 2')
+  })
+})
+
+describe('工具卡片 · 状态兜底', () => {
+  it('未知状态退回 pending，不产出 tool-card--undefined', () => {
+    const node = renderTool(tool({ state: 'mystery' }))
+    expect(node.className).toContain('tool-card--pending')
+    expect(node.className).not.toContain('undefined')
+    expect(node.dataset.state).toBe('mystery')
   })
 })

@@ -90,6 +90,10 @@ const WRONG_CLAIMS: readonly { readonly pattern: RegExp; readonly why: string }[
     pattern: /无人工接管|没有人工接管|没有运行时 handoff|无 handoff/i,
     why: 'C5 起有最小接管平面：`POST /api/handoff` → `/api/turn` 409 → `POST /api/handoff/resume`',
   },
+  {
+    pattern: /没有\s*trace\s*导出|无\s*trace\s*导出|没有成本看板/,
+    why: '观测面（01–03）已提供 `/api/trace` + Chrome Trace 导出与成本卡；旧口径已过期',
+  },
 ]
 
 /** 从 facts-sources 的机器块读当前值。 */

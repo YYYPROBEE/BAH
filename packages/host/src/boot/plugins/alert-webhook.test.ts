@@ -82,6 +82,25 @@ describe('alert-webhook · URL 与投递', () => {
     }
   })
 
+  it('非 2xx（503）按失败重试，不能当成功计数', async () => {
+    resetAlertStats()
+    const fetchImpl = vi.fn(async () => ({ ok: false, status: 503 }) as Response)
+    const dispose = installAlertWebhook('https://example.test/hook', {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      retryDelaysMs: [0, 0],
+      now: () => 1_000,
+    })
+    try {
+      emitAlert({ level: 'P0', detail: 'hook down' })
+      await tick()
+      expect(fetchImpl).toHaveBeenCalledTimes(2)
+      expect(alertSamples()).toContainEqual({ level: 'P0', result: 'failed', count: 1 })
+      expect(alertSamples().some((sample) => sample.result === 'webhook')).toBe(false)
+    } finally {
+      dispose()
+    }
+  })
+
   it('重试退避走 sleep（定时器 unref），最终失败计数', async () => {
     resetAlertStats()
     const fetchImpl = vi.fn(async () => {

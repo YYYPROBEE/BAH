@@ -111,18 +111,19 @@ export function renderDag(frame) {
     group.append(rect)
 
     const label = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+    label.setAttribute('class', 'dag__label')
     label.setAttribute('x', String(position.x + 10))
     label.setAttribute('y', String(position.y + 23))
     label.setAttribute('fill', visual.text)
-    label.setAttribute('font-size', '12')
+    // 字号走 CSS 令牌（`--body-sm-font-size`）：硬编码 12px 与文档字阶脱钩。
     label.textContent = truncate(node.label, 12)
     group.append(label)
 
     const badge = document.createElementNS('http://www.w3.org/2000/svg', 'text')
+    badge.setAttribute('class', 'dag__badge')
     badge.setAttribute('x', String(position.x + NODE_W - 10))
     badge.setAttribute('y', String(position.y + 23))
     badge.setAttribute('text-anchor', 'end')
-    badge.setAttribute('font-size', '10')
     badge.setAttribute('fill', 'var(--text-tertiary)')
     badge.textContent = node.kind === 'call' ? (TIER[node.tier] ?? '?') : ''
     group.append(badge)
