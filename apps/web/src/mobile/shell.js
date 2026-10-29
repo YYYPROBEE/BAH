@@ -18,6 +18,7 @@
 
 import { clear, el } from '../dom.js'
 import { createStore, viewKey } from '../store.js'
+import { createSessionControls } from './session-controls.js'
 import { connectEvents, createHttpApi } from '../transport.js'
 import { renderAudit } from '../views/audit.js'
 import { renderDraft, renderEmptyState, renderFrame } from '../views/conversation.js'
@@ -283,6 +284,7 @@ export function createMobileShell(deps) {
 
   let capabilities = deps.capabilities
   let sheet = null
+  let controls = null
   let composer = null
   let choiceCard = null
   let unstableNotice = null
@@ -522,6 +524,21 @@ export function createMobileShell(deps) {
       focusComposer: () => composer?.focusInput(),
     })
 
+    // 04 单：接管入口/横幅 + 回到上一步。端点客户端默认来自 transport.js；
+    // 测试可注入 `deps.controlClient`（不为此在壳里再造第二份 transport）。
+    controls = createSessionControls(dock, {
+      ...(deps.controlClient === undefined ? {} : { client: deps.controlClient }),
+      latestTurn: () => {
+        let turn
+        for (const frame of store.state().frames) {
+          if (frame.kind === 'turn' && frame.phase === 'end') turn = frame.turn
+        }
+        return turn
+      },
+      onNotice: (text) => composer?.showError(text),
+    })
+    void controls.refresh()
+
     composer = createComposer(dock, {
       submit: submitTurn,
       interrupt: async (reason) => uiErrorOf(await api.interrupt(reason)),
@@ -563,6 +580,7 @@ export function createMobileShell(deps) {
     unsubscribe?.()
     unsubscribe = null
     composer?.dispose()
+    controls?.dispose()
     choiceCard?.dispose()
     effectsList.dispose()
     planSteps.dispose()
@@ -596,6 +614,9 @@ export function createMobileShell(deps) {
     },
     get composer() {
       return composer
+    },
+    get controls() {
+      return controls
     },
     get choiceCard() {
       return choiceCard

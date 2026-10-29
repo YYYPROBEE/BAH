@@ -24,7 +24,7 @@ import { deltaFrame, WebProjector, type ChannelId, type HttpChannelAdapter } fro
 import { describeThrown, type Context, type ServiceKey } from '@bah/core'
 import { APPROVAL_SERVICE, type ApprovalResponder } from '@bah/interaction'
 import { HALT_SERVICE, SENTRY_SERVICE } from '@bah/safety'
-import { AGENTS_SERVICE, SESSION_SERVICE, type Agent, type AnySessionEvent } from '@bah/runtime'
+import { AGENTS_SERVICE, SESSION_SERVICE, TOOLS_SERVICE, type Agent, type AnySessionEvent } from '@bah/runtime'
 
 import { RUN_SERVICE } from '../../boot.ts'
 import { TELEMETRY } from '../telemetry.ts'
@@ -78,7 +78,15 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
     // 归属校验（W04）：票据只能由它所属的会话应答；与 ApprovalService 的 sessionId 必须同源
     sessionId: String(session.sessionId),
   })
-  const projector = new WebProjector()
+  // 施工单 01 §3.5 的注入口在 04 单接线：effects 帧的"写侧工具"权威名单来自
+  // 宿主的工具注册表（`sideEffect==='write'`）。绿色但 write 的 `verify_*` 由此进入清单——
+  // 只靠 tier 双判据会漏掉它们。
+  const writeToolNames = tryService(ctx, TOOLS_SERVICE)
+    ?.list()
+    .filter((definition) => definition.sideEffect === 'write')
+    .map((definition) => definition.name)
+  const projector =
+    writeToolNames === undefined ? new WebProjector() : new WebProjector({ writeToolNames })
   // 历史重放：进程重启后前端连上来仍能看到完整对话（不依赖前端本地缓存）
   for (const event of session.events() as readonly AnySessionEvent[]) projector.apply(event)
 

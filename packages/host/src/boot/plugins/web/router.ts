@@ -27,6 +27,7 @@ export type RouteHandler =
   | 'approval'
   | 'verify'
   | 'handoff'
+  | 'fork'
   | 'admin'
   | 'static'
 
@@ -178,6 +179,17 @@ export const ROUTES: readonly RouteSpec[] = [
     statuses: [200, 400, 401, 503],
     handler: 'trace',
     note: '轨迹：事件派生的 span 森林；`?format=chrome` 导出 Chrome Trace（Perfetto 可直接打开）',
+  },
+  {
+    methods: ['POST'],
+    path: '/api/session/fork',
+    kind: 'exact',
+    auth: 'web',
+    csrf: true,
+    // 400 = turn 非法；404 = 无活动会话；409 = 边界 turn 未结束 / 接管期；500 = 原日志断代
+    statuses: [200, 400, 401, 403, 404, 405, 409, 500],
+    handler: 'fork',
+    note: '在 turn 边界分叉新会话 `{ turn }`（旧会话原样封存；新会话仅进程内存在）',
   },
   {
     methods: ['POST'],

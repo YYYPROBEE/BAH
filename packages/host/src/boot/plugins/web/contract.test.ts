@@ -41,7 +41,7 @@ function fingerprint(route: (typeof ROUTES)[number]): string {
 }
 
 describe('W16 路由表（拆分前后同一份期望）', () => {
-  it('17 条路由的三元组逐条不变（12 条 W16 基线 + D2 指标 + 02 轨迹 + 3 条 C5 接管）', () => {
+  it('18 条路由的三元组逐条不变（12 条 W16 基线 + D2 指标 + 02 轨迹 + 3 条 C5 接管 + 04 分叉）', () => {
     expect(ROUTES.map(fingerprint)).toEqual([
       'GET /api/health exact public no-csrf 200 health',
       'POST /api/admin/sentry/unfreeze exact admin no-csrf 200,400,401,403,404,405,503 admin',
@@ -54,6 +54,8 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
       'GET /api/metrics exact web no-csrf 200,400,401 metrics',
       // 02 新增：轨迹森林 / Chrome Trace（只读，Bearer 同闸；400 = format/limit 非法）
       'GET /api/trace exact web no-csrf 200,400,401,503 trace',
+      // 04 新增：回到上一步 = 在 turn 边界分叉新会话（旧会话原样封存）
+      'POST /api/session/fork exact web csrf 200,400,401,403,404,405,409,500 fork',
       'POST /api/turn exact web csrf 202,400,401,403,423,503 turn',
       'POST /api/interrupt exact web csrf 200,401,403,503 interrupt',
       'POST /api/approval/ prefix web csrf 200,400,401,403,404,409 approval',
@@ -73,6 +75,7 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
     // 用 `handler 路径` 而不是只列 handler：C5 起同一个 handler 承担两条写路由
     // （`POST /api/handoff` 与 `/resume`），只列 handler 会看不出少的是哪一条闸
     expect(guarded.map((route) => `${route.handler} ${route.path}`)).toEqual([
+      'fork /api/session/fork',
       'turn /api/turn',
       'interrupt /api/interrupt',
       'approval /api/approval/',

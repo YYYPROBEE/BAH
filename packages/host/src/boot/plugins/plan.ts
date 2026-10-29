@@ -29,12 +29,15 @@
  * 包裹层只拿到 `call`），所以 turn 被取消后，已进入的 plan 节点仍会跑完。
  */
 
-import { BANK_TOOL_NAME_SET } from '@bah/bank'
+import { BANK_TOOL_NAME_SET, yuanToCents } from '@bah/bank'
 import { defineService } from '@bah/core'
 import { HALT_SERVICE } from '@bah/safety'
 import {
   SESSION_SERVICE,
   TOOLS_SERVICE,
+  createGoalSetTool,
+  createGoalStore,
+  createTodoWriteTool,
   PLAN_INCIDENT_CODE,
   PLAN_NODE_ID_PATTERN,
   PlanEngine,
@@ -551,6 +554,41 @@ export const planPlugin: HostPlugin<PlanSettings> = {
       }
 
       ctx.effect(ctx.provide(PLAN_SERVICE, api))
+
+      /*
+       * 04 单：goal / todo 平面（D5 表指定的落点 = plan 插件同族）。
+       *
+       * 两个工具都零新事件键：落账只有管线自动落的 `tool/call` + `tool/result`。
+       * goal 的会话级 store 在进程内；因为结果已落账，重启后可用
+       * `replayGoalStore(sessionEvents)` 重建（诚实边界，见 docs/mobile.md）。
+       *
+       * `originTurn` 的来源：`ToolExecContext` 不带 turn（core 契约面冻结），
+       * 所以由插件按 `turn/start` 维护一个当前轮次，注入给工具。
+       */
+      const session = ctx.get(SESSION_SERVICE)
+      let currentTurn = 0
+      for (const event of session.events()) {
+        if (event.type === 'turn/start') currentTurn = Math.max(currentTurn, event.data.turn)
+      }
+      ctx.effect(
+        ctx.events.on('session/event', ({ event }) => {
+          if (event.type === 'turn/start') currentTurn = event.data.turn
+        }),
+      )
+      let goalSeq = 0
+      const goalStore = createGoalStore({
+        now: clock,
+        nextId: () => {
+          goalSeq += 1
+          return `g-${String(goalSeq)}`
+        },
+      })
+      ctx.effect(
+        registry().register(
+          createGoalSetTool(goalStore, { turnOf: () => currentTurn, toCents: yuanToCents }),
+        ),
+      )
+      ctx.effect(registry().register(createTodoWriteTool({ now: clock })))
 
       /**
        * B1：模型可见的规划入口。

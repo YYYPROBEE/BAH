@@ -1,7 +1,9 @@
 /**
- * @bah/runtime · 逻辑模块 goal（M0 占位）。
+ * @bah/runtime · goal 平面（04 单）。
  *
- * 本文件只声明模块位置，不实现任何运行逻辑；
- * 实装见施工单 03、04、05、14。
+ * 状态封闭联合 + 确定性 store + 重放重建 + 内置绿级工具 `goal_set`。
+ * 零新事件键：所有落账走 `tool/call` + `tool/result`（D5/D8）。
  */
-export {}
+export * from './types.ts'
+export * from './store.ts'
+export * from './tool.ts'

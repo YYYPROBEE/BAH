@@ -7,14 +7,15 @@
 
 | 面 | 命令 | 配置 | 装什么 | 现状（2026-10-29 实测） |
 |---|---|---|---|---|
-| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 260 文件 / 2990 用例 |
+| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 264 文件 / 3047 用例 |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
-| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 8 文件 / 34 用例 |
+| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 9 文件 / 39 用例 |
 | web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 前端 22 文件 / 333 用例 |
 
 意图/追问平面（03 单）在前两个面里各占一块：`packages/runtime/src/intent/*.test.ts`（规则引擎、
 槽位归一化、脱敏、检索闸门、工具 fail-loud）、`packages/interaction/src/prompt/*.test.ts`
-（候选去重/排序/上限/手动出口/追问上限）、`scripts/verify-intent-determinism.test.ts`（门禁正反夹具）、
+（候选去重/排序/上限/手动出口/追问上限）、`scripts/intent-determinism.test.ts`（门禁正反夹具）、
+`scripts/cross-scene-gate.test.ts`（跨场景门禁的正反夹具：todo 落账 / goal 新键 / addNode / 批量放行 / 重跑 succeeded）、
 `packages/channels/src/web/project.choice.test.ts`（`prompt_ask` → `choice` 帧投影）。
 
 一条命令跑全链（本地等价 CI，fail-fast）：
@@ -321,7 +322,7 @@ snapshots/<case>/
 4. **jsdom 用例必须 `vi.resetModules()`**：模块级副作用（写 DOM）不可重复触发，否则第二个用例拿到上一次的模块实例。
 5. **临时目录用例必须在 `afterEach` 清干净**：Windows 上残留句柄会导致目录删不掉，进而污染后续用例。
 
-## 12. eval 面（W13：60 场景 + 四项指标）
+## 12. eval 面（W13 + 03/04 单：71 场景 + 四项指标）
 
 ```bash
 npx tsx scripts/eval.ts                     # 全量（默认 --shard=6；2026-10-26 实测 7.5s，预算 ≤180s）
@@ -396,7 +397,7 @@ npx tsx scripts/replay.ts --snapshots snapshots/headless-basic/session.jsonl
 ```bash
 pnpm eval:unit          # vitest --config vitest.eval.config.ts（实测 155 例）
 pnpm eval:smoke         # 对抗集每族 3 例（9 例，~4s）
-pnpm eval:baseline      # 跑全量 60 场景并与 packages/eval/baseline.json 比较
+pnpm eval:baseline      # 跑全量 71 场景并与 packages/eval/baseline.json 比较
 pnpm eval:baseline:record  # 显式重录基线（commit/seed/指标/目标值）
 ```
 

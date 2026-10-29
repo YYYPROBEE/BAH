@@ -314,6 +314,17 @@ hmr: false
 `safety:sentry` / `bah:memory-store`）与 web **逐字一致**——门禁 `channel-capabilities` 的 I8 会比对
 规范化序列化：一旦分叉就是"两套业务口径"的早期信号。
 
+**04 单新增的两行装配**（是"能力装配"，不是业务口径分叉；`bank:tools` 一行都没改）：
+
+| 行 | 值 | 为什么 |
+|---|---|---|
+| `plan:dag`（`use: plan:dag`） | `modelTools: true`，`maxNodes: 16` | 模型看得见 `plan_propose` / `plan_execute` / `goal_set` / `todo_write`；节点工具仍由 `BANK_TOOL_NAME_SET` 锁死 |
+| `bank:saga-bridge` | `enabled: false` | plan 节点本身就是 preview → create 两步，再叠一层 bridge 会展开两次（与 `profiles/web-plan` 同款理由） |
+
+> 为什么没有给移动端单独抬日限额：生日案例三笔合计 600 元 < 默认日限 1000 元，全链黄级；
+> 而给 mobile 单独写 `dailyTransferLimit` 会让 `bank:tools` 在两端出现两套取值——门禁 I8 判红，
+> 也正是 00 D2 要防的"两套账"。演示金额因此取 300/200/100（不是 1000/300/200）。
+
 生效树（实测）：
 
 ```text

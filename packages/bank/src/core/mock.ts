@@ -33,7 +33,7 @@ import type {
   UserId,
   WealthProduct,
 } from './model.ts'
-import { bankIds, PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX, toPct } from './model.ts'
+import { accountDisplayName, bankIds, PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX, toPct } from './model.ts'
 import type {
   Balance,
   BankCoreProvider,
@@ -255,7 +255,9 @@ export class MockBankCore implements BankCoreProvider {
     const account = this.requireAccount(req.fromAccountId)
     this.assertAmount(req.amountCents)
     const at = this.now()
-    const payee = this.findPayee(account.userId, req.payee)
+    // 本人账户命中优先于收款人表：否则「锁定账户(9012)」会被当成新收款人升红
+    const selfTarget = this.resolveSelfTransfer(account, req.payee)
+    const payee = selfTarget === undefined ? this.findPayee(account.userId, req.payee) : undefined
     const dailyLimitCents = this.dailyLimitOf(account.id)
     const dailyUsedCents = this.dailyUsedCents(account.id, at)
     const risks = checkTransferRisks({
@@ -263,7 +265,7 @@ export class MockBankCore implements BankCoreProvider {
       availableCents: account.availableCents,
       dailyUsedCents,
       dailyLimitCents,
-      payeeBinding: payee?.binding ?? 'new',
+      payeeBinding: selfTarget !== undefined ? 'whitelist' : (payee?.binding ?? 'new'),
       recentOutCount: this.recentOutCount(account.id, at),
       duplicateRecent: this.hasRecentDuplicate(account.id, req.payee.name, req.amountCents, at),
       at,
@@ -272,7 +274,10 @@ export class MockBankCore implements BankCoreProvider {
     return {
       amountCents: req.amountCents,
       feeCents: 0,
-      payee: payeeView(req.payee, payee),
+      payee:
+        selfTarget === undefined
+          ? payeeView(req.payee, payee)
+          : { name: accountDisplayName(selfTarget), binding: 'whitelist' },
       dailyUsedCents,
       dailyLimitCents,
       remainingCents: Math.max(0, dailyLimitCents - dailyUsedCents),
@@ -299,6 +304,10 @@ export class MockBankCore implements BankCoreProvider {
     if (req.payee.name.trim().length === 0) {
       throw new BahError('payee-invalid', 'bank: 收款人姓名不能为空', { accountId: account.id })
     }
+    // 校验都在核销之前（与外部转账同一条纪律）：内部划转的方向/目标状态非法时，
+    // 票据连核销都不该发生。方向错误先于余额错误报——"锁定账户不能转出"
+    // 比"余额不足"更接近用户要问的问题。
+    const selfTarget = this.resolveSelfTransfer(account, req.payee)
     const feeCents = 0
     if (account.availableCents < req.amountCents + feeCents) {
       throw new BahError(
@@ -335,6 +344,15 @@ export class MockBankCore implements BankCoreProvider {
     }
     // 核销（可能抛）：必须在任何账本变更之前
     this.tickets.redeem(ticket, at)
+
+    if (selfTarget !== undefined) {
+      const result = this.settleSelfTransfer(account, selfTarget, req, ticket, at)
+      if (idemKey !== undefined) {
+        this.idempotency.set(idemKey, { fingerprint, result, expiresAt: at + MockBankCore.IDEMPOTENCY_TTL_MS })
+        this.pruneIdempotency(at)
+      }
+      return result
+    }
 
     const payee = this.ensurePayee(account.userId, req.payee, at)
     const transaction: Transaction = {
@@ -639,6 +657,123 @@ export class MockBankCore implements BankCoreProvider {
 
   private replaceAccount(accountId: AccountId, patch: Pick<Account, 'balanceCents' | 'availableCents'>): void {
     this.accounts = this.accounts.map((item) => (item.id === accountId ? { ...item, ...patch } : item))
+  }
+
+  /**
+   * 命中"本人账户"（内部划转）：`payee.name` 精确等于该用户某个本人账户的展示名。
+   *
+   * 只在收款人表未命中时才考虑（`payeeId` 显式给了就按收款人表走，不做内部转账）。
+   * 命中后立即做方向/状态校验——非法组合在**核销之前**失败。
+   *
+   * @throws `BahError('payee-ambiguous')` 展示名命中多个本人账户
+   * @throws `BahError('transfer-locked-source')` 锁定账户作转出方
+   * @throws `BahError('transfer-internal-unsupported')` 非活期账户作转出方（v1 只支持 current → locked/fixed）
+   * @throws `BahError('account-inactive')` 目标账户非 active
+   */
+  private resolveSelfTransfer(source: Account, target: TransferReq['payee']): Account | undefined {
+    if (target.payeeId !== undefined) return undefined
+    const name = target.name.trim()
+    if (name.length === 0) return undefined
+    const matches = this.accounts.filter(
+      (item) => item.userId === source.userId && accountDisplayName(item) === name,
+    )
+    if (matches.length > 1) {
+      throw new BahError('payee-ambiguous', `bank: 收款人「${name}」命中多个本人账户，无法确定目标`, {
+        name,
+        accountIds: matches.map((item) => item.id),
+      })
+    }
+    const self = matches[0]
+    if (self === undefined) return undefined
+    if (source.type === 'locked') {
+      throw new BahError('transfer-locked-source', 'bank: 锁定账户只进不出，不能作为转出账户', {
+        accountId: source.id,
+      })
+    }
+    if (self.id === source.id) {
+      throw new BahError('payee-invalid', 'bank: 不能向同一个账户内部划转', { accountId: source.id })
+    }
+    if (source.type !== 'current' || self.type === 'current') {
+      // v1 口径：只允许活期 → 锁定/定期（单向 earmark）。其余组合没有仿真语义，
+      // 宁可 fail-loud 也不要做出一个"看起来转了"的假动作。
+      throw new BahError(
+        'transfer-internal-unsupported',
+        `bank: 内部划转 v1 只支持活期 → 锁定/定期（本次 ${source.type} → ${self.type}）`,
+        { from: source.type, to: self.type },
+      )
+    }
+    if (self.status !== 'active') {
+      throw new BahError('account-inactive', `bank: 目标账户状态 ${self.status}，不能转入`, {
+        accountId: self.id,
+        status: self.status,
+      })
+    }
+    return self
+  }
+
+  /**
+   * 内部划转的账本落定（票据已核销之后调用，只做不会抛错的变更）。
+   *
+   * 两条流水：源账户 `out`（counterparty=目标账户展示名）+ 目标账户 `in`
+   * （counterparty=源账户展示名）——对账必须看得出钱去哪了。
+   * 日累计只统计**源账户的 out**，目标账户的 `in` 不计入限额。
+   */
+  private settleSelfTransfer(
+    source: Account,
+    target: Account,
+    req: TransferReq,
+    ticket: TicketRef,
+    at: number,
+  ): TransferResult {
+    const outTxn: Transaction = {
+      id: this.nextTxnId(),
+      accountId: source.id,
+      at,
+      amountCents: req.amountCents,
+      direction: 'out',
+      counterparty: {
+        name: accountDisplayName(target),
+        ...(req.payee.memo === undefined ? {} : { memo: req.payee.memo }),
+      },
+      category: 'transfer',
+      channel: req.channel,
+      status: 'success',
+    }
+    const inTxn: Transaction = {
+      id: this.nextTxnId(),
+      accountId: target.id,
+      at,
+      amountCents: req.amountCents,
+      direction: 'in',
+      counterparty: { name: accountDisplayName(source) },
+      category: 'transfer',
+      channel: req.channel,
+      status: 'success',
+    }
+    this.transactions = [...this.transactions, outTxn, inTxn]
+    this.replaceAccount(source.id, {
+      balanceCents: source.balanceCents - req.amountCents,
+      availableCents: source.availableCents - req.amountCents,
+    })
+    this.replaceAccount(target.id, {
+      balanceCents: target.balanceCents + req.amountCents,
+      availableCents: target.availableCents + req.amountCents,
+    })
+
+    const dailyUsedCents = this.dailyUsedCents(source.id, at)
+    const dailyLimitCents = this.dailyLimitOf(source.id)
+    return {
+      txnId: outTxn.id,
+      ticketId: ticket.ticketId,
+      amountCents: req.amountCents,
+      feeCents: 0,
+      balanceCents: source.balanceCents - req.amountCents,
+      availableCents: source.availableCents - req.amountCents,
+      dailyUsedCents,
+      dailyLimitCents,
+      remainingCents: Math.max(0, dailyLimitCents - dailyUsedCents),
+      at,
+    }
   }
 
   private findPayee(userId: UserId, target: TransferReq['payee']): Payee | undefined {

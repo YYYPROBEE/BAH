@@ -46,6 +46,8 @@ const PUBLIC_DOCS: readonly string[] = [
   'docs/plan.md',
   'docs/audit.md',
   'docs/profile.md',
+  // 04 单：移动 H5 的对外口径页（新建即必须进清单）
+  'docs/mobile.md',
   'docs/review/judge-walkthrough.md',
   'docs/observability.md',
   'docs/performance.md',

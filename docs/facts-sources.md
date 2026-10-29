@@ -8,18 +8,18 @@
 ## 1. 机器可读块（门禁只读这一段）
 
 <!-- facts:sources:start -->
-gates=46
+gates=47
 tools=16
 plan_lines=2246
-snapshot_files=8
-snapshot_cases=34
-coverage_covered=31233
-coverage_total=34270
-coverage_pct=91.14
-coverage_package_ok=15
-coverage_package_total=16
-tests_main_files=260
-tests_main_cases=2990
+snapshot_files=9
+snapshot_cases=39
+coverage_covered=41749
+coverage_total=46877
+coverage_pct=89.06
+coverage_package_ok=16
+coverage_package_total=18
+tests_main_files=264
+tests_main_cases=3047
 <!-- facts:sources:end -->
 
 > `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。

@@ -23,6 +23,7 @@ import type {
   EffectItem,
   EffectsFrame,
   FrameTier,
+  GoalFrame,
   FrameTone,
   MessageBlock,
   MessageFrame,
@@ -173,6 +174,60 @@ function todoStateOf(state: DagNode['state']): { readonly done: boolean; readonl
       return { done: true, tone: 'muted' }
     default:
       return assertNever(state, 'plan-node-state')
+  }
+}
+
+
+/** `goal_set` 出参的帧侧形状（只取投影需要的字段；解析失败 = 不产帧，不编造）。 */
+interface GoalView {
+  readonly statement: string
+  readonly status: GoalFrame['status']
+  readonly amountCents?: number
+}
+
+/** 帧侧状态词汇：账本四态各有对应，未知值不猜（返回 undefined ⇒ 不产帧）。 */
+function goalStatusOf(value: unknown): GoalFrame['status'] | undefined {
+  switch (value) {
+    case 'active':
+      return 'active'
+    case 'achieved':
+      return 'done'
+    case 'abandoned':
+      return 'abandoned'
+    case 'expired':
+      return 'expired'
+    default:
+      return undefined
+  }
+}
+
+/**
+ * 从 `tool/result` 的正文里取 `goal_set` 出参（默认 JSON 投影；无 projectContent 的工具）。
+ * 解析失败返回 undefined：投影层遇到看不懂的内容宁可不产帧，也不编一条"目标"出来。
+ */
+function goalOf(content: readonly { type: string; text?: string }[]): GoalView | undefined {
+  const block = content.find((item) => item.type === 'text')
+  if (block === undefined || block.text === undefined) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(block.text)
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
+  const record = parsed as Record<string, unknown>
+  const statement = record['statement']
+  const status = goalStatusOf(record['status'])
+  if (typeof statement !== 'string' || status === undefined) return undefined
+  const budget = record['budget']
+  const amountCents =
+    typeof budget === 'object' && budget !== null
+      ? (budget as Record<string, unknown>)['amountCents']
+      : undefined
+  return {
+    statement,
+    status,
+    ...(typeof amountCents === 'number' ? { amountCents } : {}),
   }
 }
 
@@ -495,6 +550,21 @@ export class WebProjector {
             ...(this.writeToolNames === undefined ? {} : { writeToolNames: this.writeToolNames }),
           })
           if (effects !== null) frames.push(effects)
+        }
+        // 04 单：goal_set 的成功结果 → `goal` 帧（会话级唯一，frameKey='goal' 替换语义）。
+        // 失败调用不投影：一笔写不进去的目标不是"用户的目标"。
+        if (!data.isError && data.name === 'goal_set') {
+          const goal = goalOf(data.content)
+          if (goal !== undefined) {
+            frames.push({
+              kind: 'goal',
+              seq: event.seq,
+              at: event.at,
+              title: goal.statement,
+              status: goal.status,
+              ...(goal.amountCents === undefined ? {} : { amountText: formatCents(goal.amountCents) }),
+            })
+          }
         }
         return frames
       }

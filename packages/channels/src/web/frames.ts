@@ -296,8 +296,11 @@ export interface GoalFrame {
   readonly at: number
   /** 追溯：`goal_set` 出参 title。 */
   readonly title: string
-  /** 追溯：`goal_set` 出参 status；是 `DagNode.state` 的子集。 */
-  readonly status: 'active' | 'done' | 'abandoned'
+  /**
+   * 追溯：`goal_set` 出参 status（`active|achieved|abandoned|expired`）的帧侧词汇。
+   * `expired` 是 04 单补的第四档：账本里四种终态都要能呈现，不能把"过期"折叠成"放弃"。
+   */
+  readonly status: 'active' | 'done' | 'abandoned' | 'expired'
   /** 可空。追溯：`ApprovalFrame.amountText`；必须走 `formatCents`。 */
   readonly amountText?: string
   /** 可空。追溯：`ApprovalFrame.payeePhone`（已脱敏前 3 后 4）。 */

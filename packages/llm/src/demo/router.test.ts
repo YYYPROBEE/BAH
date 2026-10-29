@@ -253,3 +253,31 @@ describe('意图平面的四条路由（03 单 §7.3；router 只认形态，不
     expect(classifyIntent('爱人生日快到了，给张三转520')).toMatchObject({ kind: 'transfer' })
   })
 })
+
+describe('生日案例两幕（04 单）', () => {
+  it('"下个月…生日" → birthday/propose；脚本含意图、目标、提案三件套', () => {
+    const intent = classifyIntent('我下个月 8 号我爱人生日')
+    expect(intent).toMatchObject({ kind: 'birthday', phase: 'propose' })
+    const steps = planFor(intent)
+    const calls = steps.flatMap((step) =>
+      (step.content ?? []).filter((block) => block.kind === 'tool-call').map((block) => block.name),
+    )
+    expect(calls).toEqual(['intent_resolve', 'goal_set', 'plan_propose'])
+  })
+
+  it('"确认执行生日计划" → birthday/execute；只发 plan_execute 并带同一张 DAG', () => {
+    const intent = classifyIntent('确认执行生日计划')
+    expect(intent).toMatchObject({ kind: 'birthday', phase: 'execute' })
+    const steps = planFor(intent)
+    const calls = steps.flatMap((step) =>
+      (step.content ?? []).filter((block) => block.kind === 'tool-call'),
+    )
+    expect(calls.map((block) => block.name)).toEqual(['plan_execute'])
+    const args = calls[0]?.kind === 'tool-call' ? (calls[0].args as { nodes: unknown[] }) : undefined
+    expect(args?.nodes).toHaveLength(6)
+  })
+
+  it('不带时间锚点的生日说法仍走 03 单 implicit（不与意图平面抢话语）', () => {
+    expect(classifyIntent('我爱人生日快到了')).toMatchObject({ kind: 'intent', route: 'implicit' })
+  })
+})

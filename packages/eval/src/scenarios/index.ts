@@ -1,5 +1,5 @@
 /**
- * 全部 66 个 eval 场景（W13 + 03 单）：族顺序 Q/T/P/S/D/K。
+ * 全部 71 个 eval 场景（W13 + 03/04 单）：族顺序 Q/T/P/S/D/K。
  *
  * 场景文件只导出数据；runner 与校验器在 `scenario/`。
  */
@@ -13,7 +13,7 @@ import { T_SCENARIOS } from './t/index.ts'
 
 import type { EvalScenario } from '../scenario/types.ts'
 
-/** 66 个场景（顺序固定；runner 报告会再按族→ID 排序）。 */
+/** 71 个场景（顺序固定；runner 报告会再按族→ID 排序）。 */
 export const ALL_SCENARIOS: readonly EvalScenario[] = [
   ...Q_SCENARIOS,
   ...T_SCENARIOS,

@@ -1,0 +1,2 @@
+{"seq":1,"type":"plan/node-started","data":{"planId":"p-1","nodeId":"a","tool":"transfer_create","callId":"c-a","ordinal":1}}
+{"seq":2,"type":"plan/node-result","data":{"planId":"p-1","nodeId":"a","status":"succeeded"}}
