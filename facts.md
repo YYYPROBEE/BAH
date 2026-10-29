@@ -1,6 +1,6 @@
 # BAH 事实表（演示材料的唯一数字来源）
 
-> 更新：2026-10-28（S4 策略门禁 + `policy-externalized` 快照；测试数与 CI 覆盖率沿用 2026-10-28 口径）。任何 PPT / 视频 / 自评里的数字先查这里；
+> 更新：2026-10-29（移动 H5 04 收口：goal/todo 平面 + 生日案例 cross-scene 快照 + `POST /api/session/fork` + 门禁 `verify-cross-scene`；D 族 15 例）。任何 PPT / 视频 / 自评里的数字先查这里；
 > 改代码后重跑对应命令再改本表。**不要把三行测试数相加成一个"总用例数"**。
 > 数字的取值命令与原始输出见 `docs/facts-sources.md`；门禁 `verify-facts` 逐项比对，不一致即红。
 > ⚠ 本表上一版停在 2026-10-24，被 W03–W17 甩在后面（门禁还写 27/27、工具还写 14 个、
@@ -10,28 +10,32 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **221 文件 / 2481 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **294 文件 / 3333 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
-| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗） | **7 文件 / 55 用例** |
+| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **27 文件 / 365 用例** |
 
 其他口径：
 
 | 命令 | 结果 | 说明 |
 |---|---|---|
-| `pnpm gate` | **40/40** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
+| `pnpm gate` | **50/50** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
-| `pnpm test:snapshot` | 8 文件 / 34 用例（34/34 绿） | 录制回放；`pnpm snapshot:record` 重录 |
+| `pnpm test:snapshot` | 9 文件 / 39 用例（39/39 绿） | 录制回放；`pnpm snapshot:record` 重录 |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
-| `pnpm test:coverage:all` | **行口径 91.14%**（31233/34270）/ **包口径 15/16**（**CI/Ubuntu 口径**） | 两个口径必须一起说；未达标只有 `eval` 53.20%（`memory-store` 89.40% 已达标） |
+| `pnpm test:coverage:all` | **行口径 89.06%**（41749/46877）/ **包口径 16/18** | 两个口径必须一起说；未达 80% 的是 `memory-store` 72.68% 与 `eval` 43.12%（均为评测/记忆 harness 面，见台账注记） |
 评测平面（`pnpm eval`）：
 
 | 指标 | 实测 |
 |---|---|
-| 场景 | 60 个（Q/T/P/S/D/K 六族），boot 8 次 |
+| 场景 | 71 个（Q12/T16/P10/S8/D15/K10），boot 8 次 |
 | 任务成功率 / 越权拦截率 / 拒答正确率 | 49/49 · 5/5 · 6/6，平均 1.25 步 |
 | 对抗集 | 45 例（分母 44，排除 1 例 `[unverified]` 来源），总拦截 41/44；注入 14/14、越权 15/15、幻觉 12/15 |
 
 ## 2. 工具：16 个（12 绿 / 2 黄 / 2 红）
+
+> 口径注脚：`goal_set` / `todo_write`（04 单）与 `intent_resolve` / `prompt_ask`（03 单）是
+> **runtime / interaction 内置绿级工具**，不在"银行工具目录 16 个"里——工具目录由
+> `pnpm tool-catalog` 生成、门禁逐字比对，本套单一个银行工具都没加（D9）。
 
 | # | 工具 | 级别 | 职责 |
 |---|---|---|---|
@@ -64,8 +68,16 @@
 |---|---|---|---|
 | **7331** | Web UI / HTTP / SSE / 静态资源 | `127.0.0.1` | `pnpm web` / `pnpm demo:web`；端口占用**不自动换端口** |
 | **7801** | RAG sidecar | `127.0.0.1` | `bank:knowledge mode:http`；`required: false`，不起也能跑主场景 |
+| **7551** | 移动 H5 UI / HTTP / SSE | `127.0.0.1` | `pnpm bah --profile mobile`；与 7331 同族，端口占用**不自动换端口** |
 
 静态根 `apps/web`：原生 ES 模块，无构建步骤。
+
+| 入口 | 渠道 | 说明 |
+|---|---|---|
+| `/` → `index.html` | `channel:web`（7331） | 桌面壳，`entries: [index.html]` |
+| `/` → `m.html` | `channel:mobile`（7551） | 移动壳，`entries: [m.html, index.html]`；`m.html` 也是 token 入口（注入 Bearer + CSRF cookie + `no-store`），其它 HTML 一律不注入 |
+
+「前端不需要先 build」对两个壳同等成立：`m.html` 只引三份外链 css 与一个原生 ESM 入口。
 `pnpm demo:web` 每次新建 `sessions/demo-<stamp>-<随机>/`，日志、Saga 库与审计链都在该目录；
 `pnpm gate` 用 `.tmp-saga-wiring/` 的独立库，不写 `sessions/`。
 
@@ -97,7 +109,8 @@
 
 - 审计链零签名状态是 **`unsigned`**（"没签过"≠"验签通过"）；CLI 按"审计未完成"退出码 2。
   只验链连续性与投影用 `--no-signature`（退出码 0），这不是完整验签。
-- Web 鉴权是 **Bearer token 最小集**：`BAH_WEB_TOKEN`，未配置时每进程随机生成并注入 `index.html`；
+- Web 鉴权是 **Bearer token 最小集**：`BAH_WEB_TOKEN`，未配置时每进程随机生成并注入 `channel:{web,mobile}` 的 `entries` 白名单里的 HTML（默认 `index.html`）——
+  **非白名单 HTML 不注入**（按扩展名注入会把静态根下任何 HTML 变成 token 泄漏面），移动壳与桌面壳共用同一份静态处理器；
   响应带 CSP / XFO / XCTO / Referrer-Policy / Permissions-Policy，`/api/*` 每来源 60s/120 次限流，
   **不是登录**；无 CORS（同源）。
 - 供应链：Dependabot + `.github/workflows/security.yml`（npm audit 用官方源；pip-audit 先收集基线）。
@@ -111,3 +124,6 @@
   HP-2 对应的知识库双层签名（W06）、HP-3 对应的 HALT 闭环（W07）、HP-4 对应的工具出参契约（W03）都已落地。
 - 断言核验门（W05）当前口径：`verified` 原文发 / `needs-evidence` 加`【未核实】`前缀 /
   `reject` 换拒答文本（`reasonCode=assertion-unverified`）。对抗集幻觉族 12/15，3 例为已知召回缺口。
+- 意图平面（03）口径：**选择题式追问 ≤2 次**，第 3 次降级为开放式提问并标 `askExhausted`（不计为追问）；
+  复现类意图（`vague`）**恒 `requiresPreview=true`**，参数必须先经 `transfer_preview` 确认；
+  隐含意图（`implicit`）**恒 `propose`**，绝不直接执行。这三条都是代码里的硬约束，不是话术。

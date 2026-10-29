@@ -12,6 +12,9 @@ export type Command =
   | { readonly kind: 'sentry' }
   | { readonly kind: 'halt' }
   | { readonly kind: 'unfreeze' }
+  | { readonly kind: 'metrics' }
+  | { readonly kind: 'trace' }
+  | { readonly kind: 'cost' }
 
 /** 首项是子命令 → 子命令模式；否则 → 现有 flag 模式。 */
 export function parseCommand(argv: readonly string[]): Command {
@@ -24,6 +27,12 @@ export function parseCommand(argv: readonly string[]): Command {
       return { kind: 'halt' }
     case 'unfreeze':
       return { kind: 'unfreeze' }
+    case 'metrics':
+      return { kind: 'metrics' }
+    case 'trace':
+      return { kind: 'trace' }
+    case 'cost':
+      return { kind: 'cost' }
     default:
       return { kind: 'run' }
   }

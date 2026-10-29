@@ -24,6 +24,7 @@
     "@bah/runtime": "workspace:*",
     "@bah/safety": "workspace:*",
     "@bah/saga": "workspace:*",
+    "@bah/telemetry": "workspace:*",
     "@bah/util": "workspace:*"
   },
   "devDependencies": {

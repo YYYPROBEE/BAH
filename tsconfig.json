@@ -24,7 +24,8 @@
       "@bah/channels": ["packages/channels/src/index.ts"],
       "@bah/cli": ["packages/cli/src/index.ts"],
       "@bah/test-support": ["packages/test-support/src/index.ts"],
-      "@bah/util": ["packages/util/src/index.ts"]
+      "@bah/util": ["packages/util/src/index.ts"],
+      "@bah/telemetry": ["packages/telemetry/src/index.ts"]
     }
   }
 }

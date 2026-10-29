@@ -36,6 +36,26 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
   },
   {
     package: 'runtime',
+    scope: 'intent/',
+    why: '意图平面：规则序、整数评分、0.6 拒借闸门、金额单位与 PII 脱敏——每一条未覆盖分支都可能是「猜」的藏身处（03 单）',
+  },
+  {
+    package: 'interaction',
+    scope: 'prompt/',
+    why: '追问候选：去重/确定性排序/上限 3/恒含手动出口/空候选 fail-loud 与防死循环上限（03 单）',
+  },
+  {
+    package: 'runtime',
+    scope: 'goal/',
+    why: '意图账本：状态转移表（非法转移 fail-loud）、active 上限、重放重建——账本说谎比崩溃更贵（04 单）',
+  },
+  {
+    package: 'runtime',
+    scope: 'todo/',
+    why: '派生清单：复用 replayPlan 的同源同序、中断窗口的 cancelled 镜像、全量覆写与上限（04 单）',
+  },
+  {
+    package: 'runtime',
     scope: 'tools/',
     why: '工具七段管线与判决顺序——顺序错了就是安全事故（施工单 03）',
   },
@@ -163,5 +183,20 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
     package: 'knowledge',
     scope: '',
     why: '知识平面适配层：principal 组装 / 契约守卫 / 超时降级 / 工具与卡片（防 ACL 越权与静默放行）',
+  },
+  {
+    package: 'channels',
+    scope: 'capabilities.ts',
+    why: '能力位单一实现点：6 渠道穷尽与 10 字段是对外口径，错一个字段前端就降级错（施工单 01 / 00 D4）',
+  },
+  {
+    package: 'channels',
+    scope: 'http-adapter.ts',
+    why: 'web 与 mobile 共用的审批翻译层：归属校验、六码判决、理由长度上限——顺序错了就是资金事故（施工单 01 / 00 D2）',
+  },
+  {
+    package: 'channels',
+    scope: 'mobile/',
+    why: '移动渠道薄工厂：能力位与 id 的唯一落点（施工单 01）',
   },
 ]

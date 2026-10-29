@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 会话事件的**唯一格式**与其耐久事件表（施工单 03 §1.1 / §1.2）。
  *
  * envelope 本身由 `@bah/core` 的 `api.ts` 冻结（阶段 1 签审），本文件只做两件事：
@@ -144,7 +144,7 @@ declare module '@bah/core' {
  * （下次装配时按 reconcile 撤回），后者是工具后置阶段追加的一次性纠正文本（要留在历史里）。
  * 混用会让"撤回旧上下文"顺手把纠正文本也撤掉（施工单 05 §4.1）。
  */
-export type UserMessageSource = 'user' | 'context' | 'tool-recovery' | 'runtime-context'
+export type UserMessageSource = 'user' | 'context' | 'tool-recovery' | 'runtime-context' | 'handoff-waiting' | 'handoff-handover'
 
 /**
  * 压缩后保留的金融结构化字段（施工单 05 §5：涉及金额/收款人/审批的条目不得只留摘要）。

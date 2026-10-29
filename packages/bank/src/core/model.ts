@@ -136,6 +136,24 @@ export interface Account {
   readonly status: AccountStatus
 }
 
+/** 账户类型文案（唯一来源；`tools/presenters.ts` 从此处再导出，不重复一份）。 */
+export const ACCOUNT_TYPE_LABEL: Readonly<Record<AccountType, string>> = {
+  current: '活期',
+  fixed: '定期',
+  locked: '锁定',
+}
+
+/**
+ * 本人账户的展示名（`锁定账户(9012)`）。
+ *
+ * 内部划转的命中口径：核心的命中判定与演示/文档里的称呼必须共用这一个函数——
+ * 两处各写一份字符串，改名那天就会一边转得出去、一边看不懂。
+ */
+export function accountDisplayName(account: Account): string {
+  const digits = account.number.replace(/\s+/g, '')
+  return `${ACCOUNT_TYPE_LABEL[account.type]}账户(${digits.slice(-4)})`
+}
+
 export type CardType = 'physical' | 'virtual'
 export type CardStatus = 'normal' | 'frozen' | 'lost'
 

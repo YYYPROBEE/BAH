@@ -1,16 +1,22 @@
-# 测试地基（Testing）
+﻿# 测试地基（Testing）
 
 > 适用：底座阶段 2 起。规格依据：施工单 00 §9（纪律）、01 §5–§7（测试面 / 门禁 / 覆盖率）、
 > 12 §3（快照回放）。本文件是**操作手册**：改一行代码该跑哪条命令、新用例该怎么写。
 
 ## 1. 四个测试面（一个都不能省）
 
-| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-27 实测） |
+| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-29 实测） |
 |---|---|---|---|---|
-| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 221 文件 / 2481 用例 |
+| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 294 文件 / 3333 用例 |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
-| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 8 文件 / 34 用例 |
-| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 7 文件 / 55 用例 |
+| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 9 文件 / 39 用例 |
+| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 前端 22 文件 / 333 用例 |
+
+意图/追问平面（03 单）在前两个面里各占一块：`packages/runtime/src/intent/*.test.ts`（规则引擎、
+槽位归一化、脱敏、检索闸门、工具 fail-loud）、`packages/interaction/src/prompt/*.test.ts`
+（候选去重/排序/上限/手动出口/追问上限）、`scripts/intent-determinism.test.ts`（门禁正反夹具）、
+`scripts/cross-scene-gate.test.ts`（跨场景门禁的正反夹具：todo 落账 / goal 新键 / addNode / 批量放行 / 重跑 succeeded）、
+`packages/channels/src/web/project.choice.test.ts`（`prompt_ask` → `choice` 帧投影）。
 
 一条命令跑全链（本地等价 CI，fail-fast）：
 
@@ -42,6 +48,30 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 > （见 `resolveSnapshotBase`），本地没有该变量时会一步都跑不到、直接退出，
 > 于是"无 key 即红"这条语义根本得不到验证。两者职责不同。
 
+### 1.1 移动壳（`apps/web/src/mobile/`，施工单 02）
+
+| 项 | 值 |
+|---|---|
+| 测试面 | `vitest.web.config.ts`（jsdom），`apps/web/src/mobile/**/*.test.js` |
+| 规模 | **前端 10 文件 / 194 用例**（含 `test:web` 全量 22 文件 / 333 用例） |
+| 覆盖率 | **不在覆盖率面**（`00 §6.1`：前端 jsdom 用例不计入 `packages/*/src` 分母），但计入 `test:web` 用例地板（`scripts/ci.ts` 的 `minCases`） |
+| 门禁 | `scripts/verify-mobile-shell.ts`（11 条不变量）；负控演练 27 条见 `docs/evidence/2026-10-28-mobile-h5/02-gate-negative-controls.txt` |
+
+**桩纪律（比别的面更严，因为 jsdom 缺失的能力多）**：
+
+1. **桩只能待在 `.test.js` 里**。生产代码的注入点一律是可选的 `deps` / `opts` 参数，缺省走真实浏览器 API
+   ——`createMobileShell(deps)` 不传 `api` / `connect` 时就是 `createHttpApi()` + `connectEvents()`。
+2. **决策与 DOM 分离**。手势的全部判定在 `reducePointerEvents(samples, config)` 纯函数里；
+   jsdom 没有 `PointerEvent` 构造器也能覆盖"滑到 95% 又回拉再松手"这类全路径。
+3. **时钟与随机必须注入**。`vi.useFakeTimers()` + `deps.clock`；退避抖动用 `tuning.random` 固定。
+4. **不要用 `vi.runAllTimersAsync()`**：抽屉的倒计时是 `setInterval`，永远到期，"跑完所有定时器"没有终点；
+   只冲微任务用 `await Promise.resolve()` 循环，推进时间用 `vi.advanceTimersByTime(ms)`。
+5. **`fileURLToPath(new URL(..., import.meta.url))` 在 jsdom 环境下拿不到 file 协议基址**，
+   读源文件做字面量断言时用 `import.meta.dirname`（与 `scripts/gates.smoke.test.ts` 同款）。
+
+**双口径提醒**：`pnpm test:web` 只跑前端，`pnpm test` 只跑 `packages/*/src` + `scripts/**`——
+两个分母互不包含；把任一输出当成"全仓用例数"都会把数字说小或说大。
+
 ## 2. 用例命名纪律（硬性）
 
 1. 施工单 §10 给了用例 ID 的，**ID 必须与该表逐字一致**，编号不得增删改，期望值逐条对应。
@@ -72,7 +102,7 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 - **第 4 批明确不做**：`eval`（53.20%，主体是评测 harness 的场景装载）**不进**本轮目标；
   `memory-store` 已随补测升到 89.40%，不再属于放弃项。这是**显式放弃的项目**，不是漏做——写在这里是为了
   让"80%/85%"这两个数可复现，而不是靠慢慢缩分母。
-- 现状（2026-10-28 实测，2481 例全绿）：覆盖率数字以 `facts.md` 为准（本文不重复记具体百分比，避免二次漂移）
+- 现状（2026-10-29 实测，2755 例全绿）：覆盖率数字以 `facts.md` 为准（本文不重复记具体百分比，避免二次漂移）
   **包口径 15/16**（CI/Ubuntu 口径；Windows 检出为 CRLF 时 v8 行映射会退化，分母虚高，别拿本机数对账）；分母只含参与统计的逻辑行，注释、空行与纯类型文件按设计不计入。
 - 产物：`coverage/lcov.info`、`coverage/lcov-report/`（名单口径）；
   `.ci-artifacts/cov-all/coverage-summary.json`（全仓口径）。两者都已进 `.gitignore`。
@@ -183,8 +213,25 @@ pnpm test:e2e
 4. 再发起一笔，点**拒绝**（必填拒绝理由），工具卡呈已拦截态；
 5. 截图 / 录屏覆盖 2–4 全程，地址栏与页面内容同框。
 
-网页面 handler/SSE/审批 API 的逻辑面由 `packages/channels` 与 `web.test.ts`（53 例）
+网页面 handler/SSE/审批 API 的逻辑面由 `packages/channels` 与 `web.test.ts`（60 例）
 在无浏览器环境覆盖；上面 5 条是它们的**人工端到端补证**，不要把单测说成"浏览器已验证"。
+
+移动渠道（施工单 01）新增的测试面，全部在 `pnpm test` 之内（不进 web 面）：
+
+| 面 | 用例 | 钉住什么 |
+|---|---|---|
+| `packages/channels/src/capabilities.test.ts` | 12 | 六渠道穷尽、10 字段键集一致、mobile↔web 差异面恰五项、能力位单一实现点 |
+| `packages/channels/src/http-adapter.test.ts` | 9 | web 与 mobile **同一组夹具**跑两遍结果逐条相同；decide 六码 + verify 四路 + 归属校验 |
+| `packages/channels/src/mobile/adapter.test.ts` | 3 | 薄工厂：id、能力位同一引用、sessionId 透传 |
+| `packages/channels/src/web/project.test.ts` | 38（+13） | `projectTodo` 确定性/9 态穷尽/openCount；`projectEffects` 双判据与诚实边界 |
+| `packages/host/src/boot/plugins/web/config.test.ts` | 14 | `entry`/`entries` fail-loud 6 类 + 未知键仍被拒（admin 无法从配置面开） |
+| `packages/host/src/boot/plugins/web/handlers/static.test.ts` | 12 | 白名单命中三件套 / 白名单外不注入 / 绕过变形 / 穿越与畸形编码 |
+| `packages/host/src/boot/plugins/web/channel.test.ts` | 6 | **两渠道真装配**：能力位只差五项、入口与白名单不同、闸序与安全头逐条相同 |
+| `packages/host/src/boot/plugins/mobile.test.ts` | 6 | `channel:mobile` 真监听 + `/api/session` 10 字段 + admin 默认 404 |
+
+> 双口径提醒（老坑）：`pnpm test:coverage` 只看 `scripts/coverage-allowlist.ts` 的名单（逐文件 100%），
+> `pnpm test:coverage:all` 才是全仓行/包口径。**只跑前者会把分母当成全仓**。施工单 01 起
+> `packages/channels` 的 `capabilities.ts` / `http-adapter.ts` / `mobile/` 三个窄 scope 进了名单。
 
 ## 8. 确定性纪律（上快照回放的前提）
 
@@ -275,7 +322,7 @@ snapshots/<case>/
 4. **jsdom 用例必须 `vi.resetModules()`**：模块级副作用（写 DOM）不可重复触发，否则第二个用例拿到上一次的模块实例。
 5. **临时目录用例必须在 `afterEach` 清干净**：Windows 上残留句柄会导致目录删不掉，进而污染后续用例。
 
-## 12. eval 面（W13：60 场景 + 四项指标）
+## 12. eval 面（W13 + 03/04 单：71 场景 + 四项指标）
 
 ```bash
 npx tsx scripts/eval.ts                     # 全量（默认 --shard=6；2026-10-26 实测 7.5s，预算 ≤180s）
@@ -348,15 +395,15 @@ npx tsx scripts/replay.ts --snapshots snapshots/headless-basic/session.jsonl
 ### 12.3 eval 基线（W15）
 
 ```bash
-pnpm eval:unit          # vitest --config vitest.eval.config.ts（实测 155 例）
+pnpm eval:unit          # vitest --config vitest.eval.config.ts（实测 158 例）
 pnpm eval:smoke         # 对抗集每族 3 例（9 例，~4s）
-pnpm eval:baseline      # 跑全量 60 场景并与 packages/eval/baseline.json 比较
+pnpm eval:baseline      # 跑全量 71 场景并与 packages/eval/baseline.json 比较
 pnpm eval:baseline:record  # 显式重录基线（commit/seed/指标/目标值）
 ```
 
 - 率下降 >5 个百分点、平均步数超过基线 5%、或分母缩小 → 退出码 1；
 - 基线文件入库，含 `commit` / `seed` / 四项指标 / 目标值 / 录制说明；
-- **实测 eval 用例数 = 155**（`npx vitest list --config vitest.eval.config.ts | grep -c " > "`）。
+- **实测 eval 用例数 = 158**（`npx vitest list --config vitest.eval.config.ts | grep -c " > "`）。
   施工文档 v1 的“133 例”是旧数、且当时不在任何 config 的 include 里；不要照抄。
 - CI 三步已接进 `scripts/ci.ts`（`eval:unit` / `eval:smoke` / `eval:baseline`），
   `.github/workflows/ci.yml` 通过 `pnpm check:ci` 统一执行。

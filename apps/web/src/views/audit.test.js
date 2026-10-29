@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { renderAuditSummary } from './audit.js'
+import { renderAudit, renderAuditSummary } from './audit.js'
 
 /** 造一条审计帧（字段与投影端一一对应）。 */
 function audit(overrides) {
@@ -67,12 +67,38 @@ describe('renderAuditSummary', () => {
   })
 
   it('同一次事故不出两个阻断（票据阻断 + 轮次 blocked 去重）', () => {
+    // 帧形态按投影端真实产出：`turn/end` 的审计帧**不带** ticketId（载荷只有 `{ turn, reason }`）。
     const frames = [
       audit({ seq: 1 }),
       audit({ seq: 2, category: 'ticket', label: '票据已阻断', summary: 'transfer_create', code: 'approval-timeout' }),
-      audit({ seq: 3, category: 'turn', label: '轮次结束', summary: 'blocked', code: 'blocked', ticketId: 'ticket:call-1' }),
+      audit({ seq: 3, category: 'turn', label: '轮次结束', summary: 'blocked', code: 'blocked' }),
     ]
     expect(counts(frames)).toEqual({ 审批: 1, 拒绝: 0, 阻断: 1 })
+  })
+
+  it('没有票据的 guard-stop：轮次 blocked 单独计 1 阻断', () => {
+    const frames = [
+      audit({ seq: 1, category: 'turn', label: '轮次结束', summary: 'guard-stopped', code: 'guard-stopped' }),
+      audit({ seq: 2, category: 'turn', label: '轮次结束', summary: 'blocked', code: 'blocked' }),
+    ]
+    expect(counts(frames)).toEqual({ 审批: 0, 拒绝: 0, 阻断: 1 })
+  })
+
+  it('两次独立阻断（各自票据 + 轮次）仍计 2，不会被去重吞掉', () => {
+    const frames = [
+      audit({ seq: 1, category: 'ticket', label: '票据已阻断', summary: 'transfer_create', code: 'approval-timeout', ticketId: 'ticket:a' }),
+      audit({ seq: 2, category: 'turn', label: '轮次结束', summary: 'blocked', code: 'blocked' }),
+      audit({ seq: 3, category: 'ticket', label: '票据已阻断', summary: 'wealth_purchase', code: 'approval-rejected', ticketId: 'ticket:b' }),
+      audit({ seq: 4, category: 'turn', label: '轮次结束', summary: 'blocked', code: 'blocked' }),
+    ]
+    expect(counts(frames)).toEqual({ 审批: 0, 拒绝: 0, 阻断: 2 })
+  })
+
+  it('工具结果理由码叫 blocked 不算轮次阻断', () => {
+    const frames = [
+      audit({ seq: 1, category: 'tool', label: '工具未执行', summary: 'transfer_create 未执行', code: 'blocked' }),
+    ]
+    expect(counts(frames)).toEqual({ 审批: 0, 拒绝: 0, 阻断: 0 })
   })
 
   it('取消不计拒绝：Esc/关窗是本地动作，不是判决被否', () => {
@@ -81,5 +107,31 @@ describe('renderAuditSummary', () => {
       audit({ seq: 2, label: '审批结论', summary: '已取消', code: 'approval-cancelled' }),
     ]
     expect(counts(frames)).toEqual({ 审批: 1, 拒绝: 0, 阻断: 0 })
+  })
+
+  it('summary 缺失不抛错（字段不全的帧不能拆掉整个面板）', () => {
+    const frames = [audit({ seq: 1, summary: undefined })]
+    expect(() => counts(frames)).not.toThrow()
+    expect(counts(frames)).toEqual({ 审批: 1, 拒绝: 0, 阻断: 0 })
+  })
+})
+
+describe('renderAudit · 时刻口径', () => {
+  it('显示本地时刻，UTC 原文留在 title 里对照', () => {
+    const at = 1_700_000_000_000
+    const node = renderAudit(audit({ at, timeText: '22:13:20' }))
+    const date = new Date(at)
+    const local = [date.getHours(), date.getMinutes(), date.getSeconds()]
+      .map((value) => String(value).padStart(2, '0'))
+      .join(':')
+
+    const time = node.querySelector('.audit__time')
+    expect(time.textContent).toBe(local)
+    expect(time.getAttribute('title')).toContain('UTC 22:13:20')
+  })
+
+  it('没有 at 时退回帧里的 timeText（不渲染 NaN:NaN:NaN）', () => {
+    const node = renderAudit(audit({ at: undefined, timeText: '08:00:00' }))
+    expect(node.querySelector('.audit__time').textContent).toBe('08:00:00')
   })
 })

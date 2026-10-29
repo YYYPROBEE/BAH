@@ -7,8 +7,9 @@
  *    重启、回放、fork 之后两个数必然对不上，而"哪个对"没人说得清。
  * 2. **不出原文**——只出数字：turn 数、工具成功/失败、审批分布、token、成本、耗时分位、
  *    SSE 连接数。prompt / 工具结果 / 用户输入一律不进这个端点。
- * 3. **不是分布式监控**——这是单进程数字，没有聚合、没有推送、没有保留。要跨实例看指标
- *    得先有实例标识与汇聚层（D4 多租户之后的事）。
+ * 3. **不是分布式监控**——这是单进程、**单租户**的数字：没有聚合、没有推送、没有保留。
+ *    跨实例汇聚仍是 D4 之后的事；本进程只报本租户（返回体第一层就是 `tenant`，
+ *    所以"这个数是谁的"不用猜）。
  *
  * 成本口径：`costMicroYuan` 只在 `core:model` 配了 `pricing` 时非 0。**本地 provider
  * （mock / router）恒为 0 是正确的**——它们没有上游账单，不是"没配好"。
@@ -20,7 +21,10 @@ import type { BankSessionEventMap } from '@bah/bank'
 
 import type { PolicySessionEventMap } from '../../policy.ts'
 import type { WebDeps, WebRequest } from '../deps.ts'
-import { sendJson } from '../http.ts'
+import { sendError, sendJson } from '../http.ts'
+import { createHandoffMetrics } from './metrics-handoff.ts'
+import { buildMetricsView, jsonExtrasOf } from './metrics-extra.ts'
+import { handlePrometheusMetrics } from './prometheus.ts'
 
 /** 分位数（空数组返回 `null`，不返回 0——"没有样本"和"很快"是两件事）。 */
 function quantile(samples: readonly number[], p: number): number | null {
@@ -32,11 +36,22 @@ function quantile(samples: readonly number[], p: number): number | null {
 
 /** 指标快照（键名固定，前端与脚本按它取数）。 */
 export async function handleMetrics(
-  _req: IncomingMessage,
+  req: IncomingMessage,
   res: ServerResponse,
-  _request: WebRequest,
+  request: WebRequest,
   deps: WebDeps,
 ): Promise<void> {
+  const format = request.url.searchParams.get('format')
+  const accept = String(req.headers.accept ?? '')
+  if (format === 'prometheus' || (format === null && accept.includes('text/plain'))) {
+    await handlePrometheusMetrics(req, res, request, deps)
+    return
+  }
+  if (format !== null && format !== 'json') {
+    sendError(res, 400, 'metrics-format-unsupported', `format 只支持 json / prometheus（收到 ${format}）`)
+    return
+  }
+
   const events = deps.session.events()
 
   let turns = 0
@@ -62,6 +77,9 @@ export async function handleMetrics(
   const byPolicyVersion: Record<string, number> = {}
   const byPolicyVerdict: Record<string, number> = {}
   const byPolicyReason: Record<string, number> = {}
+
+  /** 人工接管（C5）：历史从事件算；`active` 从状态机读（"现在"与"历史"两层）。 */
+  const handoff = createHandoffMetrics(deps.handoff)
 
   const count = (bucket: Record<string, number>, key: string): void => {
     bucket[key] = (bucket[key] ?? 0) + 1
@@ -96,6 +114,8 @@ export async function handleMetrics(
       shadowDiffs += 1
       continue
     }
+    // 人机接管：同样走 `String(type)`（appendDomain 不受事件表约束）
+    if (handoff.ingest(event)) continue
     switch (event.type) {
       case 'turn/end':
         turns += 1
@@ -132,7 +152,10 @@ export async function handleMetrics(
   }
 
   const halt = deps.tryHalt()
+  const extra = jsonExtrasOf(buildMetricsView(deps))
   sendJson(res, 200, {
+    // 租户在第一层（01 TA-16）：没有它，"这是谁的指标"要靠会话 ID 去猜
+    tenant: String(deps.tenantId),
     sessionId: String(deps.session.sessionId),
     lastSeq: deps.session.lastSeq(),
     at: deps.now(),
@@ -155,11 +178,13 @@ export async function handleMetrics(
       reloadRejected,
     },
     usage: { input, output, cachedInput, costMicroYuan },
+    handoff: handoff.snapshot(),
     // `null` = 本 profile 没装 HALT（不是"未停机"）。区分开才知道该不该去看锁。
     halt:
       halt === undefined
         ? null
         : { status: halt.status, halted: halt.halted, reason: halt.reason ?? null },
     sseClients: deps.hub.size(),
+    ...extra,
   })
 }

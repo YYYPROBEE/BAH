@@ -54,7 +54,11 @@ describe('WebChannelAdapter · 入站', () => {
   })
 
   it('能力位全量：富卡片 / 按钮 / 表单 / 图片 / 流式', () => {
-    expect(createWebChannelAdapter().capabilities).toEqual({
+    // 施工单 01 / 00 D4：能力位从 5 字段扩到 10 字段后，对**整体**做 toEqual 会结构性必红。
+    // 语义不变（这五个呈现位都为 true），所以只把被断言的主语投影成这五个字段，
+    // 期望字面量一字未改（比 toMatchObject 更严：多一个键也会红）。
+    const { richCards, buttons, forms, images, streaming } = createWebChannelAdapter().capabilities
+    expect({ richCards, buttons, forms, images, streaming }).toEqual({
       richCards: true,
       buttons: true,
       forms: true,
@@ -185,5 +189,71 @@ describe('WebChannelAdapter · 审批翻译', () => {
     adapter.attachApproval(view())
     adapter.dispose()
     expect(adapter.pendingTickets()).toEqual([])
+  })
+})
+
+describe('03 TA-43 · 票据归属补"人"（状态码不变）', () => {
+  it('TA-43-2 actor.userId 与票据 userId 不符 → foreign-ticket（decide / verify 都拒）', async () => {
+    const adapter = createWebChannelAdapter({ sessionId: 's-web' })
+    const target = view({
+      sessionId: 's-web',
+      userId: 'u-1',
+      challenge: { channel: 'sms', verify: async () => ({ ok: true }) },
+    })
+    adapter.attachApproval(target)
+
+    expect(
+      adapter.decide(
+        'ticket:call-1',
+        { decision: 'allowed-once' },
+        { sessionId: 's-web', userId: 'u-2' },
+      ),
+    ).toMatchObject({ ok: false, code: 'foreign-ticket' })
+    await expect(
+      adapter.verify('ticket:call-1', { sessionId: 's-web', userId: 'u-2' }),
+    ).resolves.toMatchObject({ ok: false, code: 'foreign-ticket' })
+    expect(target.answers).toEqual([])
+  })
+
+  it('TA-43-2b actor.sessionId 与票据会话不符 → foreign-ticket（服务端会话优先于适配器绑定）', () => {
+    const adapter = createWebChannelAdapter({ sessionId: 's-web' })
+    adapter.attachApproval(view({ sessionId: 's-web', userId: 'u-1' }))
+    expect(
+      adapter.decide(
+        'ticket:call-1',
+        { decision: 'allowed-once' },
+        { sessionId: 's-other', userId: 'u-1' },
+      ),
+    ).toMatchObject({ ok: false, code: 'foreign-ticket' })
+  })
+
+  it('TA-43-2c 主体与票据一致 → 放行', () => {
+    const adapter = createWebChannelAdapter({ sessionId: 's-web' })
+    adapter.attachApproval(view({ sessionId: 's-web', userId: 'u-1' }))
+    expect(
+      adapter.decide(
+        'ticket:call-1',
+        { decision: 'allowed-once' },
+        { sessionId: 's-web', userId: 'u-1' },
+      ),
+    ).toEqual({ ok: true })
+  })
+
+  it('TA-43-3 不传 actor / 视图没有 userId → 行为与今天完全相同（兼容）', () => {
+    const bound = createWebChannelAdapter({ sessionId: 's-web' })
+    bound.attachApproval(view({ sessionId: 's-web', userId: 'u-1' }))
+    // 不传 actor：只判会话（旧行为）
+    expect(bound.decide('ticket:call-1', { decision: 'allowed-once' })).toEqual({ ok: true })
+
+    const noUser = createWebChannelAdapter({ sessionId: 's-web' })
+    noUser.attachApproval(view({ sessionId: 's-web' }))
+    // 视图没带 userId：用户层跳过，只剩会话层
+    expect(
+      noUser.decide(
+        'ticket:call-1',
+        { decision: 'allowed-once' },
+        { sessionId: 's-web', userId: 'u-9' },
+      ),
+    ).toEqual({ ok: true })
   })
 })

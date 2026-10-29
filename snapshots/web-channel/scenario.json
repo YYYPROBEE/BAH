@@ -60,6 +60,13 @@
       }
     },
     {
+      "id": "obs:telemetry",
+      "use": "obs:telemetry",
+      "config": {
+        "maxSpans": 2000
+      }
+    },
+    {
       "id": "audit:decisions",
       "use": "audit:decisions",
       "config": {}
@@ -128,6 +135,16 @@
       "config": {}
     },
     {
+      "id": "intent:plane",
+      "use": "intent:plane",
+      "config": {}
+    },
+    {
+      "id": "prompt:ask",
+      "use": "prompt:ask",
+      "config": {}
+    },
+    {
       "id": "bank:saga-bridge",
       "use": "bank:saga-bridge",
       "config": {
@@ -190,6 +207,7 @@
     "packages/persistence/src/saga-store/",
     "packages/safety/src/sentry/",
     "packages/interaction/src/approval/",
+    "packages/saga/src/gates/",
     "packages/saga/src/recovery/"
   ]
 }

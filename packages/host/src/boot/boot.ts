@@ -11,13 +11,15 @@
  */
 
 import { createContext, defineService, describeThrown } from '@bah/core'
-import { BahError } from '@bah/util'
+import { BahError, configureLogging } from '@bah/util'
 
 import type { BahContext, SessionId, TicketId } from '@bah/core'
+import type { TenantId } from '@bah/util'
 
 import { PluginManager } from '../plugin-manager/index.ts'
 import type { PluginCatalog, ValidatedRow } from '../plugin-manager/index.ts'
 
+import { assertAuthCompatibility } from './auth-compat.ts'
 import { BOOT_PREFIX, bootError } from './config.ts'
 import {
   diffRows,
@@ -36,6 +38,17 @@ import {
 export interface RunContext {
   /** 本次运行的会话 ID。 */
   readonly sessionId: SessionId
+  /**
+   * 本进程服务的租户（**启动期确定、运行期不可变**）。
+   *
+   * 与 `sessionId` 同一类东西：它是"这次进程为谁服务"的事实，不是配置。
+   * 写进 patch 会让 `--patch` / `--home` 三层覆盖搞出第二真相源，而且 8 个 profile
+   * 要各改一遍；所以由 CLI 的 `--tenant` / `BAH_TENANT` 注入（缺省 `demo`）。
+   *
+   * 全仓**唯一**的租户注入点：会话目录段、记忆库、审计链行、指标返回体、
+   * 知识库令牌、数据集盐都从这里派生，不许再从配置或请求里读第二份。
+   */
+  readonly tenantId: TenantId
   /** 会话目录覆盖（`--jsonl`）；缺省时用 `core:persistence` 的 `root`。 */
   readonly jsonlDir?: string
   /** 时钟（落账时间戳与落盘 header 都用它）。 */
@@ -130,8 +143,16 @@ export interface BootedApp {
  * @throws `BahError`（`bah-boot: ` 前缀）合并 / 校验 / 启动任一环节失败
  */
 export async function boot(options: BootOptions): Promise<BootedApp> {
+  // 日志出口在**任何插件副作用之前**配置：后面所有失败都要能按配置的级别落出来。
+  configureLogging({
+    level: process.env['BAH_LOG_LEVEL'],
+    file: process.env['BAH_LOG_FILE'],
+  })
   const manager = new PluginManager(options.catalog)
   let rows = manager.validate(mergeLayers(options.bundles, options.layers))
+  // 跨行约束（02 TA-27）：password 模式与 demoUserId / 静态画像不能共存。
+  // 放在建 ctx 之前：配置错误必须在任何副作用之前抛出。
+  assertAuthCompatibility(rows)
 
   const ctx = createContext()
   // 插件只能按键取 `bah:run`，所以告警出口必须随 run 上下文下发：

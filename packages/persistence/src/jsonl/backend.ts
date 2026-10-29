@@ -34,7 +34,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 
-import { BahError, assertSafePathSegment } from '@bah/util'
+import { BahError, assertSafePathSegment, logJson } from '@bah/util'
 import {
   encodeJsonLine,
   encodeSessionHeaderLine,
@@ -93,7 +93,8 @@ export class JsonlPersistence implements SessionPersistence {
   constructor(options: JsonlOptions = {}) {
     this.fsync = options.fsync ?? true
     this.redact = options.redact ?? true
-    this.warn = options.warn ?? ((message) => console.warn(message))
+    this.warn =
+      options.warn ?? ((message) => logJson('warn', 'persistence.jsonl-tail-dropped', { message }))
   }
 
   create(

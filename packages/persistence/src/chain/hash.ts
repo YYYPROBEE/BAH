@@ -9,7 +9,14 @@ import { sha256Hex, canonicalJson } from '@bah/util'
 
 import type { ChainRecord } from './chain-file.ts'
 
-/** 参与哈希的 unsigned 投影（v1 八键；v2 额外四字段）。 */
+/**
+ * 参与哈希的 unsigned 投影（v1 八键；v2 额外四字段；`tenant` 有才算）。
+ *
+ * `tenant` **不能**无条件进投影：历史行没有这个字段，无条件加会让所有老链
+ * 重算哈希不匹配（等于把已有证据判成"被篡改"）。也不能完全不加——那样
+ * 改租户字段不会断链，审计链上的"这条属于谁"就退化成一句没人校验的注释。
+ * 所以规则是"**有则入哈希**"，与写入端逐字一致（写入端只在新行上带 tenant）。
+ */
 export function canonicalOf(row: ChainRecord): Record<string, unknown> {
   const base = {
     s: row.s,
@@ -20,6 +27,7 @@ export function canonicalOf(row: ChainRecord): Record<string, unknown> {
     d: row.d,
     keyVersion: row.keyVersion,
     recordedAt: row.recordedAt,
+    ...(row.tenant === undefined ? {} : { tenant: row.tenant }),
   }
   if (row.version !== 2) return base
   return {

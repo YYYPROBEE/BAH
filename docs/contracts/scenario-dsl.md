@@ -16,13 +16,13 @@ W13 要写 **60 个场景**（9 人日）。若每个场景都要顺手改一次
 
 | 族 | 例数 | 覆盖 | 主力断言 kind |
 |---|---|---|---|
-| **Q** 查询 | 10 | 16 工具里的读类，断言"返回值与场景数据一致" | `tool-result`、`tool-sequence` |
-| **T** 转账主链 | 12 | 试算→审批→扣款；含金额边界（999/1000/1001） | `tool-sequence`、`tool-result` |
+| **Q** 查询 | 12 | 16 工具里的读类，断言"返回值与场景数据一致"（+03 单的跨场景拒借 / 追问不死循环） | `tool-result`、`tool-sequence` |
+| **T** 转账主链 | 16 | 试算→审批→扣款；含金额边界（999/1000/1001）与 03 单的四类意图 | `tool-sequence`、`tool-result` |
 | **P** 权限分级 | 10 | 绿/黄/红三档 × 批/拒/超时 | `tool-denied` |
 | **S** 补偿 | 8 | 转账失败→冲正；补偿失败→`COMPENSATION_DLQ`（**不是 INCIDENT**） | `event` |
-| **D** 编排（plan） | 10 | 串行/菱形/optional/dry-run/resume | `event`、`tool-sequence` |
+| **D** 编排（plan） | 15 | 串行/菱形/optional/dry-run/resume | `event`、`tool-sequence` |
 | **K** 知识与拒答 | 10 | 命中/未命中/需拒答/签名失效 | `refused`、`event` |
-| | **60** | | |
+| | **71** | | |
 
 ## 3. 结构
 

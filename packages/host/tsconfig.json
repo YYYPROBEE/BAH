@@ -39,6 +39,9 @@
     },
     {
       "path": "../channels"
+    },
+    {
+      "path": "../telemetry"
     }
   ]
 }

@@ -24,7 +24,7 @@ import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
 import { asSessionId } from '@bah/test-support'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { boot, createCatalog, HOST_PLUGINS, type BootOptions, type BootedApp, type HostPlugin } from '@bah/host'
+import { boot, createCatalog, HOST_PLUGINS, type BootOptions, type BootedApp, type HostPlugin , testRunContext } from '@bah/host'
 
 import { DECISION_AUDIT, auditDecisionsPlugin } from './audit-decisions.ts'
 import type { Context } from '@bah/core'
@@ -112,18 +112,18 @@ async function bootWith(input: {
     bundles: [{ name: 'fx-audit-decisions', rows: rows(input) }],
     layers: [],
     catalog: createCatalog([...HOST_PLUGINS, spyPlugin(input.seen, input.spyThrows ?? false)]),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId(input.sessionId),
       now: () => 1_792_000_000_000,
       jsonlDir: input.dir,
-    },
+    }),
   }
   return boot(bootOptions)
 }
 
 /** 读会话链（按 seq 升序；文件本身已是追加序）。 */
 function chainOf(dir: string, sessionId: string): Record<string, unknown>[] {
-  const path = join(dir, sessionId, 'audit.jsonl')
+  const path = join(dir, 'demo', sessionId, 'audit.jsonl')
   return readFileSync(path, 'utf8')
     .trim()
     .split('\n')
@@ -133,7 +133,7 @@ function chainOf(dir: string, sessionId: string): Record<string, unknown>[] {
 
 /** 读会话事件（`type` + `data`；用于重算链上的 `d`）。 */
 function sessionOf(dir: string, sessionId: string): Record<string, unknown>[] {
-  return readFileSync(join(dir, sessionId, 'session.jsonl'), 'utf8')
+  return readFileSync(join(dir, 'demo', sessionId, 'session.jsonl'), 'utf8')
     .trim()
     .split('\n')
     .filter((line) => line.length > 0)
@@ -213,7 +213,7 @@ describe('W08 · 会话级证据链', () => {
       expect(policyRow['d']).toBe(sha256Hex(canonicalJson(decided['data'])))
 
       // 链是连续的（用审计器再验一遍，而不是只看文件）
-      const audit = createSagaAudit({ now: () => 1, rootDir: dir, fsync: false })
+      const audit = createSagaAudit({ now: () => 1, rootDir: join(dir, 'demo'), fsync: false })
       expect(audit.verifyContinuity('s-w08-chain')).toEqual({ ok: true })
       expect(seen).toEqual([])
     } finally {
@@ -238,17 +238,17 @@ describe('W08 · 会话级证据链', () => {
       ],
       layers: [],
       catalog: createCatalog(),
-      run: {
+      run: testRunContext({
         sessionId: asSessionId(sessionId),
         now: () => 1_792_000_000_000,
         jsonlDir: dir,
-      },
+      }),
     })
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
       // 把链文件的位置占成目录：append 必然失败（EISDIR），模拟磁盘故障。
       // 判决落账（session.jsonl）与写链是两个出口，前者的成功不受后者影响。
-      mkdirSync(join(dir, sessionId, 'audit.jsonl'), { recursive: true })
+      mkdirSync(join(dir, 'demo', sessionId, 'audit.jsonl'), { recursive: true })
       const session = app.ctx.get(SESSION_SERVICE)
       session.appendDomain('tier/decided', {
         callId: 'call-chain-fail',
@@ -263,9 +263,7 @@ describe('W08 · 会话级证据链', () => {
       })
 
       expect(
-        warn.mock.calls.some((args) =>
-          String(args[0]).includes('policy/decision 写入失败（判决不变）'),
-        ),
+        warn.mock.calls.some((args) => String(args[0]).includes('host.audit-write-failed')),
       ).toBe(true)
       // 判决本体仍在会话日志里（写链失败只是旁路证据缺失）
       expect(
@@ -277,8 +275,42 @@ describe('W08 · 会话级证据链', () => {
     }
   })
 
+  it('链尾截断的告警走结构化日志（warn 回调被调用）', async () => {
+    const dir = root()
+    const sessionId = 's-w08-tail'
+    // 租户化后链目录多一层租户段：`<root>/<tenant>/<sessionId>/audit.jsonl`
+    mkdirSync(join(dir, 'demo', sessionId), { recursive: true })
+    const valid = {
+      s: sessionId,
+      q: 1,
+      t: 'tool/call',
+      sub: 'x',
+      d: 'd',
+      p: 'p',
+      r: 'r',
+      keyVersion: 1,
+      recordedAt: 1,
+      hb: [],
+    }
+    writeFileSync(join(dir, 'demo', sessionId, 'audit.jsonl'), `${JSON.stringify(valid)}\n{"s":`, 'utf8')
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const app = await bootWith({ dir, sessionId, seen: [], script: [{ text: 'ok' }] })
+      try {
+        app.ctx.get(DECISION_AUDIT).verifyAll()
+        expect(
+          warn.mock.calls.some((args) => String(args[0]).includes('host.audit-write-failed')),
+        ).toBe(true)
+      } finally {
+        await app.dispose('test')
+      }
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('B4：缺钥 → unsigned 启动不失败，且显式提示（不静默）', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
       const dir = root()
       const app = await bootWith({
@@ -298,6 +330,7 @@ describe('W08 · 会话级证据链', () => {
         for (const row of rows) expect(row['sig']).toBeUndefined()
         // 提示必须说出来（B4：不能静默降级）
         const notices = warn.mock.calls.map((call) => String(call[0])).join('\n')
+        expect(notices).toContain('host.audit-key-missing')
         expect(notices).toContain('unsigned')
       } finally {
         await app.dispose('test')
@@ -370,10 +403,10 @@ describe('W08 · 会话级证据链', () => {
   it('TC-W08-04（运行时）：启动发现断链 → audit/chain-broken + stderr + HALT', async () => {
     const dir = root()
     // 造一条两行的链，再篡改第一条的 data 摘要
-    const chain = createSagaAudit({ now: () => 1, rootDir: dir, fsync: false })
+    const chain = createSagaAudit({ now: () => 1, rootDir: join(dir, 'demo'), fsync: false })
     chain.append('s-broken', 'saga/created', { sagaId: 's-broken' })
     chain.append('s-broken', 'saga/call-result', { sagaId: 's-broken', stepId: 'st-1' })
-    const path = join(dir, 's-broken', 'audit.jsonl')
+    const path = join(dir, 'demo', 's-broken', 'audit.jsonl')
     const lines = readFileSync(path, 'utf8').trim().split('\n')
     const first = JSON.parse(lines[0] as string) as Record<string, unknown>
     lines[0] = JSON.stringify({ ...first, d: 'tampered' })
@@ -430,7 +463,7 @@ describe('W08 · 会话级证据链', () => {
       agent.send('查余额')
       await agent.run()
 
-      const path = join(dir, 's-w08-unreadable', 'audit.jsonl')
+      const path = join(dir, 'demo', 's-w08-unreadable', 'audit.jsonl')
       const lines = readFileSync(path, 'utf8').trim().split('\n')
       // 至少要两行：末行半写会被容忍，只有中段损坏才进入"读不出来"分支
       expect(lines.length).toBeGreaterThan(1)
@@ -440,6 +473,56 @@ describe('W08 · 会话级证据链', () => {
       expect(breaks).toHaveLength(1)
       expect(breaks[0]).toMatchObject({ chainId: 's-w08-unreadable', brokenAt: 0 })
       expect(breaks[0]?.error).toBeTruthy()
+    } finally {
+      await app.dispose('test')
+    }
+  })
+})
+
+describe('03 TA-46 · 审批主体入链（不新增会话事件键）', () => {
+  it('appendActor 先于 approval/decided；主体只含 tenant/user/roles（无 password/cookie/sid）', async () => {
+    const dir = root()
+    const sessionId = 's-actor-chain'
+    const app = await bootWith({ dir, sessionId, seen: [], script: [{ text: '你好' }] })
+    try {
+      const audit = app.ctx.get(DECISION_AUDIT)
+      audit.appendActor('t-1', { tenantId: 'demo', userId: 'u-1', roles: ['customer'] }, 100)
+      audit.append({
+        type: 'approval/decided',
+        data: { ticketId: 't-1', callId: 'c-1', decision: 'allowed-once', at: 101 },
+        subject: `session:${sessionId}`,
+        decision: 'allow',
+        policyVersion: 'approval-policy/1',
+      })
+
+      const rows = chainOf(dir, sessionId)
+      const types = rows.map((row) => row['t'])
+      const actorIndex = types.indexOf('approval/actor')
+      const decidedIndex = types.indexOf('approval/decided')
+      expect(actorIndex).toBeGreaterThanOrEqual(0)
+      expect(decidedIndex).toBeGreaterThan(actorIndex)
+
+      const actorRow = rows[actorIndex]!
+      expect(actorRow['subject']).toBe('principal:demo/u-1')
+      expect(actorRow['decision']).toBe('allow')
+      expect(actorRow['policyVersion']).toBe('auth-session/1')
+      const text = JSON.stringify(actorRow)
+      expect(text).not.toMatch(/password|cookie|sid/i)
+      // 链行只存 `d = sha256(canonicalJson(data))`：用同一算法复算，证明载荷形状
+      expect(actorRow['d']).toBe(
+        sha256Hex(
+          canonicalJson({
+            ticketId: 't-1',
+            tenantId: 'demo',
+            userId: 'u-1',
+            roles: ['customer'],
+            at: 100,
+          }),
+        ),
+      )
+
+      const verify = createSagaAudit({ now: () => 1, rootDir: join(dir, 'demo'), fsync: false })
+      expect(verify.verifyContinuity(sessionId)).toEqual({ ok: true })
     } finally {
       await app.dispose('test')
     }

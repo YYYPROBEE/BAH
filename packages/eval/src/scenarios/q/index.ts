@@ -1,9 +1,11 @@
 /**
- * Q 族 · 查询（10）。
+ * Q 族 · 查询（12）。
  *
  * 全部走绿色只读工具：断言"返回值与场景数据一致"，且**不产生**任何写事件。
  * 模型脚本用 `reflectStep` 复述工具结果，避免把数字写死在场景里（那会把幻觉写进评测）。
  */
+
+import { textStep, toolCallStep } from '@bah/llm/mock'
 
 import { scenario, readSteps } from '../helpers.ts'
 import type { EvalScenario } from '../../scenario/types.ts'
@@ -146,6 +148,65 @@ export const Q_SCENARIOS: readonly EvalScenario[] = [
     ],
     metric: 'task-success',
     action: { kind: 'script', steps: readSteps('bill_analyze', { period: 'quarter' }) },
+  }),
+
+  /**
+   * 03 单：两条跨场景 / 防死循环。两条都不是银行域查询，但都复用既有封闭断言集。
+   */
+  scenario({
+    id: 'Q-11',
+    family: 'Q',
+    title: '跨场景引用 confidence<0.6：拒借 + 建议反问，不静默降级',
+    turns: ['把那边的事接着办'],
+    expect: [
+      { kind: 'tool-sequence', tools: ['intent_resolve'], mode: 'exact' },
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'decision', equals: 'ask' },
+      { kind: 'no-event', type: 'tool/call', where: { name: 'transfer_preview' } },
+      { kind: 'no-event', type: 'transfer/created' },
+    ],
+    metric: 'refusal-accuracy',
+    action: {
+      kind: 'script',
+      steps: [
+        toolCallStep('c-intent', 'intent_resolve', { utterance: '把那边的事接着办', scene: 'cross_scene' }),
+        textStep('您是想继续上次的转账，还是账单那边的事？我不确定，先问一下。'),
+      ],
+    },
+  }),
+  scenario({
+    id: 'Q-12',
+    family: 'Q',
+    title: '追问不死循环：同槽位第 3 次 ⇒ askExhausted 开放式降级',
+    turns: ['我要转账', '嗯', '啊这个', '算了，给王建国转100'],
+    expect: [
+      { kind: 'tool-sequence', tools: ['prompt_ask', 'prompt_ask', 'prompt_ask'], mode: 'contains' },
+      { kind: 'tool-result', tool: 'prompt_ask', path: 'askExhausted', equals: true },
+      { kind: 'no-event', type: 'transfer/created' },
+    ],
+    metric: 'task-success',
+    action: {
+      kind: 'script',
+      steps: [
+        toolCallStep('c1', 'intent_resolve', { utterance: '我要转账', scene: 'transfer' }),
+        toolCallStep('a1', 'prompt_ask', {
+          question: '转给谁？',
+          slot: 'payee',
+          candidates: [{ label: '张伟', value: 'p1' }],
+        }),
+        toolCallStep('c2', 'intent_resolve', { utterance: '嗯', scene: 'transfer' }),
+        toolCallStep('a2', 'prompt_ask', {
+          question: '没听清，转给谁？',
+          slot: 'payee',
+          candidates: [{ label: '张伟', value: 'p1' }],
+        }),
+        toolCallStep('c3', 'intent_resolve', { utterance: '啊这个', scene: 'transfer' }),
+        // 第 3 次：候选为空（上游已无候选），且台账已到上限 ⇒ 双路径都走到降级
+        toolCallStep('a3', 'prompt_ask', { question: '请直接输入收款人姓名', slot: 'payee', candidates: [] }),
+        toolCallStep('c4', 'intent_resolve', { utterance: '算了，给王建国转100', scene: 'transfer' }),
+        toolCallStep('p4', 'transfer_preview', { amount: 100, payee: { name: '王建国' } }),
+        textStep('已生成预演，请确认。'),
+      ],
+    },
   }),
 ]
 

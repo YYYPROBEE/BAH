@@ -20,7 +20,7 @@
 | 链 | 目录 | 写入方 | 条目 |
 |---|---|---|---|
 | saga 链 | `<root>/<sagaId>/audit.jsonl` | `bank:saga-audit` | `saga/*`（编排、补偿、恢复） |
-| 会话证据链 | `<root>/<sessionId>/audit.jsonl` | `audit:decisions` | `tool/call`（v1）、`tool/result`（v1 **摘要**：`{callId,name,isError,code,durationMs}`，B4）、`sentry/decision`（v2）、`approval/decided`（v2）、`policy/decision`（v2） |
+| 会话证据链 | `<root>/<sessionId>/audit.jsonl` | `audit:decisions` | `tool/call`（v1）、`tool/result`（v1 **摘要**：`{callId,name,isError,code,durationMs}`，B4）、`sentry/decision`（v2）、`approval/decided`（v2）、`approval/actor`（v2，租户与鉴权 03 的**审批操作者**；载荷 `{ticketId,tenantId,userId,roles,at}` 只进 `d` 摘要，链行上可读的是 `sub`=票据、`subject=principal:<tenant>/<user>`）、`policy/decision`（v2）、`auth/login` / `auth/logout` / `auth/login-failed` / `auth/login-locked`（v2，租户与鉴权 02 的**认证事实**；失败条目只存 `userIdHash`，不存明文） |
 
 `audit:decisions` 在 boot 期拒绝占用编排链命名空间的会话 ID：`saga-*` 与 `system-startup`
 是保留名（否则两类条目会写进同一个 `audit.jsonl`）。换一个会话 ID 即可，不是环境坏了。
@@ -58,23 +58,26 @@ bah audit [选项]
 ```
 
 ```bash
-# 审某次演示的独立目录（pnpm demo:web 会打印这个路径）
-bah audit --dir sessions/demo-20261024-153000-ab12cd
+# 审某次演示的独立目录（pnpm demo:web 会打印这个路径；缺省租户 demo）
+bah audit --dir sessions/demo-20261024-153000-ab12cd --tenant demo
+
+# 租户化之后：--dir 给**部署根**，链在 <dir>/<tenant>/ 下
+bah audit --dir sessions --tenant demo
 
 # 无签名密钥时只验链连续性/投影（不是完整验签）
-bah audit --dir sessions/demo-20261024-153000-ab12cd --no-signature
+bah audit --dir sessions/demo-20261024-153000-ab12cd --tenant demo --no-signature
 
 # 只审一条链，机器读
-bah audit --dir sessions --saga saga-gate-001 --format json
+bah audit --dir sessions --tenant demo --saga saga-gate-001 --format json
 
 # 只有链、没有库：跳过投影
-bah audit --dir sessions --no-projection
+bah audit --dir sessions --tenant demo --no-projection
 
 # 显式使用临时密钥
-bah audit --dir sessions --key keys/saga-ed25519.pem
+bah audit --dir sessions --tenant demo --key keys/saga-ed25519.pem
 
 # 只验链连续性（已知降级）
-bah audit --dir sessions --no-signature
+bah audit --dir sessions --tenant demo --no-signature
 
 # 帮助
 bah audit --help
@@ -84,7 +87,8 @@ bah audit --help
 
 | flag | 取值 | 缺省 | 语义 |
 |---|---|---|---|
-| `--dir <path>` | 目录 | `sessions/` | 待审计的落盘根；链在 `<dir>/<sagaId>/audit.jsonl` |
+| `--dir <path>` | 目录 | `sessions/` | 待审计的**部署根**；链在 `<dir>/<tenant>/<sessionId>/audit.jsonl`（也含 saga 编排链） |
+| `--tenant <id>` | 租户 | `demo` | 只审该租户段（`<dir>/<id>/`）；不会跨租户扫描，也不会自动猜 |
 | `--saga <id>` | saga id | 全部 | 只报告一条链；锚定仍按目录下全部链计算 |
 | `--db <path>` | 文件 | `<dir>/saga.sqlite` | 投影重算用的 saga 库；文件不存在则整段跳过投影，绝不新建 |
 | `--no-projection` | 布尔 | 关 | 跳过投影重算 |
@@ -203,11 +207,11 @@ node -e "const {generateKeyPairSync}=require('node:crypto');const fs=require('no
 
 ```bash
 # 1) 重放：重建 {事件序列, 判决表, 票据表}，与原始事件逐条比对
-npx tsx scripts/replay.ts --session <id> --dir <root> --verify
-#    等价 CLI：pnpm bah audit replay --session <id> --dir <root> --verify
+npx tsx scripts/replay.ts --session <id> --dir <root> --tenant demo --verify
+#    等价 CLI：pnpm bah audit replay --session <id> --dir <root> --tenant demo --verify
 
 # 2) 生成监管证据包：events.jsonl / decisions.md / tickets.md + manifest.json
-npx tsx scripts/replay.ts --session <id> --dir <root> --pack .ci-artifacts/evidence/<id>
+npx tsx scripts/replay.ts --session <id> --dir <root> --tenant demo --pack .ci-artifacts/evidence/<id>
 #    离线复核（只读 manifest + 文件，不启动进程内状态）
 npx tsx scripts/replay.ts --check-pack .ci-artifacts/evidence/<id>
 

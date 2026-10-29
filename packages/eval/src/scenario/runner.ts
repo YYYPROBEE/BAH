@@ -17,7 +17,7 @@ import { join, resolve } from 'node:path'
 
 import { loadBundles, readLayers, readProfile } from '@bah/cli'
 import type { ContentBlock, SessionId, ToolDefinition } from '@bah/core'
-import { PLAN_SERVICE, SAGA_BRIDGE_RECIPES, boot, createCatalog } from '@bah/host'
+import { PLAN_SERVICE, SAGA_BRIDGE_RECIPES, boot, createCatalog, testRunContext } from '@bah/host'
 import type { BootedApp } from '@bah/host'
 import { LLM_ADAPTERS } from '@bah/llm'
 import type { ModelSpec } from '@bah/llm'
@@ -288,11 +288,11 @@ async function runGroup(
       bundles,
       layers,
       catalog: createCatalog(),
-      run: {
+      run: testRunContext({
         sessionId: asSessionId(`s-eval-${group.key.replace(/[^A-Za-z0-9_-]/g, '-')}`),
         now: clock.now,
         jsonlDir,
-      },
+      }),
     })
 
     const bus = attachBus(app)
@@ -327,6 +327,33 @@ function overlayFor(group: Group, keyPath: string, knowledgeUrl: string | undefi
     )
   } else if (group.approval === 'unavailable') {
     rows.push('- id: interaction:approval\n  config: { responder: none }')
+  }
+  if (group.family === 'T' || group.family === 'Q') {
+    // 03 单：意图平面需要历史记忆才能演示「复现」与「实体歧义」。
+    // headless 不装 bah:memory-store（真实记忆），所以这里注入**确定性假记忆**：
+    // `match` 限定命中话语，三条夹具互不污染（T-13 只看到王建国，T-15 只看到两个张伟）。
+    rows.push(
+      [
+        '- id: intent:plane',
+        '  config:',
+        '    demoMemory:',
+        '      - unitId: demo-history',
+        '        scene: transfer',
+        '        confidence: 0.8',
+        '        match: 上次',
+        '        fields: { payee: 王建国, amountCents: 80000 }',
+        '      - unitId: demo-zhang-colleague',
+        '        scene: transfer',
+        '        confidence: 0.8',
+        '        match: 张伟',
+        '        fields: { payee: 张伟（同事） }',
+        '      - unitId: demo-zhang-landlord',
+        '        scene: transfer',
+        '        confidence: 0.7',
+        '        match: 张伟',
+        '        fields: { payee: 张伟（房东） }',
+      ].join('\n'),
+    )
   }
   if (group.family === 'D') {
     // plan 的节点调用没有 turn（turn=0），sentry 的"同 turn 工具数"会在共享 app 里
@@ -557,12 +584,28 @@ function evaluateOne(
     }
     case 'tool-result': {
       const eventType = TOOL_EVENT[expectation.tool]
-      if (eventType === undefined) return `未知工具 ${expectation.tool}`
-      const domain = [...sessionEvents]
-        .reverse()
-        .find((event) => event.type === eventType)
-      if (domain === undefined) return `没有 ${eventType} 事件`
-      const result = (domain.data as { result?: unknown }).result
+      // 银行工具看领域事件（`transfer/preview` 等）；没有领域事件的工具
+      // （03 单的 intent_resolve/prompt_ask：D5 零新键）回落到 `tool/result`，
+      // 从默认渲染的 JSON 正文里取出参——这是「工具形态也能被断言」的唯一通路。
+      const domain =
+        eventType === undefined
+          ? [...sessionEvents]
+              .reverse()
+              .find(
+                (event) =>
+                  event.type === 'tool/result' &&
+                  (event.data as { name?: string }).name === expectation.tool,
+              )
+          : [...sessionEvents].reverse().find((event) => event.type === eventType)
+      if (domain === undefined) {
+        return eventType === undefined
+          ? `没有 ${expectation.tool} 的 tool/result 事件`
+          : `没有 ${eventType} 事件`
+      }
+      const result =
+        eventType === undefined
+          ? resultPayloadOf(domain.data as { content?: readonly { type: string; text?: string }[] })
+          : (domain.data as { result?: unknown }).result
       const actual = resolvePath(result, expectation.path)
       return deepEqual(actual, expectation.equals)
         ? undefined
@@ -814,6 +857,17 @@ function fixedClock(start: number, step: number): { now: () => number } {
 
 function asSessionId(value: string): SessionId {
   return value as SessionId
+}
+
+/** 从默认渲染的 JSON 正文里取出参（解析失败返回 undefined ⇒ 断言红，不静默通过）。 */
+function resultPayloadOf(data: { content?: readonly { type: string; text?: string }[] }): unknown {
+  const text = (data.content ?? []).map((block) => block.text ?? '').join('')
+  if (text.length === 0) return undefined
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return undefined
+  }
 }
 
 function resolvePath(value: unknown, path: string): unknown {

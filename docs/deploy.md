@@ -1,4 +1,4 @@
-# 部署与运行说明（M0）
+﻿# 部署与运行说明（M0）
 
 > 读者：拿到仓库、要在自己机器上把演示跑起来的人。
 > 本文只写**能照着做**的步骤；所有默认值都回源码核过（`profiles/web/patch.yml`、
@@ -33,16 +33,23 @@ pnpm install          # 同时把 core.hooksPath 指到 .githooks
 ```
 
 `pnpm install` 的 `prepare` 会执行 `git config core.hooksPath .githooks`；
-之后提交跑 `pnpm gate`（40 项），推送跑 `pnpm check`（14 步）。钩子挡疏忽，不挡 `--no-verify`。
+之后提交跑 `pnpm gate`（44 项），推送跑 `pnpm check`（14 步）。钩子挡疏忽，不挡 `--no-verify`。
 
 ---
 
-## 2. 两个端口
+## 2. 三个端口
 
 | 端口 | 谁在用 | 绑定 | 改哪里 |
 |---|---|---|---|
 | `7331` | Web 渠道（页面 + `/api/*`） | `127.0.0.1` | `profiles/web/patch.yml` 的 `channel:web.config.port` |
+| `7551` | 移动 H5 渠道（第二个壳 + 同一套 `/api/*`） | `127.0.0.1` | `profiles/mobile/patch.yml` 的 `channel:mobile.config.port` |
 | `7801` | 知识 RAG sidecar（可选） | `127.0.0.1` | `profiles/web/patch.yml` 的 `bank:knowledge.config.baseUrl` |
+
+移动端入口（施工单 01）：`pnpm bah --profile mobile`，`staticRoot` 同为 `apps/web`（单静态根双壳，00 D1），
+**前端不需要先 build**（纯原生 ES 模块）。`channel:web` 与 `channel:mobile` 共用同一份
+`createHttpChannel`（路由表 / 闸序 / 安全头 / 限流 / CSRF / SSE / 审批端点一份代码）——
+差异只有适配器（能力位）、入口 HTML、默认端口三项。**不要**给移动端进程设 `BAH_ADMIN_TOKEN`
+（admin 面只服务本机 CLI，未设即 404；设了反而多一个可达面）。
 
 - 端口被占时**不会自动换端口**，启动直接报 `web-listen-failed`。这是刻意的：
   换端口会让「答辩时打开的是旧页面」变成可能。
@@ -181,9 +188,9 @@ headless 走 `provider: router`（读消息现规划，不是固定磁带），�
 ### 4.4 一键自证（不需要密钥）
 
 ```bash
-pnpm test              # 221 文件 / 2481 用例（2026-10-28 实测；前端另有 55 例）
-pnpm test:snapshot     # 7 场景 / 8 文件 34 例，录制↔回放逐条全等
-pnpm gate              # 40/40
+pnpm test              # 294 文件 / 3333 用例（2026-10-29 实测；前端另有 365 例）
+pnpm test:snapshot     # 9 文件 39 例，录制↔回放逐条全等
+pnpm gate              # 50/50
 pnpm demo:verifier-fail # 判决件异常 → 结果被挡在模型之外（20 条断言）
 ```
 
@@ -270,7 +277,7 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>" --key "<demo:web 打印�
 | 第一次对话报「未配置密钥」 | 已切 DeepSeek 但 `BAH_MODEL_KEY` 为空 | 写 `.env.local`；或按 profile 注释把 `core:model` 与 `core:agent.loop.model` 成对换回 router |
 | 知识问答报 `knowledge-unavailable` | 7801 sidecar 没起 | `pnpm rag:dev`（或按 `services/rag` 的 README 起），再确认探活 |
 | 断路器冻结，解不掉 | 在用 headless | headless 只能重启；Web 用管理路由 |
-| 提交被 `pnpm gate` 拒绝 | 40 项里有红 | 看输出末段；`docs` 路径红最常见（引用了不存在的文件） |
+| 提交被 `pnpm gate` 拒绝 | 44 项里有红 | 看输出末段；`docs` 路径红最常见（引用了不存在的文件） |
 | 推送被 `pnpm check` 拒绝 | 14 步里有红 | 先 `pnpm test:snapshot`；快照红会卡在最后一步 |
 | 演示日志里全是历史转账 | 用 `pnpm web` 起在了共享 `sessions/`；`demo:web` 才会每次新建独立目录 | 改用 `pnpm demo:web`，按打印的目录审计；不要删别人的历史目录 |
 
@@ -279,8 +286,8 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>" --key "<demo:web 打印�
 ## 6. 演示前 60 秒检查
 
 ```bash
-pnpm gate                 # 40/40（不需要 BAH_ALLOW_NO_SNAPSHOT）
-pnpm test:snapshot        # 8 文件 / 34 例（录制↔回放逐条全等）
+pnpm gate                 # 44/44（不需要 BAH_ALLOW_NO_SNAPSHOT）
+pnpm test:snapshot        # 9 文件 / 39 例（录制↔回放逐条全等）
 pnpm demo:verifier-fail   # 退出码 0
 pnpm demo:web             # 另开终端；记下打印的“本次会话目录”
 curl -s http://127.0.0.1:7331/api/health   # 返回 JSON，且不含票据 ID

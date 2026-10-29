@@ -46,6 +46,19 @@ describe('T-BANK-009 demo 档主体与白名单收款人', () => {
     const user = data.users.find((item) => item.id === payee?.userId)
     expect(user?.name).toBe('张三')
   })
+
+  it('04 单：生日案例的商户收款人是白名单，首笔早于演示 30 天以上', () => {
+    const data = buildBankDataset({ seed: 1 })
+    for (const [name, id] of [
+      ['馨香花艺', 'p-2'],
+      ['甜心蛋糕坊', 'p-3'],
+    ] as const) {
+      const payee = data.payees.find((item) => item.name === name)
+      expect(payee).toMatchObject({ id, binding: 'whitelist' })
+      // 升红规则没改：靠"登记够久"让演示主线不被 new-payee 打断
+      expect(data.now - (payee?.firstSeenAt ?? data.now)).toBeGreaterThan(30 * 24 * 60 * 60 * 1000)
+    }
+  })
 })
 
 describe('T-BANK-010 adversarial 档', () => {

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <link rel="icon" href="./assets/icons/ai.svg" type="image/svg+xml" />
+    <title>BAH · 坐席工作台</title>
+    <!--
+      与客户页同构的三份样式；**不要**在这里注入任何凭证。
+      坐席 token 由坐席手输、只存 sessionStorage（见 src/seat/gate.js）。
+    -->
+    <link rel="stylesheet" href="./styles/ds/colors_and_type.css" />
+    <link rel="stylesheet" href="./styles/ds/components.css" />
+    <link rel="stylesheet" href="./styles/app.css" />
+  </head>
+  <body>
+    <main id="seat" class="app"></main>
+    <script type="module" src="./src/seat/main.js"></script>
+  </body>
+</html>

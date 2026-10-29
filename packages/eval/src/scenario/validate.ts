@@ -10,16 +10,16 @@ import type { EvalScenario } from './types.ts'
 
 /** 六族的固定例数（W13 §1；少一条或多一条都算本单失败）。 */
 export const FAMILY_COUNTS: Readonly<Record<ScenarioFamily, number>> = {
-  Q: 10,
-  T: 12,
+  Q: 12,
+  T: 16,
   P: 10,
   S: 8,
-  D: 10,
+  D: 15,
   K: 10,
 }
 
 /** 总场景数。 */
-export const TOTAL_SCENARIOS = 60
+export const TOTAL_SCENARIOS = 71
 
 const ID_PATTERN = /^[QTPSDK]-\d{2}$/
 const FAMILIES = ['Q', 'T', 'P', 'S', 'D', 'K'] as const

@@ -11,7 +11,10 @@
  * 只要换掉这两个对象，五个视图照样能挂起来。
  */
 
+import { bootstrapPasswordGate, logout, readAuthMode } from './auth.js'
 import { clear, el, icon } from './dom.js'
+import { createObservability } from './observability.js'
+import { formatWaited } from './format.js'
 import { approvalDecision, createStore, pendingApproval, viewKey } from './store.js'
 import { connectEvents, createHttpApi } from './transport.js'
 import {
@@ -23,6 +26,7 @@ import {
 import { createApprovalController } from './views/approval.js'
 import { renderAudit, renderAuditEmpty, renderAuditSummary } from './views/audit.js'
 import { renderDag, renderDagEmpty } from './views/dag.js'
+import { renderObserve } from './views/observe.js'
 
 /** 连接状态 → 文案与色调。 */
 const STATUS = {
@@ -90,15 +94,59 @@ export function mountApp(options) {
     id: 'conversation',
     'aria-label': '对话流',
   })
-  const dagBox = el('div', { class: 'panel__section', id: 'panel-dag' })
-  const auditList = el('ol', { class: 'audit__list', id: 'panel-audit' })
-  const auditBox = el('div', { class: 'panel__section', id: 'panel-audit-box', hidden: true }, [auditList])
+  const dagBox = el('div', {
+    class: 'panel__section',
+    id: 'panel-dag',
+    role: 'tabpanel',
+    'aria-labelledby': 'tab-dag',
+  })
   const auditSummary = el('div', { class: 'panel__summary' })
+  const auditList = el('ol', { class: 'audit__list', id: 'panel-audit' })
+  const auditBox = el('div', {
+    class: 'panel__section panel__section--audit',
+    id: 'panel-audit-box',
+    role: 'tabpanel',
+    'aria-labelledby': 'tab-audit',
+    hidden: true,
+  }, [auditSummary, auditList])
   const overlay = el('div', { class: 'overlay-root', id: 'overlay-root' })
   const toasts = el('div', { class: 'toasts', role: 'status', 'aria-live': 'polite' })
+  const obsBox = el('div', {
+    class: 'panel__section',
+    id: 'panel-observe',
+    role: 'tabpanel',
+    'aria-labelledby': 'tab-observe',
+    hidden: true,
+  })
 
-  const tabDag = el('button', { class: 'ds-tab is-active', type: 'button', role: 'tab', 'aria-selected': 'true' }, ['调用图'])
-  const tabAudit = el('button', { class: 'ds-tab', type: 'button', role: 'tab', 'aria-selected': 'false' }, ['审计'])
+  const tabDag = el('button', {
+    class: 'ds-tab is-active',
+    type: 'button',
+    role: 'tab',
+    id: 'tab-dag',
+    'aria-selected': 'true',
+    'aria-controls': 'panel-dag',
+    tabindex: '0',
+  }, ['调用图'])
+  const tabAudit = el('button', {
+    class: 'ds-tab',
+    type: 'button',
+    role: 'tab',
+    id: 'tab-audit',
+    'aria-selected': 'false',
+    'aria-controls': 'panel-audit-box',
+    tabindex: '-1',
+  }, ['审计'])
+  const tabObserve = el('button', {
+    class: 'ds-tab',
+    type: 'button',
+    role: 'tab',
+    id: 'tab-observe',
+    'aria-selected': 'false',
+    'aria-controls': 'panel-observe',
+    tabindex: '-1',
+  }, ['观测'])
+  const tabsBar = el('div', { class: 'panel__tabs ds-tabs', role: 'tablist' }, [tabDag, tabAudit, tabObserve])
 
   const composerInput = el('textarea', {
     class: 'ds-textarea composer__input',
@@ -106,6 +154,9 @@ export function mountApp(options) {
     placeholder: '说点什么，例如「给王建国转 800 元」（Enter 发送，Shift+Enter 换行）',
     'aria-label': '输入消息',
   })
+  /** 接管期间换成"消息会转给坐席"；交回后恢复。 */
+  const COMPOSER_PLACEHOLDER = composerInput.placeholder
+  const HANDOFF_PLACEHOLDER = '坐席正在处理，你的消息会转给坐席'
   const sendButton = el('button', {
     class: 'ds-btn ds-btn--brand ds-btn--md composer__send',
     type: 'submit',
@@ -133,13 +184,32 @@ export function mountApp(options) {
   ])
 
   const panel = el('aside', { class: 'panel', 'aria-label': '运行观察' }, [
-    el('div', { class: 'panel__tabs ds-tabs', role: 'tablist' }, [tabDag, tabAudit]),
-    auditSummary,
+    tabsBar,
     dagBox,
     auditBox,
+    obsBox,
   ])
 
   const banner = el('div', { class: 'app-banner', hidden: true })
+  // D13：接管横幅是**另一个节点**，不复用 setBanner（后者写死了"连接异常"）。
+  const handoffBanner = el('div', { class: 'app-banner', id: 'handoff-banner', hidden: true })
+
+  // 退出登录：只在 password 模式出现（static 模式没有"登录"这回事，多一个按钮只会误导）
+  const logoutButton =
+    readAuthMode() === 'password'
+      ? el(
+          'button',
+          {
+            class: 'ds-btn ds-btn--ghost ds-btn--sm',
+            type: 'button',
+            title: '退出登录并清除本地会话',
+            onClick: () => {
+              void logout()
+            },
+          },
+          [icon('user', 14), '退出'],
+        )
+      : null
 
   const shell = el('div', { class: 'app-shell' }, [
     el('header', { class: 'app-header' }, [
@@ -150,9 +220,10 @@ export function mountApp(options) {
           el('div', { class: 'app-header__subtitle', text: 'Web 渠道 · 纯原生渲染 · 事件驱动' }),
         ]),
       ]),
-      el('div', { class: 'app-header__meta' }, [sessionLabel, statusDot]),
+      el('div', { class: 'app-header__meta' }, [sessionLabel, statusDot, logoutButton]),
     ]),
     banner,
+    handoffBanner,
     el('div', { class: 'app-body' }, [
       el('div', { class: 'app-left' }, [conversation, composer]),
       panel,
@@ -199,6 +270,79 @@ export function mountApp(options) {
     )
   }
 
+  /** 接管横幅的计时器与一次性"已交回"提示。 */
+  let handoffTimer
+  let resumedNoticeTimer
+  let handoffWasActive = false
+
+  /**
+   * 同步接管横幅（D13：独立节点；`setBanner` 只负责连接异常）。
+   *
+   * `Date.now()` 在这里是**展示计时**，不是业务事实：权威等待时长在服务端
+   * `summary.waitedMs` / `heartbeat.waitedMs`，前端这一秒只是为了"在等"可感知。
+   */
+  function syncHandoffBanner(handoff, warn) {
+    if (handoff !== null && handoff !== undefined && handoff.active === true) {
+      if (resumedNoticeTimer !== undefined) {
+        clearTimeout(resumedNoticeTimer)
+        resumedNoticeTimer = undefined
+      }
+      handoffWasActive = true
+      composerInput.placeholder = HANDOFF_PLACEHOLDER
+      // 超时告警只在**本次接管**之后才算数（上一轮的红标不能跟到新接管）
+      const freshWarn = warn !== null && warn !== undefined && warn.seq > handoff.seq ? warn : null
+      const tick = () => {
+        const waited = formatWaited(Date.now() - (typeof handoff.at === 'number' ? handoff.at : Date.now()))
+        const overdue = freshWarn === null ? '' : ` · 已等待超过 ${String(Math.max(1, Math.round(freshWarn.slaMs / 60_000)))} 分钟`
+        handoffBanner.replaceChildren(
+          el('div', { class: 'ds-alert ds-alert--info' }, [
+            el('span', { class: 'ds-alert__icon' }, [icon('agent', 16)]),
+            el('div', {}, [
+              el('div', { class: 'ds-alert__title', text: '已转人工坐席' }),
+              el('p', {
+                class: 'ds-alert__desc',
+                text: `等待 ${waited} · 坐席回复会以「${handoff.operator ?? '人工坐席'}」标识${overdue}`,
+              }),
+            ]),
+          ]),
+        )
+        handoffBanner.hidden = false
+      }
+      tick()
+      if (handoffTimer === undefined) handoffTimer = setInterval(tick, 1000)
+      return
+    }
+
+    if (handoffTimer !== undefined) {
+      clearInterval(handoffTimer)
+      handoffTimer = undefined
+    }
+    composerInput.placeholder = COMPOSER_PLACEHOLDER
+    // 从"接管中"切到"已交回"：一次性提示 3 秒；之后到来的帧不许把它提前抹掉
+    if (handoffWasActive) {
+      handoffWasActive = false
+      handoffBanner.replaceChildren(
+        el('div', { class: 'ds-alert ds-alert--success' }, [
+          el('span', { class: 'ds-alert__icon' }, [icon('check', 16)]),
+          el('div', {}, [
+            el('div', { class: 'ds-alert__title', text: '已交回智能助手' }),
+            el('p', { class: 'ds-alert__desc', text: '之后的回复由智能助手继续' }),
+          ]),
+        ]),
+      )
+      handoffBanner.hidden = false
+      resumedNoticeTimer = setTimeout(() => {
+        resumedNoticeTimer = undefined
+        handoffBanner.hidden = true
+        handoffBanner.replaceChildren()
+      }, 3000)
+      return
+    }
+    if (resumedNoticeTimer !== undefined) return
+    handoffBanner.hidden = true
+    handoffBanner.replaceChildren()
+  }
+
   /** 轻提示。 */
   function notify(message, level = 'info') {
     const node = el('div', { class: `toast toast--${level}`, text: message })
@@ -223,10 +367,11 @@ export function mountApp(options) {
       if (empty === null) conversation.append(renderEmptyState())
     } else empty?.remove()
 
-    // ② DAG（只画最近一轮）
+    // ② DAG（只画最近一轮；有帧但没节点也走空态，不留一张空白 SVG）
     const dags = state.frames.filter((frame) => frame.kind === 'dag')
     const latestDag = dags[dags.length - 1]
-    if (latestDag === undefined) {
+    if (latestDag === undefined || (latestDag.nodes ?? []).length === 0) {
+      syncContainer(dagBox, dagRendered, [], renderDag)
       if (dagBox.firstChild === null) dagBox.append(renderDagEmpty())
     } else {
       syncContainer(dagBox, dagRendered, [latestDag], renderDag)
@@ -256,31 +401,44 @@ export function mountApp(options) {
     statusDot.className = `app-header__status ${status.cls}`
     statusDot.querySelector('.app-header__status-text').textContent = status.label
     setBanner(state.fault === null ? null : state.fault.reason)
+    syncHandoffBanner(state.handoff, state.handoffWarn)
   }
 
   store.subscribe(sync)
 
   // 发送
+  //
+  // `sendButton.disabled` 只挡住鼠标，挡不住表单再次 submit（连按 Enter / 双击）：
+  // 同一句话会提交两轮，银行场景下就是两次工具调用、两次审批。用标志位把入口关死。
+  let inFlight = false
   composer.addEventListener('submit', async (event) => {
     event.preventDefault()
+    if (inFlight) return
     const text = composerInput.value.trim()
     if (text.length === 0) return
+    inFlight = true
     sendButton.disabled = true
-    const result = await api.turn(text)
-    sendButton.disabled = false
-    if (!result.ok) {
-      notify(result.reason, 'danger')
-      return
+    try {
+      const result = await api.turn(text)
+      if (!result.ok) {
+        notify(result.reason, 'danger')
+        return
+      }
+      composerInput.value = ''
+      composerInput.style.height = ''
+    } finally {
+      inFlight = false
+      sendButton.disabled = false
     }
-    composerInput.value = ''
-    composerInput.style.height = ''
   })
 
   composerInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault()
-      composer.requestSubmit()
-    }
+    if (event.key !== 'Enter' || event.shiftKey) return
+    // 中文输入法选词也是 Enter：`isComposing`（标准）与 keyCode 229（Safari/旧内核）都算输入中，
+    // 否则拼音选词回车会把没写完的话直接发出去。
+    if (event.isComposing || event.keyCode === 229) return
+    event.preventDefault()
+    composer.requestSubmit()
   })
 
   composerInput.addEventListener('input', () => {
@@ -299,22 +457,51 @@ export function mountApp(options) {
     notify('中断请求已提交', 'info')
   })
 
-  // 标签页
+  // 观测面板轮询控制器：拉取式（U-1 不许新增 SSE 帧）；非观测 tab 不发请求
+  const obs = createObservability({
+    api,
+    onState: (state) => renderObserve(obsBox, { ...state, onRefresh: () => obs.refreshOnce() }),
+  })
+
+  // 标签页（`role=tab` + `aria-controls` + 方向键，键盘用户不必按住 Tab 逐个穿）
+  const TAB_ORDER = ['dag', 'audit', 'observe']
+  const TAB_BUTTONS = { dag: tabDag, audit: tabAudit, observe: tabObserve }
+  let currentTab = 'dag'
+
   function selectTab(which) {
-    const dag = which === 'dag'
-    tabDag.classList.toggle('is-active', dag)
-    tabAudit.classList.toggle('is-active', !dag)
-    tabDag.setAttribute('aria-selected', String(dag))
-    tabAudit.setAttribute('aria-selected', String(!dag))
-    dagBox.hidden = !dag
-    auditBox.hidden = dag
+    currentTab = which
+    for (const name of TAB_ORDER) {
+      const active = name === which
+      TAB_BUTTONS[name].classList.toggle('is-active', active)
+      TAB_BUTTONS[name].setAttribute('aria-selected', String(active))
+      TAB_BUTTONS[name].setAttribute('tabindex', active ? '0' : '-1')
+    }
+    dagBox.hidden = which !== 'dag'
+    auditBox.hidden = which !== 'audit'
+    obsBox.hidden = which !== 'observe'
+    if (which === 'observe') obs.start()
+    else obs.stop()
   }
   tabDag.addEventListener('click', () => selectTab('dag'))
   tabAudit.addEventListener('click', () => selectTab('audit'))
+  tabObserve.addEventListener('click', () => selectTab('observe'))
+  tabsBar.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const step = event.key === 'ArrowLeft' ? -1 : 1
+    const index = (TAB_ORDER.indexOf(currentTab) + step + TAB_ORDER.length) % TAB_ORDER.length
+    const target = TAB_ORDER[index]
+    selectTab(target)
+    TAB_BUTTONS[target].focus()
+  })
 
   // 会话信息（失败不阻断：界面仍可从 SSE 取数）
   void api.session().then((result) => {
-    if (result.ok) sessionLabel.textContent = `会话 ${String(result.data.sessionId)}`
+    const sessionId = result.ok ? result.data?.sessionId : undefined
+    // 200 但 body 不是 JSON 时 `data` 为 null：判空后再渲染，别让顶栏显示 "会话 undefined"
+    if (typeof sessionId === 'string' && sessionId.length > 0) {
+      sessionLabel.textContent = `会话 ${sessionId}`
+    }
   })
 
   const connection = connect({
@@ -329,13 +516,31 @@ export function mountApp(options) {
 
   sync(store.state())
 
-  return { store, api, close: () => connection.close() }
+  return {
+    store,
+    api,
+    observe: obs,
+    close: () => {
+      obs.stop()
+      connection.close()
+    },
+  }
 }
 
-/** 自动挂载（浏览器里 `#app` 存在时；测试导入不会触发）。 */
+/**
+ * 自动挂载（浏览器里 `#app` 存在时；测试导入不会触发）。
+ *
+ * 认证模式由服务端注入的 meta 决定（TA-28/TA-31）：
+ * - `password`：先 `GET /api/auth/me`，401 渲染登录卡片，200 才挂主界面；
+ * - 其它 / 没有 meta：**同步挂载**，与改动前逐字一致（web 用例与截图靠它）。
+ */
 const root = document.querySelector('#app')
 if (root instanceof HTMLElement) {
-  mountApp({ root })
+  if (readAuthMode() === 'password') {
+    void bootstrapPasswordGate({ root, mount: () => mountApp({ root }) })
+  } else {
+    mountApp({ root })
+  }
 }
 
 /** 供测试与调试使用。 */

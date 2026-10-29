@@ -33,7 +33,7 @@ import { MockBankCore, bankIds } from '../core/index.ts'
 import { createBankTools } from './catalog.ts'
 import type { BankAudit, BankSessionEventMap, BankSessionEventType } from './events.ts'
 import { provideBankGovernance } from './governance.ts'
-import type { BankToolDeps, BankToolsConfig, ComputeSeam } from './types.ts'
+import type { BankIdentity, BankToolDeps, BankToolsConfig, ComputeSeam } from './types.ts'
 import type { AccountId } from '../core/model.ts'
 import { VerifyService, createMockVerifyProvider } from '../verify/index.ts'
 
@@ -78,6 +78,8 @@ export function createDeps(options: {
   readonly verify?: VerifyService
   readonly core?: MockBankCore
   readonly compute?: ComputeSeam
+  /** 替换身份接缝（03 TA-47：构造 wrong-tenant / 旧载荷等样本）。 */
+  readonly identity?: BankIdentity
 }): { deps: BankToolDeps; core: MockBankCore; verify: VerifyService } {
   const dataset = buildBankDataset({
     seed: options.seed ?? 7,
@@ -98,7 +100,7 @@ export function createDeps(options: {
     core,
     tickets: core.tickets,
     audit,
-    identity: { resolve: () => userId },
+    identity: options.identity ?? { resolve: () => userId },
     verify,
     config: { ...TEST_CONFIG, ...options.config },
     now: options.now,
@@ -189,6 +191,10 @@ export function createPipelineHarness(options: {
     readonly enforce: boolean
     readonly ttlMs: number
   }
+  /** 替换身份接缝（03 TA-47 用例）。 */
+  readonly identity?: BankIdentity
+  /** 进程租户（03 TA-47；缺省不判租户）。 */
+  readonly tenantId?: string
 } = {}): PipelineHarness {
   const test = createTestContext()
   const sessionId = asSessionId(options.sessionId ?? 's-bank-pipe')
@@ -218,6 +224,7 @@ export function createPipelineHarness(options: {
       ? {}
       : { activePolicyVersion: options.activePolicyVersion }),
     ...(options.lease === undefined ? {} : { lease: options.lease }),
+    ...(options.tenantId === undefined ? {} : { tenantId: options.tenantId }),
   })
 
   if (options.approval !== undefined) {

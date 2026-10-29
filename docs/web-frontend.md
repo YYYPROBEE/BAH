@@ -1,4 +1,4 @@
-# Web 前端施工文档（施工单 13 落地版）
+﻿# Web 前端施工文档（施工单 13 落地版）
 
 > 版本：v1.2（施工后按实际代码回填，见 `docs/web-frontend-review.md` §6）
 > 对应施工单：[`13-Web前端.md`](../../BAH-施工文档集/13-Web前端.md)
@@ -250,20 +250,30 @@ confirmed(amount, callId) =
 | 方法 | 路径 | 语义 | 鉴权 | 状态码 |
 |---|---|---|---|---|
 | GET | `/api/health` | 探活：`{ ok, lastSeq, pendingTicketCount }`（只给数量，不给票据 ID） | 公开 | 200 |
+| POST | `/api/auth/login` | 登录 `{ userId, password }` → 下发 HttpOnly 会话 cookie 并轮换 CSRF；失败与"用户不存在"同形 | 公开 + CSRF | 200 / 400 / 401 / 403 / 409 / 503 |
+| POST | `/api/auth/logout` | 登出（幂等：没有会话也 200，但会清 cookie；public + CSRF） | 公开 + CSRF | 200 / 403 |
+| GET | `/api/auth/me` | 自查：`{ tenant, userId, roles, expiresAt, mode }`（**不回 sid**） | Web 凭证（任一角色） | 200 / 401 |
 | POST | `/api/admin/sentry/unfreeze` | 人工解冻断路器（默认关闭，见 §7.1） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 503 |
 | POST | `/api/admin/halt` | 人工进入 HALT（W07，见 §7.1.1）；`changed:false` 表示本来就在 HALT | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 503 |
 | POST | `/api/admin/halt/unfreeze-request` | 会话内发起一次 U 盾 MFA 审批，签发解除票据（无应答者 → 409） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 409 / 503 |
 | POST | `/api/admin/halt/unfreeze` | 凭票据解除 HALT（唯一解除路径；没有 `force`） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 409 / 503 |
-| GET | `/api/session` | 会话与能力位：`{ sessionId, lastSeq, capabilities }` | Bearer | 200 / 401 |
-| GET | `/api/events` | SSE：先全量快照，再推 frame / delta / 心跳注释；凭证可用 `?token=`；连接满 → 503 | Bearer | 200 / 400 / 401 / 503 |
-| GET | `/api/metrics` | 单机指标：turn / 工具成功失败 / 审批分布 / token 与成本 / 工具耗时分位 / SSE 连接数 | Bearer | 200 / 401 |
-| POST | `/api/turn` | 提交一轮输入 `{ text }` → 入队并驱动；202 = 已入队，HALT 期间 423 | Bearer + CSRF | 202 / 400 / 401 / 403 / 423 / 503 |
-| POST | `/api/interrupt` | 打断当前 turn `{ reason? }`（理由进审计） | Bearer + CSRF | 200 / 401 / 403 / 503 |
-| POST | `/api/approval/:ticketId` | 提交审批结论 `{ decision, reason? }`；跨会话票据 403 | Bearer + CSRF | 200 / 400 / 401 / 403 / 404 / 409 |
-| POST | `/api/verify/:ticketId` | 红级票据的强验证（挑战由 VerifyService 签发） | Bearer + CSRF | 200 / 400 / 401 / 403 / 404 |
-| GET | `/api/handoff` | 人工接管摘要：`{ active, sessionId, lastSeq, turns, pendingTickets, messages[], reason?, at? }` | Bearer | 200 / 401 |
-| POST | `/api/handoff` | 请求人工接管 `{ reason? }`：之后 `/api/turn` 一律 409，模型不再自动驱动 | Bearer + CSRF | 200 / 400 / 401 / 403 / 409 |
-| POST | `/api/handoff/resume` | 交回会话 `{ operator? }`；未接管时 409——不做"幂等成功"，交回必须是真的一次状态转移 | Bearer + CSRF | 200 / 400 / 401 / 403 / 409 |
+| GET | `/api/session` | 会话与能力位：`{ sessionId, lastSeq, capabilities }` | Web 凭证（任一角色） | 200 / 401 |
+| GET | `/api/events` | SSE：先全量快照，再推 frame / delta / 心跳注释；static 模式凭证可用 `?token=`（password 模式只认 cookie）；连接满 → 503 | Web 凭证（任一角色） | 200 / 400 / 401 / 503 |
+| GET | `/api/metrics` | 单机指标：turn / 工具成功失败 / 审批分布 / token 与成本 / 工具耗时分位 / SSE 连接数；第一层带 `tenant` | Web 凭证（任一角色） | 200 / 400 / 401 |
+| GET | `/api/trace` | 轨迹：事件派生的 span 森林；`?format=chrome` 导出 Chrome Trace（Perfetto 可直接打开）；D4：当前按调试面处理（ROLES），生产应收窄到 auditor/admin | Web 凭证（任一角色） | 200 / 400 / 401 / 503 |
+| POST | `/api/session/fork` | 在 turn 边界分叉新会话 `{ turn }`（旧会话原样封存；新会话仅进程内存在） | Web 凭证（customer / admin） + CSRF | 200 / 400 / 401 / 403 / 404 / 405 / 409 / 500 |
+| POST | `/api/turn` | 提交一轮输入 `{ text }` → 入队并驱动；202 = 已入队，HALT 期间 423；接管期间 202 落账不驱动 | Web 凭证（customer） + CSRF | 202 / 400 / 401 / 403 / 423 / 503 |
+| POST | `/api/interrupt` | 打断当前 turn `{ reason? }`（理由进审计）；客户专属，坐席 403 | Web 凭证（customer） + CSRF | 200 / 401 / 403 / 503 |
+| POST | `/api/approval/:ticketId` | 提交审批结论 `{ decision, reason? }`；跨会话票据 403；客户专属 | Web 凭证（customer） + CSRF | 200 / 400 / 401 / 403 / 404 / 409 |
+| POST | `/api/verify/:ticketId` | 红级票据的强验证（挑战由 VerifyService 签发）；客户专属 | Web 凭证（customer） + CSRF | 200 / 400 / 401 / 403 / 404 |
+| GET | `/api/handoff` | 人工接管摘要：`{ active, sessionId, lastSeq, turns, pendingTickets, messages[], reason?, at?, waitedMs, overdue, claimed, operatorMessages, operator?, requestedBy?, operatorId? }` | Web 凭证（任一角色） | 200 / 401 |
+| POST | `/api/handoff` | 请求人工接管 `{ reason? }`：进入者从登录主体派生（`requestedBy`）；接管期间 `/api/turn` 202 落账但不驱动模型 | Web 凭证（customer / agent / admin） + CSRF | 200 / 400 / 401 / 403 / 409 |
+| POST | `/api/handoff/resume` | 交回会话 `{ handover? }`（操作者从登录主体派生，body 不接受 operator）；未接管时 409 | Web 凭证（agent / admin） + CSRF | 200 / 400 / 401 / 403 / 409 |
+| POST | `/api/handoff/message` | 坐席发言 `{ text }`：落 `handoff/operator-message`（不进模型历史）；发言主体从登录主体派生 | Web 凭证（agent / admin） + CSRF | 200 / 400 / 401 / 403 / 404 / 409 / 413 |
+| POST | `/api/handoff/claim` | 坐席认领（幂等；换人 409）——认领只改显示与审计，不改变 `/api/turn` 的接管语义 | Web 凭证（agent / admin） + CSRF | 200 / 401 / 403 / 404 / 409 |
+| POST | `/api/handoff/heartbeat` | 等待时长与超时判定（只告警，不自动交回）；未接管时返回 waitedMs:0 | Web 凭证（agent / admin） + CSRF | 200 / 401 / 403 / 404 |
+| GET | `/api/handoff/queue` | 单会话部署：depth ∈ {0,1}（审计员只读；坐席动作仍需 agent/admin） | Web 凭证（agent / auditor / admin） | 200 / 401 / 403 / 404 |
+| GET | `/operator` | 坐席工作台入口（零注入；static 模式凭证由坐席粘贴，存 sessionStorage） | 无（静态） | 200 / 404 |
 | GET / HEAD | `/*` | 静态资源（默认根目录见 §7.2；纯原生 ES 模块，无需构建）；畸形百分号编码 → 400 | 无（静态） | 200 / 400 / 404 |
 <!-- web-routes:end -->
 
@@ -338,8 +348,19 @@ HALT 期间新 turn 的 `/api/turn` 返回 **423 `safety-halted`**（不是 500�
 
 ### 7.2 Web 凭证（D5 最小集）
 
-除 `GET /api/health` 与管理路由外，所有 `/api/*` 要求 `Authorization: Bearer <token>`；
-缺 / 错凭证一律 401 `web-unauthorized`，请求不会触达 agent。
+三种认证模式（`channel:web.auth.mode`，缺省 `static`）：
+
+| 模式 | 客户 | 坐席 | 页面 |
+|---|---|---|---|
+| `none` | 无凭证，合成主体 `svc:web` / `customer` | 不可用（不含 agent） | 无登录门 |
+| `static` | `BAH_WEB_TOKEN` → `svc:web` / `customer` | `BAH_OPERATOR_TOKEN` → `svc:operator` / `agent` | token 入口注入 token；坐席页零注入 |
+| `password` | 登录用户（会话 cookie，角色来自用户目录） | 本轮不开放（D2）：坐席面整条 404 | 注入 `bah-auth-mode` + CSRF cookie，不注入 token |
+
+除 `GET /api/health` 与管理路由外，所有 `/api/*` 要求已认证主体；
+缺 / 错凭证一律 401 `web-unauthorized`，角色不足 403 `web-forbidden`；请求不会触达 agent。
+坐席工作台（`/operator`）**不是**角色矩阵的一部分：它由 `seatEnabled` 控制存在性，
+未启用时 404（不是 401——401 会告诉探测者"这里有东西"）。坐席入口与 5 条坐席 API 的
+角色是 `agent` / `admin`；客户专属动作（turn / interrupt / approval / verify）只许 `customer`。
 
 - **token 来源**：`BAH_WEB_TOKEN`；未配置时每个进程启动随机生成（`packages/host/src/boot/plugins/web-auth.ts`），
   不写死、不入库、不进审计。
@@ -394,6 +415,37 @@ HALT 期间新 turn 的 `/api/turn` 返回 **423 `safety-halted`**（不是 500�
   不受影响。`web.csrf.enabled=false` 是回滚开关，关掉必须在自评报告登记。
 - **顺序**：限流 → 管理路由 → Bearer（401）→ CSRF（403）→ 业务（HALT 的 423 仍由 `agent.send` 产生）。
   这样缺凭证不会被 CSRF 抢成 403，也不会把停机状态误报成跨站攻击。
+
+---
+
+### 7.3 观测面板
+
+第三个 tab「观测」（`#tab-observe` / `#panel-observe`），默认不显示，点开才开始轮询。
+
+三条视图：
+
+1. **四张 KPI**：轮次 / 工具错误率 / 工具 p95 / 成本；
+2. **SLO 八行表**：值 + soft / hard + 判决（判决由服务端给，前端不重算阈值）；
+3. **轨迹瀑布**：当前会话的 span 森林，按开始时间排；点击一行展开属性，再点收起。
+
+取数策略（**拉取式**，不新增 SSE 帧）：
+
+- 仅在「观测」tab 且 `document.visibilityState === 'visible'` 时轮询；
+- 成功 2s 一次；失败按 2/2/4/8/16/30s 退避，成功即复位；单次 3s 超时；
+- 同一时刻最多 1 个在途请求（`setTimeout` 链，不用 `setInterval`）；
+- 连续 3 次失败显示「数据陈旧 Ns」+ 手动刷新按钮（手动刷新 ≥1s 节流）。
+
+空态三态：
+
+- **未连接**：`观测面板需要连接后可读` + 重试按钮；
+- **无数据**：`本会话还没有结束的轮次`；
+- **端点失败**：`指标读取失败（<code>）` + 重试按钮，保留上一次的数字不闪空。
+
+三条口径纪律（与 `/api/metrics` 的 null 语义一致）：
+
+- `p95 === null` 显示「无样本」，**不显示 0ms**；
+- `slo === null` 表示本 profile 未装配 saga，整表空态，**不渲染 0**；
+- `cost.configured === false` 表示本地 provider 无上游账单，**不显示"免费"**。
 
 ---
 

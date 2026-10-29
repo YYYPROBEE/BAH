@@ -42,10 +42,17 @@ const PUBLIC_DOCS: readonly string[] = [
   'docs/deploy.md',
   'docs/testing.md',
   'docs/security-self-assessment.md',
+  'docs/security-design.md',
+  'docs/web-frontend.md',
+  'docs/tenant.md',
+  'docs/contracts/tenant-model.md',
   'docs/knowledge.md',
+  'docs/policy.md',
   'docs/plan.md',
   'docs/audit.md',
   'docs/profile.md',
+  // 04 单：移动 H5 的对外口径页（新建即必须进清单）
+  'docs/mobile.md',
   'docs/review/judge-walkthrough.md',
   'docs/observability.md',
   'docs/performance.md',
@@ -62,11 +69,19 @@ const STALE_NUMBERS: readonly { readonly pattern: RegExp; readonly why: string }
   { pattern: /27\s*项/, why: '门禁数曾是 27，现在见 facts（不要写具体数就写"见 facts.md"）' },
   { pattern: /29\/29/, why: '门禁数曾是 29/29' },
   { pattern: /34\/34/, why: '门禁数曾是 34/34' },
+  { pattern: /40\s*项/, why: '门禁数曾是 40，现在见 facts（不要写具体数就写"见 facts.md"）' },
+  { pattern: /40\s*个\s*verify/, why: '门禁数曾是 40 个 verify-*' },
+  { pattern: /41\/41/, why: '门禁数曾是 41/41，现在见 facts' },
+  { pattern: /42\/42/, why: '门禁数曾是 42/42，现在见 facts' },
+  { pattern: /43\/43/, why: '门禁数曾是 43/43，现在见 facts' },
   { pattern: /18\/18/, why: '快照数曾是 18/18（现在是 6 文件 23 例）' },
   { pattern: /1811\s*用例/, why: '用例数曾是 1811' },
   { pattern: /1951\s*用例/, why: '用例数曾是 1951' },
   { pattern: /2019\s*用例/, why: '用例数曾是 2019' },
+  { pattern: /(?:web|前端)[^\n]{0,24}55\s*例/, why: 'web 用例数曾是 55，现为 57（pnpm test:web）' },
+  { pattern: /(?:eval|评测)[^\n]{0,24}155\s*例/, why: 'eval 用例数曾是 155，现为 158（pnpm eval:unit）' },
   { pattern: /14\s*工具|14\s*个工具/, why: '工具数曾是 14，现在是 16' },
+  { pattern: /sessions\/<sessionId>\//, why: '租户化后路径是 <deploy-root>/<tenant>/<sessionId>/（01/04）' },
   { pattern: /种子日限额.{0,6}5000|5000\s*元.{0,8}限额/, why: '种子日限额已对齐 1000 元' },
   // 覆盖率不列黑名单：`verify-facts` 用 `coverage-baseline.json` 判当前值，
   // 而文档里合法引用"上一版 84.49%"作为对比是允许的。
@@ -89,6 +104,30 @@ const WRONG_CLAIMS: readonly { readonly pattern: RegExp; readonly why: string }[
   {
     pattern: /无人工接管|没有人工接管|没有运行时 handoff|无 handoff/i,
     why: 'C5 起有最小接管平面：`POST /api/handoff` → `/api/turn` 409 → `POST /api/handoff/resume`',
+  },
+  {
+    pattern: /没有\s*trace\s*导出|无\s*trace\s*导出|没有成本看板/,
+    why: '观测面（01–03）已提供 `/api/trace` + Chrome Trace 导出与成本卡；旧口径已过期',
+  },
+  {
+    pattern: /没有真实登录|无真实登录/,
+    why: '02 起 `password` 模式已落地（scrypt + HttpOnly 会话 + 登录/登出/撤销），不再是"无登录"',
+  },
+  {
+    pattern: /没有租户隔离|无租户概念/,
+    why: '01/04 起租户 = 部署边界：目录 / 端口 / 令牌 / 密钥四道边界；一进程 N 租户才是"不做"的那条',
+  },
+  {
+    pattern: /多租户要按租户分区/,
+    why: '04 起会话、审计、记忆、指标、HALT 已按租户分区；仍不做的是一进程 N 租户（ADR-0004）',
+  },
+  {
+    pattern: /单用户部署成立/,
+    why: '04 起支持同机两租户并存（两个进程）；"单用户"不再是对外口径',
+  },
+  {
+    pattern: /鉴权性质\s*\|\s*\*\*不是登录\*\*/,
+    why: '`static` 的 Bearer 不是登录，但 `password` 模式是登录；不能再用"鉴权性质 = 不是登录"概括',
   },
 ]
 
@@ -210,7 +249,8 @@ export const gate: Gate = {
         }
       }
 
-      const tools = /(\d{1,3})\s*个工具/g
+      // 只比对"总数"口径（两位数以上）；示例里的"3 个工具"不是总数，不该误报
+      const tools = /(\d{2,3})\s*个工具/g
       for (const match of text.matchAll(tools)) {
         if (Number(match[1]) !== facts.tools) {
           findings.push(

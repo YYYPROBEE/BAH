@@ -34,6 +34,7 @@ import { createCatalog } from './index.ts'
 import { PLAN_SERVICE, planPlugin } from './plan.ts'
 
 import type { Bundle, ConfigLayer, PluginRow } from '../profile-plugins.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 const PROFILE: ProfileSummary = { name: 'plan', bundles: ['base'], hmr: false }
 
@@ -129,7 +130,7 @@ async function bootPlan(extraLayers: readonly ConfigLayer[] = []): Promise<Boote
     bundles: [bundle],
     layers: [profileLayer(), ...extraLayers],
     catalog: createCatalog(),
-    run: { sessionId: asSessionId('s-plan'), now: () => 1_000, jsonlDir: dir },
+    run: testRunContext({ sessionId: asSessionId('s-plan'), now: () => 1_000, jsonlDir: dir }),
   }
   return { app: await boot(options), cleanup: () => rmSync(dir, { recursive: true, force: true }) }
 }
@@ -606,7 +607,7 @@ describe('plan:dag 集成（真实依赖清单 + profile plan）', () => {
       // ★ 唯一区别：不加 profile patch，因此没有 plan:dag 这一行
       layers: [],
       catalog: createCatalog(),
-      run: { sessionId: asSessionId('s-plan-off'), now: () => 1_000, jsonlDir: dir },
+      run: testRunContext({ sessionId: asSessionId('s-plan-off'), now: () => 1_000, jsonlDir: dir }),
     })
     try {
       // service-missing 是内核的 fail-loud 码：`get` 不返回 undefined，也不静默降级
@@ -795,5 +796,70 @@ describe('plan:dag · W11 接缝（incident / node-waiting / 动态 args）', ()
     expect(JSON.stringify(eventsOf(booted.app).filter((event) => event.type.startsWith('plan/')))).not.toContain(
       '${node.',
     )
+  })
+})
+
+describe('04 单：goal / todo 平面在 plan 插件里注册', () => {
+  let booted: Booted | undefined
+
+  afterEach(async () => {
+    if (booted !== undefined) {
+      await booted.app.dispose('test-done')
+      booted.cleanup()
+      booted = undefined
+    }
+  })
+
+  it('goal_set / todo_write 是绿级内置工具；originTurn 来自 turn/start；零新事件键', async () => {
+    booted = await bootPlan()
+    const session = booted.app.ctx.get(SESSION_SERVICE)
+    const registry = booted.app.ctx.get(TOOLS_SERVICE)
+
+    expect(registry.has('goal_set')).toBe(true)
+    expect(registry.has('todo_write')).toBe(true)
+    expect(registry.get('goal_set').tier.level).toBe('green')
+    expect(registry.get('todo_write').sideEffect).toBe('none')
+
+    // 先落一条 turn/start：originTurn 必须取它，而不是猜 0
+    session.append('turn/start', { turn: 1 })
+    const ctx = {
+      sessionId: asSessionId('s-plan'),
+      callId: 'call-goal',
+      signal: new AbortController().signal,
+    }
+    const goal = (await registry.get('goal_set').execute(
+      { statement: '为配偶生日做准备', budget: { amount: 600, currency: 'CNY' } },
+      ctx,
+    )) as { goalId: string; status: string; originTurn: number; budget: { amountCents: number } }
+    expect(goal).toMatchObject({ status: 'active', originTurn: 1, budget: { amountCents: 60_000 } })
+    expect(goal.goalId).toBe('g-1')
+
+    // 第二次新建：id 递增（确定性分配器）
+    const second = (await registry.get('goal_set').execute({ statement: '第二个目标' }, ctx)) as {
+      goalId: string
+    }
+    expect(second.goalId).toBe('g-2')
+
+    const todo = (await registry.get('todo_write').execute(
+      { items: [{ text: '上传身份证照片' }] },
+      ctx,
+    )) as { items: readonly { text: string; done: boolean }[] }
+    expect(todo.items).toEqual([{ text: '上传身份证照片', done: false, writtenAt: 1_000 }])
+
+    // 零新事件键：会话流里不得出现 goal/ 或 todo/ 前缀（D5）
+    const types = eventsOf(booted.app).map((event) => event.type)
+    expect(types.filter((type) => type.startsWith('goal/') || type.startsWith('todo/'))).toEqual([])
+  })
+
+  it('goal_set 的形状校验 fail-loud（经管线归一化为 isError，不冒泡）', async () => {
+    booted = await bootPlan()
+    const registry = booted.app.ctx.get(TOOLS_SERVICE)
+    await expect(
+      registry.get('goal_set').execute({}, {
+        sessionId: asSessionId('s-plan'),
+        callId: 'call-bad',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toMatchObject({ code: 'goal-invalid-shape' })
   })
 })

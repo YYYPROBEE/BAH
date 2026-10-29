@@ -26,6 +26,7 @@ import {
   BahError,
   encodeJsonLine,
   isLastNonEmptyLine,
+  logJson,
   parseJsonValue,
   splitLogLines,
 } from '@bah/util'
@@ -71,6 +72,14 @@ export interface ChainRecord {
   readonly decision?: ChainDecision
   readonly policyVersion?: string
   readonly prevHash?: string
+  /**
+   * 租户（01 TA-15）：**新行才有**，历史链没有。
+   *
+   * 刻意**不进** `isChainRecord` 的 v2 键集（v2 的规则是"出现任一 v2 键就必须齐"）：
+   * 把它加进去会让所有历史 v2 行变成"不合法"，等于把老证据判死。
+   * 它与 v2 键互不依赖：v1 行（`tool/call`）也可以带租户。
+   */
+  readonly tenant?: string
 }
 
 /** 链文件选项。 */
@@ -95,7 +104,8 @@ export class ChainFile {
   constructor(options: ChainFileOptions = {}) {
     this.rootDir = options.rootDir
     this.fsync = options.fsync ?? true
-    this.warn = options.warn ?? ((message) => console.warn(message))
+    this.warn =
+      options.warn ?? ((message) => logJson('warn', 'persistence.chain-tail-dropped', { message }))
   }
 
   /** 追加一行；sagaId 会做路径安全校验。 */

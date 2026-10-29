@@ -57,12 +57,69 @@ export function findToolContracts(ctx: Context): ToolContractSource | undefined 
   }
 }
 
-/** 提供契约来源（宿主插件用）；返回注销句柄，配合 `ctx.effect` 做卸载回滚。 */
+/** 一个 Context 上已登记的来源（叠加在同一个服务实例里）。 */
+interface ContractAggregate {
+  readonly sources: ToolContractSource[]
+  readonly view: ToolContractSource
+}
+
+/**
+ * 按 Context 记聚合器。
+ *
+ * WHY 不让第二个提供者自己 `ctx.provide`：服务注册表对重复 provide 抛
+ * `service-conflict`。契约天然是**多来源的并集**（银行工具一份、意图平面一份、
+ * 以后的插件各一份），把「谁是唯一提供者」交给装配顺序是一种隐性契约。
+ * 聚合后：第一个提供者建服务，后续提供者只往数组里加，`get` 按登记序取首个命中。
+ */
+const AGGREGATES = new WeakMap<Context, ContractAggregate>()
+
+/** 幂等的一次性回调（`Disposer` 会被 `ctx.effect` 的回滚重复调用）。 */
+function once(fn: () => void): Disposer {
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    fn()
+  }
+}
+
+/**
+ * 提供契约来源（宿主插件用）；返回注销句柄，配合 `ctx.effect` 做卸载回滚。
+ *
+ * 可重复调用：同一 Context 上的多个来源会被聚合，后登记者不覆盖先登记者。
+ */
 export function provideToolContracts(
   ctx: Context,
   source: ToolContractSource,
 ): Disposer {
-  return ctx.provide(TOOL_CONTRACTS, source)
+  const existing = AGGREGATES.get(ctx)
+  if (existing !== undefined) {
+    existing.sources.push(source)
+    return once(() => {
+      const index = existing.sources.indexOf(source)
+      if (index >= 0) existing.sources.splice(index, 1)
+    })
+  }
+
+  const sources: ToolContractSource[] = [source]
+  const aggregate: ContractAggregate = {
+    sources,
+    view: {
+      get(name: string) {
+        for (const candidate of sources) {
+          const contract = candidate.get(name)
+          if (contract !== undefined) return contract
+        }
+        return undefined
+      },
+    },
+  }
+  AGGREGATES.set(ctx, aggregate)
+  const disposeService = ctx.provide(TOOL_CONTRACTS, aggregate.view)
+  return once(() => {
+    disposeService()
+    AGGREGATES.delete(ctx)
+  })
 }
 
 /**

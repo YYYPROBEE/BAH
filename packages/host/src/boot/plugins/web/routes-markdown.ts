@@ -8,6 +8,8 @@
  * 本模块只做字符串拼接，无副作用、无 IO。
  */
 
+import { ROLES } from '@bah/util'
+
 import { ROUTES, type RouteAuth, type RouteSpec } from './router.ts'
 
 /**
@@ -20,12 +22,22 @@ const AUTH_TEXT: Readonly<Record<RouteAuth, string>> = {
   public: '公开',
   admin: 'admin token + 回环',
   static: '无（静态）',
-  web: 'Bearer',
+  web: 'Web 凭证',
 }
 
-/** CSRF 合进同一格，读者一眼能看出哪条写路由有闸。 */
+/**
+ * 角色与 CSRF 合进同一格：读者一眼能看出"谁能进、哪条写路由有闸"。
+ *
+ * roles 缺省不写（= 任何已认证主体）；四角色齐全时也不逐条列（`ROLES` 是全部）。
+ */
 function authText(route: RouteSpec): string {
-  const base = AUTH_TEXT[route.auth]
+  const roles =
+    route.roles === undefined
+      ? ''
+      : route.roles.length === ROLES.length
+        ? '（任一角色）'
+        : `（${route.roles.join(' / ')}）`
+  const base = `${AUTH_TEXT[route.auth]}${route.auth === 'web' ? roles : ''}`
   return route.csrf ? `${base} + CSRF` : base
 }
 

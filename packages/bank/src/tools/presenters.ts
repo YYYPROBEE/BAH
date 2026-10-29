@@ -23,15 +23,14 @@ import type {
   WealthCatalogResult,
   WealthPurchaseResult,
 } from './dto.ts'
-import type { AccountStatus, AccountType, TxnCategory } from '../core/model.ts'
-import { formatYuan, yuanToCents } from '../core/model.ts'
+import type { AccountStatus, TxnCategory } from '../core/model.ts'
+import { ACCOUNT_TYPE_LABEL, formatYuan, yuanToCents } from '../core/model.ts'
 
-/** 账户类型文案。 */
-export const ACCOUNT_TYPE_LABEL: Readonly<Record<AccountType, string>> = {
-  current: '活期',
-  fixed: '定期',
-  locked: '锁定',
-}
+/**
+ * 账户类型文案。真源在 `core/model.ts`（内部划转的命中口径要用同一个函数），
+ * 这里只再导出以保持工具族的既有导入面。
+ */
+export { ACCOUNT_TYPE_LABEL }
 
 /** 账户状态文案。 */
 export const ACCOUNT_STATUS_LABEL: Readonly<Record<AccountStatus, string>> = {

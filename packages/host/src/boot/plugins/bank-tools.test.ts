@@ -1,4 +1,4 @@
-﻿/**
+/**
  * `bank:tools` 插件（施工单 08 §0 第 6 条：headless 端到端）。
  *
  * 两条链路：
@@ -43,6 +43,7 @@ import {
 import { SESSION_FILES } from './persistence.ts'
 import type { AnySessionEvent } from '@bah/runtime'
 import type { PluginRow } from '../profile-plugins.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 const repoRoot = fileURLToPath(new URL('../../../../../', import.meta.url))
 
@@ -91,11 +92,11 @@ async function bootWith(
     bundles: [{ name: 'fx', rows: [...rows(bank, script, policyConfig), ...extraRows] }],
     layers: [],
     catalog: createCatalog(),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId(sessionId),
       now: () => 1_792_000_000_000,
       ...(jsonlDir === undefined ? {} : { jsonlDir }),
-    },
+    }),
   }
   return boot(options)
 }
@@ -774,6 +775,33 @@ describe('bank:tools · 槽位告警与参数绑定（交付面 P1）', () => {
       expect(shaped.code).toBe('boot-failed')
       expect(shaped.detail?.cause?.code).toBe('policy-param-mismatch')
     } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('02 TA-27 · 登录身份绑定（session-auth）', () => {
+  it('TA-27-6 bindSession(..., session-auth) → identity/bound 记 session-auth，业务工具按登录用户取账户', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-session-auth-'))
+    const sessionId = 's-bank-session-auth'
+    const app = await bootWith({}, sessionId, dir)
+    try {
+      // web 登录成功后的那一次调用（`web/auth/wire.ts` 的 onLogin）走的就是这个接缝
+      app.ctx.get(CREDENTIALS).bindSession(asSessionId(sessionId), 'u-1', 'session-auth')
+
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]!
+      agent.send('查一下余额')
+      await agent.run()
+
+      const events = app.ctx.get(SESSION_SERVICE).events()
+      const result = payloads(events, 'tool/result')[0] as { isError: boolean }
+      expect(result.isError).toBe(false)
+      expect(payloads(events, 'identity/bound')[0]).toMatchObject({
+        userId: 'u-1',
+        method: 'session-auth',
+      })
+    } finally {
+      await app.dispose('test')
       rmSync(dir, { recursive: true, force: true })
     }
   })

@@ -49,8 +49,8 @@ import { readLayers, readProfile } from '../packages/cli/src/profile.ts'
 import { HOST_PLUGINS, planPlugin } from '../packages/host/src/boot/plugins/index.ts'
 import { isMainModule, projectRoot } from './gate-lib.ts'
 
-/** 真正可运行的四个 profile（`profiles/` 下其余目录是空壳，没有 `profile.yml`）。 */
-const PROFILES = ['headless', 'plan', 'web', 'web-plan'] as const
+/** 真正可运行的五个 profile（`profiles/` 下其余目录是空壳，没有 `profile.yml`）。 */
+const PROFILES = ['headless', 'plan', 'web', 'web-plan', 'mobile'] as const
 type ProfileName = (typeof PROFILES)[number]
 
 /**
@@ -70,6 +70,8 @@ const SERVICE_OWNER: Readonly<Record<string, string>> = {
   'runtime:agents': 'core:agent',
   // 系统提示段注册表（`provideSystemPrompt` 由 core:prompt 调用）
   'runtime:system-prompt': 'core:prompt',
+  // 02 SLO 桥：saga 阈值由 bank:saga 按**生效配置**提供（web 用 tryService，不写 inject）
+  'bah:saga-settings': 'bank:saga',
   // C4 跨会话记忆：服务键由 `bah:memory-store` 自己 provide（读/写/召回缓存）
   'bah:memory': 'bah:memory-store',
   // 模型适配器注册表（`packages/llm/src/llm/registry.ts` 的 provide，由 core:model 调用）

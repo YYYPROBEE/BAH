@@ -16,8 +16,8 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **22 项 / 40 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
-| 覆盖率 | **91.14%（行口径，31233/34270 行，实测 2026-10-28）；15/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
+| 注册表 / 门禁 | **26 项 / 50 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
+| 覆盖率 | **89.06%（行口径，41749/46877 行，实测 2026-10-29）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
 ## 1. 资产、对手与"最坏的一天"
@@ -83,7 +83,7 @@
 3. **HALT 与风险分**：`HALT` 判定在 `riskScore` 之前——停机是绝对状态，
    不该被"分数还低"绕过。
 
-## 4. 未实现清单（6 项，每项写清"为什么不做"与"影响面"）
+## 4. 未实现清单（9 项，每项写清"为什么不做"与"影响面"）
 
 > 施工单要求 ≥5 项。这一节不是道歉，是**接口**：评委会问的每一个"那你们怎么防 X"，
 > 答案要么在这里，要么在上面 §3 的"现有防线"里。
@@ -103,14 +103,17 @@
 | 4 | **plan 内写工具的补偿** | `saga-bridge` 在 `profiles/plan` 显式关闭（否则 `transfer_create` 被再展开，一条 `plan/node-result` 对上两条 `tool/call`） | plan 里第 2 步扣款、第 3 步失败时**没有自动冲正**；正确做法是让 plan 编排一整笔 saga，这是 P2 的活 |
 | 5 | **plan 动态 args 跨 `resume`** | 节点输出只存在内存里，续跑时无法还原上游 output；存进会话日志会把大对象写进审计面 | 需要"重做一笔已成功的转账"时，只能新 `planId` + 冲正原笔（两张计划用 `meta` 关联） |
 | 6 | **`incident` 状态的真实触发源** | 本仓全内存 mock，没有"外部不可用"的真实来源；可达性靠单测 + 宿主 stub 工具 | Web 的 DAG 视图按 `tool/call` 派生，**不区分** `incident` 与 `failed`；裁判问"什么时候会 incident"要按 `docs/plan.md` 讲条件，不能指屏幕 |
+| 7 | **真定时调度（"生日前 2 天自动下单"）** | `@bah/schedule` 是 P2；未来时间的定时转账被银行工具显式拒绝（`unsupported-schedule`）。演示里"待定时"是壳层文案（预演叙事），背后没有任何定时器或调度事件 | 系统**不会**到点自动扣款；用户必须手动确认每一步。演示材料不得写成"已实现定时" |
+| 8 | **外部商户真实通道** | 鲜花/蛋糕商户是仿真种子收款人（`forge` 白名单），走既有 `transfer_create` 表达"付款给商户"；商户履约（选花、配送）在银行域外 | 资金流可审计，但不存在真实商户下单/退款通道；对账只覆盖银行侧 |
+| 9 | **人工接管与分叉会话的持久化 / 多会话切换** | 接管状态在进程内（重启回 `active`）；`POST /api/session/fork` 产生的新会话也在进程内，HTTP 渠道仍服务原会话——把渠道切到新会话属多会话宿主（D4） | 重启后接管状态丢失；"回到上一步"目前只给分叉元数据与提示，不切换对话流。两者都**不**影响旧会话的审计完整性（旧卷原样封存） |
 
 补充（不算"未实现"，但要主动说）：
 
-- **覆盖率还剩一个包没到 80%**：`eval` 53.20%（行口径 91.14%＝31233/34270，仅 `packages/*/src`；包口径 15/16，见事实表）。`memory-store` 89.40% 已达标。`eval` 的行数多在场景数据装载，属于评测 harness 而非产品路径。
+- **覆盖率还有两个包没到 80%**：`memory-store` 72.68% 与 `eval` 43.12%（行口径 89.06%＝41749/46877，仅 `packages/*/src`；包口径 16/18，见事实表）。`eval` 的行数多在场景数据装载、`memory-store` 多在存储适配，属于评测/记忆 harness 而非主资金路径。
 - **策略生产签名密钥的分发/轮换未落地**：S4 提供 Ed25519 可选验签与 `policy:rules.signature`
   路径，密钥不进仓；演示 profile 仍 `requireSignature: false`，链上策略判决是 `unsigned`。
   生产强制签名需要密钥托管与轮换流程，登记到 S6；不能据此宣称"策略文件防篡改"。
-- **`security-self-assessment.md` 里的"14 个工具"是旧数**（现为 16）：本轮已顺手改正，
+- **`security-self-assessment.md` 里的工具数曾停在更早的一版**（现为 16）：本轮已顺手改正，
   该文档的评分与状态不受影响。
 
 ## 5. 每条防线的复现命令（评委可逐条抽验）

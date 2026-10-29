@@ -1,4 +1,4 @@
-# BAH 事实数字唯一来源（2026-10-28 实测；S4 策略门禁与 policy-externalized 快照）
+# BAH 事实数字唯一来源（2026-10-28 实测；S4 策略门禁与 policy-externalized 快照；可观测性 01 遥测内核）
 
 > 本文是 `facts.md`、PPT、视频旁白、自评材料里数字的**唯一取值来源**。
 > 改代码后重跑下表命令，先改本文，再改 `facts.md`，最后跑 `npx tsx scripts/verify-facts.ts`。
@@ -8,18 +8,18 @@
 ## 1. 机器可读块（门禁只读这一段）
 
 <!-- facts:sources:start -->
-gates=40
+gates=50
 tools=16
 plan_lines=2246
-snapshot_files=8
-snapshot_cases=34
-coverage_covered=31233
-coverage_total=34270
-coverage_pct=91.14
-coverage_package_ok=15
-coverage_package_total=16
-tests_main_files=221
-tests_main_cases=2481
+snapshot_files=9
+snapshot_cases=39
+coverage_covered=41749
+coverage_total=46877
+coverage_pct=89.06
+coverage_package_ok=16
+coverage_package_total=18
+tests_main_files=294
+tests_main_cases=3333
 <!-- facts:sources:end -->
 
 > `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。
@@ -30,16 +30,16 @@ tests_main_cases=2481
 
 | 事实 | 值 | 命令 | 实测输出 |
 |---|---|---|---|
-| 门禁数 | **40** | `Get-ChildItem scripts -Filter "verify-*.ts" \| Measure-Object` | 34 → `verify-facts.ts` 后 35 → `verify-docs-consistency.ts` 后 36；S4 新增 `verify-policy-{bundle,conformance,hardcode,registry}.ts` 后 40；`run-gates` 输出 `40/40` |
+| 门禁数 | **50** | `ls scripts/verify-*.ts \| wc -l` | 34 → `verify-facts.ts` 后 35 → … → 移动 H5 03 后 46；租户与鉴权 01–04 新增 `verify-tenant-scope.ts` / `verify-tenant-isolation.ts` / `verify-authz-coverage.ts` 后 49；人机接管 01 新增 `verify-handoff-wiring.ts` 后 50；合流后 `run-gates` 输出 `50/50` |
 | 工具数 | **16** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 16（与 `result-schemas.ts` 16 个出参键一一对应） |
 | plan 非测试行数 | **2,246** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,246（2026-10-27 复核） |
-| 快照文件 / 用例 | **8 / 34** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 8 文件 / 34 例（`pnpm test:snapshot` 同值；S4 新增 `policy-externalized` 6 例） |
+| 快照文件 / 用例 | **9 / 39** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 9 文件 / 39 例（`pnpm test:snapshot` 同值） |
 | 覆盖率（行） | **91.14%** | `pnpm test:coverage:all`（**CI / Ubuntu 口径**） | 覆盖 31233 行 / 参与统计 34270 行（2026-10-28 CI run 40631263792，端口守卫新增 36 行后） |
 | 覆盖率（包） | **15/16** | 同上 | 只有 `eval` 53.20% 未达 80%；`memory-store` 89.40% 已达标 |
-| 主仓测试 | **221 文件 / 2481 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 220 passed / 2416 例（2026-10-28 复跑，实体槽位 S1 +16 / S2 +40 / S3 +24 例；策略外置 S1 +136 例（7 文件）、S2/S3 +70 例（8 文件，含穷举等价 / 管理面 / explain / 影子）、S4 +2 例；交付面 P1 +11 例（6 个覆盖红文件补到逐文件 100%）；门禁不重跑测试，只校验本文与 facts.md 一致） |
+| 主仓测试 | **294 文件 / 3333 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 294 passed / 3333 例（2026-10-29 合流复跑） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
-| web 测试 | **7 文件 / 55 例** | `pnpm test:web` | 7 passed / 55 passed |
-| 快照跑批 | **8 文件 / 34 例** | `pnpm test:snapshot` | 8 passed / 34 passed |
+| web 测试 | **27 文件 / 365 例** | `pnpm test:web` | 27 passed / 365 passed（合流后：双凭证 / 17 行矩阵 / password 多入口） |
+| 快照跑批 | **9 文件 / 39 例** | `pnpm test:snapshot` | 9 passed / 39 passed（合流后重跑；`snapshot:reverify` 写入 7 个、未变 1 个） |
 
 ## 3. 覆盖率为什么只有一个值
 

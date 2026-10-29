@@ -54,6 +54,36 @@ describe('store · 帧归并', () => {
     expect(store.state().streamText).toBe('')
   })
 
+  it('失败收尾后草稿不残留（没有权威助手消息的路径）', () => {
+    const store = createStore()
+    store.apply({ kind: 'delta', at: 1, text: '已经为您' })
+    store.apply({ kind: 'turn', seq: 2, at: 2, turn: 1, phase: 'end', endKind: 'failed' })
+    expect(store.state().streamText).toBe('')
+  })
+
+  it('新一轮开始也丢掉上一轮残稿', () => {
+    const store = createStore()
+    store.apply({ kind: 'delta', at: 1, text: '半句话' })
+    store.apply({ kind: 'turn', seq: 2, at: 2, turn: 2, phase: 'start' })
+    expect(store.state().streamText).toBe('')
+  })
+
+  it('reset 清空帧、草稿与连接状态（不是只清帧）', () => {
+    const store = createStore()
+    store.apply(notice(1))
+    store.apply({ kind: 'delta', at: 1, text: '草稿' })
+    store.setStatus('online')
+    store.setFault({ code: 'x', reason: 'y' })
+
+    store.reset()
+
+    const state = store.state()
+    expect(state.frames).toEqual([])
+    expect(state.streamText).toBe('')
+    expect(state.status).toBe('connecting')
+    expect(state.fault).toBeNull()
+  })
+
   it('订阅能收到状态；退订后不再收到', () => {
     const store = createStore()
     let calls = 0
@@ -90,5 +120,40 @@ describe('store · 审批查询', () => {
   it('能取到指定票据的结论', () => {
     expect(approvalDecision([approval, closed], 't1')).toBe(closed)
     expect(approvalDecision([approval], 't1')).toBeNull()
+  })
+})
+
+describe('store · 接管帧（B3 / I18）', () => {
+  it('handoff 固定 key：active:true 后 active:false 覆盖同一条', () => {
+    const store = createStore()
+    store.apply({ kind: 'handoff', seq: 1, at: 100, active: true, operator: '坐席小周' })
+    expect(store.state().handoff).toMatchObject({ active: true, operator: '坐席小周' })
+    store.apply({ kind: 'handoff', seq: 2, at: 200, active: false })
+    expect(store.state().handoff).toMatchObject({ active: false })
+    expect(store.state().frames.filter((frame) => frame.kind === 'handoff')).toHaveLength(1)
+  })
+
+  it('handoff-warn 固定 key：两次只留一条', () => {
+    const store = createStore()
+    store.apply({ kind: 'handoff-warn', seq: 1, at: 1, waitedMs: 180_001, slaMs: 180_000 })
+    store.apply({ kind: 'handoff-warn', seq: 2, at: 2, waitedMs: 190_000, slaMs: 180_000 })
+    expect(store.state().handoffWarn.waitedMs).toBe(190_000)
+    expect(store.state().frames.filter((frame) => frame.kind === 'handoff-warn')).toHaveLength(1)
+  })
+
+  it('I18 快照重放：帧、handoff、handoffWarn 都一致', () => {
+    const store = createStore()
+    const message = { kind: 'message', seq: 1, at: 1, role: 'user', blocks: [{ type: 'text', text: '客户' }] }
+    const handoff = { kind: 'handoff', seq: 2, at: 2, active: true, operator: '坐席小周' }
+    const warn = { kind: 'handoff-warn', seq: 3, at: 3, waitedMs: 200_000, slaMs: 180_000 }
+    store.apply(message)
+    store.apply(handoff)
+    store.apply(warn)
+
+    const replayed = createStore()
+    replayed.apply({ kind: 'snapshot', sessionId: 's', maxSeq: 3, frames: [message, handoff, warn] })
+    expect(replayed.state().frames).toEqual(store.state().frames)
+    expect(replayed.state().handoff).toEqual(store.state().handoff)
+    expect(replayed.state().handoffWarn).toEqual(store.state().handoffWarn)
   })
 })

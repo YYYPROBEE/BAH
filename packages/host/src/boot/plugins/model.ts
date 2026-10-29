@@ -8,7 +8,7 @@
  * 密钥只从环境变量读（施工单 05 硬约束 2：仓库任何文件不得出现硬编码 key）。
  */
 
-import { describeThrown } from '@bah/core'
+import { defineService, describeThrown } from '@bah/core'
 import { LlmAdapterRegistry, provideLlm } from '@bah/llm'
 import { DeepSeekAdapter, DEEPSEEK_MODELS } from '@bah/llm/deepseek'
 import { createDemoRouter } from '@bah/llm/demo'
@@ -123,6 +123,14 @@ const LOCAL_KEYS = ['chunkSize'] as const
 /** 只对 mock（固定脚本）有意义的键：`router` 的步骤由请求现算，不读脚本。 */
 const SCRIPT_ONLY_KEYS = ['script'] as const
 
+/**
+ * 计价是否已配置（可观测性 02 / N3）。
+ *
+ * 单独一个服务键而不是让 web 去读 `core:model` 的原始配置：profiles 用 patch 改写
+ * `core:model` 的整块，读原始层会得到"被覆盖前的值"；服务由模型插件按**生效配置**提供。
+ */
+export const MODEL_PRICING = defineService<{ readonly configured: boolean }>('bah:model-pricing')
+
 export const modelPlugin: HostPlugin<ModelSettings> = {
   id: 'core:model',
 
@@ -131,6 +139,7 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
     apply(ctx, config) {
       const registry = new LlmAdapterRegistry()
       provideLlm(ctx, registry)
+      ctx.provide(MODEL_PRICING, { configured: config.pricing !== undefined })
       ctx.effect(registry.register(createAdapter(config, observeToolOutcomes(ctx, config))))
 
       // 载入即验：注册的模型必须真实存在（不让"模型名写错"拖到第一次请求才炸）

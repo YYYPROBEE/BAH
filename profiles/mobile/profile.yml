@@ -1,0 +1,12 @@
+# mobile（施工单 01）：移动 H5 渠道 profile。
+#
+# 与 web 的差别只有三处（00 D2 原文）：适配器（能力位）、入口 HTML、默认端口。
+# 其余配置段与 profiles/web/patch.yml **逐字一致**——移动端的差异是"呈现与宿主装配"，
+# 不是"业务口径"；口径分叉 = 两套账（门禁 I8 会比对 core:model / policy:rules /
+# core:persistence / bank:tools / interaction:approval / safety:sentry / bah:memory-store）。
+#
+# HMR 关：与 web 同理，演示现场改 patch 触发重载会让人误以为"界面自己刷新了"。
+name: mobile
+bundles: [base]
+patch: ./patch.yml
+hmr: false

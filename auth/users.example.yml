@@ -1,0 +1,33 @@
+# 口令目录（02 TA-22）的**唯一入库**版本：示例。
+#
+# 用法：
+#   1. cp auth/users.example.yml auth/users.yml
+#   2. 用 `npx tsx scripts/auth-hash.ts --stdin` 生成口令哈希（**不要**把口令写进 shell 历史）
+#   3. 把下面的 password 换成新哈希
+#
+# 纪律：
+# - `auth/users.yml` **不入库**（.gitignore 已忽略）；这里只有示例，口令都是 `demo1234`。
+# - `tenant` 必须等于本进程的 `--tenant` / `BAH_TENANT`，否则 boot 期
+#   `auth-directory-tenant-mismatch`（把 demo 的目录拷给 acme 是最容易犯的错）。
+# - `userId` 必须存在于银行数据集（否则 boot 期 `auth-directory-unknown-user`）。
+# - `roles` 只能是 customer / agent / auditor / admin 的子集（顺序由 ROLES 固定序决定）。
+#
+# 为什么示例只有 u-1：
+#   demo 档数据集只有 `u-1`（张三）。02 的方案稿原本写了 `u-9`（agent），但**数据集里没有这个人**，
+#   用它登录会在 boot 期被 `auth-directory-unknown-user` 拒绝——那条校验是对的（见 02 §4 D-2）。
+#   想演示"坐席"只需要给 u-1 多一个 `agent` 角色（下面就是这么写的）。
+version: 1
+tenant: demo
+users:
+  - userId: u-1
+    phone: "13800000001"
+    # 普通客户 + 坐席：同一个人的两种渠道身份（业务权限仍走绿/黄/红分级）
+    roles: [customer, agent]
+    # 明文口令：demo1234（示例；真实部署必须换）
+    password: "scrypt$16384$8$1$dW95S+IYMBdSyUbZ4t4lTg==$ZOKpjkRP/kf9I6Pu3myOAkhlfLB0a7KhPCFuR7HUQLY="
+
+  # 加用户之前先确认数据集里有这个人（demo 档只有 u-1）。示例：
+  # - userId: u-9
+  #   phone: "13800000009"
+  #   roles: [agent]
+  #   password: "scrypt$16384$8$1$9R1q4P1WG9iHWW72T55yaA==$XrRtuuduXB9n37PbXmoc10id4NWo3vRX++rmW1lKCTE="

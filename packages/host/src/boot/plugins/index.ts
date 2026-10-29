@@ -15,11 +15,13 @@ import { auditDecisionsPlugin } from './audit-decisions.ts'
 import { bankToolsPlugin } from './bank-tools.ts'
 import { echoPlugin } from './echo.ts'
 import { knowledgePlugin } from './knowledge.ts'
+import { intentPlanePlugin } from './intent.ts'
 import { modelPlugin } from './model.ts'
 import { persistencePlugin } from './persistence.ts'
 import { planPlugin } from './plan.ts'
 // 策略外置 S2：外置规则 bundle 的载入/校验/灰度/热重载
 import { policyRulesPlugin } from './policy.ts'
+import { promptAskPlugin } from './prompt-ask.ts'
 import { promptPlugin } from './prompt.ts'
 import { sagaPlugin } from './saga.ts'
 import { sagaAuditPlugin } from './saga-audit.ts'
@@ -28,16 +30,23 @@ import { sagaStorePlugin } from './saga-store.ts'
 import { sandboxPlugin } from './sandbox.ts'
 import { sentryPlugin } from './sentry.ts'
 import { sessionPlugin } from './session.ts'
+// 可观测性 01：遥测内核（只读旁路，不产生会话事件）
+import { telemetryPlugin } from './telemetry.ts'
 import { toolsPlugin } from './tools.ts'
 // W05：断言核验门（监听 `agent/reply`）
 import { verifyPlugin } from './verify.ts'
 // C4：跨会话记忆（`turn/end` 写入、`agent/pre-step` 召回、提示词段注入）
 import { memoryPlugin } from './memory.ts'
+// 施工单 01：移动 H5 渠道（`channel:mobile`）。与 web 共用 `createHttpChannel`，薄壳。
+import { mobilePlugin } from './mobile.ts'
 import { webPlugin } from './web.ts'
 
 /** base bundle 的插件集（施工单 06 §3：内核 + 主循环 + 模型层 + 工具管线 + 持久化）。 */
 export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   sessionPlugin,
+  // 可观测性 01：`obs:telemetry` 只 inject `bah:run` 与 `runtime:session`，
+  // 所以紧跟在 `core:session` 之后即可；越早越能包住后续插件的包裹点。
+  telemetryPlugin,
   toolsPlugin,
   promptPlugin,
   modelPlugin,
@@ -67,8 +76,14 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   // C4：跨会话记忆。登记 = 可被 use 引用；真正装配由 profile 的 patch 决定
   // （默认不装：记忆会改变模型输入，不做静默开启）
   memoryPlugin,
+  // 03 单：意图平面与追问。两行必须按序装配（prompt:ask 取 intent:plane 的状态服务），
+  // 且都在 core:tools 之后（注册工具要求工具面就绪）
+  intentPlanePlugin,
+  promptAskPlugin,
   // 渠道（施工单 13）：前端作为插件模块接入；不写进 base bundle，由 web profile 的 patch 加行
   webPlugin,
+  // 渠道（施工单 01）：移动 H5；同样只由 profiles/mobile 的 patch 显式装配
+  mobilePlugin,
 ].map(toAnyHostPlugin)
 
 export {
@@ -77,12 +92,15 @@ export {
   auditDecisionsPlugin,
   bankToolsPlugin,
   echoPlugin,
+  intentPlanePlugin,
   knowledgePlugin,
   memoryPlugin,
   modelPlugin,
+  mobilePlugin,
   persistencePlugin,
   planPlugin,
   policyRulesPlugin,
+  promptAskPlugin,
   promptPlugin,
   sagaPlugin,
   sagaAuditPlugin,
@@ -91,6 +109,7 @@ export {
   sandboxPlugin,
   sentryPlugin,
   sessionPlugin,
+  telemetryPlugin,
   toolsPlugin,
   verifyPlugin,
   webPlugin,
@@ -98,6 +117,10 @@ export {
 
 // 编排原语的服务键（`bah:plan`）：消费方按 key 取 `PlanApi`，不 import 插件实现
 export { PLAN_SERVICE } from './plan.ts'
+
+// 03 单：意图平面的会话状态服务键（`prompt:ask` 与诊断面按 key 取用）
+export { INTENT_STATE_SERVICE } from './intent.ts'
+export type { IntentStateApi } from './intent.ts'
 
 // W13：eval 的 S 族需要按场景替换编排配方（失败注入），供评测 harness 引用。
 // 生产代码不使用这个导出；它是测试接缝，不是配置面。
