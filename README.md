@@ -27,7 +27,7 @@ pnpm install
 | **起演示** | `pnpm demo:web` | 主路径为**离线 router**（不读密钥、不依赖外网），每次新建独立会话目录，打开 `http://127.0.0.1:7331` |
 | **容器演示** | `docker build -t bah:local . && docker run --rm -p 7331:7331 bah:local` | 单容器 Web，默认离线 router（不需要密钥）；RAG sidecar 不在镜像内，知识工具降级为 `knowledge-unavailable` |
 | **移动 H5 演示** | `pnpm bah --profile mobile` | 第二个壳（`staticRoot` 同为 `apps/web`），打开 `http://127.0.0.1:7551`；与 7331 共用同一份 `createHttpChannel`（路由 / 闸序 / 安全头 / 审批端点） |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 294 文件 / 3333 用例 |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 296 文件 / 3347 用例 |
 | **门禁** | `pnpm gate` | 45 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
@@ -253,7 +253,7 @@ facts.md             演示材料唯一数字来源
 
 | 命令 | 范围 | 实测（2026-10-27） |
 |---|---|---|
-| `pnpm test` | 主仓 | 294 文件 / 3333 用例 |
+| `pnpm test` | 主仓 | 296 文件 / 3347 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
 | `pnpm test:web` | 前端 | 22 文件 / 333 用例 |
 | `pnpm test:snapshot` | 快照回放 | 9 文件 / 39 用例 |

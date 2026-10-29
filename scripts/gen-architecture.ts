@@ -224,7 +224,13 @@ function renderFacts(facts: Facts): string {
     `| saga 状态 | **${String(facts.sagaStates.length)} 态**（${facts.sagaStates.join('、')}） | packages/saga/src/state-machine/transitions.ts 的 \`SAGA_TRANSITIONS\` |`,
     `| 票据 TTL / 计划预算 | **${String(facts.ticketTtlMs)} ms / ${String(facts.planTimeoutMs)} ms**（预算 < TTL） | \`PlanSettings.ticketTtlMs\` / \`planTimeoutMs\`（本行由 planPlugin.validate 实算） |`,
     `| 工具数 | **${String(facts.toolCount)} 个** | packages/bank/src/tools/specs.ts 的 \`BANK_TOOL_SPECS\` |`,
-    `| 注册表 / 门禁 | **${String(facts.registryCount)} 项 / ${String(facts.gateCount)} 项** | \`HOST_PLUGINS\`、\`scripts/verify-*.ts\` 计数 |`,
+    // 两个数**分行写**：写在同一行（`注册表 / 门禁 | 27 / 50`）会被
+    // `verify-docs-consistency` 的 `门禁 ... N/M` 判据读成"门禁 27/50"。
+    // 这不是措辞洁癖：同一行里两个不同量纲的数，任何按行解析的判据都只能猜。
+    // 单位写在表头，且**不写成「N 项」**——过期口径黑名单里有 `/27\s*项/`（门禁数曾是 27），
+    // 注册表条目在桌面端 01 恰好变成 27，写「27 项」会被历史黑名单误判。
+    `| 注册表条目（项） | **${String(facts.registryCount)}** | \`HOST_PLUGINS\` 计数 |`,
+    `| 门禁（项） | **${String(facts.gateCount)}** | \`scripts/verify-*.ts\` 计数 |`,
     `| 覆盖率 | **${facts.coverageLine}；${facts.coveragePackage}** | docs/coverage-baseline.json（含测量命令） |`,
   ].join('\n')
 }

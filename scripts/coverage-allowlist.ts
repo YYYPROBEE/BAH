@@ -199,4 +199,9 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
     scope: 'mobile/',
     why: '移动渠道薄工厂：能力位与 id 的唯一落点（施工单 01）',
   },
+  {
+    package: 'channels',
+    scope: 'desktop/',
+    why: '桌面渠道薄工厂：能力位与 id 的唯一落点（施工单 15 / 桌面端 01）',
+  },
 ]

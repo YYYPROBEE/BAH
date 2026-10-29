@@ -4,7 +4,8 @@
  * 逻辑模块子目录（施工单 00 §6）：
  * - `src/web/`：Web 渠道适配器与投影（施工单 13，已落地）
  * - `src/mobile/`：移动 H5 渠道的薄工厂（施工单 01，已落地）
- * - `src/im/`、`src/desktop/`：占位
+ * - `src/desktop/`：桌面渠道的薄工厂（施工单 15 / 桌面端 01，已落地）
+ * - `src/im/`：占位（IM 网关线负责）
  *
  * 依赖方向：`@bah/host` 组装渠道（`channel:web` / `channel:mobile` 插件持有 HTTP / SSE），
  * 本包只做纯转换，**不反向依赖宿主**（否则 `tsc -b` 成环，见 docs/web-frontend.md §3）。
@@ -17,3 +18,4 @@ export * from './capabilities.ts'
 export * from './http-adapter.ts'
 export * from './web/index.ts'
 export * from './mobile/index.ts'
+export * from './desktop/index.ts'
