@@ -60,6 +60,13 @@
       }
     },
     {
+      "id": "obs:telemetry",
+      "use": "obs:telemetry",
+      "config": {
+        "maxSpans": 2000
+      }
+    },
+    {
       "id": "audit:decisions",
       "use": "audit:decisions",
       "config": {}
@@ -125,6 +132,16 @@
     {
       "id": "bank:saga-audit",
       "use": "bank:saga-audit",
+      "config": {}
+    },
+    {
+      "id": "intent:plane",
+      "use": "intent:plane",
+      "config": {}
+    },
+    {
+      "id": "prompt:ask",
+      "use": "prompt:ask",
       "config": {}
     },
     {

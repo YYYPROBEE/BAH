@@ -8,7 +8,7 @@
 ## 1. 机器可读块（门禁只读这一段）
 
 <!-- facts:sources:start -->
-gates=45
+gates=46
 tools=16
 plan_lines=2246
 snapshot_files=8
@@ -18,8 +18,8 @@ coverage_total=34270
 coverage_pct=91.14
 coverage_package_ok=15
 coverage_package_total=16
-tests_main_files=250
-tests_main_cases=2830
+tests_main_files=260
+tests_main_cases=2990
 <!-- facts:sources:end -->
 
 > `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。
@@ -30,13 +30,13 @@ tests_main_cases=2830
 
 | 事实 | 值 | 命令 | 实测输出 |
 |---|---|---|---|
-| 门禁数 | **45** | `ls scripts/verify-*.ts \| wc -l` | 34 → `verify-facts.ts` 后 35 → `verify-docs-consistency.ts` 后 36；S4 新增 `verify-policy-{bundle,conformance,hardcode,registry}.ts` 后 40；可观测性 01 新增 `verify-telemetry.ts` 后 41；02 新增 `verify-observability.ts` 后 42；03 新增 `verify-observability-ui.ts` 后 43；移动 H5 01 新增 `verify-channel-capabilities.ts` 后 44；移动 H5 02 新增 `verify-mobile-shell.ts` 后 45；`run-gates` 输出 `45/45` |
+| 门禁数 | **46** | `ls scripts/verify-*.ts \| wc -l` | 34 → `verify-facts.ts` 后 35 → `verify-docs-consistency.ts` 后 36；S4 新增 `verify-policy-{bundle,conformance,hardcode,registry}.ts` 后 40；可观测性 01 新增 `verify-telemetry.ts` 后 41；02 新增 `verify-observability.ts` 后 42；03 新增 `verify-observability-ui.ts` 后 43；移动 H5 01 新增 `verify-channel-capabilities.ts` 后 44；移动 H5 02 新增 `verify-mobile-shell.ts` 后 45；移动 H5 03 新增 `verify-intent-determinism.ts` 后 46；`run-gates` 输出 `46/46` |
 | 工具数 | **16** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 16（与 `result-schemas.ts` 16 个出参键一一对应） |
 | plan 非测试行数 | **2,246** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,246（2026-10-27 复核） |
 | 快照文件 / 用例 | **8 / 34** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 8 文件 / 34 例（`pnpm test:snapshot` 同值；S4 新增 `policy-externalized` 6 例） |
 | 覆盖率（行） | **91.14%** | `pnpm test:coverage:all`（**CI / Ubuntu 口径**） | 覆盖 31233 行 / 参与统计 34270 行（2026-10-28 CI run 40631263792，端口守卫新增 36 行后） |
 | 覆盖率（包） | **15/16** | 同上 | 只有 `eval` 53.20% 未达 80%；`memory-store` 89.40% 已达标 |
-| 主仓测试 | **250 文件 / 2830 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 250 passed / 2830 例（2026-10-29 移动 H5 01 收口复跑；相对上一批新增渠道能力位/HTTP 适配器工厂/计划待办与影响面派生/静态白名单/移动渠道装配七组用例） |
+| 主仓测试 | **260 文件 / 2990 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 260 passed / 2990 例（2026-10-29 移动 H5 03 收口复跑；相对上一批新增意图平面/追问候选/契约聚合/choice 帧投影/门禁自测五组用例，另含并行可观测性线未提交的 2 个测试文件） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
 | web 测试 | **12 文件 / 139 例** | `pnpm test:web` | 12 passed / 139 passed（03 新增 observe/observability/transport.main 接线四组用例） |
 | 快照跑批 | **8 文件 / 34 例** | `pnpm test:snapshot` | 8 passed / 34 passed |

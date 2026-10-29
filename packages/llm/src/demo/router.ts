@@ -14,6 +14,15 @@
  *
  * 它的边界要写清楚：**它不是自然语言理解**。认不出来的问题一律追问，
  * 不做"猜一个最像的意图"——猜错比不问更伤人。
+ *
+ * ## 与意图平面的分工（03 单，答辩必被问）
+ *
+ * - 本文件决定「**调哪个工具**」：仍是确定性正则/关键词路由；
+ * - `intent_resolve` 决定「**槽位怎么补、要不要追问、能不能借历史**」：可解释规则 + 纯函数。
+ *
+ * 所以 `implicit`/`recall`/`crossScene`/`slotGap` 四条路由只是把「该发射意图工具的话语形态」
+ * 认出来，语义判定一律发生在工具内。**不得**为演示效果往本文件塞槽位解析逻辑——
+ * 那是意图平面的职责，塞进来就是造第二个真相源。
  */
 
 import { assertNever } from '@bah/util'
@@ -38,11 +47,23 @@ export interface TransferIntent {
   readonly remark?: string
 }
 
+/** 意图平面的四条路由（03 单 §7.3）。 */
+export type IntentRoute = 'implicit' | 'recall' | 'crossScene' | 'slotGap'
+
 /** 路由结论。 */
 export type DemoIntent =
   | { readonly kind: 'balance' }
   | { readonly kind: 'transfer'; readonly request: TransferIntent }
   | { readonly kind: 'clarify'; readonly question: string }
+  | {
+      /** 交给意图平面：router 只决定"要问意图工具"，不判定槽位语义。 */
+      readonly kind: 'intent'
+      readonly route: IntentRoute
+      readonly utterance: string
+      readonly scene: string
+      /** slotGap 时带上追问目标与问法（供 prompt_ask 的入参）。 */
+      readonly ask?: { readonly slot: string; readonly question: string; readonly candidates: readonly string[] }
+    }
 
 /** 查余额的说法（宁可窄一点：认不出来就追问，不要误判成转账）。 */
 const BALANCE_PATTERNS: readonly RegExp[] = [
@@ -71,11 +92,25 @@ const CN_DIGITS: Readonly<Record<string, number>> = {
   九: 9,
 }
 
+/** 隐含意图的场景陈述（尚未提及任何动作）。 */
+const IMPLICIT_PATTERNS: readonly RegExp[] = [/生日|发工资|年终奖|孩子上学|退休/]
+
+/** 模糊复现：历史指代 + 重办语义。 */
+const RECALL_PATTERNS: readonly RegExp[] = [/(上次|上回|之前|那个).{0,8}(再来|再转|接着|继续)/]
+
+/** 跨场景引用：指代到「别处」的事。 */
+const CROSS_SCENE_PATTERNS: readonly RegExp[] = [/(那边|另一个|别的).{0,4}(事|场景)/]
+
+/** slotGap 的演示候选：与演示夹具同源（改一处必须改 demo:intent 的 demoMemory）。 */
+const DEMO_PAYEE_CHOICES = ['王建国', '张伟'] as const
+
 /**
  * 判断意图。
  *
  * 顺序是先余额后转账：一句"我余额够不够转 800"两类特征都有，
  * 但用户真正想知道的是余额——先答能答的，再追问要不要转。
+ *
+ * 03 单新增的四条路由排在转账粗筛**之前**：隐含/模糊形态比转账更窄，先判窄的。
  */
 export function classifyIntent(text: string): DemoIntent {
   const normalized = text.trim()
@@ -87,8 +122,43 @@ export function classifyIntent(text: string): DemoIntent {
     return { kind: 'balance' }
   }
 
-  if (TRANSFER_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    return parseTransfer(normalized)
+  const hasTransferCue = TRANSFER_PATTERNS.some((pattern) => pattern.test(normalized))
+
+  // 隐含意图：场景陈述且**没有任何转账线索**（有动作时显式指令优先）
+  if (!hasTransferCue && IMPLICIT_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return { kind: 'intent', route: 'implicit', utterance: normalized, scene: 'unknown' }
+  }
+
+  if (RECALL_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return { kind: 'intent', route: 'recall', utterance: normalized, scene: 'transfer' }
+  }
+
+  if (CROSS_SCENE_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return { kind: 'intent', route: 'crossScene', utterance: normalized, scene: 'cross_scene' }
+  }
+
+  if (hasTransferCue) {
+    const parsed = parseTransfer(normalized)
+    // 要素不全 ⇒ 改道意图平面：追问从纯文案升级为结构化选择题（对外口径不变）
+    if (parsed.kind === 'clarify') {
+      const amount = extractAmount(normalized)
+      const payeeName = extractPayee(normalized)
+      // 只有「金额已给、缺收款人」才静态发选择题：这是 intent_resolve 也会点名 payee 的唯一形态。
+      // 其余缺参（缺金额 / 两样都缺）只发 intent_resolve + 文案——router 不知道 askHint 指向哪个槽位，
+      // 硬发选择题就会与意图工具的判定打架（演示里那是最难解释的一种自相矛盾）。
+      const ask =
+        payeeName === undefined && amount !== undefined
+          ? { slot: 'payee', question: parsed.question, candidates: [...DEMO_PAYEE_CHOICES] }
+          : undefined
+      return {
+        kind: 'intent',
+        route: 'slotGap',
+        utterance: normalized,
+        scene: 'transfer',
+        ...(ask === undefined ? {} : { ask }),
+      }
+    }
+    return parsed
   }
 
   return {
@@ -198,9 +268,58 @@ export function planFor(intent: DemoIntent): readonly MockStep[] {
     }
     case 'clarify':
       return [textStep(intent.question)]
+    case 'intent':
+      return planIntent(intent)
     default:
       // 封闭联合上的兜底：新增意图时忘了在这里规划，编译期就会红
       return assertNever(intent, 'demo-intent')
+  }
+}
+
+/**
+ * 意图平面的四条路由 → 步骤。
+ *
+ * 每一条都是「先调 `intent_resolve`」：router 只负责认出话语形态，判定在工具里。
+ * 复现路径的 `transfer_preview` 参数来自演示夹具（与 `demoMemory` 同源）——
+ * 真实模型会从 `intent_resolve` 的 filled 里取，演示脚本只能写死。
+ */
+function planIntent(intent: Extract<DemoIntent, { kind: 'intent' }>): readonly MockStep[] {
+  const resolve = toolCallStep('call-intent', 'intent_resolve', {
+    utterance: intent.utterance,
+    scene: intent.scene,
+  })
+  switch (intent.route) {
+    case 'implicit':
+      return [
+        resolve,
+        textStep('这件事我只提建议，不会直接操作。要不要先看看心意金或稳健理财方案？（执行编排在 04 单落地后接 plan_propose）'),
+      ]
+    case 'recall':
+      return [
+        resolve,
+        toolCallStep('call-preview', 'transfer_preview', { amount: 800, payee: { name: '王建国' } }),
+        textStep('已按上次的参数生成预演：向王建国转 800 元。确认后才发起。'),
+      ]
+    case 'crossScene':
+      return [
+        resolve,
+        textStep('您是想继续上次的转账，还是账单那边的事？我不确定，先问一下。'),
+      ]
+    case 'slotGap':
+      if (intent.ask === undefined) return [resolve, textStep('请说得具体一点：是要给谁转账，还是还信用卡？')]
+      return [
+        resolve,
+        toolCallStep('call-ask', 'prompt_ask', {
+          question: intent.ask.question,
+          slot: intent.ask.slot,
+          candidates: intent.ask.candidates.map((label) => ({ label, value: label })),
+        }),
+        textStep('请选择一下，或者直接输入。'),
+      ]
+    /* v8 ignore start —— IntentRoute 四值穷尽：default 不可达 */
+    default:
+      return assertNever(intent.route, 'demo-intent-route')
+    /* v8 ignore stop */
   }
 }
 

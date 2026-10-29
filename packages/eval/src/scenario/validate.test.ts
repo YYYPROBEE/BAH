@@ -1,5 +1,5 @@
 /**
- * TC-W13-01：60 个场景的静态契约（数量 / 族计数 / ID 唯一 / seed 一致）。
+ * TC-W13-01：66 个场景的静态契约（数量 / 族计数 / ID 唯一 / seed 一致）。
  */
 
 import { describe, expect, it } from 'vitest'
@@ -8,7 +8,7 @@ import { ALL_SCENARIOS } from '../scenarios/index.ts'
 import { FAMILY_COUNTS, TOTAL_SCENARIOS, validateScenarios } from './validate.ts'
 
 describe('W13 · 场景静态校验', () => {
-  it('TC-W13-01 60 个场景：族计数 10/12/10/8/10/10，ID 唯一且前缀正确', () => {
+  it('TC-W13-01 66 个场景：族计数 12/16/10/8/10/10，ID 唯一且前缀正确', () => {
     const result = validateScenarios(ALL_SCENARIOS)
     expect(result.findings).toEqual([])
     expect(result.ok).toBe(true)

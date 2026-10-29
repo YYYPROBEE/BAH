@@ -73,18 +73,20 @@ describe('要素抽取：抽不全就追问，不补默认值', () => {
     expect(extractPayee('转 800 元')).toBeUndefined()
   })
 
-  it('只有金额没姓名 → 追问姓名', () => {
+  it('只有金额没姓名 → 改道意图平面，追问目标仍是收款人（03 单）', () => {
     const intent = classifyIntent('转 800 元')
-    expect(intent.kind).toBe('clarify')
-    if (intent.kind !== 'clarify') return
-    expect(intent.question).toContain('收款人')
+    expect(intent).toMatchObject({ kind: 'intent', route: 'slotGap', scene: 'transfer' })
+    if (intent.kind !== 'intent') return
+    expect(intent.ask?.slot).toBe('payee')
+    expect(intent.ask?.question).toContain('收款人')
   })
 
-  it('只有姓名没金额 → 追问金额', () => {
+  it('只有姓名没金额 → 改道意图平面，但不硬发选择题（askHint 才是指挥棒）', () => {
     const intent = classifyIntent('给王建国转账')
-    expect(intent.kind).toBe('clarify')
-    if (intent.kind !== 'clarify') return
-    expect(intent.question).toContain('多少')
+    expect(intent).toMatchObject({ kind: 'intent', route: 'slotGap' })
+    if (intent.kind !== 'intent') return
+    // router 不知道 intent_resolve 的 askHint 指向哪个槽位：缺金额时只发意图工具 + 文案
+    expect(intent.ask).toBeUndefined()
   })
 })
 
@@ -156,7 +158,8 @@ describe('转账要素缺失的追问分支（缺一件问一件，两件都缺�
       kind: 'clarify',
       question: expect.stringContaining('要转给谁、转多少'),
     })
-    expect(classifyIntent('我要转账').kind).toBe('clarify')
+    // 03 单：追问从纯文案升级为结构化选择题（对外仍「遇到缺参就追问」）
+    expect(classifyIntent('我要转账')).toMatchObject({ kind: 'intent', route: 'slotGap' })
   })
 
   it('只缺金额 → 追问里点名已识别的收款人（说明路由真的读到了姓名）', () => {
@@ -200,5 +203,53 @@ describe('封闭联合兜底：新增意图忘了规划会当场红', () => {
     }
     expect(caught).toBeInstanceOf(BahError)
     expect((caught as BahError).message).toContain('demo-intent')
+  })
+})
+
+describe('意图平面的四条路由（03 单 §7.3；router 只认形态，不做语义判定）', () => {
+  it('隐含意图：场景陈述且无转账线索 → implicit/unknown', () => {
+    expect(classifyIntent('我爱人生日快到了')).toMatchObject({
+      kind: 'intent',
+      route: 'implicit',
+      scene: 'unknown',
+    })
+  })
+
+  it('模糊复现：历史指代 + 重办语义 → recall/transfer', () => {
+    expect(classifyIntent('上次那个转账再来一次')).toMatchObject({
+      kind: 'intent',
+      route: 'recall',
+      scene: 'transfer',
+    })
+  })
+
+  it('跨场景引用 → crossScene', () => {
+    expect(classifyIntent('把那边的事接着办')).toMatchObject({
+      kind: 'intent',
+      route: 'crossScene',
+      scene: 'cross_scene',
+    })
+  })
+
+  it('slotGap 的候选与演示夹具同源（两个收款人）', () => {
+    const intent = classifyIntent('转500给他')
+    expect(intent).toMatchObject({ kind: 'intent', route: 'slotGap' })
+    if (intent.kind !== 'intent') return
+    expect(intent.ask?.candidates).toEqual(['王建国', '张伟'])
+  })
+
+  it('四条路由的第一步都是 intent_resolve（不抢意图工具的活）', () => {
+    const inputs = ['我爱人生日快到了', '上次那个转账再来一次', '把那边的事接着办', '转500给他']
+    for (const text of inputs) {
+      const steps = planFromRequest({
+        modelId: 'router-chat',
+        messages: [{ role: 'user', content: [{ kind: 'text', text }] }],
+      } as never)
+      expect(steps[0]?.content?.[0]).toMatchObject({ name: 'intent_resolve' })
+    }
+  })
+
+  it('有转账线索时场景词不劫持（「爱人生日快到了，给张三转520」仍是转账）', () => {
+    expect(classifyIntent('爱人生日快到了，给张三转520')).toMatchObject({ kind: 'transfer' })
   })
 })

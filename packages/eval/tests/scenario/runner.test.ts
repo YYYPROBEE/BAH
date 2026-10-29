@@ -1,5 +1,5 @@
 /**
- * W13 端到端：60 场景全量、确定性（同 shard / 跨 shard）、filter、boot 次数。
+ * W13 端到端：66 场景全量、确定性（同 shard / 跨 shard）、filter、boot 次数。
  *
  * 这一组**不在主 vitest 面**（`vitest.eval.config.ts` 才收），因为它会真 boot 8 个应用。
  */
@@ -23,16 +23,16 @@ function sessionsSnapshot(): readonly string[] {
   }
 }
 
-describe('W13 · 60 场景端到端', () => {
+describe('W13 · 66 场景端到端', () => {
   it(
-    '全量 60：全部通过、boot=8、报告按族→ID 排序、仓库 sessions/ 无新增',
+    '全量 66：全部通过、boot=8、报告按族→ID 排序、仓库 sessions/ 无新增',
     async () => {
       const before = sessionsSnapshot()
       const report = await runEvalReport({ repoRoot: ROOT, scenarios: ALL_SCENARIOS })
       const after = sessionsSnapshot()
 
       expect(report.bootCount).toBe(8)
-      expect(report.scenarios).toHaveLength(60)
+      expect(report.scenarios).toHaveLength(66)
       expect(report.scenarios.filter((scenario) => scenario.status === 'fail')).toEqual([])
       expect(report.metrics.taskSuccess.total).toBeGreaterThan(0)
       expect(report.metrics.taskSuccess.passed).toBe(report.metrics.taskSuccess.total)

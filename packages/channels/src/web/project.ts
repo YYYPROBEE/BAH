@@ -30,6 +30,8 @@ import type {
   SnapshotFrame,
   TodoFrame,
   TodoItem,
+  ChoiceFrame,
+  ChoiceOption,
   ToolFrame,
   TurnFrame,
   WebFrame,
@@ -461,6 +463,13 @@ export class WebProjector {
           }),
           this.dagFrame(record?.turn ?? this.turn, event.at, event.seq),
         ]
+        // 03 单 §3.12：prompt_ask 的追问投影成 choice 帧（D6：点选 = 一条普通用户消息）。
+        // 帧字段取自 `tool/call` 的 args 而不是 `tool/result`：后者的载荷是投影后的文本
+        // （事件载荷冻结，不带出参原文），而 args 是结构化的、且与出参同源。
+        // 字面量而不 import interaction：channels 不依赖交互包（包图方向）。
+        if (!data.isError && data.name === 'prompt_ask' && record !== undefined) {
+          frames.push(this.choiceFrame(data.callId, event.seq, event.at, asArgs(record.args)))
+        }
         // 施工单 01 §3.5：成功的写操作 → effects 帧（一轮一张清单，累积替换）。
         // 失败（isError）不产：那是"被判停/出错"，不是"已发生的影响"。
         if (!data.isError && record !== undefined) {
@@ -676,6 +685,35 @@ export class WebProjector {
   }
 
   /** 构造/更新工具帧。 */
+  /**
+   * `prompt_ask` → `choice` 帧。
+   *
+   * `allowFreeText` 恒 true（收窄成字面量）：D6 要求「不选，直接说别的」永远可用。
+   * 手动输入出口由前端固定渲染（02 单 choice-card），不占 options：它不是候选，
+   * 是"三个都不对"时的出口。
+   */
+  private choiceFrame(
+    callId: string,
+    seq: number,
+    at: number,
+    args: Readonly<Record<string, unknown>>,
+  ): ChoiceFrame {
+    const question = typeof args['question'] === 'string' ? args['question'] : ''
+    const raw = Array.isArray(args['candidates']) ? args['candidates'] : []
+    const options: ChoiceOption[] = []
+    for (const item of raw) {
+      if (typeof item !== 'object' || item === null) continue
+      const record = item as Record<string, unknown>
+      const label = record['label']
+      const value = record['value']
+      // 非字符串一律丢弃（工具层已 fail-loud；这里是投影层的最后一道形状检查）
+      if (typeof label !== 'string' || typeof value !== 'string') continue
+      options.push({ id: value, label })
+      if (options.length === MAX_CHOICE_OPTIONS) break
+    }
+    return { kind: 'choice', seq, at, callId, prompt: question, options, allowFreeText: true }
+  }
+
   private toolFrame(
     callId: string,
     seq: number,
@@ -770,6 +808,16 @@ export function projectSession(
 export function deltaFrame(text: string, at: number): DeltaFrame {
   return { kind: 'delta', at, text }
 }
+
+/** 工具入参在本文件里只当只读记录用（事件载荷的形状由管线保证）。 */
+function asArgs(value: unknown): Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Readonly<Record<string, unknown>>)
+    : {}
+}
+
+/** 前端一屏最多三个业务候选（02 单 choice-card 的布局约束；manual 出口不占位）。 */
+const MAX_CHOICE_OPTIONS = 3
 
 /** 金额文本 / 格式化（插件与测试复用同一份实现，禁止各算一套）。 */
 export { amountText } from './amount.ts'

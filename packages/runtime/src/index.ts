@@ -11,6 +11,7 @@
 export * from './agent/index.ts'
 export * from './agent-loop/index.ts'
 export * from './compaction/index.ts'
+export * from './intent/index.ts'
 export * from './plan/index.ts'
 export * from './policy/index.ts'
 export * from './seams.ts'
