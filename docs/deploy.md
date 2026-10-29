@@ -33,7 +33,7 @@ pnpm install          # 同时把 core.hooksPath 指到 .githooks
 ```
 
 `pnpm install` 的 `prepare` 会执行 `git config core.hooksPath .githooks`；
-之后提交跑 `pnpm gate`（40 项），推送跑 `pnpm check`（14 步）。钩子挡疏忽，不挡 `--no-verify`。
+之后提交跑 `pnpm gate`（44 项），推送跑 `pnpm check`（14 步）。钩子挡疏忽，不挡 `--no-verify`。
 
 ---
 
@@ -59,7 +59,8 @@ pnpm install          # 同时把 core.hooksPath 指到 .githooks
 | `BAH_MODEL_KEY` | 否（仅切 DeepSeek 时） | `profiles/web/patch.yml` 注释块里的 `core:model.apiKeyEnv`；真实模型密钥 | 主路径 router 不使用；切 DeepSeek 后缺它会在第一次调模型时报「未配置密钥」 |
 | `DEEPSEEK_API_KEY` | 否（仅其他 profile 用 deepseek 时） | 模型插件的缺省 `apiKeyEnv` | 同上 |
 | `BAH_KNOWLEDGE_KEY` | 装配 `bank:knowledge` 时必需（W06） | 知识库签名清单的 HMAC 密钥；演示/CI 用公开的 `demo-key-not-for-prod` | 知识插件启动期报 `invalid-config`（无默认密钥） |
-| `BAH_WEB_TOKEN` | 否 | `/api/*` 的 Bearer token | 每进程随机生成，注入 `index.html` 的 meta；页面能用，手打 API 需自己取 |
+| `BAH_TENANT` | 否 | 本次进程的租户（`--tenant` 优先）；会话落在 `<部署根>/<tenant>/` | 缺省 `demo`；生产必须显式写，两个租户不能共用部署根（`saga.sqlite` 不按租户分库，见 `docs/tenant.md`） |
+| `BAH_WEB_TOKEN` | 否 | `static` 模式（缺省）的 Bearer token；`password` 模式改用登录会话 cookie | 每进程随机生成，注入 `index.html` 的 meta；页面能用，手打 API 需自己取 |
 | `BAH_ADMIN_TOKEN` | 否 | 管理路由的**单 token** 凭据（兼容形态；操作员记为 `admin`） | 与下一项都没设 → **路由不存在（404）**，无法远程解冻断路器 |
 | `BAH_ADMIN_OPERATORS` | 否 | 多操作员 JSON：`[{"id":"ops-li","token":"…"}]`；优先于 `BAH_ADMIN_TOKEN`，解冻的 `by` 从命中 token 派生 | 未设则回落到 `BAH_ADMIN_TOKEN`；坏 JSON 会让管理面 **503（fail-closed）** |
 | `NODE_ENV` | 否 | 设为 `production` 时，sentry 的 `trace.sink=stderr` 会在启动期 fail-loud | 开发默认允许 stderr |
@@ -67,6 +68,18 @@ pnpm install          # 同时把 core.hooksPath 指到 .githooks
 sentry 的 `trace.sink` **没有缺省值**（W08）：三个可运行 profile 都已显式写 `session`。
 自定义 profile 漏写会在载入期报 `sentry-trace-sink-required`，进程起不来——这是刻意 fail-loud，
 不是本地环境坏了。
+
+**认证模式**（`channel:web.config.auth.mode`，02 起）：
+
+- `static`（**缺省**）：不写 auth 块 = 改动前的行为；页面由 `BAH_WEB_TOKEN` 的 Bearer 访问；
+- `password`：`auth/users.yml` 口令目录 + `GET /api/auth/me` 登录门；口令为 scrypt 哈希，
+  会话只走 HttpOnly `bah_sid` cookie；登录/登出/撤销都落 `auth/*` 审计；
+- `none`：不验凭证（仅限内网测试装置，不建议对外）。
+
+开启 `password` 的三步（缺一步会在 boot 期 fail-loud）写在 `profiles/web/patch.yml`
+的注释块；示例目录是 `auth/users.example.yml`，哈希用 `npx tsx scripts/auth-hash.ts --stdin`
+生成。`auth/users.yml` 被 `.gitignore` 挡住，**不要入库**。角色矩阵（customer / agent /
+auditor / admin）与路由声明见 `docs/web-frontend.md` §7、`docs/contracts/tenant-model.md` §3。
 
 Web 响应默认带 CSP / X-Frame-Options / X-Content-Type-Options / Referrer-Policy /
 Permissions-Policy；`/api/*` 每来源 60 秒 120 次限流，超限 429。限流窗口与上限可在
@@ -160,8 +173,9 @@ pnpm demo:web
 **两处**换成 DeepSeek，并在 `.env.local` 写 `BAH_MODEL_KEY`。
 
 每次演示都会新建独立会话目录，日志、Saga 库与审计链都落在该目录；结束后按终端打印的
-`pnpm bah audit --dir "<目录>"` 复核，不会把上一场的钱记到这一场。预期：对话流两段气泡、
-工具卡三态、黄级转账弹审批（六要素）、票据核销、审计时间线。
+`pnpm bah audit --dir "<目录>" --tenant <tenant-id>` 复核（`demo:web` 会把两条命令都打印出来），
+不会把上一场的钱记到这一场。预期：对话流两段气泡、工具卡三态、黄级转账弹审批（六要素）、
+票据核销、审计时间线。
 
 ### 4.2 起 Web（不读 `.env.local`）
 
@@ -183,9 +197,9 @@ headless 走 `provider: router`（读消息现规划，不是固定磁带），�
 ### 4.4 一键自证（不需要密钥）
 
 ```bash
-pnpm test              # 255 文件 / 2848 用例（2026-10-29 实测；前端另有 55 例）
+pnpm test              # 255 文件 / 2848 用例（2026-10-29 实测；前端另有 57 例）
 pnpm test:snapshot     # 7 场景 / 8 文件 34 例，录制↔回放逐条全等
-pnpm gate              # 42/42
+pnpm gate              # 44/44
 pnpm demo:verifier-fail # 判决件异常 → 结果被挡在模型之外（20 条断言）
 ```
 
@@ -265,14 +279,14 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>" --key "<demo:web 打印�
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `web-listen-failed` | 7331 被占 | 关掉占用进程，或改 `profiles/web/patch.yml` 的 `port` 后重启 |
-| 页面能开，所有 `/api/*` 401 | 页面没拿到 meta token，或手打 API 没带 Bearer | 用页面操作；手打 API 先从 `GET /` 的 `<meta name="bah-web-token">` 取值 |
-| 管理路由 404 | `BAH_ADMIN_TOKEN` 没设 | 带上 env 重启 Web |
+| 页面能开，所有 `/api/*` 401 | `static` 模式：页面没拿到 meta token，或手打 API 没带 Bearer；`password` 模式：未登录或会话已过期 | `static` 从 `GET /` 的 `<meta name="bah-web-token">` 取值；`password` 先 `POST /api/auth/login`，或退回登录卡片重新登录 |
+| 管理路由 404 | `BAH_ADMIN_TOKEN` 与 `BAH_ADMIN_OPERATORS` 都没设 | 带上 env 重启 Web |
 | 管理路由 403 | 来源不是回环 | 只能从本机调；不要绑 `0.0.0.0` |
 | 管理路由 401 | token 不一致 | 两端用同一串；不要带引号/空格 |
 | 第一次对话报「未配置密钥」 | 已切 DeepSeek 但 `BAH_MODEL_KEY` 为空 | 写 `.env.local`；或按 profile 注释把 `core:model` 与 `core:agent.loop.model` 成对换回 router |
 | 知识问答报 `knowledge-unavailable` | 7801 sidecar 没起 | `pnpm rag:dev`（或按 `services/rag` 的 README 起），再确认探活 |
 | 断路器冻结，解不掉 | 在用 headless | headless 只能重启；Web 用管理路由 |
-| 提交被 `pnpm gate` 拒绝 | 40 项里有红 | 看输出末段；`docs` 路径红最常见（引用了不存在的文件） |
+| 提交被 `pnpm gate` 拒绝 | 44 项里有红 | 看输出末段；`docs` 路径红最常见（引用了不存在的文件） |
 | 推送被 `pnpm check` 拒绝 | 14 步里有红 | 先 `pnpm test:snapshot`；快照红会卡在最后一步 |
 | 演示日志里全是历史转账 | 用 `pnpm web` 起在了共享 `sessions/`；`demo:web` 才会每次新建独立目录 | 改用 `pnpm demo:web`，按打印的目录审计；不要删别人的历史目录 |
 
@@ -281,12 +295,12 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>" --key "<demo:web 打印�
 ## 6. 演示前 60 秒检查
 
 ```bash
-pnpm gate                 # 42/42（不需要 BAH_ALLOW_NO_SNAPSHOT）
+pnpm gate                 # 44/44（不需要 BAH_ALLOW_NO_SNAPSHOT）
 pnpm test:snapshot        # 8 文件 / 34 例（录制↔回放逐条全等）
 pnpm demo:verifier-fail   # 退出码 0
 pnpm demo:web             # 另开终端；记下打印的“本次会话目录”
 curl -s http://127.0.0.1:7331/api/health   # 返回 JSON，且不含票据 ID
-pnpm bah audit --dir "<本次会话目录>" --no-signature  # 链连续、投影 diff=0
+pnpm bah audit --dir "<本次会话目录>" --tenant <tenant-id> --no-signature  # 链连续、投影 diff=0
 ```
 
 另外三条**环境前置**（缺了会当场起不来）：

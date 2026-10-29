@@ -83,8 +83,11 @@ export function normalizePrincipal(input: PrincipalInput): Principal
 2. 去重 + 按 `ROLES` 固定序 ⇒ 两个逻辑相同的主体序列化出**同一串字节**（审计链要对它算哈希）；
 3. 返回**新对象且冻结**（`Object.freeze`）——调用方 `push` 一下，链上的主体哈希就漂了。
 
-**`SessionIdentity.tenantId` 是预留字段**（复审 AR-07）：01 只负责把它记录正确，
-真正的判定在 T3 的 `authorize()`。**不要**在答辩里把它讲成"已经生效的跨租户防线"。
+**`SessionIdentity.tenantId` 的判定点**（复审 AR-07 / 03 TA-47）：01 只负责把它记录正确；
+真正的跨租户判定在**业务工具闸** `evaluateCall()`（`packages/bank/src/tools/governance.ts`）：
+会话身份租户与当前进程租户不一致 → `wrong-tenant`，**早于** `no-identity`。
+HTTP 路由级 `authorize()` 只判"身份有无 + 角色"，不判租户——跨租户请求在认证层
+（别的租户的 cookie 查不到）就已经 401。**不要**把它讲成"authorize() 在判租户"。
 
 **角色不是业务权限**：角色是**渠道**身份（谁在操作），业务权限仍是绿/黄/红三级分级。
 两个平面正交，混起来就无法解释"同一笔转账换个角色级别为什么变红"。

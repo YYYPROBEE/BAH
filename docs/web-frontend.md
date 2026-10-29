@@ -273,8 +273,8 @@ confirmed(amount, callId) =
 重生成：`npx tsx scripts/web-routes.ts`。`web/contract.test.ts` 会把上面这段与生成结果逐字比对，
 不一致即红——所以"改了路由忘了同步文档"不会静默通过。
 
-闸的顺序**不可重排**：限流 429 → 管理面（自身 admin token + 回环，豁免 Bearer/CSRF）→
-Bearer 401 → CSRF 403 → 业务 423/409 → 静态 404 → 405。状态码列只列该路由自身可能产生的码，
+闸的顺序**不可重排**：限流 429 → 管理面（自身 admin token + 回环，豁免 Web 凭证/CSRF）→
+身份 401 → 角色 403 → CSRF 403 → 业务 423/409 → 静态 404 → 405。状态码列只列该路由自身可能产生的码，
 不含 429（逐路由相同）与 500（全局兜底：未归类异常一律 `web-internal`）。
 
 **W09 CSRF**：所有写路由（`POST/PUT/DELETE`）在身份与角色之后额外校验——同源 `Origin`，
@@ -345,18 +345,31 @@ HALT 期间新 turn 的 `/api/turn` 返回 **423 `safety-halted`**（不是 500�
 是系统被人工停机）。没有 `safety:sentry` 的 profile 三条路由都 503 `halt-absent`；`safety.halt.enabled=false` 时
 三条路由都 503 `halt-disabled`（回滚开关不许被伪装成“仍在 HALT / 已解除”）。
 
-### 7.2 Web 凭证（D5 最小集）
+### 7.2 Web 凭证与认证模式（D5 最小集 + 02）
 
-除 `GET /api/health` 与管理路由外，所有 `/api/*` 要求 `Authorization: Bearer <token>`；
-缺 / 错凭证一律 401 `web-unauthorized`，请求不会触达 agent。
+`channel:web.auth.mode` 三种取值，**不写 = `static` = 改动前的行为**（A3 零回归）：
 
-- **token 来源**：`BAH_WEB_TOKEN`；未配置时每个进程启动随机生成（`packages/host/src/boot/plugins/web-auth.ts`），
-  不写死、不入库、不进审计。
-- **页面载体**：响应 `index.html` 时注入 `<meta name="bah-web-token">`，同源脚本读取后放进请求头。
-  跨源页面读不到这个响应体（没有 CORS）——但这是访问凭证，不是登录；CSRF 另有 §7.2.2 的
-  双提交校验，不靠"读不到响应体"这条隐式边界。
-- **SSE 例外**：`EventSource` 不能设请求头，只有 `GET /api/events` 接受 `?token=`；其余接口不认查询参数。
+| 模式 | 身份来源 | 页面载体 | 适用 |
+|---|---|---|---|
+| `static`（缺省） | `Authorization: Bearer <BAH_WEB_TOKEN>`；`GET /api/events` 另接受 `?token=` | `index.html` 注入 `<meta name="bah-web-token">` | 本机演示 / 8 个既有 profile |
+| `password` | `POST /api/auth/login` → HttpOnly `bah_sid` 会话 cookie；`GET /api/auth/me` 自查 | **不注入** `bah-web-token`；注入 `<meta name="bah-auth-mode">`，前端据此显示登录门 | 对外演示 / 真实用户 |
+| `none` | 合成服务主体 `svc:web`，不验凭证 | 无 | 仅测试装置 |
+
+- 除 `GET /api/health` 与管理路由外，所有 `/api/*` 先验身份：缺 / 错凭证一律 401
+  `web-unauthorized`，请求不会触达 agent；身份有效但角色不在路由 `roles` 内 → 403 `web-forbidden`。
+- **`static` 的 token 来源**：`BAH_WEB_TOKEN`；未配置时每个进程启动随机生成
+  （`packages/host/src/boot/plugins/web-auth.ts`），不写死、不入库、不进审计。
+  它是访问凭证，**不是登录**；CSRF 另有 §7.2.2 的双提交校验，不靠"跨源读不到响应体"这条隐式边界。
+- **`password` 的口令目录**：`auth/users.yml`（scrypt 哈希；示例 `auth/users.example.yml`，
+  哈希用 `npx tsx scripts/auth-hash.ts --stdin`）。登录 / 登出 / 撤销落 `auth/*` 审计；
+  会话绝对寿命与空闲超时见 `auth.session` 配置。诚实边界（`lastSeenAt` 只在内存、节流计数
+  重启清零）见 `docs/security-design.md` §4。
+- **SSE 例外**：`EventSource` 不能设请求头；只有 `static` 模式下 `GET /api/events` 接受
+  `?token=`，`password` 模式只认 cookie。其余接口不认查询参数。
 - **健康探针公开**：编排器与演示脚本只问"还活着吗"，不拿凭证。
+- **合成服务主体的角色**：`svc:web` 是 customer / agent / auditor，**不含 admin**——管理面
+  （`/api/admin/*`）仍要独立的 admin token + 回环来源；把 admin 塞进服务主体等于让一个
+  Web 口令就能管理停机开关。
 
 约定：
 
@@ -391,9 +404,12 @@ HALT 期间新 turn 的 `/api/turn` 返回 **423 `safety-halted`**（不是 500�
 |---|---|
 | `Origin` 与请求 `Host` 同源 | 放行 |
 | `Origin` 跨站（如 `https://evil.example`） | 403 `web-csrf-forbidden`（即使带了令牌） |
-| 无 `Origin`，但 `bah_csrf` cookie 与 `X-BAH-CSRF` 头都存在、相等、且等于本进程令牌 | 放行（double-submit） |
+| 无 `Origin`，但 `bah_csrf` cookie 与 `X-BAH-CSRF` 头都存在、相等、且等于当前身份的 CSRF 期望值 | 放行（double-submit） |
 | 无 `Origin`、也无 cookie/头 | 403 `web-csrf-required` |
-| cookie 与头只有其一，或值不等/不等于本进程令牌 | 403 `web-csrf-forbidden` |
+| cookie 与头只有其一，或值不等 / 不等于当前身份的 CSRF 期望值 | 403 `web-csrf-forbidden` |
+
+- **CSRF 期望值**：`static` / `none` 是进程级令牌；`password` 是**会话级**值（登录成功时轮换）。
+  若仍比对进程级旧值，用户第一次写请求就被判 403——"登录成功了但点什么都 403"的经典事故。
 
 - **cookie 下发**：`GET /`（index.html）响应带 `Set-Cookie: bah_csrf=<随机>; Path=/; SameSite=Strict`，
   **不是 HttpOnly**——double-submit 需要同源脚本读取；页面 `no-store`，重启换 token 不会读到旧的。
@@ -401,8 +417,20 @@ HALT 期间新 turn 的 `/api/turn` 返回 **423 `safety-halted`**（不是 500�
   `x-bah-csrf`；没有 cookie 时不伪造（让服务端 403 兜底，而不是前端假装成功）。
 - **豁免**：`/api/admin/*` 使用自己的 admin token + 回环绑定，CLI 没有 Origin/cookie；SSE 是 GET，
   不受影响。`web.csrf.enabled=false` 是回滚开关，关掉必须在自评报告登记。
-- **顺序**：限流 → 管理路由 → Bearer（401）→ CSRF（403）→ 业务（HALT 的 423 仍由 `agent.send` 产生）。
-  这样缺凭证不会被 CSRF 抢成 403，也不会把停机状态误报成跨站攻击。
+- **顺序**：限流 → 管理路由 → 身份（401）→ 角色（403）→ CSRF（403）→ 业务
+  （HALT 的 423 仍由 `agent.send` 产生）。这样缺凭证不会被 CSRF 抢成 403，
+  也不会把停机状态误报成跨站攻击。
+
+#### 7.2.3 角色与判定点（03）
+
+- 每条 `auth: 'web'` 路由**必须声明非空 `roles`**：`verify-authz-coverage` 门禁与
+  `contract.test.ts` 双保险。运行期 `assertRouteRoles()` 校验已声明值的合法性 / 固定序；
+  **未声明 = 任意已认证主体**（`RouteSpec.roles` 的缺省语义，不是全放行），新增路由不得
+  依赖这个缺省——缺声明会被门禁打红。
+- 角色判定**只有一处**：`authorize()`（`public/admin → 身份 401 → 角色 403 → CSRF`）；
+  handler 里禁止再判角色（门禁扫 `identity.principal.roles` 这类写法）。
+- 44 格角色 × 路由矩阵在 `packages/host/src/boot/plugins/web/authz/matrix.test.ts`，
+  含"所有 web 路由至少一个角色可达 / 所有角色至少一条 web 路由"的双向覆盖判据。
 
 ---
 

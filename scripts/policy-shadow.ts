@@ -1,6 +1,7 @@
 /**
- * `pnpm policy:shadow --from <handle> --to <handle> --sessions <dir>`（02 §7.2）：
- * 用**真实判决证据**重放候选版本，输出差异清单。
+ * `pnpm policy:shadow --from <handle> --to <handle> --sessions <tenant-sessions>`（02 §7.2）：
+ * 用**真实判决证据**重放候选版本，输出差异清单。`<tenant-sessions>` 是租户目录
+ * （`<deploy>/<tenant>`），不是部署根。
  *
  * 只读：不改 state、不写链、不启动 host。退出码 1 = 有未解释差异（灰度前硬门禁）。
  */
@@ -20,7 +21,7 @@ const paths = adminPaths({
 
 if (from === undefined || to === undefined || sessionsDir === undefined) {
   process.exitCode = usage(
-    '用法：pnpm policy:shadow --from <handle> --to <handle> --sessions <dir> [--json]',
+    '用法：pnpm policy:shadow --from <handle> --to <handle> --sessions <tenant-sessions> [--json]',
   )
 } else {
   try {

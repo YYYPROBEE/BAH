@@ -1,4 +1,4 @@
-# BAH 事实数字唯一来源（2026-10-28 实测；S4 策略门禁与 policy-externalized 快照；可观测性 01 遥测内核）
+# BAH 事实数字唯一来源（2026-10-29 实测；租户与鉴权 01–04 回归审查；web 57 例）
 
 > 本文是 `facts.md`、PPT、视频旁白、自评材料里数字的**唯一取值来源**。
 > 改代码后重跑下表命令，先改本文，再改 `facts.md`，最后跑 `npx tsx scripts/verify-facts.ts`。
@@ -38,7 +38,7 @@ tests_main_cases=2848
 | 覆盖率（包） | **15/16** | 同上 | 只有 `eval` 53.20% 未达 80%；`memory-store` 89.40% 已达标 |
 | 主仓测试 | **244 文件 / 2722 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 238 passed / 2722 例（租户与鉴权 01：+8 文件 / +77 例；含 TA-10~TA-19 的用例）（2026-10-28 复跑；相对上一版 221/2481 新增遥测内核 8 个测试文件、`obs:telemetry` 插件 12 例、环境变量覆盖 3 例、`http.request` 包裹点 7 例，并补 `gates.smoke` 门禁数；门禁不重跑测试，只校验本文与 facts.md 一致） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
-| web 测试 | **7 文件 / 55 例** | `pnpm test:web` | 7 passed / 55 passed |
+| web 测试 | **7 文件 / 57 例** | `pnpm test:web` | 7 passed / 57 passed |
 | 快照跑批 | **8 文件 / 34 例** | `pnpm test:snapshot` | 8 passed / 34 passed |
 
 ## 3. 覆盖率为什么只有一个值

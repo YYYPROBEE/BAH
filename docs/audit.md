@@ -58,26 +58,26 @@ bah audit [选项]
 ```
 
 ```bash
-# 审某次演示的独立目录（pnpm demo:web 会打印这个路径）
-bah audit --dir sessions/demo-20261024-153000-ab12cd
+# 审某次演示的独立目录（pnpm demo:web 会打印这个路径；缺省租户 demo）
+bah audit --dir sessions/demo-20261024-153000-ab12cd --tenant demo
 
 # 租户化之后：--dir 给**部署根**，链在 <dir>/<tenant>/ 下
 bah audit --dir sessions --tenant demo
 
 # 无签名密钥时只验链连续性/投影（不是完整验签）
-bah audit --dir sessions/demo-20261024-153000-ab12cd --no-signature
+bah audit --dir sessions/demo-20261024-153000-ab12cd --tenant demo --no-signature
 
 # 只审一条链，机器读
-bah audit --dir sessions --saga saga-gate-001 --format json
+bah audit --dir sessions --tenant demo --saga saga-gate-001 --format json
 
 # 只有链、没有库：跳过投影
 bah audit --dir sessions --tenant demo --no-projection
 
 # 显式使用临时密钥
-bah audit --dir sessions --key keys/saga-ed25519.pem
+bah audit --dir sessions --tenant demo --key keys/saga-ed25519.pem
 
 # 只验链连续性（已知降级）
-bah audit --dir sessions --no-signature
+bah audit --dir sessions --tenant demo --no-signature
 
 # 帮助
 bah audit --help
@@ -87,7 +87,8 @@ bah audit --help
 
 | flag | 取值 | 缺省 | 语义 |
 |---|---|---|---|
-| `--dir <path>` | 目录 | `sessions/` | 待审计的落盘根；链在 `<dir>/<sagaId>/audit.jsonl` |
+| `--dir <path>` | 目录 | `sessions/` | 待审计的**部署根**；链在 `<dir>/<tenant>/<sessionId>/audit.jsonl`（也含 saga 编排链） |
+| `--tenant <id>` | 租户 | `demo` | 只审该租户段（`<dir>/<id>/`）；不会跨租户扫描，也不会自动猜 |
 | `--saga <id>` | saga id | 全部 | 只报告一条链；锚定仍按目录下全部链计算 |
 | `--db <path>` | 文件 | `<dir>/saga.sqlite` | 投影重算用的 saga 库；文件不存在则整段跳过投影，绝不新建 |
 | `--no-projection` | 布尔 | 关 | 跳过投影重算 |

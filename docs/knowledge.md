@@ -61,6 +61,9 @@ CLI（headless）
 
 > 演示用 `pnpm rag:dev`：未配置 token 时脚本会生成**一次性**演示 token（不落盘）并打印；
 > 同一个 token 要交给 host（`bank:knowledge` 默认读 `BAH_KNOWLEDGE_TOKEN`）。
+> 租户化（01 TA-17）后宿主优先读 `BAH_KNOWLEDGE_TOKEN_<TENANT>`（如 `_DEMO` / `_ACME`，
+> 后缀由 `tenantEnvSuffix` 生成）；**非 `demo` 租户**回退到共享变量会启动失败
+> `knowledge-token-shared`——两个租户共用一把知识令牌，任一泄漏即全平台可查。
 > `pnpm demo:rag` 会解析一次 token 并同时注入 sidecar 与 host，不需要手工复制。
 
 ### 示例

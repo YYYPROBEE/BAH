@@ -270,7 +270,7 @@ graph TB
 | `bank:knowledge` 只在 web / web-plan | 它要 `mode: http` 连 RAG sidecar；headless/plan 不联网、零依赖是硬约束 |
 | `bank:saga-bridge` 在 plan / web-plan 关闭 | 否则 `transfer_create` 被再展开成一笔 saga，一条 `plan/node-result` 会对上两条 `tool/call`，plan 的计数断言全部失真 |
 | `interaction:approval.responder` | headless/plan 用自动应答者（无人值守），web/web-plan 用 `none` + 真人点——**默认结论都是拒绝**，绝不默认放行 |
-| `bah:memory-store` 只在 web | 记忆会改变模型输入，不做静默开启；由 web profile 显式写（单租户 demo，诚实边界见插件注释） |
+| `bah:memory-store` 只在 web | 记忆会改变模型输入，不做静默开启；由 web profile 显式写；库文件落在 `<root>/<tenant>/memory.db`（租户 = 部署边界，一进程一租户） |
 
 ## 5. 一次 Web 对话的路径（数据流）
 
