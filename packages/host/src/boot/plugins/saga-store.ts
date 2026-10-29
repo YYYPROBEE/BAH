@@ -5,8 +5,13 @@
  * `service-missing`。打开即迁移；dispose 时关闭连接。
  */
 
-import { mkdirSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 
 import { createSagaStore } from '@bah/persistence'
 import { SAGA_STORE, TARGET_REGISTRY } from '@bah/saga'
@@ -37,7 +42,13 @@ export const sagaStorePlugin: HostPlugin<SagaStoreSettings> = {
         config.dbPath === ':memory:'
           ? ':memory:'
           : resolve(ctx.get(SESSION_FILES).baseRoot, config.dbPath)
-      if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true })
+      if (dbPath !== ':memory:') {
+        mkdirSync(dirname(dbPath), { recursive: true })
+        // 04 §1.1：sqlite 不按租户分库（01 §5 的裁剪决策），所以同目录的两个租户会共用它。
+        // 用同目录的 `saga.tenant` 标记创建者；不一致/未知时告警——不阻断启动（单租户形态合法），
+        // 但绝不静默把两个租户的事务混在一起。
+        warnIfForeignSagaDb(dbPath, String(ctx.get(SESSION_FILES).tenantId))
+      }
       const store = createSagaStore({ dbPath })
       ctx.provide(SAGA_STORE, store)
       // SA-16 §8：批 6 补齐目标登记的生产提供者，避免补偿路径 `service-missing`。
@@ -55,4 +66,51 @@ export const sagaStorePlugin: HostPlugin<SagaStoreSettings> = {
     rejectUnknownKeys(config, ['dbPath'], 'bank:saga-store')
     return { dbPath: readString(config, 'dbPath', 'bank:saga-store') ?? 'saga.sqlite' }
   },
+}
+
+/**
+ * 检查 `saga.sqlite` 的创建者标记（04 §1.1）。
+ *
+ * - 库不存在：写入当前租户标记（`wx` 独占创建；并发时输的一方重新读）；
+ * - 库存在且标记一致：静默；
+ * - 库存在但标记缺失/不一致：**告警一行**（不阻断，单租户形态合法）。
+ */
+export function warnIfForeignSagaDb(dbPath: string, tenantId: string): void {
+  const marker = join(dirname(dbPath), 'saga.tenant')
+  const readOwner = (): string | undefined => {
+    try {
+      return readFileSync(marker, 'utf8').trim()
+    } catch {
+      return undefined
+    }
+  }
+  if (existsSync(dbPath)) {
+    const owner = readOwner()
+    if (owner === undefined) {
+      console.warn(
+        `[bank:saga-store] ${dbPath} 已存在，但缺少创建者标记 ${marker}：无法判断属于哪个租户；` +
+          `本进程租户 ${tenantId}。多租户必须用不同的 --jsonl / 工作目录（见 docs/tenant.md）`,
+      )
+      return
+    }
+    if (owner !== tenantId) {
+      console.warn(
+        `[bank:saga-store] ${dbPath} 由租户 ${owner} 创建，本进程租户 ${tenantId}：` +
+          `共用 sqlite 会把两个租户的事务混在一起；请用不同 --jsonl / 工作目录（见 docs/tenant.md）`,
+      )
+    }
+    return
+  }
+  try {
+    writeFileSync(marker, `${tenantId}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+  } catch {
+    // 并发启动：另一方先写了标记。重新读一次再判（不覆盖别人的所有权）
+    const owner = readOwner()
+    if (owner !== undefined && owner !== tenantId) {
+      console.warn(
+        `[bank:saga-store] ${dbPath} 的创建者标记由租户 ${owner} 先写入，本进程租户 ${tenantId}：` +
+          `请用不同 --jsonl / 工作目录（见 docs/tenant.md）`,
+      )
+    }
+  }
 }

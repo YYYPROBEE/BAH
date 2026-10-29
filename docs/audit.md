@@ -206,11 +206,11 @@ node -e "const {generateKeyPairSync}=require('node:crypto');const fs=require('no
 
 ```bash
 # 1) 重放：重建 {事件序列, 判决表, 票据表}，与原始事件逐条比对
-npx tsx scripts/replay.ts --session <id> --dir <root> --verify
-#    等价 CLI：pnpm bah audit replay --session <id> --dir <root> --verify
+npx tsx scripts/replay.ts --session <id> --dir <root> --tenant demo --verify
+#    等价 CLI：pnpm bah audit replay --session <id> --dir <root> --tenant demo --verify
 
 # 2) 生成监管证据包：events.jsonl / decisions.md / tickets.md + manifest.json
-npx tsx scripts/replay.ts --session <id> --dir <root> --pack .ci-artifacts/evidence/<id>
+npx tsx scripts/replay.ts --session <id> --dir <root> --tenant demo --pack .ci-artifacts/evidence/<id>
 #    离线复核（只读 manifest + 文件，不启动进程内状态）
 npx tsx scripts/replay.ts --check-pack .ci-artifacts/evidence/<id>
 

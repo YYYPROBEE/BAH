@@ -12,6 +12,7 @@ import {
   ADMIN_OPERATORS_ENV,
   ADMIN_TOKEN_ENV,
   DEFAULT_UNFREEZE_REASON,
+  hasAdminCredentials,
   isLoopbackAddress,
   parseHaltBody,
   parseUnfreezeBody,
@@ -121,6 +122,15 @@ describe('HP0-10 解冻体解析（03 TA-44：删掉可伪造的 by）', () => {
 describe('03 TA-44 · 操作员表（token → id）', () => {
   const env = (operators: unknown): Record<string, string | undefined> => ({
     [ADMIN_OPERATORS_ENV]: JSON.stringify(operators),
+  })
+
+  it('04 §1.2：hasAdminCredentials 只看"配没配"，不解析 JSON', () => {
+    expect(hasAdminCredentials({})).toBe(false)
+    expect(hasAdminCredentials({ [ADMIN_TOKEN_ENV]: '   ' })).toBe(false)
+    expect(hasAdminCredentials({ [ADMIN_TOKEN_ENV]: 'tok' })).toBe(true)
+    expect(hasAdminCredentials({ [ADMIN_OPERATORS_ENV]: '[{"id":"a","token":"t"}]' })).toBe(true)
+    // 坏 JSON 也算"配了"：启动告警看的是"有没有管理面"，不是配置对不对
+    expect(hasAdminCredentials({ [ADMIN_OPERATORS_ENV]: '{bad' })).toBe(true)
   })
 
   it('两个操作员：id/token 原样读出', () => {

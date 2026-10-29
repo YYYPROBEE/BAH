@@ -16,7 +16,7 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **23 项 / 43 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
+| 注册表 / 门禁 | **23 项 / 44 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
 | 覆盖率 | **91.14%（行口径，31233/34270 行，实测 2026-10-28）；15/16（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
@@ -48,7 +48,7 @@
 | **D**enial of service | 刷接口；上游挂起拖死主循环 | 限流 429；`requestTimeoutMs`；请求体上限 64 KiB |
 | **E**levation of privilege | 绿级工具被当成写操作；被 block 的节点偷偷执行 | `verify-tiers` 门禁；`tools/pre-execute` 唯一阻断点；plan 的 blocked 不进管线 |
 
-## 3. 攻击面清单（攻击面 → 现有防线 → 缺口，19 项）
+## 3. 攻击面清单（攻击面 → 现有防线 → 缺口，24 项）
 
 > 这是本文的核心表。缺口列写"没有"也是一种结论——比被评委问出来强。
 
@@ -62,7 +62,7 @@
 | 6 | 金额篡改（浮点/精度） | 金额一律整数分；`amountPath` 绑定金额；断言核验 | 历史数据里的"元"入参靠工具 schema 约束，不是运行时全量校验 |
 | 7 | 绕过审批直接写 | `tools/pre-execute` 是**唯一**阻断点；写工具没有票据即拒；`verify-tiers` 门禁防 tier 声明漂移 | 无（这是本项目的核心不变量） |
 | 8 | 伪造审批 HTTP 请求 | 身份 401 → 角色 403（`authorize()` 唯一判定点）→ CSRF 403 → 同会话/同用户 403；03 起放行人落 `approval/actor`（先于 `approval/decided`） | 管理面走独立 token + 回环；用户层归属同第 3 行；**HALT / 票据解除的操作员仍未入链**（本轮只覆盖解冻的 `by`） |
-| 9 | CSRF（跨站表单） | 双提交 cookie + 同源 Origin；顺序固定 **401 → 角色 403 → CSRF 403 → 业务** | 无 |
+| 9 | CSRF（跨站表单） | 双提交 cookie + 同源 Origin；顺序固定 **401 → 角色 403 → CSRF 403 → 业务**；04 起同源判定只比 host 段（端口参与），协议由 `cookie.secure` 二选一（HTTPS 部署不再 403） | 反代必须保留 `Host` 并把 `cookie.secure` 与外部协议对齐；错配是部署问题 |
 | 10 | token 暴力破解 | password 模式：scrypt + 失败计数 + 15 分钟锁定 + 指数退避提示；会话语 cookie 为 HttpOnly；static 模式 token 每进程随机生成（未配环境变量时） | static 模式 token 无过期时间；SSE 在 static 模式仍可用 `?token=`（password 模式只认 cookie） |
 | 11 | XSS（渲染模型输出） | 前端全量 `textContent`（禁 `innerHTML`）+ CSP `script-src 'self'`、`object-src 'none'`、`frame-ancestors 'none'` | 无 |
 | 12 | 点击劫持 / 嵌入 | `x-frame-options: DENY` + CSP `frame-ancestors 'none'` | 无 |
@@ -73,6 +73,11 @@
 | 17 | 判决件自身失效 | fail-closed：核验组件抛错 → 阻断并替换模型可见内容（`verifier-unavailable`） | 只覆盖已知的两个接缝（post-execute / turn-stopping） |
 | 18 | 策略文件被替换 / 被降级 | 编译期禁止 `lower`/降级；`lock.json` 语义+源摘要；registry 摘要核对；默认 bundle 与 legacy 穷举等价；`verify-policy-{bundle,conformance,hardcode,registry}` 四条门禁 | 本地链没有外部锚定；生产 Ed25519 密钥分发/轮换流程未落地（S4 只做可选验签，演示 unsigned） |
 | 19 | 热重载竞态 / 坏候选半生效 | 先编译后原子替换；失败保持旧版并发 `policy/reload-rejected`；参数绑定在激活前复校；在途判决持旧快照 | 单进程文件监听（`fs.watchFile` 轮询），没有分布式一致性；多实例部署不在当前形态内 |
+| 20 | 跨租户凭证搬运（04） | 会话存储按进程 + 租户；demo 的 `bah_sid` 打 acme → 401；matrix M1/M2 真机验证 | 一进程 N 租户不支持（ADR-0004）；同机必须两个进程 |
+| 21 | 跨租户票据搬运（04） | acme 的 `pending` 表没有 demo 的票 → 404 `unknown-ticket`；matrix M3 真机验证 | 证明的是"进程内存不共享"，不是"票据归属判定"（后者单会话形态不可达，03 AR-38） |
+| 22 | 租户头注入（04） | 租户只来自启动输入（`--tenant`/`BAH_TENANT`），`X-Tenant`/`?tenant=` 被忽略；`verify-tenant-isolation` 判据 1/3 + matrix M8 | 无（写进 03 Z3 与门禁） |
+| 23 | 静态口令泄漏（04） | `password` 模式 index 不含 `bah-web-token`，`?token=` 不被接受（A4 真机 401）；会话只走 HttpOnly cookie | `static` 模式仍存在（默认降级通道），风险限定在 `static` 内 |
+| 24 | 管理面 `by` 伪造（04） | `BAH_ADMIN_OPERATORS` 每操作员一 token，`by` 从命中 token 派生；body 里 `by` 一律 400 | HALT / 凭票解除的操作员仍未入链（同第 8 行） |
 
 ### 3.1 三处"顺序即安全"的设计（顺序错了，上面一半的防线都会失效）
 
@@ -84,7 +89,7 @@
 3. **HALT 与风险分**：`HALT` 判定在 `riskScore` 之前——停机是绝对状态，
    不该被"分数还低"绕过。
 
-## 4. 未实现清单（6 项，每项写清"为什么不做"与"影响面"）
+## 4. 未实现清单（7 项，每项写清"为什么不做"与"影响面"）
 
 > 施工单要求 ≥5 项。这一节不是道歉，是**接口**：评委会问的每一个"那你们怎么防 X"，
 > 答案要么在这里，要么在上面 §3 的"现有防线"里。
@@ -104,6 +109,7 @@
 | 4 | **plan 内写工具的补偿** | `saga-bridge` 在 `profiles/plan` 显式关闭（否则 `transfer_create` 被再展开，一条 `plan/node-result` 对上两条 `tool/call`） | plan 里第 2 步扣款、第 3 步失败时**没有自动冲正**；正确做法是让 plan 编排一整笔 saga，这是 P2 的活 |
 | 5 | **plan 动态 args 跨 `resume`** | 节点输出只存在内存里，续跑时无法还原上游 output；存进会话日志会把大对象写进审计面 | 需要"重做一笔已成功的转账"时，只能新 `planId` + 冲正原笔（两张计划用 `meta` 关联） |
 | 6 | **`incident` 状态的真实触发源** | 本仓全内存 mock，没有"外部不可用"的真实来源；可达性靠单测 + 宿主 stub 工具 | Web 的 DAG 视图按 `tool/call` 派生，**不区分** `incident` 与 `failed`；裁判问"什么时候会 incident"要按 `docs/plan.md` 讲条件，不能指屏幕 |
+| 7 | **渠道级多租户（一进程 N 租户）** | 内核没有事件作用域（`core/src/api.ts` 原文"只做键屏蔽，不做多 realm 隔离"）；当前用"租户 = 进程"的部署边界（ADR-0004） | 同一进程不能同时服务两个客户；跨租户在认证层 401 而不是"资源层 404"。要支持必须给内核加作用域，是另一份立项 |
 
 补充（不算"未实现"，但要主动说）：
 

@@ -43,6 +43,7 @@ import { createWebAuthRuntime } from './web/auth/wire.ts'
 import { wireWebPipelines } from './web/wire.ts'
 import { createRateLimiter } from './web-rate-limit.ts'
 import { generateWebToken, readWebToken } from './web-auth.ts'
+import { hasAdminCredentials } from './web-admin.ts'
 import { DEFAULT_WEB, resolveWebSettings, type WebSettings } from './web/config.ts'
 import { tryService, type WebDeps } from './web/deps.ts'
 import { createDispatcher } from './web/dispatch.ts'
@@ -121,6 +122,16 @@ export const webPlugin: HostPlugin<WebSettings> = {
 
       // 认证面（02）：装配在 web/auth/wire.ts（apply 有 120 行预算）
       const auth = createWebAuthRuntime({ ctx, run, config, webToken, serverCsrf: csrfToken, warn: (m) => run.warn?.(m) })
+
+      // 04 §1.2：同机反代会让 req.socket.remoteAddress 恒为回环，"只接受回环"退化为只剩 token。
+      // 业务面可以挂反代；管理面必须独立端口并只绑 127.0.0.1。这是部署约束，启动期说出来。
+      // `probe === false`（--dump-config）不告警：dump 的 stderr 是契约（A8 要求严格为空）。
+      if (run.probe !== false && config.host !== '127.0.0.1' && hasAdminCredentials(process.env)) {
+        run.warn?.(
+          `[channel:web] 管理面与业务面共用监听地址 ${config.host}；反代场景下回环判据会失效，` +
+            '建议管理面独立端口且只绑 127.0.0.1（见 docs/tenant.md）',
+        )
+      }
 
       const deps: WebDeps = {
         session,

@@ -2,8 +2,8 @@
  * 独立重放 CLI（W15）。
  *
  * ```bash
- * npx tsx scripts/replay.ts --session s-xxx --dir sessions --verify
- * npx tsx scripts/replay.ts --session s-xxx --dir sessions --pack .ci-artifacts/evidence/s-xxx
+ * npx tsx scripts/replay.ts --session s-xxx --dir sessions --tenant demo --verify
+ * npx tsx scripts/replay.ts --session s-xxx --dir sessions --tenant demo --pack .ci-artifacts/evidence/s-xxx
  * npx tsx scripts/replay.ts --check-pack .ci-artifacts/evidence/s-xxx
  * npx tsx scripts/replay.ts --snapshots snapshots/headless-basic/session.jsonl
  * ```
@@ -26,7 +26,10 @@ const root = projectRoot()
 const json = args.includes('--json')
 
 const session = readFlag('--session')
-const dir = resolve(root, readFlag('--dir') ?? 'sessions')
+// 04：与 `bah audit` 同口径——`--dir` 是部署根，真正的会话根是 `<dir>/<tenant>`。
+// 不拼租户会在 `<dir>/<session>` 找文件（session-missing），多租户时更可能读错租户。
+const tenant = readFlag('--tenant') ?? 'demo'
+const dir = resolve(root, readFlag('--dir') ?? 'sessions', tenant)
 const key = readFlag('--key')
 const packDir = readFlag('--pack')
 const checkPack = readFlag('--check-pack')
