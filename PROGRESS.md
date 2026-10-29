@@ -1,4 +1,4 @@
-# BAH 施工进度
+﻿# BAH 施工进度
 
 > **本文件是历史累计台账**（约 429 KB、§0–§96 逐单施工记录）：正文里的门禁数 / 用例数 /
 > 覆盖率是**当时**的快照，随施工推进必然过时。**当前数字一律以 [facts.md](facts.md) 为准**
@@ -6303,3 +6303,59 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
   `open(dir,{mode:'append'})`；本单未改宿主，重启后从空会话开始。
 
 > 服务器侧仍用占位微信三项（`pending-*`），`/healthz` 与握手可用；真机 D0 待 Q1 凭据。
+
+## 96.45 03 审批交互与坐席接管（mock 面，2026-10-30）
+
+| 项 | 结果 |
+|---|---|
+| 出口 1：文本指令闭环 | `1` 批准 / `2` 拒绝（理由必填）/ `3` 详情 / `4` 强验证；多票据强制带票号 |
+| 出口 2：H5 审批页 | `/a/:token` 签名 + 一次性 + TTL；CSP `default-src 'none'`；批准 / 拒绝 / 强验证可用 |
+| 出口 3：过期语义 | `approval-closed(unavailable)` → 推送「已过期」，绝不写成「已批准」 |
+| 出口 4：转人工 | `转人工` → 子进程 `POST /api/handoff`；进入 / 认领 / 交回三态推送 |
+| 出口 5：运营桥 | `/seat/*` 未配 token 一律 404；错 token 401；对 token 才转发白名单路径；列表不含平台用户标识 |
+| 出口 6：审计与日志 | 审批 / 运营面只记 sessionKey / ticketId / code / 理由长度；G15 钉死 |
+
+实现要点：
+
+- `channels/im/protocol/link-token.ts`：`base64url(JSON) + '.' + HMAC-SHA256`，`timingSafeEqual`，`now >= e` 即 `expired`；
+- `apps/im-gateway/src/approval/{pending,commands,texts,submit,page}.ts`：待审批表 / 票据选择 / 文案 / 六码翻译 / H5；
+- `apps/im-gateway/src/session/hub.ts`：**每条会话一条常驻 SSE**（快照重建 + 增量推送），与 02 的 per-turn 订阅并行；
+  `beginTurn/endTurn` 闸门避免同一条助手消息被推两次；断线后下一次 attach 重新订阅；
+- `apps/im-gateway/src/handoff/{bridge,operator}.ts`：接管三态归约 + 公网运营桥（子进程独立 operator token + CSRF）；
+- `assets/approve.{html,css,js}`：零框架、零远程、无内联脚本。
+
+实跑数字（2026-10-30）：
+
+| 命令 | 结果 |
+|---|---|
+| `pnpm typecheck` | 0 error |
+| `pnpm test` | **315 文件 / 3605 例**全绿（03 新增 6 文件 / 57 例） |
+| `pnpm gate` | **51/51**（`verify-im-gateway` G1–G15） |
+| `pnpm test:snapshot` | 9 文件 / 39 例 |
+| 覆盖率 | `channels/im/**` 逐文件 100% 行/语句/函数；`link-token.ts` 分支 93.33% |
+
+门禁负控（4 条，实跑判红并还原）：
+
+- G6：去掉 `server.ts` 的 `deps.seatEnabled !== true` → 红；
+- G9：`approve.html` 加内联 `<script>` → 红；
+- G14：`link-token.ts` 用 `===` 比签名 → 红；
+- G15：`approval/page.ts` 日志加 `reason:` → 红。
+
+偏差与边界（同 `docs/im-gateway.md` §5）：
+
+1. 宿主 `WebDeps` 拆出 `seatApiEnabled`：原 `seatEnabled` 只对 `channel:web` 为真，IM 子进程没有 `/operator` 页面但运营桥必须转发坐席 API；
+2. 03 新增 `session/hub.ts` / `handoff/bridge.ts` / `approval/texts.ts`（施工单文件清单未列），用于常驻 SSE 与跨轮状态；
+3. 03 §6 的两条门禁编号顺延为 **G14 / G15**（02 已占用 G10–G13）；
+4. 新增 `BAH_OPERATOR_NAME`（缺省 `坐席`），随网关注入子进程；
+5. H5 一次性在"解析成功且通过红级前置"后才 claim，避免空理由 / 红级拦截烧掉链接；
+6. 01 的解析口径下 `2` 只给票号不给理由**不识别为指令**；H5 的空理由仍回 400 `reason-required`。
+
+已知边界：
+
+- 待审批 / 接管状态在网关内存；子进程被回收即清空，网关重启不补发历史；
+- 常驻 SSE 断开后不自动重连，下一次入站重新 attach 并按快照重建；
+- H5 需要公网 HTTPS（本地允许 `http://127.0.0.1`）；无 `BAH_IM_PUBLIC_BASE_URL` 时省略 H5 行，文本指令仍可用；
+- D0 真机（审批 / H5 / 运营桥）仍未执行，阻塞同 Q1。
+
+结论：03 的 mock 面已闭环，门禁与测试全绿；真机 D0 待 Q1 凭据。
+

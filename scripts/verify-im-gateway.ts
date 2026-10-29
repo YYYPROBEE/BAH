@@ -159,16 +159,18 @@ const gate: Gate = {
     if (server.includes("'/api/")) findings.push('G5: server.ts 出现 /api/ 路由（网关不反代子进程 API）')
     if (server.includes('0.0.0.0')) findings.push('G5: server.ts 出现 0.0.0.0（监听地址只许来自 Config）')
 
-    // ── G6：03 未落地时不许有 /seat/*（落地后要求 operator token 门） ───────
-    const appJoined = [...files.values()].join('\n')
-    if (appJoined.includes('/seat/')) {
-      if (!appJoined.includes('operatorToken')) {
-        findings.push('G6: 出现 /seat/ 路由但没有 operatorToken 判定（未配 token 时必须 404）')
-      }
-      notes.push('G6: 检测到 /seat/ 路由，已按 operatorToken 判据检查')
-    } else {
-      notes.push('G6: /seat/* 尚未落地（03 单）；当前断言"不存在该路由"')
+    // ── G6：运营桥必须存在，且"未配 token → 404 / 常量时间比较" ─────────────
+    const operator = src('apps/im-gateway/src/handoff/operator.ts')
+    for (const needle of ['/seat/', 'x-bah-operator-token', 'timingSafeEqual', 'operatorToken']) {
+      if (!operator.includes(needle)) findings.push(`G6: handoff/operator.ts 缺少 ${needle}`)
     }
+    if (!server.includes('SEAT_PREFIX') || !server.includes('im-not-found')) {
+      findings.push('G6: server.ts 缺少"/seat/* 未启用即 404"的分支')
+    }
+    if (!server.includes('deps.seatEnabled !== true')) {
+      findings.push('G6: server.ts 未按 seatEnabled 判定 /seat/*')
+    }
+    notes.push('G6: 运营桥已落地（未配 token 404 / 错 token 401 / 常量时间比较）')
 
     // ── G7：日志不打平台用户标识原文 ─────────────────────────────────────
     const log = src('apps/im-gateway/src/log.ts')
@@ -192,17 +194,64 @@ const gate: Gate = {
       }
     }
 
-    // ── G9：网关资源零远程引用（03 的 H5 落地后仍适用） ────────────────────
+    // ── G9：H5 资源零远程 + CSP 固定串 + 无内联脚本 + 无框架 ─────────────────
     const REMOTE = /(?:cdn\.|unpkg\.com|jsdelivr\.net|cdnjs\.)/i
     for (const [rel, text] of appFiles.entries()) {
       if (REMOTE.test(text)) findings.push(`G9: ${rel} 引用远程资源（网关资源必须自包含）`)
     }
+    const page = src('apps/im-gateway/src/approval/page.ts')
+    for (const needle of [
+      "default-src 'none'",
+      "script-src 'self'",
+      "frame-ancestors 'none'",
+      'cache-control',
+      'referrer-policy',
+    ]) {
+      if (!page.includes(needle)) findings.push(`G9: page.ts 缺少 H5 安全头 ${needle}`)
+    }
+    for (const name of ['approve.html', 'approve.css', 'approve.js']) {
+      const rel = `${APP_DIR}/assets/${name}`
+      const text = read(root, rel)
+      if (text.length === 0) {
+        findings.push(`G9: 缺少 H5 资源 ${rel}`)
+        continue
+      }
+      if (/https?:\/\//iu.test(text)) findings.push(`G9: ${rel} 出现远程 URL`)
+      if (/(?:import\s+[^;]*from\s+['"]react|from\s+['"]vue)/u.test(text)) {
+        findings.push(`G9: ${rel} 引入前端框架`)
+      }
+    }
+    const html = read(root, `${APP_DIR}/assets/approve.html`)
+    if (/<script(?![^>]*\bsrc=)[^>]*>/iu.test(html)) {
+      findings.push('G9: approve.html 出现内联脚本（CSP 只允许外链同源脚本）')
+    }
+    notes.push('G9: H5 资源零远程、CSP 固定串、无内联脚本')
 
     // ── G10：server.ts 只依赖 PlatformAdapter，不 import 平台实现 ──────────
     const serverImports = importsOf(server)
     for (const specifier of serverImports) {
       if (specifier.includes('platform/wechat') || specifier.includes('protocol/')) {
         findings.push(`G10: server.ts import 了平台实现 ${specifier}`)
+      }
+    }
+
+    // ── G14（03 §6 的"G10"）：链接 token 必须是 HMAC + 常量时间 + exp ──────
+    const linkToken = src('packages/channels/src/im/protocol/link-token.ts')
+    for (const needle of ['createHmac', 'timingSafeEqual', 'expired', 'APPROVAL_LINK_VERSION']) {
+      if (!linkToken.includes(needle)) findings.push(`G14: link-token.ts 缺少 ${needle}`)
+    }
+    if (/presented\s*(===|!==)\s*expected|expected\s*(===|!==)\s*presented/u.test(linkToken)) {
+      findings.push('G14: link-token.ts 用 `===` 比较签名（计时侧信道）')
+    }
+
+    // ── G15（03 §6 的"G11"）：审批 / 运营面日志不记录拒绝理由原文 ──────────
+    for (const [rel, text] of files.entries()) {
+      if (!rel.startsWith(`${APP_SRC}/approval`) && !rel.startsWith(`${APP_SRC}/handoff`)) continue
+      for (const call of logCalls(text)) {
+        // 只认对象键 `reason:`；`reasonLength` 与 `body.reason.length` 不是"理由原文"
+        if (/(?:^|[{,\s])reason\s*:/u.test(call.snippet)) {
+          findings.push(`G15: ${rel}:${String(call.line)} 日志出现拒绝理由字段（只许 reasonLength / code）`)
+        }
       }
     }
 
@@ -244,7 +293,7 @@ const gate: Gate = {
     }
 
     notes.push(`扫描网关源码 ${String(files.size)} 个文件（apps/im-gateway/src + channels/im）`)
-    notes.push(`G2–G5、G10–G13 逐条正向断言；G6/G9 在 03 单落地后转为强制`)
+    notes.push('G2–G5、G10–G13 逐条正向断言；G6/G9 已按 03 单转为强制；G14/G15 为 03 §6 的两条（编号顺延）')
 
     return { ok: findings.length === 0, findings, notes }
   },

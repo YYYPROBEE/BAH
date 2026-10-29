@@ -23,6 +23,7 @@ import { createWechatPushText, mapErrcode } from '../src/platform/wechat/transpo
 /** 最小合法环境。 */
 const BASE: Env = {
   BAH_IM_SESSION_SALT: 'salt-0123456789abcdef',
+  BAH_IM_LINK_SECRET: 'link-secret-0123456789abcdefghij',
   BAH_WECHAT_APPID: 'demo-app',
   BAH_WECHAT_SECRET: 'demo-secret',
   BAH_WECHAT_TOKEN: 'demo-callback-token',
@@ -64,7 +65,9 @@ describe('loadConfig（T-IM-019）', () => {
     expect(config.wechat.accountKey).toBe('default')
     expect(config.wechat.apiBase).toBe('https://api.weixin.qq.com')
     expect(config.publicBaseUrl).toBeUndefined()
+    expect(config.linkSecret).toBe('link-secret-0123456789abcdefghij')
     expect(config.operatorToken).toBeUndefined()
+    expect(config.operatorName).toBe('坐席')
   })
 
   it('缺任一必填 → im-config-missing（不是静默用空串）', () => {
@@ -74,15 +77,24 @@ describe('loadConfig（T-IM-019）', () => {
     expect(codeOf(() => loadConfig(env({ BAH_WECHAT_APPID: '  ' }), 'D:/repo'))).toBe('im-config-missing')
     expect(codeOf(() => loadConfig(env({ BAH_WECHAT_SECRET: undefined }), 'D:/repo'))).toBe('im-config-missing')
     expect(codeOf(() => loadConfig(env({ BAH_WECHAT_TOKEN: undefined }), 'D:/repo'))).toBe('im-config-missing')
+    expect(codeOf(() => loadConfig(env({ BAH_IM_LINK_SECRET: undefined }), 'D:/repo'))).toBe(
+      'im-config-missing',
+    )
   })
 
-  it('盐太短 / 链接密钥太短 → im-config-invalid', () => {
+  it('盐太短 / 链接密钥太短 / 公开基址非 https → im-config-invalid', () => {
     expect(codeOf(() => loadConfig(env({ BAH_IM_SESSION_SALT: 'short' }), 'D:/repo'))).toBe(
       'im-config-invalid',
     )
     expect(codeOf(() => loadConfig(env({ BAH_IM_LINK_SECRET: 'x'.repeat(31) }), 'D:/repo'))).toBe(
       'im-config-invalid',
     )
+    expect(
+      codeOf(() => loadConfig(env({ BAH_IM_PUBLIC_BASE_URL: 'http://im.example.test' }), 'D:/repo')),
+    ).toBe('im-config-invalid')
+    expect(
+      loadConfig(env({ BAH_IM_PUBLIC_BASE_URL: 'http://127.0.0.1:8080' }), 'D:/repo').publicBaseUrl,
+    ).toBe('http://127.0.0.1:8080')
   })
 
   it('端口/上限/等待时长非法 → im-config-invalid', () => {

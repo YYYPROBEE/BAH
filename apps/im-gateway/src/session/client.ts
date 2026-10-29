@@ -48,12 +48,37 @@ export interface SubscribeHandlers {
   readonly onError?: (error: unknown) => void
 }
 
+/** 一次子进程 JSON 调用（审批 / 转人工 / 运营桥共用）。 */
+export interface ChildCallResult {
+  /** 0 = 网络层失败（没拿到响应）。 */
+  readonly status: number
+  /** 解析后的 JSON；非 JSON 或网络失败为 `undefined`。 */
+  readonly json: unknown
+  /** 原始响应文本（排障用，不直接回用户）。 */
+  readonly text: string
+}
+
 /** 子进程客户端。 */
 export interface ChildClient {
   turn(text: string): Promise<TurnOutcome>
   /** 建立 SSE 订阅；返回断开函数（幂等）。 */
   subscribe(handlers: SubscribeHandlers): () => void
   health(): Promise<boolean>
+  /** 提交审批结论（客户凭证 + CSRF）。 */
+  decide(
+    ticketId: string,
+    body: { readonly decision: 'allowed-once' | 'rejected'; readonly reason?: string },
+  ): Promise<ChildCallResult>
+  /** 红级强验证（客户凭证）。 */
+  verify(ticketId: string): Promise<ChildCallResult>
+  /** 客户侧转人工（`POST /api/handoff`）。 */
+  requestHandoff(reason?: string): Promise<ChildCallResult>
+  /**
+   * 运营桥转发（**子进程 operator token**，不是公网运营 token）。
+   *
+   * `path` 只允许 `/api/handoff*`（调用方 `handoff/operator.ts` 已按白名单构造）。
+   */
+  seat(method: 'GET' | 'POST', path: string, body?: unknown): Promise<ChildCallResult>
 }
 
 /** 客户端依赖。 */
@@ -61,6 +86,8 @@ export interface ChildClientDeps {
   readonly port: number
   readonly token: string
   readonly csrf: string
+  /** 子进程运营凭证（监督者按会话生成；未配置时 `seat` 返回 503）。 */
+  readonly operatorToken?: string
   readonly fetch?: ClientFetch
 }
 
@@ -98,6 +125,47 @@ export function createChildClient(deps: ChildClientDeps): ChildClient {
   const base = `http://127.0.0.1:${String(deps.port)}`
   const authHeaders: Readonly<Record<string, string>> = {
     authorization: `Bearer ${deps.token}`,
+  }
+  const csrfHeaders: Readonly<Record<string, string>> = {
+    'x-bah-csrf': deps.csrf,
+    cookie: `bah_csrf=${deps.csrf}`,
+  }
+  const operatorHeaders: Readonly<Record<string, string>> | undefined =
+    deps.operatorToken === undefined
+      ? undefined
+      : {
+          authorization: `Bearer ${deps.operatorToken}`,
+          ...csrfHeaders,
+        }
+
+  /** 发一次 JSON 调用（网络失败 → `status: 0`，不抛）。 */
+  const callJson = async (
+    method: 'GET' | 'POST',
+    path: string,
+    headers: Readonly<Record<string, string>>,
+    body?: unknown,
+  ): Promise<ChildCallResult> => {
+    let response: ClientResponse
+    try {
+      response = await fetchImpl(`${base}${path}`, {
+        method,
+        headers: {
+          ...headers,
+          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      })
+    } catch {
+      return { status: 0, json: undefined, text: '' }
+    }
+    const text = await response.text()
+    let json: unknown
+    try {
+      json = JSON.parse(text) as unknown
+    } catch {
+      json = undefined
+    }
+    return { status: response.status, json, text }
   }
 
   return {
@@ -178,6 +246,34 @@ export function createChildClient(deps: ChildClientDeps): ChildClient {
       } catch {
         return false
       }
+    },
+
+    decide(ticketId, body): Promise<ChildCallResult> {
+      return callJson('POST', `/api/approval/${encodeURIComponent(ticketId)}`, { ...authHeaders, ...csrfHeaders }, body)
+    },
+
+    verify(ticketId): Promise<ChildCallResult> {
+      return callJson('POST', `/api/verify/${encodeURIComponent(ticketId)}`, { ...authHeaders, ...csrfHeaders }, {})
+    },
+
+    requestHandoff(reason): Promise<ChildCallResult> {
+      return callJson(
+        'POST',
+        '/api/handoff',
+        { ...authHeaders, ...csrfHeaders },
+        reason === undefined ? {} : { reason },
+      )
+    },
+
+    seat(method, path, body): Promise<ChildCallResult> {
+      if (operatorHeaders === undefined) {
+        return Promise.resolve({
+          status: 503,
+          json: { error: { code: 'im-seat-unconfigured', reason: '子进程未配置运营凭证' } },
+          text: '',
+        })
+      }
+      return callJson(method, path, operatorHeaders, body)
     },
   }
 }

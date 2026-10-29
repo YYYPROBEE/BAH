@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import type {
+  ChildCallResult,
   ChildClient,
   TurnOutcome,
   SubscribeHandlers,
@@ -20,6 +21,7 @@ import { createRateLimiter } from '../src/ingress/ratelimit.ts'
 import { createImLogger } from '../src/log.ts'
 import { createRegistry } from '../src/platform/registry.ts'
 import { createGatewayServer } from '../src/server.ts'
+import { createSessionHub } from '../src/session/hub.ts'
 import type { ChildHandle, Supervisor } from '../src/session/supervisor.ts'
 import { createMockAdapter } from './mock-platform.ts'
 
@@ -86,6 +88,18 @@ function fakeClient(options: { frames?: readonly WebFrame[]; outcome?: TurnOutco
     async health(): Promise<boolean> {
       return true
     },
+    async decide(): Promise<ChildCallResult> {
+      return { status: 200, json: { ok: true }, text: '{"ok":true}' }
+    },
+    async verify(): Promise<ChildCallResult> {
+      return { status: 200, json: { ok: true }, text: '{"ok":true}' }
+    },
+    async requestHandoff(): Promise<ChildCallResult> {
+      return { status: 200, json: { active: true }, text: '{"active":true}' }
+    },
+    async seat(): Promise<ChildCallResult> {
+      return { status: 200, json: { ok: true }, text: '{"ok":true}' }
+    },
   }
 }
 
@@ -96,7 +110,7 @@ function fakeSupervisor(
 ): Supervisor {
   let index = 0
   let calls = 0
-  const base = { get: () => undefined, spawnCount: () => 0, children: () => options.children ?? handles.length, touch: () => undefined, reapIdle: () => 0, stop: async () => undefined, dispose: async () => undefined }
+  const base = { get: () => undefined, list: () => [], spawnCount: () => 0, children: () => options.children ?? handles.length, touch: () => undefined, reapIdle: () => 0, stop: async () => undefined, dispose: async () => undefined }
   return {
     ...base,
     async ensure(): Promise<ChildHandle> {
@@ -133,17 +147,21 @@ function inboundDeps(handle: ChildHandle, overrides: Partial<InboundDeps> = {}):
       BAH_WECHAT_APPID: 'demo-app',
       BAH_WECHAT_SECRET: 'demo-secret',
       BAH_WECHAT_TOKEN: 'demo-callback-token',
+      BAH_IM_LINK_SECRET: 'link-secret-0123456789abcdefghij',
       BAH_IM_PASSIVE_WAIT_MS: '800',
     },
     'D:/repo',
   )
   const capabilities = { passiveReply: true, asyncPush: true, interactiveCards: false, threads: false, maxTextBytes: 2048 }
+  const pull = createPullStore({ nowMs: () => NOW })
+  const hub = createSessionHub({ config, log, pull, nowMs: () => NOW })
   return {
     config,
     supervisor: fakeSupervisor([handle]),
     dedupe: createDedupe({ nowMs: () => NOW }),
     rateLimiter: createRateLimiter(),
-    pull: createPullStore({ nowMs: () => NOW }),
+    pull,
+    hub,
     log,
     capabilitiesOf: () => capabilities,
     openWaitMs: 10,
@@ -324,6 +342,7 @@ describe('handleInbound（T-IM-001 的编排面）', () => {
         BAH_WECHAT_APPID: 'demo-app',
         BAH_WECHAT_SECRET: 'demo-secret',
         BAH_WECHAT_TOKEN: 'demo-callback-token',
+        BAH_IM_LINK_SECRET: 'link-secret-0123456789abcdefghij',
         BAH_IM_UNTRUSTED_USERS: 'mock:u-1',
       },
       'D:/repo',

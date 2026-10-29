@@ -45,9 +45,12 @@ interface Booted {
   readonly restore: () => void
 }
 
-async function boot(): Promise<Booted> {
+async function boot(options: { operatorToken?: string } = {}): Promise<Booted> {
   const previousToken = process.env[WEB_TOKEN_ENV]
+  const previousOperator = process.env['BAH_OPERATOR_TOKEN']
   process.env[WEB_TOKEN_ENV] = WEB_TOKEN
+  if (options.operatorToken === undefined) delete process.env['BAH_OPERATOR_TOKEN']
+  else process.env['BAH_OPERATOR_TOKEN'] = options.operatorToken
   const ctx = createContext()
   const sessionId = asSessionId('s-im-test')
   const now = (): number => 1_700_000_000_000
@@ -76,6 +79,8 @@ async function boot(): Promise<Booted> {
     restore: () => {
       if (previousToken === undefined) delete process.env[WEB_TOKEN_ENV]
       else process.env[WEB_TOKEN_ENV] = previousToken
+      if (previousOperator === undefined) delete process.env['BAH_OPERATOR_TOKEN']
+      else process.env['BAH_OPERATOR_TOKEN'] = previousOperator
     },
   }
 }
@@ -143,6 +148,49 @@ describe('channel:im 真装配', () => {
     expect(info.port).toBeGreaterThan(0)
     expect(info.url).toContain(String(info.port))
     expect(info.sessionId).toBe('s-im-test')
+  })
+})
+
+/** 取 CSRF cookie（`/m.html` 的 Set-Cookie）。 */
+async function csrfOf(url: string): Promise<string> {
+  const response = await fetch(`${url}m.html`)
+  const header = response.headers.get('set-cookie') ?? ''
+  const match = /bah_csrf=([^;]+)/u.exec(header)
+  return match?.[1] ?? ''
+}
+
+describe('channel:im 坐席 API（03 单运营桥前置）', () => {
+  it('配置 BAH_OPERATOR_TOKEN → 5 条坐席 API 可达；/operator 页面仍 404（IM 无坐席 UI）', async () => {
+    active = await boot({ operatorToken: 'im-operator-token' })
+    const queue = await fetch(`${active.url}api/handoff/queue`, {
+      headers: { authorization: 'Bearer im-operator-token' },
+    })
+    expect(queue.status).toBe(200)
+
+    const csrf = await csrfOf(active.url)
+    const claim = await fetch(`${active.url}api/handoff/claim`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer im-operator-token',
+        'x-bah-csrf': csrf,
+        cookie: `bah_csrf=${csrf}`,
+        'content-type': 'application/json',
+      },
+      body: '{}',
+    })
+    // 路由存在且 token 被接受：无接管时状态机给 409，而不是 404/401/403
+    expect(claim.status).toBe(409)
+
+    const operatorPage = await fetch(`${active.url}operator`)
+    expect(operatorPage.status).toBe(404)
+  })
+
+  it('未配置 BAH_OPERATOR_TOKEN → 坐席 API 404（不暴露存在性）', async () => {
+    active = await boot()
+    const queue = await fetch(`${active.url}api/handoff/queue`, {
+      headers: { authorization: 'Bearer im-operator-token' },
+    })
+    expect(queue.status).toBe(404)
   })
 })
 

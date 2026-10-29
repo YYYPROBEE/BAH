@@ -38,6 +38,7 @@ function baseConfig(): GatewayConfig {
       BAH_WECHAT_APPID: 'demo-app',
       BAH_WECHAT_SECRET: 'demo-secret',
       BAH_WECHAT_TOKEN: 'demo-callback-token',
+      BAH_IM_LINK_SECRET: 'link-secret-0123456789abcdefghij',
       BAH_IM_ROOT: root,
       BAH_IM_JSONL_BASE: join(root, 'sessions/im'),
     },
@@ -70,6 +71,7 @@ function supervisorWith(config: GatewayConfig, options: Partial<SupervisorDeps> 
     launcher,
     handshake: (port, timeoutMs) => awaitChildReady({ port, timeoutMs: Math.min(timeoutMs, 5000), pollMs: 10 }),
     randomToken: () => 'web-token-fixed',
+    randomOperatorToken: () => 'operator-token-fixed',
     terminateGraceMs: 10,
     ...options,
   })
@@ -129,7 +131,7 @@ describe('一平台用户一子进程（T-IM-002 / T-IM-003）', () => {
 })
 
 describe('spawn 形状与 overlay（§2.11）', () => {
-  it('参数带 --profile/--session/--patch/--jsonl；env 只注入 BAH_WEB_TOKEN', async () => {
+  it('参数带 --profile/--session/--patch/--jsonl；env 注入两把凭证与坐席名', async () => {
     const { supervisor, launched } = supervisorWith(baseConfig())
     const handle = await supervisor.ensure('mock', 'u-1')
     const launch = launched[0]
@@ -142,8 +144,22 @@ describe('spawn 形状与 overlay（§2.11）', () => {
     expect(launch.args).toContain('--jsonl')
     // CLI 只有 `--serve` 才常驻；缺它子进程会在 boot 期要求 `--prompt` 并退出
     expect(launch.args).toContain('--serve')
-    expect(launch.env).toEqual({ BAH_WEB_TOKEN: 'web-token-fixed' })
+    expect(launch.env).toEqual({
+      BAH_WEB_TOKEN: 'web-token-fixed',
+      BAH_OPERATOR_TOKEN: 'operator-token-fixed',
+      BAH_OPERATOR_NAME: '坐席',
+    })
     expect(launch.port).toBe(handle.port)
+    await supervisor.dispose()
+  })
+
+  it('两把凭证相同 → 启动失败（不把客户凭证当坐席凭证）', async () => {
+    const { supervisor } = supervisorWith(baseConfig(), {
+      randomOperatorToken: () => 'web-token-fixed',
+    })
+    await expect(supervisor.ensure('mock', 'u-1')).rejects.toMatchObject({
+      code: 'im-config-invalid',
+    })
     await supervisor.dispose()
   })
 
