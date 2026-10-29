@@ -6102,3 +6102,56 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 - password 模式的坐席前端（登录卡片复用 / cookie + CSRF 的 seat API / SSE cookie）未做（D2 降级项）。
 - `/api/trace` 仍是 `ROLES`（D4 降级项）：生产应收窄到 auditor/admin，自评列为残余风险。
 - 6 张人工截图未做；推送与 tag 未动。
+
+## 96.41 2026-10-29 IM 网关 01 对抗式复审（不改代码）
+
+审查对象：`78ad410`（IM 网关 01：渠道内核与会话映射）。审查在独立 worktree（`imgw-line`）内做，
+临时探针文件跑完即删，仓库只多出本条记录。
+
+### 96.41.1 方法
+
+1. **主动构造攻击**（不是重跑单测）：会话键撞库、指令解析绕过矩阵、无会话适配器投票、段重复注册、URL 文本出站；
+2. **负控注入**：把 `channel:im` 的 `use` 改成 `channel:web`、把能力位值就地写死、在 `plugins/im.ts` 加 `console.warn`；
+3. **零改动证据**：对既有渠道与提示词/快照做 diff；
+4. **回放证据**：快照套件（含 `web-channel`）全绿。
+
+### 96.41.2 对抗结果（01 相关不变量）
+
+| 不变量 / 纪律 | 攻击 | 结果 |
+|---|---|---|
+| 契约唯一（02 G13 的前置） | 全仓搜 `interface PlatformAdapter` | 仅 `packages/channels/src/im/platform.ts:96` 一处 |
+| I-IM-15 不复制审批语义 | 搜 `im/` 源码的 `decide(` / `attachApproval(` 实现 | 0 处（只有测试在调用）；六码文案只在 `http-adapter.ts` 定义 |
+| I-IM-05 标识不落日志/不进 ID | 搜 `im/` 的 `logJson` / `console.`；探针 P1 | 0 处日志调用；`('ab','c')` 与 `('a','bc')` 派生结果不同（NUL 分隔符有效）；ID 不含原文子串（单测） |
+| I-IM-16 不破坏既有渠道 | `git diff --stat HEAD^ HEAD -- packages/host/src/boot/plugins/web packages/channels/src/web packages/channels/src/mobile packages/runtime/src/system-prompt snapshots apps/web` | **空**；`pnpm test:snapshot` 9 文件 / 39 例全绿（含 `web-channel` 的 record→replay 逐条全等） |
+| I-IM-17 段只由 `channel:im` 注册 | 探针 P5：同 id 二次注册 | `prompt-section-duplicate`；dispose 后可再次注册（`T-CH-014` 用真插件生命周期验证）；默认六段 ids 逐字不变 |
+| I9 薄壳纪律 | 行数统计 + 负控 `console.warn` | 64 行（≤80）、无分发符号；注入 `console.*` 后 `verify-observability` 红（已还原） |
+| I-IM-02 密钥只在 env | 搜 `im/` 的 AppID/Secret/Token 字面量 | 0 处（01 不涉及平台密钥，02 才接线） |
+
+负控实跑（均已还原）：
+
+```text
+✘ channel-capabilities · I4 channel:im 行的 use 必须是 'channel:im'（实际 channel:web）
+✘ adapter.test.ts · T-CH-002 同一引用断言失败（能力位被就地写死成 10 字段字面量）
+✘ observability · packages/host/src/boot/plugins/im.ts: 仍有 1 处 console.*（白名单只 2 个文件）
+```
+
+> 修正上一轮复审对能力位负控的预期：门禁 I3 只校验 `capabilities: {…}` 的**键集**，
+> 拦不住"同值字面量复制"；真正拦它的是 T-CH-002 的**同一引用**断言。两者都要，别拿门禁替代测试。
+
+### 96.41.3 新发现（登记，不属 01 修复范围）
+
+| ID | 级别 | 发现 | 证据 | 处置 |
+|---|---|---|---|---|
+| F-01 | 中 | **无 `sessionId` 的适配器会接受任意票据**：`createImChannelAdapter()` 不传 sessionId 时归属校验整体跳过 | 探针 P4：`decide` 返回 `{"ok":true}`（票据属于 `s-victim`） | 继承自共用 `http-adapter`（web/mobile 同）；生产宿主必传（`web/channel.ts` 装配时传 `session.sessionId`），但**无门禁强制**。转为 02 开工前置：子进程侧必须绑定会话，建议 02 G8 增"IM 适配器必须绑定 `sessionId`"判据 |
+| F-02 | 低 | 平台 id **前导空白被归一**：`' wechat'` 与 `'wechat'` 得同一会话；尾随空白不归一（在 `\0` 前属内部） | 探针 P2：`lead=SAME trail=distinct` | 平台 id 是代码常量（`'wechat'`/`'mock'`），不可由用户输入；如实登记不改 |
+| F-03 | 低 | 单个 ASCII token 被当票据号：`2 no`（想拒绝、理由 "no"）不识别，落普通消息 | 探针 P3：`"2 no" -> undefined` | 取舍是"宁可不识别也不误拒"（§2.5 拒绝理由必填）；03 若要做英文理由，需先改票据号形态判据 |
+| F-04 | 信息 | 全角数字不识别：`１` → 普通消息 | 探针 P3 | 不会误批（非指令即普通消息）；03 可加全角归一 |
+| F-05 | 信息 | NBSP 可作分隔：`1\u00a0ticket:abc` 能解析（JS `\s` 含 NBSP） | 探针 P3 | 只对字面量指令生效，不扩大攻击面；不改 |
+| F-06 | 信息 | 审批摘要原样带出 `amountText` 中的 URL 文本 | 探针 P6：文本含 `http://evil.example/approve` | 这是**数据不是生成链接**（签名在 03）；02 出站层禁止自动 linkify、禁止把消息当链接发 |
+
+### 96.41.4 结论与证据
+
+- 01 出口五条 + 相关不变量全部经**实跑对抗**；两条负控红过并还原；快照与既有渠道零改动。
+- 01 判定：**复审通过**。唯一实质风险 F-01 不属 01（共用适配器语义），但成为 **02 开工前置**。
+- 证据命令：`pnpm exec vitest run packages/channels packages/host`（87 文件 / 1016 例）、
+  `pnpm gate`（50/50）、`pnpm test:snapshot`（9/39）、`pnpm exec tsx scripts/verify-observability.ts`（负控后红）。
