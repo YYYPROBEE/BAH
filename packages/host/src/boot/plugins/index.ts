@@ -35,6 +35,8 @@ import { toolsPlugin } from './tools.ts'
 import { verifyPlugin } from './verify.ts'
 // C4：跨会话记忆（`turn/end` 写入、`agent/pre-step` 召回、提示词段注入）
 import { memoryPlugin } from './memory.ts'
+// 施工单 01：移动 H5 渠道（`channel:mobile`）。与 web 共用 `createHttpChannel`，薄壳。
+import { mobilePlugin } from './mobile.ts'
 import { webPlugin } from './web.ts'
 
 /** base bundle 的插件集（施工单 06 §3：内核 + 主循环 + 模型层 + 工具管线 + 持久化）。 */
@@ -74,6 +76,8 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   memoryPlugin,
   // 渠道（施工单 13）：前端作为插件模块接入；不写进 base bundle，由 web profile 的 patch 加行
   webPlugin,
+  // 渠道（施工单 01）：移动 H5；同样只由 profiles/mobile 的 patch 显式装配
+  mobilePlugin,
 ].map(toAnyHostPlugin)
 
 export {
@@ -85,6 +89,7 @@ export {
   knowledgePlugin,
   memoryPlugin,
   modelPlugin,
+  mobilePlugin,
   persistencePlugin,
   planPlugin,
   policyRulesPlugin,

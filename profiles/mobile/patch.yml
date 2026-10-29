@@ -1,0 +1,140 @@
+# mobile profile patch（层 2）。施工单 01。
+#
+# 语义是**整块替换**：每行 config 一出现就完全取代 base 的值。
+# 与 profiles/web/patch.yml 的差异**只有三处**（00 D2 原文）：
+#   ① `core:agent.config.channel` = mobile（系统提示词按 CHANNEL_HINTS.mobile 裁剪）；
+#   ② 渠道行 id/use = `channel:mobile`，且 port / entry / entries 不同；
+#   ③ 随渠道名走的两处文案：`bank:knowledge.channel` 与 `demo:echo.prefix`。
+# 其余各行与 web **逐字一致**——它们是业务与治理口径，移动端没有任何理由不同；
+# 一旦不同就是两套账（门禁 I8 比对规范化序列化）。
+#
+# 演示主路径与 web 相同：内置 router（离线、确定性）→ 黄级 → 移动端底部抽屉审批 → 核销。
+
+- id: core:model
+  config:
+    provider: router
+    model: router-chat
+    chunkSize: 4
+    # ── 可替换真实模型（DeepSeek V4.1 Flash / DashScope 兼容端点）──
+    # 切换时必须**同时**改这里与 core:agent.loop.model（两处成对，见 docs/deploy.md）：
+    # 把上面三行换成下面整块，并把 loop.model 改成 deepseek:deepseek-v4.1-flash-1017。
+    # provider: deepseek
+    # model: deepseek-v4.1-flash-1017
+    # baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
+    # apiKeyEnv: BAH_MODEL_KEY
+    # modelSpec:
+    #   displayName: DeepSeek V4.1 Flash（DashScope 兼容端点）
+    #   contextWindow: 131072
+    #   toolCall: true
+    #   reasoning: false
+    # requestTimeoutMs: 30000
+    # retryMax: 2
+    # retryBaseMs: 300
+    # pricing:
+    #   inputPerMTok: 2000000
+    #   cachedInputPerMTok: 500000
+    #   outputPerMTok: 8000000
+
+- id: policy:rules
+  config:
+    root: policies
+    active: { bank.tier: bank-tier/1.0.0 }
+    hotReload: true
+    requireSignature: false
+    shadow: { bank.tier: null }
+
+# 与 web 同：演示进程的单会话日志不需要逐条 fsync（代价与兜底见 web patch 的注释）。
+- id: core:persistence
+  config:
+    root: sessions
+    fsync: false
+
+- id: bank:tools
+  config:
+    demoUserId: u-1
+    seed: 7
+    datasetTier: demo
+    # 策略外置 S3：判决走外置规则；热重载由上方 policy:rules 行打开
+    policy: { engine: bundle }
+    # 实体槽位的数据层预算（七键都有界：越界是 boot 期 invalid-config）
+    contextSlots:
+      accounts: 3
+      transactions: 3
+      windowDays: 30
+      timeoutMs: 250
+      maxChars: 800
+      breakerFailures: 3
+      breakerOpenMs: 10000
+
+# 知识平面：base bundle 不含此行，必须显式开。channel 随渠道名变（① 之外的 ③）。
+- id: bank:knowledge
+  use: bank:knowledge
+  config:
+    mode: http
+    baseUrl: http://127.0.0.1:7801
+    channel: mobile
+    # required=false 让 sidecar 缺席时降级为 knowledge-unavailable（fail-closed）
+    required: false
+
+- id: interaction:approval
+  config:
+    # 移动端有底部抽屉（D4 的 approvalSurface='bottom-sheet'）：同样不设自动应答者，
+    # 等人点（默认结论 unavailable = 拒绝，绝不默认放行）
+    responder: none
+
+- id: safety:sentry
+  config:
+    # W08：审计 trace 显式落 durable 会话事件
+    trace:
+      sink: session
+    rules:
+      crossScenario: true
+
+- id: core:agent
+  config:
+    # ← 与 web 的差异 ①：渠道语气（CHANNEL_HINTS.mobile："屏幕窄，短句 + 分行要点"）
+    channel: mobile
+    loop:
+      model: router:router-chat
+      maxSteps: 8
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
+    slots: { source: bank }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }
+      notes:
+        - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。
+
+# C4 跨会话记忆：base bundle 不含此行，由 profile 显式写（与 web 同）。
+- id: bah:memory-store
+  use: bah:memory-store
+  config:
+    dbPath: sessions/memory.db
+    tenant: demo
+    userId: u-1
+    sensitivityCeiling: 2
+
+- id: demo:echo
+  use: demo:echo
+  config: { prefix: '[mobile] ' }
+
+# 渠道行（施工单 01）：必须放在 interaction:approval 之后——本行 inject 审批服务，
+# 直接注册移动渠道应答者。
+#
+# ⚠ 部署纪律：**不要**给移动端进程设 BAH_ADMIN_TOKEN（admin 面只服务本机 CLI，未设即 404，
+#   见 web/admin-guard.ts）。本 profile 不提供 admin 开关：WebSettings 没有 admin 键，
+#   写了会被 rejectUnknownKeys 拒（这正是 01 §3.6 决策的结构保证）。
+#
+# 端口 7551：不撞 7331(web)/7801(rag)；刻意不选 7332（listen.ts 点名它是"最坏的看起来能用"）。
+# ⚠ 02 单待办：`apps/web/m.html` 落盘后，把 entry 改 `m.html`、entries 改 [m.html, index.html]
+#   ——本单落 index.html 是因为 apps/web 当时还没有 m.html（写了 m.html 则 `/` 直接 404）。
+- id: channel:mobile
+  use: channel:mobile
+  config:
+    port: 7551
+    host: 127.0.0.1
+    # 00 D1：单静态根双壳，不新建 apps/mobile
+    staticRoot: apps/web
+    heartbeatMs: 15000
+    entry: index.html
+    entries:
+      - index.html

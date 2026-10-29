@@ -161,6 +161,8 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       'bah:memory-store',
       // 渠道（施工单 13）：不在 base bundle 里，由 profiles/web 的 patch 加行
       'channel:web',
+      // 渠道（施工单 01）：同样只登记不默认装配，由 profiles/mobile 的 patch 加行
+      'channel:mobile',
     ])
     for (const plugin of HOST_PLUGINS) {
       expect(catalog[plugin.id]?.plugin.name).toBe(plugin.id)

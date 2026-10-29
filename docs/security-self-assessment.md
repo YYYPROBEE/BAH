@@ -3,7 +3,7 @@
 > 口径：只写本仓能回源码、回命令复核的事实。**未实装的逐条列在 §8，不用"设计中"充数**；
 > 每条结论后给落点，答辩时可按落点当场翻代码。
 > 对应赛题：§3.1 权限分级、§3.2 安全设计、§五.5 安全自评材料。
-> 最后核实：2026-10-28（门禁与测试面：`pnpm gate` 42/42、`pnpm test` 241 文件 / 2727 用例 + 前端 55 例、快照 8 文件 34 例；安全面结论沿用 2026-10-27）。
+> 最后核实：2026-10-29（门禁与测试面：`pnpm gate` 44/44、`pnpm test` 250 文件 / 2830 用例 + 前端 139 例、快照 8 文件 34 例；安全面结论沿用 2026-10-27）。
 
 ---
 
@@ -317,7 +317,7 @@ HP-4 已于 2026-10-26 满足原先写死的门槛（"16 个工具的出参在�
 | R-08 | 强验证未接真实供应商 | 默认是测试网关适配器（`createGatewayVerifyProvider`），失败计数/锁定在内存，重启丢失 | 自评按"适配器 + 注入点"讲，不讲"已接人脸/短信"；也不说"重启后仍锁定" |
 | R-09 | 审计私钥不在仓库 | 默认路径缺文件；验签报 `skipped-no-key` | 演示用临时密钥；生产走 KMS/HSM |
 | R-10 | 演示链默认 unsigned | 转账已接 saga；无签名密钥时 `bah audit` 退出 2 | 演示口径：`--no-signature` 只验链连续性/投影；完整验签要配 key/KMS |
-| R-11 | 门禁与钩子可绕过 | `--no-verify` 可跳过 pre-commit/pre-push；仓库私有，无分支保护 | 钩子挡疏忽不挡恶意，已写入 `AGENTS.md` |
+| R-11 | 门禁与钩子可绕过 | `--no-verify` 可跳过 pre-commit/pre-push；仓库私有，无分支保护 | 钩子挡疏忽不挡恶意，已写入 `AGENTS.md`。**2026-10-29 一次性授权记录**：移动 H5 01 单提交时，并行「可观测性」会话的 12 个已暂存文件 + 1 个未跟踪测试文件（`packages/cli/src/cli/observe-http.test.ts`）使任何提交方式都过不了 pre-commit；经用户明确授权，该单两次提交使用 `--no-verify`，提交前手工跑过 `pnpm gate`（44 项中 42 项 ✔，2 项红均在并行线文件面），证据见 `docs/evidence/2026-10-28-mobile-h5/01-construction.md` §4 V14。**授权仅限该单，不构成先例** |
 | R-12 | headless 自动应答 | `profiles/headless/patch.yml` 的 `autoDecision: allow` + `autoVerify: true` | **仅演示/快照用**；生产 profile 必须 `none`（默认即拒绝）。自评不把它当"已实现审批" |
 | R-13 | 门禁写库已隔离 | `pnpm gate` 用 `.tmp-saga-wiring/saga.sqlite`，不写 `sessions/` | 回归判据：跑 gate 前后 `sessions/` 的库与链不变化 |
 | R-14 | PII 令牌化不是匿名 | 令牌可还原（`detokenize` 保留为库能力） | 审计链看不到完整姓名，但业务侧能还原；不是脱敏存储 |
@@ -362,7 +362,7 @@ pnpm demo:verifier-fail
 ## 10. 复现命令
 
 ```bash
-pnpm test                                   # 241 文件 / 2727 用例（前端另有 55 例）
+pnpm test                                   # 250 文件 / 2830 用例（前端另有 139 例）
 pnpm vitest run packages/safety/src/sentry/halt.test.ts \
   packages/host/src/boot/plugins/halt.test.ts \
   packages/cli/src/cli/halt.test.ts         # HP-3 / W07 的 46 条（TC-W07-01…07）

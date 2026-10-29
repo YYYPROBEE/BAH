@@ -285,3 +285,47 @@ bah --profile <name> [--dump-config] [--prompt <text>]
 5. `pnpm gate` 会替你核对"四处声明是否一致"，`--dump-config` 会告诉你哪一行来自哪一层。
 
 > 规则：**渠道差异一律用 patch 表达**。代码里出现 `if (profile === 'web')` 即打回。
+
+---
+
+## 9. `profiles/mobile`（施工单 01）
+
+可运行的 profile 共**五个**：`headless` / `plan` / `web` / `web-plan` / `mobile`
+（`im` / `desktop` / `sdk` 仍是占位目录，`--profile im` 会以 `profile-not-implemented` 退出码 1）。
+
+`profiles/mobile/profile.yml` 四键与 web 逐字同形：
+
+```yaml
+name: mobile
+bundles: [base]
+patch: ./patch.yml
+hmr: false
+```
+
+`profiles/mobile/patch.yml` 与 web 的差异**只有三处**（00 D2）：
+
+| # | 行 | web | mobile | 为什么 |
+|---|---|---|---|---|
+| ① | `core:agent.config.channel` | `web` | `mobile` | 系统提示词按 `CHANNEL_HINTS.mobile` 裁剪（"屏幕窄，短句 + 分行要点"） |
+| ② | `channel:*` 行 | `channel:web`，`port: 7331`，无 entry/entries | `channel:mobile`，`port: 7551`，`entry: index.html`、`entries: [index.html]` | 适配器（能力位）、入口 HTML、默认端口——D2 的三项差异 |
+| ③ | 随渠道名走的两处 | `bank:knowledge.channel: web`、`demo:echo.prefix: '[web] '` | 同名改 `mobile` | 文案与知识库归属 |
+
+其余各行（`core:model` / `policy:rules` / `core:persistence` / `bank:tools` / `interaction:approval` /
+`safety:sentry` / `bah:memory-store`）与 web **逐字一致**——门禁 `channel-capabilities` 的 I8 会比对
+规范化序列化：一旦分叉就是"两套业务口径"的早期信号。
+
+生效树（实测）：
+
+```text
+$ BAH_KNOWLEDGE_KEY=demo-key-not-for-prod pnpm bah --profile mobile --dump-config
+...
+channel:mobile        profile-patch:profiles/mobile/patch.yml  {"port":7551,"host":"127.0.0.1","staticRoot":"apps/web","heartbeatMs":15000,"rateLimit":{"windowMs":60000,"maxRequests":120},"csrf":{"enabled":true},"entry":"index.html","entries":["index.html"]}
+```
+
+**入口白名单**（`entry` / `entries`，施工单 01 §3.8 / 00 D3）：只有名单里的 HTML 会被注入 Bearer token
+并下发 CSRF cookie；其它任何 `.html` 按普通静态资源返回（`cache-control: no-cache`、无 `set-cookie`）。
+两条 fail-loud：`entries` 必须是**非空**字符串数组、禁通配符与路径分隔符、不得重复；`entry` 必须 ∈ `entries`。
+
+> ⚠ 02 单待办：移动壳 `m.html`（放在 `apps/web` 下）落盘后，把 `profiles/mobile/patch.yml` 的 `entry` 改成 `m.html`、
+> `entries` 改成 `[m.html, index.html]`。本单落 `index.html` 是因为 `apps/web` 当时还没有 `m.html`
+> ——写了就会让 `/` 直接 404。

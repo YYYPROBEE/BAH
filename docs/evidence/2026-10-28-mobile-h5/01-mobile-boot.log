@@ -1,0 +1,47 @@
+# 01 · 移动渠道启动日志与生效树（施工单 01 §7）
+
+日期：2026-10-29 10:17:00 +0800
+
+## 1) `--dump-config`（entry/entries/port 解析结果 + responder=none）
+```text
+bah: 层序 bundle → profile patch → home patch → overlay（整块替换，不深合并；未写字段走插件默认值）
+core:agent            profile-patch:profiles/mobile/patch.yml  {"loop":{"model":"router:router-chat","maxSteps":8,"parallelReadTools":true,"compaction":{"maxTurns":8,"keepRecentTurns":3}},"slots":{"source":"bank"},"channel":"mobile","runtimeContext":{"user":{"name":"张三","level":"金卡"},"notes":["本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。"]}}
+interaction:approval  profile-patch:profiles/mobile/patch.yml  {"responder":"none","autoDecision":"reject","autoVerify":true}
+bank:knowledge        profile-patch:profiles/mobile/patch.yml  {"mode":"http","baseUrl":"http://127.0.0.1:7801","tokenEnv":"BAH_KNOWLEDGE_TOKEN","required":false,"channel":"mobile","claims":{"default":{"role":"retail","audience":"standard","region":"CN-SH"},"users":{}},"timeouts":{"answer":8000,"query":1500,"health":1000},"signature":{"enabled":true,"manifestPath":"packages/knowledge/fixtures/knowledge.manifest.json","corpusPath":"packages/knowledge/fixtures/corpus.json"}}
+demo:echo             profile-patch:profiles/mobile/patch.yml  {"prefix":"[mobile] "}
+channel:mobile        profile-patch:profiles/mobile/patch.yml  {"port":7551,"host":"127.0.0.1","staticRoot":"apps/web","heartbeatMs":15000,"rateLimit":{"windowMs":60000,"maxRequests":120},"csrf":{"enabled":true},"entry":"index.html","entries":["index.html"]}
+bah: 共 22 行
+```
+
+## 2) `--serve` 启动日志（监听 127.0.0.1:7551）
+```text
+ WARN  Unsupported engine: wanted: {"node":"^22.19 || >=24"} (current: {"node":"v22.17.0","pnpm":"10.34.7"})
+
+> bah-monorepo@ bah D:\项目集\微众杯银行ai智能体\BAH\MonoRepo
+> tsx packages/cli/src/main.ts "--profile" "mobile" "--serve" "--jsonl" ".tmp-mobile-01"
+
+{"ts":"2026-10-29T02:09:32.231Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-ed25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+{"ts":"2026-10-29T02:09:32.239Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tier/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"1.0.0"}
+bah: bank:knowledge 健康检查失败（http://127.0.0.1:7801，required=false）：知识服务不可达；继续启动，knowledge 工具将返回 knowledge-unavailable
+bah: profile mobile · 会话 s-mvswnrr6 · 常驻中（Ctrl+C 退出）
+{"ts":"2026-10-29T02:10:32.411Z","level":"error","code":"saga-alert","alertLevel":"P0","message":"recon-drill:recon"}
+{"ts":"2026-10-29T02:11:32.397Z","level":"error","code":"saga-alert","alertLevel":"P0","message":"recon-drill:recon"}
+{"ts":"2026-10-29T02:12:32.402Z","level":"error","code":"saga-alert","alertLevel":"P0","message":"recon-drill:recon"}
+{"ts":"2026-10-29T02:13:32.408Z","level":"error","code":"saga-alert","alertLevel":"P0","message":"recon-drill:recon"}
+{"ts":"2026-10-29T02:14:32.416Z","level":"error","code":"saga-alert","alertLevel":"P0","message":"recon-drill:recon"}
+ ELIFECYCLE  Command failed with exit code 1.
+```
+
+## 3) 端口确认
+```text
+TCP    127.0.0.1:7551         0.0.0.0:0              LISTENING       61796
+```
+
+## 4) 端到端：POST /api/turn（Bearer + CSRF double-submit）→ 202，lastSeq 2 → 18，SSE 首帧 snapshot
+```text
+{"ok":true}
+HTTP=202
+（/api/session 复查：lastSeq=18；SSE 首帧为 kind=snapshot、maxSeq=18）
+```
+
+## 5) 收尾：服务已停、临时会话目录已删、apps/web/leak-check.tmp.html 已删

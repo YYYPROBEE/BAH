@@ -49,8 +49,8 @@ import { readLayers, readProfile } from '../packages/cli/src/profile.ts'
 import { HOST_PLUGINS, planPlugin } from '../packages/host/src/boot/plugins/index.ts'
 import { isMainModule, projectRoot } from './gate-lib.ts'
 
-/** 真正可运行的四个 profile（`profiles/` 下其余目录是空壳，没有 `profile.yml`）。 */
-const PROFILES = ['headless', 'plan', 'web', 'web-plan'] as const
+/** 真正可运行的五个 profile（`profiles/` 下其余目录是空壳，没有 `profile.yml`）。 */
+const PROFILES = ['headless', 'plan', 'web', 'web-plan', 'mobile'] as const
 type ProfileName = (typeof PROFILES)[number]
 
 /**

@@ -164,4 +164,19 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
     scope: '',
     why: '知识平面适配层：principal 组装 / 契约守卫 / 超时降级 / 工具与卡片（防 ACL 越权与静默放行）',
   },
+  {
+    package: 'channels',
+    scope: 'capabilities.ts',
+    why: '能力位单一实现点：6 渠道穷尽与 10 字段是对外口径，错一个字段前端就降级错（施工单 01 / 00 D4）',
+  },
+  {
+    package: 'channels',
+    scope: 'http-adapter.ts',
+    why: 'web 与 mobile 共用的审批翻译层：归属校验、六码判决、理由长度上限——顺序错了就是资金事故（施工单 01 / 00 D2）',
+  },
+  {
+    package: 'channels',
+    scope: 'mobile/',
+    why: '移动渠道薄工厂：能力位与 id 的唯一落点（施工单 01）',
+  },
 ]

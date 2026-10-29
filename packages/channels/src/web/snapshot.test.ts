@@ -95,10 +95,22 @@ describe('真实日志投影（snapshots/web-channel）', () => {
     expect(domain.length).toBeGreaterThan(0)
 
     const { frames } = projectSession(events)
-    // 只允许出现已知帧类型（未知领域事件不得被当成"未知帧"混进界面）
+    // 只允许出现已知帧类型（未知领域事件不得被当成"未知帧"混进界面）。
+    // 施工单 01 §3.5：`effects` 是由成功写操作派生的已知帧（本快照里的 transfer_create
+    // 是黄级且成功 ⇒ 这里真的会产出），不是"未知帧"。
     const kinds = new Set(frames.map((frame) => frame.kind))
     for (const kind of kinds) {
-      expect(['turn', 'message', 'tool', 'approval', 'approval-closed', 'notice', 'audit', 'dag']).toContain(kind)
+      expect([
+        'turn',
+        'message',
+        'tool',
+        'approval',
+        'approval-closed',
+        'notice',
+        'audit',
+        'dag',
+        'effects',
+      ]).toContain(kind)
     }
   })
 

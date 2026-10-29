@@ -12,18 +12,25 @@ export type {
   CardField,
   CardTable,
   CardView,
+  ChoiceFrame,
+  ChoiceOption,
   DagEdge,
   DagFrame,
   DagNode,
   DeltaFrame,
+  EffectItem,
+  EffectsFrame,
   FrameTag,
   FrameTier,
   FrameTone,
+  GoalFrame,
   MessageBlock,
   MessageFrame,
   NoticeFrame,
   SnapshotFrame,
   TagTone,
+  TodoFrame,
+  TodoItem,
   ToolFrame,
   TurnFrame,
   WebFrame,
@@ -36,18 +43,32 @@ export { blocksToText, buildCard, toolTitle } from './cards.ts'
 export type { FollowDecision, FollowOptions } from './follow.ts'
 export { DEFAULT_FOLLOW_BUFFER_LIMIT, SessionFollow } from './follow.ts'
 
+// 施工单 01：适配器实现平移到 ../http-adapter.ts、能力位定义平移到 ../capabilities.ts。
+// 这里从**新源头**再导出（不是从 ./adapter.ts），否则同一符号会经两条路径进顶层 barrel。
 export type {
   ApprovalViewLike,
+  ChallengeViewLike,
   ChannelAdapter,
-  ChannelCapabilities,
   ChannelMessage,
   DecideResult,
+  HttpChannelAdapter,
   InboundInput,
-  WebChannelAdapter,
-} from './adapter.ts'
+  VerifyResult,
+} from '../http-adapter.ts'
+export type { ChannelCapabilities, ChannelId } from '../capabilities.ts'
+export { CAPABILITIES_BY_CHANNEL, capabilitiesOf } from '../capabilities.ts'
 export { createWebChannelAdapter } from './adapter.ts'
+export type { WebChannelAdapter } from './adapter.ts'
 
-export { WebProjector, decisionLabel, deltaFrame, projectSession } from './project.ts'
+export type { WebProjectorOptions } from './project.ts'
+export {
+  WebProjector,
+  decisionLabel,
+  deltaFrame,
+  projectEffects,
+  projectSession,
+  projectTodo,
+} from './project.ts'
 export {
   amountFromArgs,
   amountText,

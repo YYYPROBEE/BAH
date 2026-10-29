@@ -9,8 +9,17 @@ import { describe, expect, it } from 'vitest'
 
 import type { AnySessionEvent } from '@bah/runtime'
 
-import { projectSession, WebProjector } from './project.ts'
-import type { ApprovalFrame, AuditFrame, DagFrame, ToolFrame, TurnFrame } from './frames.ts'
+import { projectEffects, projectSession, projectTodo, WebProjector } from './project.ts'
+import type {
+  ApprovalFrame,
+  AuditFrame,
+  DagFrame,
+  DagNode,
+  EffectsFrame,
+  TodoFrame,
+  ToolFrame,
+  TurnFrame,
+} from './frames.ts'
 
 /** 造事件的游标。 */
 let cursor = 0
@@ -126,6 +135,42 @@ describe('WebProjector · 三态（T-WEB-002）', () => {
     expect(tools.map((item) => item.state)).toEqual(['denied', 'done'])
     expect(denied?.kind === 'tool' ? denied.reasonKind : undefined).toBe('denied')
     expect(denied?.kind === 'tool' ? denied.code : undefined).toBe('PRV-002')
+  })
+
+  it('执行期错误码判 failed，判决拦截码判 denied（不把内部错误讲成拦截）', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('step/start', { turn: 1, step: 1 }))
+    const cases = [
+      { callId: 'call-failed', code: 'tool-failed', expected: 'failed' },
+      { callId: 'call-invalid', code: 'tool-result-invalid', expected: 'failed' },
+      { callId: 'call-denied', code: 'PRV-002', expected: 'denied' },
+    ]
+    for (const item of cases) {
+      projector.apply(
+        ev('tool/call', {
+          callId: item.callId,
+          name: 'balance_query',
+          args: {},
+          fingerprint: `fp-${item.callId}`,
+          tier: { level: 'green' },
+          at: 1,
+        }),
+      )
+      projector.apply(
+        ev('tool/result', {
+          callId: item.callId,
+          name: 'balance_query',
+          isError: true,
+          content: [{ type: 'text', text: '失败' }],
+          code: item.code,
+        }),
+      )
+    }
+
+    const tools = projector.frames().filter((frame) => frame.kind === 'tool') as ToolFrame[]
+    expect(tools.map((item) => item.reasonKind)).toEqual(['failed', 'failed', 'denied'])
   })
 })
 
@@ -535,5 +580,236 @@ describe('WebProjector · plan 节点图（B2）', () => {
     )).toBe(true)
     expect(a.length + created.length + resumed.length).toBeGreaterThan(0)
     expect(projector.frames().length).toBeGreaterThanOrEqual(before)
+  })
+})
+
+/** 造一个 plan 节点（`projectTodo` 的输入项；默认 running）。 */
+function planNode(id: string, state: DagNode['state'], overrides: Partial<DagNode> = {}): DagNode {
+  return {
+    id,
+    label: `${id} · transfer_create`,
+    kind: 'plan',
+    step: 0,
+    tier: 'unknown',
+    state,
+    planId: 'p-1',
+    ...overrides,
+  }
+}
+
+describe('projectTodo · 待办派生（TC-MCH-22..24，施工单 01 §3.5）', () => {
+  it('同输入连调两次逐字节相同；nodes 逆序后仍相同（确定性）', () => {
+    const nodes = [planNode('b', 'running'), planNode('a', 'ok'), planNode('c', 'blocked')]
+    const input = { turn: 1, seq: 9, at: 9, planId: 'p-1', nodes }
+    const first = JSON.stringify(projectTodo(input))
+    const second = JSON.stringify(projectTodo(input))
+    const reversed = JSON.stringify(projectTodo({ ...input, nodes: [...nodes].reverse() }))
+    expect(second).toBe(first)
+    expect(reversed).toBe(first)
+  })
+
+  it('openCount = 未完成条数；排序为「未完成在前，再按 id 字典序」', () => {
+    const frame = projectTodo({
+      turn: 1,
+      seq: 5,
+      at: 5,
+      planId: 'p-1',
+      nodes: [planNode('d', 'failed'), planNode('a', 'ok'), planNode('c', 'pending'), planNode('b', 'skipped')],
+    })
+    expect(frame).not.toBeNull()
+    expect(frame?.items.map((item) => item.id)).toEqual(['c', 'd', 'a', 'b'])
+    expect(frame?.openCount).toBe(frame?.items.filter((item) => !item.done).length)
+    expect(frame?.openCount).toBe(2)
+  })
+
+  it('无 plan 节点或无匹配 planId ⇒ null（不产空清单）', () => {
+    expect(projectTodo({ turn: 1, seq: 1, at: 1, planId: 'p-1', nodes: [] })).toBeNull()
+    expect(
+      projectTodo({
+        turn: 1,
+        seq: 1,
+        at: 1,
+        planId: 'p-1',
+        nodes: [{ ...planNode('a', 'ok'), kind: 'call' }],
+      }),
+    ).toBeNull()
+    expect(
+      projectTodo({ turn: 1, seq: 1, at: 1, planId: 'p-2', nodes: [planNode('a', 'ok')] }),
+    ).toBeNull()
+  })
+
+  it('blockedBy 只出现在提供了依赖的节点上（其余无该键）', () => {
+    const frame = projectTodo({
+      turn: 1,
+      seq: 3,
+      at: 3,
+      planId: 'p-1',
+      nodes: [planNode('n1', 'failed'), planNode('n2', 'blocked')],
+      blockedBy: { n2: ['n1'] },
+    })
+    const byId = new Map(frame?.items.map((item) => [item.id, item]))
+    expect(byId.get('n2')?.blockedBy).toEqual(['n1'])
+    const n1 = byId.get('n1')
+    expect(n1 !== undefined && 'blockedBy' in n1).toBe(false)
+  })
+
+  it('9 态映射穷尽：done/tone 按 §3.5 表逐条断言', () => {
+    const expected: ReadonlyArray<[DagNode['state'], boolean, string]> = [
+      ['ok', true, 'success'],
+      ['pending', false, 'default'],
+      ['running', false, 'default'],
+      ['blocked', false, 'warning'],
+      ['denied', false, 'danger'],
+      ['failed', false, 'danger'],
+      ['incident', false, 'danger'],
+      ['skipped', true, 'muted'],
+      ['cancelled', true, 'muted'],
+    ]
+    const frame = projectTodo({
+      turn: 1,
+      seq: 2,
+      at: 2,
+      planId: 'p-1',
+      nodes: expected.map(([state], index) => planNode(`n${String(index)}`, state)),
+    })
+    const byId = new Map(frame?.items.map((item) => [item.id, item]))
+    for (const [index, [state, done, tone]] of expected.entries()) {
+      const item = byId.get(`n${String(index)}`)
+      expect({ state, done: item?.done, tone: item?.tone }).toEqual({ state, done, tone })
+    }
+    expect(frame?.items).toHaveLength(9)
+  })
+
+  it('projectPlan 接线：plan 事件产出 todo 帧，且 frameKey 按 turn+planId 替换', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('plan/node-started', { planId: 'p-1', nodeId: 'n1', tool: 'pay', ordinal: 1 }))
+    projector.apply(ev('plan/node-result', { planId: 'p-1', nodeId: 'n1', status: 'succeeded' }))
+    const todos = projector.frames().filter((frame) => frame.kind === 'todo') as TodoFrame[]
+    expect(todos).toHaveLength(1)
+    expect(todos[0]?.planId).toBe('p-1')
+    expect(todos[0]?.items.map((item) => item.done)).toEqual([true])
+    expect(todos[0]?.openCount).toBe(0)
+  })
+
+  it('projectPlan 接线：plan/node-blocked 的 blockedBy 出现在 todo 帧上', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('plan/node-started', { planId: 'p-1', nodeId: 'n1', tool: 'pay', ordinal: 1 }))
+    projector.apply(ev('plan/node-started', { planId: 'p-1', nodeId: 'n2', tool: 'pay', ordinal: 2 }))
+    projector.apply(ev('plan/node-blocked', { planId: 'p-1', nodeId: 'n2', blockedBy: ['n1'] }))
+    const todo = projector.frames().filter((frame) => frame.kind === 'todo').pop() as TodoFrame
+    const n2 = todo.items.find((item) => item.id.endsWith(':n2'))
+    expect(n2?.blockedBy).toEqual(['n1'])
+    expect(n2?.tone).toBe('warning')
+  })
+})
+
+describe('projectEffects · 影响面派生（TC-MCH-25..26，施工单 01 §3.5 / V3）', () => {
+  const base = { turn: 1, seq: 4, at: 4 }
+
+  it('黄级成功 ⇒ 产出；红级 ⇒ 产出', () => {
+    const yellow = projectEffects({
+      ...base,
+      items: [{ callId: 'c1', name: 'transfer_create', tier: 'yellow', args: { amount: 800 } }],
+    })
+    expect(yellow?.items.map((item) => item.name)).toEqual(['transfer_create'])
+    const red = projectEffects({
+      ...base,
+      items: [{ callId: 'c2', name: 'card_report_lost', tier: 'red', args: {} }],
+    })
+    expect(red?.items).toHaveLength(1)
+  })
+
+  it('绿级 + 名字在注入名单 ⇒ 产出；绿级 + 不在名单 ⇒ 不产出（诚实边界）', () => {
+    const input = {
+      ...base,
+      items: [
+        { callId: 'c1', name: 'verify_sms', tier: 'green' as const, args: {} },
+        { callId: 'c2', name: 'balance_query', tier: 'green' as const, args: {} },
+      ],
+    }
+    // 未注入名单：绿级一律不产（含 verify_sms 的已知缺口，§9 V3 诚实边界）
+    expect(projectEffects(input)).toBeNull()
+    const injected = projectEffects({ ...input, writeToolNames: ['verify_sms'] })
+    expect(injected?.items.map((item) => item.name)).toEqual(['verify_sms'])
+  })
+
+  it('tier 为 unknown 不产出（"不知道"不能当成"写"，§9 V8）', () => {
+    expect(
+      projectEffects({
+        ...base,
+        items: [{ callId: 'c', name: 'transfer_create', tier: 'unknown', args: {} }],
+      }),
+    ).toBeNull()
+  })
+
+  it('无候选 ⇒ null（不产空帧）；金额走 formatCents（与审批帧同款）', () => {
+    expect(projectEffects({ ...base, items: [] })).toBeNull()
+    const frame = projectEffects({
+      ...base,
+      items: [
+        {
+          callId: 'c1',
+          name: 'transfer_create',
+          tier: 'yellow',
+          args: { amount: 800, payee: { name: '王建国' } },
+          durationMs: 12,
+          ticketId: 'ticket:call-1',
+        },
+      ],
+    })
+    expect(frame?.items[0]?.amountText).toBe('¥800.00')
+    expect(frame?.items[0]?.durationMs).toBe(12)
+    expect(frame?.ticketId).toBe('ticket:call-1')
+  })
+
+  it('projector 接线：成功写操作产出 effects 帧并按 turn 累积替换', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('step/start', { turn: 1, step: 1 }))
+    for (const [callId, tier] of [
+      ['c1', 'yellow'],
+      ['c2', 'red'],
+    ] as const) {
+      projector.apply(
+        ev('tool/call', {
+          callId,
+          name: 'transfer_create',
+          args: { amount: 1 },
+          fingerprint: `fp-${callId}`,
+          tier: { level: tier },
+        }),
+      )
+      projector.apply(
+        ev('tool/result', { callId, name: 'transfer_create', isError: false, content: [], durationMs: 1 }),
+      )
+    }
+    const effects = projector.frames().filter((frame) => frame.kind === 'effects') as EffectsFrame[]
+    expect(effects).toHaveLength(1) // 同一 turn 只有一张（替换语义）
+    expect(effects[0]?.items.map((item) => item.callId)).toEqual(['c1', 'c2'])
+  })
+
+  it('projector 接线：失败结果（isError）不产 effects 帧', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('step/start', { turn: 1, step: 1 }))
+    projector.apply(
+      ev('tool/call', {
+        callId: 'c1',
+        name: 'transfer_create',
+        args: { amount: 800 },
+        fingerprint: 'fp-1',
+        tier: { level: 'yellow' },
+      }),
+    )
+    projector.apply(
+      ev('tool/result', { callId: 'c1', name: 'transfer_create', isError: true, content: [], code: 'PRV-002' }),
+    )
+    expect(projector.frames().some((frame) => frame.kind === 'effects')).toBe(false)
   })
 })

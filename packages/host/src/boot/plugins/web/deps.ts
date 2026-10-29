@@ -11,7 +11,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
-import type { WebChannelAdapter } from '@bah/channels'
+import type { HttpChannelAdapter } from '@bah/channels'
 import type { Context, ServiceKey } from '@bah/core'
 import type { Agent, SessionApi } from '@bah/runtime'
 import type { SloSample } from '@bah/saga'
@@ -29,8 +29,8 @@ export type RateLimiter = ReturnType<typeof createRateLimiter>
 export interface WebDeps {
   /** 会话服务（读 `sessionId` / `lastSeq` / `events`）。 */
   readonly session: SessionApi
-  /** 审批 / 强验证的传输层（归属校验在适配器里）。 */
-  readonly adapter: WebChannelAdapter
+  /** 审批 / 强验证的传输层（归属校验在适配器里；web 与 mobile 同一个实现，00 D2）。 */
+  readonly adapter: HttpChannelAdapter
   /** SSE 广播与连接管理。 */
   readonly hub: SseHub
   /** 本进程的 Web 访问凭证（未配置时随机生成，绝不写死）。 */
@@ -65,8 +65,16 @@ export interface WebDeps {
   readonly handoff: HandoffHandle
   /** 已解析的静态根（绝对路径）。 */
   readonly staticRoot: string
-  /** 静态根下的 index.html（token 与 CSRF cookie 的唯一载体）。 */
-  readonly indexPath: string
+  /**
+   * `/` 的落点（静态根下的绝对路径）。
+   * 施工单 01 / 00 D3：不再写死 index.html——移动壳是第二个 HTML 壳。
+   */
+  readonly defaultEntry: string
+  /**
+   * token 入口白名单（绝对路径数组）：**只有**名单里的 HTML 注入 token 与下发 CSRF cookie。
+   * 白名单比较用绝对路径精确等值（`handlers/static.ts`），不做模糊匹配。
+   */
+  readonly tokenEntries: readonly string[]
 }
 
 /** 解析好的请求行（避免每个 handler 各自 `new URL` 一遍）。 */

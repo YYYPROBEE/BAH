@@ -1,0 +1,11 @@
+## projectTodo 三次调用（正序 / 逆序 / 再正序）
+a = {"kind":"todo","seq":7,"at":7,"turn":1,"planId":"p-1","items":[{"id":"plan:p-1:n2","text":"n2 · transfer_create","done":false,"blockedBy":["plan:p-1:n1"],"tone":"warning"},{"id":"plan:p-1:n3","text":"n3 · transfer_create","done":false,"tone":"danger"},{"id":"plan:p-1:n1","text":"n1 · balance_query","done":true,"tone":"success"}],"openCount":2}
+b = {"kind":"todo","seq":7,"at":7,"turn":1,"planId":"p-1","items":[{"id":"plan:p-1:n2","text":"n2 · transfer_create","done":false,"blockedBy":["plan:p-1:n1"],"tone":"warning"},{"id":"plan:p-1:n3","text":"n3 · transfer_create","done":false,"tone":"danger"},{"id":"plan:p-1:n1","text":"n1 · balance_query","done":true,"tone":"success"}],"openCount":2}
+c = {"kind":"todo","seq":7,"at":7,"turn":1,"planId":"p-1","items":[{"id":"plan:p-1:n2","text":"n2 · transfer_create","done":false,"blockedBy":["plan:p-1:n1"],"tone":"warning"},{"id":"plan:p-1:n3","text":"n3 · transfer_create","done":false,"tone":"danger"},{"id":"plan:p-1:n1","text":"n1 · balance_query","done":true,"tone":"success"}],"openCount":2}
+a===b: true | a===c: true | openCount: 2 | 期望 2
+
+## projectEffects 四判据
+① 黄级成功（应产出） => {"kind":"effects","seq":8,"at":8,"turn":1,"items":[{"callId":"c1","name":"transfer_create","title":"转账","amountText":"¥800.00","durationMs":12,"tone":"success"}],"ticketId":"ticket:c1"}
+② 绿级 + 名单命中（应产出） => {"kind":"effects","seq":8,"at":8,"turn":1,"items":[{"callId":"c2","name":"verify_sms","title":"短信强验证","tone":"success"}]}
+③ 绿级 + 名单未命中（应不产出） => null
+④ tier=unknown（应不产出，§9 V8） => null

@@ -5923,3 +5923,24 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 - A/B：A1–A10、B1–B15 全部 ✔（A6 真实样本 1 条列 P2）；**0 P0/P1**；
 - 残余 P2：explain 真实样本、sentry 未激活（R10）、覆盖台账待 CI、semver major 门禁；
 - 口径：S0–S5 完成，S6 复审通过（P2 已登记）；生产 sentry 仍 legacy、生产签名未启用。
+
+## 96.35 移动 H5 · 01 渠道底座与宿主装配（2026-10-29）
+
+- 能力位单一实现点：`packages/channels/src/capabilities.ts`（`ChannelId = ChannelKind`、10 字段、
+  6 渠道常量穷尽、`CAPABILITIES_BY_CHANNEL`）；`web/adapter.ts` 删掉本地 5 字段定义（门禁 I1 钉住）；
+- 适配器同源：抽 `http-adapter.ts`（`createHttpChannelAdapter`），web / mobile 各一个薄工厂；
+  既有 189 行 `web/adapter.test.ts` 的审批六码与归属校验零改动复跑绿；
+- 帧扩展（帧不是事件，00 D7）：`frames.ts` 新增 `choice` / `goal` / `todo` / `effects` 四帧并入
+  `WebFrame`（10 → 14）并补 `frameKey`；`choice`/`goal` 只定契约（发射属 03/04 单）；
+- 派生纯函数：`projectTodo`（plan/* → 待办，9 态穷尽 + 确定性排序）与 `projectEffects`
+  （双判据：黄/红级 ∪ 注入的写工具名单；`verify_*` 绿级写工具的缺口如实登记）；
+- 宿主工厂化：`plugins/web/channel.ts` 的 `createHttpChannel`（`plugins/web.ts` 原 apply 体整段平移），
+  `channel:web` 与新增 `channel:mobile` 共用路由表 / 闸序 / 安全头 / 限流 / CSRF / SSE / 审批端点；
+- 静态多入口（00 D3）：`WebDeps.indexPath` → `defaultEntry` + `tokenEntries` 白名单，
+  只有名单里的 HTML 注入 token 与下发 CSRF cookie；
+- `profiles/mobile/{profile.yml,patch.yml}`：端口 **7551**，与 web 的业务段逐字一致（门禁 I8 比对）；
+- 新门禁 `scripts/verify-channel-capabilities.ts`（I1–I10，12 条负控逐条会红）；
+- 实测：`pnpm gate` **44/44**、`pnpm test` **250 文件 / 2830 例**、`pnpm test:web` 12/139；
+  本单文件逐文件覆盖率 100%（lines/statements/functions）；
+- 继承红项：`pnpm test:coverage` 在并行「可观测性」线未提交的
+  `packages/cli/src/cli/{cost,metrics,observe-http,trace}.ts` 上未达 100%（不属本单文件面）。
