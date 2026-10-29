@@ -7,10 +7,11 @@
  */
 
 import { el, icon } from '../dom.js'
+import { renderPlanCard } from './plan-card.js'
 import { renderTool } from './tool-card.js'
 
 /** 对话流收纳的帧类型。 */
-export const CONVERSATION_KINDS = new Set(['turn', 'message', 'notice', 'tool'])
+export const CONVERSATION_KINDS = new Set(['turn', 'message', 'notice', 'tool', 'plan-card'])
 
 /** 轮次结束原因的文案（`guard-stopped` 与 `failed` 必须区分）。 */
 const END_LABEL = {
@@ -38,6 +39,8 @@ export function renderFrame(frame) {
       return renderNotice(frame)
     case 'tool':
       return renderTool(frame)
+    case 'plan-card':
+      return renderPlanCard(frame)
     default:
       return el('div', { class: 'frame-unknown', text: `未知帧：${String(frame.kind)}` })
   }

@@ -150,6 +150,9 @@ export function dispatchFrame(frame, ctx) {
       return ctx.planSteps.setTodos(frame)
     case 'effects':
       return ctx.effectsList.append(frame)
+    case 'plan-card':
+      // G7：计划卡进会话流（与桌面同源，四块信息按移动端重排）
+      return ctx.feed.append(frame)
     default:
       return ctx.feed.appendUnknown(frame)
   }
@@ -503,7 +506,8 @@ export function createMobileShell(deps) {
     sheet = createApprovalSheet(
       overlayHost,
       {
-        decide: async (ticketId, decision, reason) => uiErrorOf(await api.decide(ticketId, decision, reason)),
+        decide: async (ticketId, decision, reason, confirmText) =>
+          uiErrorOf(await api.decide(ticketId, decision, reason, confirmText)),
         verify: async (ticketId) => uiErrorOf(await api.verify(ticketId)),
         onError: (error) => composer?.showError(error.message),
       },

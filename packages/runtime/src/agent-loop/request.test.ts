@@ -32,6 +32,7 @@ import {
   toModelBlocks,
   toSessionBlocks,
   toolDescriptorsOf,
+  toolSpecsOf,
 } from './request.ts'
 
 /** 被测工具：绿级、无副作用。 */
@@ -237,6 +238,18 @@ describe('request · 装配', () => {
     expect(toolDescriptorsOf(tools)).toEqual([
       { name: 'ping', description: '探活', schema: { type: 'object', properties: {} }, tier: { level: 'green' } },
     ])
+  })
+
+  it("exposure:'internal' 的工具不进模型可见面（plan_wake 必须对模型隐身）", () => {
+    const tools = new ToolRegistry()
+    tools.register(PING_TOOL)
+    tools.register({ ...PING_TOOL, name: 'plan_wake', exposure: 'internal' as const })
+    tools.register({ ...PING_TOOL, name: 'plan_arm' })
+
+    expect(toolDescriptorsOf(tools).map((item) => item.name)).toEqual(['ping', 'plan_arm'])
+    expect(toolSpecsOf(tools).map((item) => item.name)).toEqual(['ping', 'plan_arm'])
+    // 注册表仍能取到它（宿主/CLI 要能调用）
+    expect(tools.has('plan_wake')).toBe(true)
   })
 })
 

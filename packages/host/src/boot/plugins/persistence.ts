@@ -18,6 +18,8 @@ import type { SessionEvent, SessionId } from '@bah/core'
 import type { TenantId } from '@bah/util'
 import type { SessionHandle, JsonlOptions } from '@bah/persistence'
 
+import { tenantRootOf } from '../tenant-root.ts'
+
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
 import { readBoolean, readString, rejectUnknownKeys } from '../config.ts'
@@ -65,30 +67,8 @@ export interface PersistenceSettings {
  */
 export const DEFAULT_ROOT = 'sessions'
 
-/**
- * 租户根 = 部署根 + 租户段（**布局公式的唯一实现**）。
- *
- * 会话日志、审计链、记忆库、HALT 状态都从这里派生。之所以做成函数、而不是让每个
- * 调用方自己 `join`：AR-01 的教训是"一处漏拼不会报错，只会让审计跑到租户外"。
- *
- * @param baseRoot 部署根（`--jsonl` 覆盖值或 `core:persistence.root`）
- * @param tenantId 启动期确定的租户
- * @throws `BahError('tenant-id-invalid')` 不是合法租户 ID
- */
-export function tenantRootOf(baseRoot: string, tenantId: TenantId): string {
-  const id = String(tenantId)
-  // 用**租户字符集**而不是路径白名单：路径白名单会放过 `undefined` / `Demo` / `demo_1`
-  // 这类"路径安全但不是租户"的值（复审 AR-03：JS 调用方漏传 tenantId 时会落成
-  // `<root>/undefined`，既没有报错也没有意义）。`asTenantId` 是无校验断言，这里是兜底。
-  if (!isTenantId(id)) {
-    throw new BahError(
-      'tenant-id-invalid',
-      `租户根解析失败：${JSON.stringify(id)} 不是合法租户 ID（TenantId 必须经 parseTenantId 产出）`,
-      { tenantId: id, baseRoot },
-    )
-  }
-  return join(baseRoot, id)
-}
+// 既有调用方（sentry / CLI / boot）继续从这里取；公式本体在 `../tenant-root.ts`
+export { tenantRootOf }
 
 export const persistencePlugin: HostPlugin<PersistenceSettings> = {
   id: 'core:persistence',
@@ -128,13 +108,31 @@ export const persistencePlugin: HostPlugin<PersistenceSettings> = {
         fileOf: (sessionId) => join(dirOf(sessionId), 'session.jsonl'),
       })
 
+      /** 本轮 boot 里"已存在的会话"只扫一次（续写模式下不允许多次全目录 scan）。 */
+      let existing: ReadonlySet<string> | undefined
+      const existingSessions = (): ReadonlySet<string> => {
+        if (existing !== undefined) return existing
+        let ids: readonly string[] = []
+        try {
+          ids = backend.list(root).map((info) => String(info.sessionId))
+        } catch {
+          // 根目录还不存在 = 本次是全新部署；"列不出来"不等于"读坏了"
+          ids = []
+        }
+        existing = new Set(ids)
+        return existing
+      }
+
       ctx.events.on('session/event', (envelope) => {
         const key = String(envelope.session)
         let handle = handles.get(key)
         if (handle === undefined) {
-          handle = backend.create(dirOf(envelope.session), envelope.session, {
-            now: envelope.event.at,
-          })
+          const dir = dirOf(envelope.session)
+          // 续写既有会话（`run.restoreSession`）：open 会把旧事件读进来、从尾部继续写；
+          // 否则仍是"新建即拒绝覆写"。用 list() 而不是 existsSync：空目录/半写目录都不算会话。
+          handle = existingSessions().has(key)
+            ? backend.open(dir, { mode: 'write' })
+            : backend.create(dir, envelope.session, { now: envelope.event.at })
           handles.set(key, handle)
         }
         handle.append(envelope.event as SessionEvent)

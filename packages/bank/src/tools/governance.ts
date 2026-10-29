@@ -14,7 +14,7 @@
 
 import { BahError, assertNever, errorCodeOf, logJson, reasonOf } from '@bah/util'
 
-import type { Context, SessionId, TicketDraft, TicketId, ToolTierLevel } from '@bah/core'
+import type { Context, SessionId, TicketAuthorization, TicketDraft, TicketId, ToolTierLevel } from '@bah/core'
 import type { BankTierInput } from '@bah/policy'
 import type { PolicyDecision, PolicyEngine } from '@bah/runtime'
 
@@ -71,6 +71,8 @@ interface ApprovalLike {
   }
   readonly callId: string
   readonly name: string
+  /** 授权来源（ADR-0006；缺省 = 人工点击）。 */
+  readonly authorization?: TicketAuthorization
   readonly decision: {
     readonly decision: 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
     readonly reason?: string
@@ -105,13 +107,15 @@ export interface TicketLifecycleIssueInput {
     readonly leaseId: string
     readonly expiresAt: number
   }
+  /** 授权来源（ADR-0006；缺省 = 人工点击）。 */
+  readonly authorization?: TicketAuthorization
   readonly at: number
 }
 
 /** 票据生命周期账本的最小面（见 `@bah/interaction` 的 `TicketLedger`）。 */
 export interface TicketLifecycle {
   issue(input: TicketLifecycleIssueInput): unknown
-  approve(ticketId: string, at: number): unknown
+  approve(ticketId: string, at: number, authorization?: TicketAuthorization): unknown
   redeem(ticketId: string, at: number): unknown
   consume(ticketId: string, at: number): unknown
   block(ticketId: string, reason: string, at: number): unknown
@@ -382,6 +386,7 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
             amountCents: binding.amountCents,
             expiresAt: binding.expiresAt,
             ...(lease === undefined ? {} : { lease }),
+            ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
             at: issuedAt,
           }),
         )
@@ -404,7 +409,7 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
         }
         // 记账失败只留审计证据：core 票据已批准，不能因为账本异常改写审批结论
         ledgerSafely(deps, ticketId, 'approve', decidedAt, () =>
-          lifecycle?.approve(ticketId, decidedAt),
+          lifecycle?.approve(ticketId, decidedAt, answered.authorization),
         )
       } else {
         const reason = answered.decision.reason ?? `approval-${answered.decision.decision}`

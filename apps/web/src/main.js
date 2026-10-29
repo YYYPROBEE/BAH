@@ -254,8 +254,8 @@ export function mountApp(options) {
   const auditRendered = new Map()
 
   const approvals = createApprovalController(overlay, {
-    async onDecision(ticketId, decision, reason) {
-      const result = await api.decide(ticketId, decision, reason)
+    async onDecision(ticketId, decision, reason, confirmText) {
+      const result = await api.decide(ticketId, decision, reason, confirmText)
       if (!result.ok) notify(`提交失败：${result.reason}`, 'danger')
       return result
     },

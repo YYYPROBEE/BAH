@@ -29,15 +29,29 @@ export {
   createCatalog,
   agentPlugin,
   echoPlugin,
+  factPlugin,
   modelPlugin,
   persistencePlugin,
   planPlugin,
   promptPlugin,
+  schedulerPlugin,
   sessionPlugin,
   toolsPlugin,
 } from './plugins/index.ts'
 // 编排原语的服务键：消费方（快照场景 / 上层插件）按键取 `PlanApi`，不碰插件实现
-export { PLAN_SERVICE, SAGA_BRIDGE_RECIPES } from './plugins/index.ts'
+export {
+  PLAN_ARMED_SERVICE,
+  PLAN_SERVICE,
+  PLAN_WAKE_SERVICE,
+  SAGA_BRIDGE_RECIPES,
+  type ArmedPlansView,
+  type PlanWakeEntry,
+  type PlanWakeReport,
+  type PlanWakeRunner,
+  type PlanWakeSource,
+} from './plugins/index.ts'
+export { FACT_SERVICE, type FactSettings } from './plugins/fact.ts'
+export { schedulerPlugin as planSchedulerPlugin } from './plugins/scheduler.ts'
 export { DEFAULT_ROOT, SESSION_FILES, tenantRootOf, type SessionFiles } from './plugins/persistence.ts'
 // 测试夹具：`RunContext` 工厂（租户与鉴权 01 TA-11）。与 `RunContext` 类型同包，
 // 避免 @bah/test-support 反向依赖 host 造成 project references 成环。

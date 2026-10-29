@@ -140,8 +140,14 @@ describe('对话流 · 帧分发', () => {
     expect(renderFrame({ kind: 'mystery', seq: 1 }).textContent).toContain('未知帧')
   })
 
-  it('对话流只收四类帧（审计 / DAG 各归各的面板）', () => {
-    expect([...CONVERSATION_KINDS].sort()).toEqual(['message', 'notice', 'tool', 'turn'])
+  it('对话流收五类帧（审计 / DAG 各归各的面板；G7 计划卡进对话流）', () => {
+    expect([...CONVERSATION_KINDS].sort()).toEqual([
+      'message',
+      'notice',
+      'plan-card',
+      'tool',
+      'turn',
+    ])
   })
 })
 
