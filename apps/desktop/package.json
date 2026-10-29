@@ -1,0 +1,21 @@
+{
+  "name": "@bah/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "BAH 桌面端（Electron 私有 host + 复用 apps/web）",
+  "main": "dist/main.mjs",
+  "scripts": {
+    "build": "tsdown",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@bah/cli": "workspace:*",
+    "@bah/core": "workspace:*",
+    "@bah/host": "workspace:*",
+    "@bah/util": "workspace:*"
+  },
+  "devDependencies": {
+    "electron": "39.8.10"
+  }
+}
