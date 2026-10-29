@@ -20,7 +20,7 @@ const AUTH_TEXT: Readonly<Record<RouteAuth, string>> = {
   public: '公开',
   admin: 'admin token + 回环',
   static: '无（静态）',
-  web: 'Bearer',
+  web: 'Web 凭证',
 }
 
 /** CSRF 合进同一格，读者一眼能看出哪条写路由有闸。 */

@@ -16,7 +16,7 @@ import type { SessionApi } from '@bah/runtime'
 import type { WebChannelAdapter } from '@bah/channels'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { ADMIN_TOKEN_ENV } from '../web-admin.ts'
+import { ADMIN_OPERATORS_ENV, ADMIN_TOKEN_ENV } from '../web-admin.ts'
 import { resolveWebSettings } from './config.ts'
 import type { RateLimiter, WebDeps, WebRequest } from './deps.ts'
 import { createDispatcher } from './dispatch.ts'
@@ -25,7 +25,8 @@ import type { SseHub } from './sse.ts'
 import { DEFAULT_TENANT_ID, normalizePrincipal } from '@bah/util'
 import { tokenMatches } from '../web-admin.ts'
 import { presentedWebToken } from '../web-auth.ts'
-import type { AuthRuntime } from './auth/index.ts'
+import type { AuthRuntime, RequestIdentity } from './auth/index.ts'
+import type { AuthSession } from './auth/session-store.ts'
 
 /** 测试固定的凭证（生产未配置时随机生成）。 */
 const WEB_TOKEN = 'tok-web'
@@ -142,6 +143,7 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
     ensureDriver: () => undefined,
     trySentry: () => undefined,
     tryHalt: () => undefined,
+    tryAudit: () => undefined,
     // 矩阵测试只关心闸的顺序：不给遥测（`startHttpSpan` 必须能判空后静默返回）
     tryTelemetry: () => undefined,
     staticRoot: 'this-directory-does-not-exist',
@@ -177,10 +179,13 @@ function codeOf(probe: Probe): string | undefined {
 
 /** 管理 token 的注入与还原（`guardAdmin` 现读 `process.env`）。 */
 const previousAdminToken = process.env[ADMIN_TOKEN_ENV]
+const previousAdminOperators = process.env[ADMIN_OPERATORS_ENV]
 
 afterEach(() => {
   if (previousAdminToken === undefined) delete process.env[ADMIN_TOKEN_ENV]
   else process.env[ADMIN_TOKEN_ENV] = previousAdminToken
+  if (previousAdminOperators === undefined) delete process.env[ADMIN_OPERATORS_ENV]
+  else process.env[ADMIN_OPERATORS_ENV] = previousAdminOperators
 })
 
 describe('W16 分派矩阵 · 无凭证', () => {
@@ -478,7 +483,7 @@ describe('W16 分派矩阵 · 管理面', () => {
     process.env[ADMIN_TOKEN_ENV] = ADMIN_TOKEN
     const probe = await call('POST', '/api/admin/sentry/unfreeze', {
       headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
-      body: '{"by":"ops","reason":"演练"}',
+      body: '{"reason":"演练"}',
     })
     // 没有 CSRF 令牌也该走到业务：没有 sentry 服务 → 503 sentry-absent
     expect(probe.status).toBe(503)
@@ -496,6 +501,25 @@ describe('W16 分派矩阵 · 管理面', () => {
       body: '{}',
     })
     expect(unauth.status).toBe(401)
+  })
+
+  it('03 TA-44：操作员表坏配置 → 503（fail-closed），非回环仍 403（不泄漏存在性）', async () => {
+    delete process.env[ADMIN_TOKEN_ENV]
+    process.env[ADMIN_OPERATORS_ENV] = '{not json'
+    const loopback = await call('POST', '/api/admin/sentry/unfreeze', {
+      headers: { authorization: 'Bearer whatever' },
+      body: '{}',
+    })
+    expect(loopback.status).toBe(503)
+    expect(codeOf(loopback)).toBe('web-admin-unavailable')
+
+    const foreign = await call('POST', '/api/admin/sentry/unfreeze', {
+      headers: { authorization: 'Bearer whatever' },
+      body: '{}',
+      remote: '10.1.2.3',
+    })
+    expect(foreign.status).toBe(403)
+    expect(codeOf(foreign)).toBe('web-admin-forbidden')
   })
 })
 
@@ -529,6 +553,175 @@ describe('D6 畸形百分号编码：输入错不许报成服务错', () => {
 
   it('闸顺序没被绕过：畸形路径仍然先吃凭证（401 而不是 400）', async () => {
     expect((await call('POST', `/api/approval${MALFORMED}`, { body: '{}' })).status).toBe(401)
+  })
+})
+
+describe('03 TA-42 · 授权接进 dispatch（一个调用点）', () => {
+  /** 单角色主体。 */
+  function identityWith(role: 'customer' | 'agent' | 'auditor' | 'admin'): RequestIdentity {
+    const principal = normalizePrincipal({
+      tenantId: DEFAULT_TENANT_ID,
+      userId: 'u-1',
+      roles: [role],
+      source: 'session-auth',
+    })
+    const session: AuthSession = {
+      sid: 'sid-1',
+      tenantId: DEFAULT_TENANT_ID,
+      userId: 'u-1',
+      roles: [role],
+      csrf: CSRF_TOKEN,
+      issuedAt: 0,
+      lastSeenAt: 0,
+      absoluteExpiresAt: 1_000,
+    }
+    return { kind: 'principal', principal, session }
+  }
+
+  /** 恒返回给定身份的运行期（password 模式，便于复现"没有 cookie"的匿名态）。 */
+  function fixedRuntime(identity: RequestIdentity): AuthRuntime {
+    return {
+      mode: 'password',
+      cookie: { name: 'bah_sid', secure: false, maxAgeSec: 60 },
+      identify: () => identity,
+      csrfExpectation: () => CSRF_TOKEN,
+      login: async () => ({ ok: false, code: 'web-login-failed' }),
+      logout: () => false,
+    }
+  }
+
+  it('TA-42-1 未知 GET /api/*（无 cookie，password 模式）→ 401，不是 404', async () => {
+    const deps = makeDeps({ auth: fixedRuntime({ kind: 'anonymous' }) })
+    const probe = await call('GET', '/api/unknown', { deps })
+    expect(probe.status).toBe(401)
+    expect(codeOf(probe)).toBe('web-unauthorized')
+  })
+
+  it('TA-42-2 未知 POST /api/*（无 cookie）→ 401（先身份后 405）', async () => {
+    const deps = makeDeps({ auth: fixedRuntime({ kind: 'anonymous' }) })
+    const probe = await call('POST', '/api/unknown', { deps, body: '{}' })
+    expect(probe.status).toBe(401)
+    expect(codeOf(probe)).toBe('web-unauthorized')
+  })
+
+  it('TA-42-3 非 API 的未知路径不被授权闸误伤：POST /foo → 405（不是 401）', async () => {
+    const deps = makeDeps({ auth: fixedRuntime({ kind: 'anonymous' }) })
+    const probe = await call('POST', '/foo', { deps, body: '{}' })
+    expect(probe.status).toBe(405)
+    expect(codeOf(probe)).toBe('web-method-not-allowed')
+  })
+
+  it('TA-42-4 auditor 调 POST /api/turn → 403 web-forbidden（角色门在 CSRF 之前）', async () => {
+    const deps = makeDeps({ auth: fixedRuntime(identityWith('auditor')) })
+    // 故意不给 Origin / CSRF：角色 403 必须先生效（否则越权意图会被 CSRF 的 403 掩盖）
+    const probe = await call('POST', '/api/turn', { deps, body: '{"text":"查余额"}' })
+    expect(probe.status).toBe(403)
+    expect(codeOf(probe)).toBe('web-forbidden')
+  })
+
+  it('TA-42-4b auditor 能读 /api/session（被禁的是写，不是读）', async () => {
+    const deps = makeDeps({ auth: fixedRuntime(identityWith('auditor')) })
+    expect((await call('GET', '/api/session', { deps })).status).toBe(200)
+  })
+
+  it('TA-42-5 customer 调 /api/handoff/resume → 403；agent 放行到业务层（409）', async () => {
+    const customer = makeDeps({ auth: fixedRuntime(identityWith('customer')) })
+    const forbidden = await call('POST', '/api/handoff/resume', {
+      deps: customer,
+      headers: { ...SAME_ORIGIN },
+      body: '{}',
+    })
+    expect(forbidden.status).toBe(403)
+    expect(codeOf(forbidden)).toBe('web-forbidden')
+
+    const agent = makeDeps({ auth: fixedRuntime(identityWith('agent')) })
+    const allowed = await call('POST', '/api/handoff/resume', {
+      deps: agent,
+      headers: { ...SAME_ORIGIN },
+      body: '{}',
+    })
+    // 放行后由状态机回答：当前没接管 → 409（不是 403）
+    expect(allowed.status).toBe(409)
+    expect(codeOf(allowed)).toBe('handoff-not-active')
+  })
+
+  it('TA-42-6 已认证的未知 POST /api/* → 405（授权放行，方法兜底仍生效）', async () => {
+    const probe = await call('POST', '/api/unknown', { headers: AUTHED, body: '{}' })
+    expect(probe.status).toBe(405)
+    expect(codeOf(probe)).toBe('web-method-not-allowed')
+  })
+
+  it('TA-46-1 审批先写 approval/actor、再 decide（顺序不可反）', async () => {
+    const calls: string[] = []
+    const deps = makeDeps({
+      auth: fixedRuntime(identityWith('customer')),
+      adapter: {
+        decide: () => {
+          calls.push('decide')
+          return { ok: true }
+        },
+        verify: () => Promise.resolve({ ok: true }),
+        attachApproval: () => undefined,
+        dispose: () => undefined,
+        pendingTickets: () => ['t-1'],
+        inbound: ({ text }: { text: string }) => ({ text }),
+      } as never,
+      tryAudit: () =>
+        ({
+          append: () => undefined,
+          appendActor: (ticketId: string, actor: { userId: string }) => {
+            calls.push(`actor:${actor.userId}:${ticketId}`)
+          },
+          verifyAll: () => [],
+        }) as never,
+    })
+    const probe = await call('POST', '/api/approval/t-1', {
+      deps,
+      headers: { ...SAME_ORIGIN },
+      body: '{}',
+    })
+    expect(probe.status).toBe(200)
+    expect(calls).toEqual(['actor:u-1:t-1', 'decide'])
+  })
+
+  it('TA-46-1b 合成服务主体（static 模式 svc:web）不写 approval/actor：机器决策不冒充人', async () => {
+    const calls: string[] = []
+    const deps = makeDeps({
+      tryAudit: () =>
+        ({
+          append: () => undefined,
+          appendActor: (ticketId: string) => calls.push(ticketId),
+          verifyAll: () => [],
+        }) as never,
+    })
+    const probe = await call('POST', '/api/approval/t-1', {
+      deps,
+      headers: AUTHED,
+      body: '{}',
+    })
+    expect(probe.status).toBe(200)
+    expect(calls).toEqual([])
+  })
+
+  it('TA-46-1c 未知票号不写 actor（防已认证用户刷长审计链）', async () => {
+    const calls: string[] = []
+    const deps = makeDeps({
+      auth: fixedRuntime(identityWith('customer')),
+      tryAudit: () =>
+        ({
+          append: () => undefined,
+          appendActor: (ticketId: string) => calls.push(ticketId),
+          verifyAll: () => [],
+        }) as never,
+    })
+    // 默认 adapter 的 pendingTickets 为空 → 没有"待答票据"
+    const probe = await call('POST', '/api/approval/t-nope', {
+      deps,
+      headers: { ...SAME_ORIGIN },
+      body: '{}',
+    })
+    expect(probe.status).toBe(200)
+    expect(calls).toEqual([])
   })
 })
 

@@ -142,6 +142,7 @@ function makeHarness(options: { mode?: 'password' | 'static'; now?: () => number
     ensureDriver: () => undefined,
     trySentry: () => undefined,
     tryHalt: () => undefined,
+    tryAudit: () => undefined,
     tryTelemetry: () => undefined,
     staticRoot: 'apps/web',
     indexPath: join('apps/web', 'index.html'),
@@ -450,6 +451,7 @@ describe('TA-30 · 认证事实进审计链（不是会话事件）', () => {
       append: (entry: { type: string; data: unknown; subject: string; decision: string }) => {
         entries.push(entry)
       },
+      appendActor: () => undefined,
       verifyAll: () => [],
     })
     const runtime = createWebAuthRuntime({

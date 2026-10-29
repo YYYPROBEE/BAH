@@ -9,8 +9,13 @@
  * 1. 探活（唯一公开 API）→ 2. 管理面（自己的 admin token，先于 Web 凭证）→
  * 3. 业务路由 → 4. 静态兜底（吃掉所有 GET/HEAD）。
  *
+ * `roles` / `scope` 是 03 的增量（TA-40）：**只加字段，不改 `auth`**。
+ * 角色判定只在 `authz/authorize.ts` 一处（Z1），本表只声明"谁能进"。
+ *
  * `docs/web-frontend.md` §7 的表由本文件生成（`scripts/web-routes.ts`），手写会分叉。
  */
+
+import { BahError, ROLES, type Role } from '@bah/util'
 
 /** 本渠道认的方法（够用即止，不引第三方路由框架 —— 宪法 R-2）。 */
 export type HttpMethod = 'GET' | 'HEAD' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
@@ -58,6 +63,23 @@ export interface RouteSpec {
    */
   readonly statuses: readonly number[]
   readonly handler: RouteHandler
+  /**
+   * 允许的角色（03 TA-40）。缺省 = 任何已认证主体都行（**不是**"全放行"）。
+   *
+   * `auth !== 'web'` 的路由一律不写：公开路由没有主体，管理面走自己的 token（双因子），
+   * 静态资源没有主体概念。`assertRouteRoles` 在模块加载期校验取值与顺序。
+   */
+  readonly roles?: readonly Role[]
+  /**
+   * 资源归属要求（03 TA-40）。`'self'` = 目标票据必须属于该主体。
+   *
+   * **声明式，当前没有执行者**：`authorize()` 不读它，审计与门禁也还没消费。
+   * 真正的归属判定在渠道适配器（它握着 `pending` 表），状态码沿用 403 `foreign-ticket`；
+   * 保留这个字段的价值是把"这条路由要求归属"钉进契约，供评审与后续消费者使用。
+   * 复审 AR-02：把它改成 404 只会毁掉 `web.test.ts` 的 403 基线，而 `foreign-ticket`
+   * 在当前形态下不可达。
+   */
+  readonly scope?: 'self' | 'any'
   /** 一句话语义（进 `docs/web-frontend.md` 的生成表，不手写）。 */
   readonly note: string
   /** 文档里展示的路径（前缀路由带参数名）；缺省用 `path` 原文。 */
@@ -125,6 +147,7 @@ export const ROUTES: readonly RouteSpec[] = [
     csrf: false,
     statuses: [200, 401],
     handler: 'me',
+    roles: ROLES,
     note: '自查：`{ tenant, userId, roles, expiresAt, mode }`（**不回 sid**）',
   },
   {
@@ -179,6 +202,7 @@ export const ROUTES: readonly RouteSpec[] = [
     csrf: false,
     statuses: [200, 401],
     handler: 'session',
+    roles: ROLES,
     note: '会话与能力位：`{ sessionId, lastSeq, capabilities }`',
   },
   {
@@ -190,7 +214,8 @@ export const ROUTES: readonly RouteSpec[] = [
     // 503 = SSE 连接数达到上限（D1：拒绝而不是"200 之后静默不推帧"）
     statuses: [200, 400, 401, 503],
     handler: 'events',
-    note: 'SSE：先全量快照，再推 frame / delta / 心跳注释；凭证可用 `?token=`；连接满 → 503',
+    roles: ROLES,
+    note: 'SSE：先全量快照，再推 frame / delta / 心跳注释；static 模式凭证可用 `?token=`（password 模式只认 cookie）；连接满 → 503',
   },
   {
     methods: ['GET'],
@@ -201,6 +226,7 @@ export const ROUTES: readonly RouteSpec[] = [
     // D2：单机指标（从会话事件现算；不出原文，不是分布式监控）
     statuses: [200, 401],
     handler: 'metrics',
+    roles: ROLES,
     note: '单机指标：turn / 工具成功失败 / 审批分布 / token 与成本 / 工具耗时分位 / SSE 连接数',
   },
   {
@@ -211,6 +237,9 @@ export const ROUTES: readonly RouteSpec[] = [
     csrf: true,
     statuses: [202, 400, 401, 403, 423, 503],
     handler: 'turn',
+    // agent 不在此列：接管期间 `/api/turn` 本来就 409，给角色也只会得到误导性文案；
+    // 坐席"代为说话"改成走 handoff 摘要 + 自己的渠道（03 §2.2 设计理由 2）
+    roles: ['customer', 'admin'],
     note: '提交一轮输入 `{ text }` → 入队并驱动；202 = 已入队，HALT 期间 423',
   },
   {
@@ -221,6 +250,7 @@ export const ROUTES: readonly RouteSpec[] = [
     csrf: true,
     statuses: [200, 401, 403, 503],
     handler: 'interrupt',
+    roles: ['customer', 'agent', 'admin'],
     note: '打断当前 turn `{ reason? }`（理由进审计）',
   },
   {
@@ -231,6 +261,9 @@ export const ROUTES: readonly RouteSpec[] = [
     csrf: true,
     statuses: [200, 400, 401, 403, 404, 409],
     handler: 'approval',
+    roles: ['customer', 'agent', 'admin'],
+    // 票据是最容易跨会话重放的对象：归属由适配器按主体再判一次（仍是 403 foreign-ticket）
+    scope: 'self',
     note: '提交审批结论 `{ decision, reason? }`；跨会话票据 403',
     display: '/api/approval/:ticketId',
   },
@@ -242,6 +275,8 @@ export const ROUTES: readonly RouteSpec[] = [
     csrf: true,
     statuses: [200, 400, 401, 403, 404],
     handler: 'verify',
+    roles: ['customer', 'agent', 'admin'],
+    scope: 'self',
     note: '红级票据的强验证（挑战由 VerifyService 签发）',
     display: '/api/verify/:ticketId',
   },
@@ -254,6 +289,7 @@ export const ROUTES: readonly RouteSpec[] = [
     // C5：人工侧读取接管摘要（只读；持 Web 凭证即可，单用户部署）
     statuses: [200, 401],
     handler: 'handoff',
+    roles: ROLES,
     note: '人工接管摘要：`{ active, sessionId, lastSeq, turns, pendingTickets, messages[], reason?, at? }`',
   },
   {
@@ -265,6 +301,7 @@ export const ROUTES: readonly RouteSpec[] = [
     // 409 = 已经在接管中（重复请求不刷新 `at`，否则"等了多久"失真）
     statuses: [200, 400, 401, 403, 409],
     handler: 'handoff',
+    roles: ['customer', 'agent', 'admin'],
     note: '请求人工接管 `{ reason? }`：之后 `/api/turn` 一律 409，模型不再自动驱动',
   },
   {
@@ -275,7 +312,9 @@ export const ROUTES: readonly RouteSpec[] = [
     csrf: true,
     statuses: [200, 400, 401, 403, 409],
     handler: 'handoff',
-    note: '交回会话 `{ operator? }`；未接管时 409——不做"幂等成功"，交回必须是真的一次状态转移',
+    // 交回是坐席的动作；客户的"算了"走 `/api/interrupt`（03 §2.2 设计理由 3）
+    roles: ['agent', 'admin'],
+    note: '交回会话（操作者从登录主体派生，body 不接受 `operator`）；未接管时 409——不做"幂等成功"，交回必须是真的一次状态转移',
   },
   {
     // 静态兜底：吃掉所有 GET/HEAD（含未知 `/api/*`，它们会被解析成 404 而不是 405）
@@ -291,6 +330,50 @@ export const ROUTES: readonly RouteSpec[] = [
     display: '/*',
   },
 ]
+
+/**
+ * 校验 `roles` 声明（03 TA-40；模块加载期跑一遍）。
+ *
+ * 三条判据：**非空**、**取值合法**、**按 `ROLES` 固定序**。
+ * 固定序不是洁癖：主体序列化要对它算哈希，`['agent','customer']` 与
+ * `['customer','agent']` 语义相同却字节不同，审计链会把它当两个主体。
+ */
+export function assertRouteRoles(path: string, roles: readonly Role[] | undefined): void {
+  if (roles === undefined) return
+  if (roles.length === 0) {
+    throw new BahError(
+      'web-invalid-route',
+      `${path}: roles 不允许空数组（不声明 = 任何已认证主体；要拒绝全部请删掉路由）`,
+    )
+  }
+  const seen = new Set<Role>()
+  let lastIndex = -1
+  for (const role of roles) {
+    const index = ROLES.indexOf(role)
+    if (index < 0) {
+      throw new BahError('web-invalid-route', `${path}: 未知角色 ${JSON.stringify(role)}`)
+    }
+    if (seen.has(role)) {
+      throw new BahError('web-invalid-route', `${path}: 角色重复 ${role}`)
+    }
+    if (index <= lastIndex) {
+      throw new BahError(
+        'web-invalid-route',
+        `${path}: roles 必须按 ROLES 序（customer, agent, auditor, admin），收到 ${roles.join(',')}`,
+      )
+    }
+    lastIndex = index
+    seen.add(role)
+  }
+}
+
+// 模块加载期自检：路由表写错是**开发期错误**，不许活到第一次请求。
+for (const route of ROUTES) {
+  if (route.auth !== 'web' && route.roles !== undefined) {
+    throw new BahError('web-invalid-route', `${route.path}: auth=${route.auth} 的路由不许声明 roles`)
+  }
+  assertRouteRoles(route.path, route.roles)
+}
 
 /** 命中的路由。 */
 export interface RouteMatch {

@@ -446,6 +446,56 @@ describe('W08 · 会话级证据链', () => {
   })
 })
 
+describe('03 TA-46 · 审批主体入链（不新增会话事件键）', () => {
+  it('appendActor 先于 approval/decided；主体只含 tenant/user/roles（无 password/cookie/sid）', async () => {
+    const dir = root()
+    const sessionId = 's-actor-chain'
+    const app = await bootWith({ dir, sessionId, seen: [], script: [{ text: '你好' }] })
+    try {
+      const audit = app.ctx.get(DECISION_AUDIT)
+      audit.appendActor('t-1', { tenantId: 'demo', userId: 'u-1', roles: ['customer'] }, 100)
+      audit.append({
+        type: 'approval/decided',
+        data: { ticketId: 't-1', callId: 'c-1', decision: 'allowed-once', at: 101 },
+        subject: `session:${sessionId}`,
+        decision: 'allow',
+        policyVersion: 'approval-policy/1',
+      })
+
+      const rows = chainOf(dir, sessionId)
+      const types = rows.map((row) => row['t'])
+      const actorIndex = types.indexOf('approval/actor')
+      const decidedIndex = types.indexOf('approval/decided')
+      expect(actorIndex).toBeGreaterThanOrEqual(0)
+      expect(decidedIndex).toBeGreaterThan(actorIndex)
+
+      const actorRow = rows[actorIndex]!
+      expect(actorRow['subject']).toBe('principal:demo/u-1')
+      expect(actorRow['decision']).toBe('allow')
+      expect(actorRow['policyVersion']).toBe('auth-session/1')
+      const text = JSON.stringify(actorRow)
+      expect(text).not.toMatch(/password|cookie|sid/i)
+      // 链行只存 `d = sha256(canonicalJson(data))`：用同一算法复算，证明载荷形状
+      expect(actorRow['d']).toBe(
+        sha256Hex(
+          canonicalJson({
+            ticketId: 't-1',
+            tenantId: 'demo',
+            userId: 'u-1',
+            roles: ['customer'],
+            at: 100,
+          }),
+        ),
+      )
+
+      const verify = createSagaAudit({ now: () => 1, rootDir: join(dir, 'demo'), fsync: false })
+      expect(verify.verifyContinuity(sessionId)).toEqual({ ok: true })
+    } finally {
+      await app.dispose('test')
+    }
+  })
+})
+
 describe('audit:decisions 配置（签名私钥路径）', () => {
   /**
    * 为什么补：`signingKeyPath` 是唯一能改变"哪些条目会被签名"的配置。

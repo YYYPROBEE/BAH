@@ -11,12 +11,20 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import { describeThrown } from '@bah/core'
+import type { Principal } from '@bah/util'
 
 import type { WebDeps, WebRequest } from '../deps.ts'
 import { readBodyString, readJson, sendError, sendJson } from '../http.ts'
 
 /** 交回路由的精确路径（与 `router.ts` 的同名常量同源，这里只做本地判别）。 */
 const RESUME_PATH = '/api/handoff/resume'
+
+/** 本次请求的主体（匿名 / 未挂身份 → `undefined`）。 */
+function principalOf(request: WebRequest): Principal | undefined {
+  const identity = request.identity
+  if (identity === undefined || identity.kind === 'anonymous') return undefined
+  return identity.principal
+}
 
 export async function handleHandoff(
   req: IncomingMessage,
@@ -37,8 +45,13 @@ export async function handleHandoff(
       sendError(res, 400, 'web-invalid-body', describeThrown(error))
       return
     }
-    const operator = readBodyString(body, 'operator')
-    const result = deps.handoff.resume(operator)
+    // 交回没有 body 契约：操作者来自登录主体。带任何字段都是客户端在自报身份。
+    const forged = Object.keys(body)[0]
+    if (forged !== undefined) {
+      sendError(res, 400, 'web-invalid-body', `未知字段：${forged}（操作者从登录主体派生）`)
+      return
+    }
+    const result = deps.handoff.resume(principalOf(request)?.userId)
     if (!result.ok) {
       sendError(res, 409, result.code, '会话当前不在人工接管中，无需交回')
       return
@@ -54,8 +67,15 @@ export async function handleHandoff(
     sendError(res, 400, 'web-invalid-body', describeThrown(error))
     return
   }
+  // 主体字段一律从登录态派生；body 里出现任何非 reason 字段就是 400（03 TA-45）
+  const forged = Object.keys(body).find((key) => key !== 'reason')
+  if (forged !== undefined) {
+    sendError(res, 400, 'web-invalid-body', `未知字段：${forged}（操作者从登录主体派生）`)
+    return
+  }
   const reason = readBodyString(body, 'reason')
-  const result = deps.handoff.enter(reason)
+  // 谁请求的接管：登录主体（03 TA-45），不接受 body 自报
+  const result = deps.handoff.enter(reason, principalOf(request)?.userId)
   if (!result.ok) {
     sendError(
       res,

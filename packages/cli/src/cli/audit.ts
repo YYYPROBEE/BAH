@@ -14,6 +14,10 @@ import { ChainFile, buildChainAudit, createSagaAudit } from '@bah/persistence'
 import { runAuditReplay } from './audit-replay.ts'
 import { buildAnchorsAudit, type AnchorEntry } from './audit-anchors.ts'
 import {
+  joinApprovalActors,
+  type ApprovalJoinRow,
+} from './audit-approvals.ts'
+import {
   projectionDiffFor,
   projectionFor,
   type ProjectionAudit,
@@ -75,6 +79,10 @@ export interface AuditReport {
   readonly chains: readonly ChainReport[]
   readonly anchors: readonly AnchorEntry[]
   readonly reverseGaps: readonly string[]
+  /** 票据 → 结论 → 操作者（03 TA-46）；只读联接，不影响退出码。 */
+  readonly approvals: readonly ApprovalJoinRow[]
+  /** 联接告警（含"人批必有主"缺主行）；告警不改 `exitCode`。 */
+  readonly approvalWarnings: readonly string[]
   readonly errors: readonly string[]
   readonly dbState: ProjectionAudit['dbState']
   readonly ok: boolean
@@ -294,7 +302,8 @@ export async function runAudit(
     }
   }
   const anchors = buildAnchorsAudit(anchorRows, chainDir)
-  const report = makeReport(chainDir, dbPath, results, projection, anchors, errors)
+  const approvals = joinApprovalActors(rows)
+  const report = makeReport(chainDir, dbPath, results, projection, anchors, errors, approvals)
 
   // W08 §1.3：断链必须在 **stderr** 明确点名（事件名 + 链 + 条目），不能只藏在人读输出里。
   // 退出码由 `exitCodeOf` 统一给出（断链 = 1）；这里只补告警面。
@@ -333,6 +342,7 @@ function makeReport(
   projection: ProjectionAudit,
   anchors: ReturnType<typeof buildAnchorsAudit>,
   errors: readonly string[],
+  approvals: ReturnType<typeof joinApprovalActors>,
 ): AuditReport {
   const chains: ChainReport[] = results.map((result) => {
     const entry = projection.bySaga.get(result.sagaId) ?? { state: 'runtime-missing', diff: null }
@@ -345,6 +355,8 @@ function makeReport(
     chains,
     anchors: anchors.entries,
     reverseGaps: projection.reverseGaps,
+    approvals: approvals.rows,
+    approvalWarnings: approvals.warnings,
     errors,
     dbState: projection.dbState,
     ok: exitCode === 0,
@@ -417,6 +429,20 @@ export function renderText(report: AuditReport): string {
   }
   for (const anchor of report.anchors) {
     lines.push(`锚定 ${anchor.period} ${anchor.state}`)
+  }
+  // 票据 → 结论 → 操作者（03 TA-46）：机器决策标 `machine`，不冒充"有人批的"
+  for (const approval of report.approvals) {
+    const decision = approval.decision ?? '未决'
+    const actor =
+      approval.actor === undefined
+        ? approval.decision === undefined
+          ? '未决'
+          : 'machine'
+        : approval.actor.userId
+    lines.push(`审批 ${approval.ticketId} → ${decision} → ${actor}`)
+  }
+  for (const warning of report.approvalWarnings) {
+    lines.push(`告警：${warning}`)
   }
   if (report.reverseGaps.length > 0) {
     lines.push(`反向缺口：${report.reverseGaps.join(', ')}`)

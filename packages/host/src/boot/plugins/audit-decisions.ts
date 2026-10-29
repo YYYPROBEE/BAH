@@ -30,7 +30,7 @@ import { defineService, type Context } from '@bah/core'
 import type { BankSessionEventMap } from '@bah/bank'
 import { ChainFile, SIGNED_TYPES, createSagaAudit, toolResultSummaryOf } from '@bah/persistence'
 import type { ChainDecision } from '@bah/persistence'
-import { BahError, reasonOf } from '@bah/util'
+import { BahError, reasonOf, type Role } from '@bah/util'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
@@ -48,15 +48,23 @@ export const APPROVAL_POLICY_VERSION = 'approval-policy/1'
  */
 export const AUTH_POLICY_VERSION = 'auth-session/1'
 
-/** 链上允许的条目类型（判决三类 + 认证四类）。 */
+/** 链上允许的条目类型（判决三类 + 认证四类 + 审批主体一类）。 */
 export type DecisionEntryType =
   | 'sentry/decision'
   | 'approval/decided'
+  | 'approval/actor'
   | 'policy/decision'
   | 'auth/login'
   | 'auth/logout'
   | 'auth/login-failed'
   | 'auth/login-locked'
+
+/** 审批操作者（03 TA-46）：`approval/actor` 的载荷。 */
+export interface ApprovalActor {
+  readonly tenantId: string
+  readonly userId: string
+  readonly roles: readonly Role[]
+}
 
 /** 缺省私钥路径（与 `bank:saga-audit` 同源；演示/CI 通常不存在）。 */
 const DEFAULT_SIGNING_KEY_PATH = 'keys/saga-ed25519.pem'
@@ -112,6 +120,13 @@ declare module '@bah/core' {
 export interface DecisionAudit {
   /** 写一条 v2 判决到当前会话链。 */
   append(entry: DecisionChainEntry): void
+  /**
+   * 记一条"这次审批是谁按的"（03 TA-46）。
+   *
+   * **必须写在 `approval/decided` 之前**：链上先有 actor 再有 decided 才说明"人批的"；
+   * 只有 decided 是合法的另一态——超时 / 无人值守的 `unavailable`，报告里标 `machine`。
+   */
+  appendActor(ticketId: string, actor: ApprovalActor, at: number): void
   /** 只验连续性（不读密钥）：启动时扫全部链。 */
   verifyAll(): readonly ChainBreak[]
 }
@@ -200,6 +215,28 @@ export const auditDecisionsPlugin: HostPlugin<AuditDecisionsSettings> = {
               decision: entry.decision,
               policyVersion: entry.policyVersion,
             })
+          },
+          appendActor(ticketId, actor, at) {
+            // 载荷里不放口令 / cookie / sid：只有租户、用户、角色与时刻。
+            // 链行本身已经带 `tenant`（01 TA-15），载荷里再写一份是为了让
+            // `bah audit` 只读单行也能回答"这是哪个租户的谁"。
+            audit.append(
+              chainId,
+              'approval/actor',
+              {
+                ticketId,
+                tenantId: actor.tenantId,
+                userId: actor.userId,
+                roles: actor.roles,
+                at,
+              },
+              undefined,
+              {
+                subject: `principal:${actor.tenantId}/${actor.userId}`,
+                decision: 'allow',
+                policyVersion: AUTH_POLICY_VERSION,
+              },
+            )
           },
           verifyAll() {
             const breaks: ChainBreak[] = []

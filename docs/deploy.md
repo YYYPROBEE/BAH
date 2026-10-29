@@ -60,7 +60,8 @@ pnpm install          # 同时把 core.hooksPath 指到 .githooks
 | `DEEPSEEK_API_KEY` | 否（仅其他 profile 用 deepseek 时） | 模型插件的缺省 `apiKeyEnv` | 同上 |
 | `BAH_KNOWLEDGE_KEY` | 装配 `bank:knowledge` 时必需（W06） | 知识库签名清单的 HMAC 密钥；演示/CI 用公开的 `demo-key-not-for-prod` | 知识插件启动期报 `invalid-config`（无默认密钥） |
 | `BAH_WEB_TOKEN` | 否 | `/api/*` 的 Bearer token | 每进程随机生成，注入 `index.html` 的 meta；页面能用，手打 API 需自己取 |
-| `BAH_ADMIN_TOKEN` | 否 | 管理路由 `POST /api/admin/sentry/unfreeze` 的唯一凭据 | **路由不存在（404）**，无法远程解冻断路器 |
+| `BAH_ADMIN_TOKEN` | 否 | 管理路由的**单 token** 凭据（兼容形态；操作员记为 `admin`） | 与下一项都没设 → **路由不存在（404）**，无法远程解冻断路器 |
+| `BAH_ADMIN_OPERATORS` | 否 | 多操作员 JSON：`[{"id":"ops-li","token":"…"}]`；优先于 `BAH_ADMIN_TOKEN`，解冻的 `by` 从命中 token 派生 | 未设则回落到 `BAH_ADMIN_TOKEN`；坏 JSON 会让管理面 **503（fail-closed）** |
 | `NODE_ENV` | 否 | 设为 `production` 时，sentry 的 `trace.sink=stderr` 会在启动期 fail-loud | 开发默认允许 stderr |
 
 sentry 的 `trace.sink` **没有缺省值**（W08）：三个可运行 profile 都已显式写 `session`。
@@ -89,8 +90,9 @@ RAG 的 `BAH_KNOWLEDGE_TOKEN` 是另一回事（见 `docs/knowledge.md`）：sid
 # 终端 A：带 token 起 Web（没设就 404）
 BAH_ADMIN_TOKEN=<一串随机值> pnpm demo:web
 
-# 终端 B：解冻
-BAH_ADMIN_TOKEN=<同一串> pnpm bah sentry unfreeze --by ops-1 --reason "客服复核：误报"
+# 终端 B：解冻（03 起不再有 --by：操作者由命中的 token 派生）
+# 宿主用 BAH_ADMIN_OPERATORS 时，这里的 BAH_ADMIN_TOKEN 填该操作员的 token
+BAH_ADMIN_TOKEN=<同一串> pnpm bah sentry unfreeze --reason "客服复核：误报"
 ```
 
 - 只绑回环：非 `127.0.0.0/8` / `::1` 来源一律 403；

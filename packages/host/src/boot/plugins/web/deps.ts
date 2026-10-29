@@ -19,6 +19,7 @@ import type { TenantId } from '@bah/util'
 
 import type { HandoffHandle } from './handoff.ts'
 import type { TelemetryHandle } from '../telemetry.ts'
+import type { DecisionAudit } from '../audit-decisions.ts'
 import type { createRateLimiter } from '../web-rate-limit.ts'
 import type { SseHub } from './sse.ts'
 import type { AuthRuntime, RequestIdentity } from './auth/index.ts'
@@ -64,6 +65,13 @@ export interface WebDeps {
   readonly trySentry: () => SentryHandle | undefined
   /** 惰性取 HALT（同上）。 */
   readonly tryHalt: () => HaltHandle | undefined
+  /**
+   * 惰性取审计链（03 TA-46：审批操作者入链）。
+   *
+   * 同样**不进** `inject`：没装 `audit:decisions` 的 profile 必须照常起。
+   * 缺失时"谁批的"只存在于会话事件里，`bah audit` 会标 `machine`——不静默冒充成功。
+   */
+  readonly tryAudit: () => DecisionAudit | undefined
   /**
    * 惰性取遥测（可观测性 01）。
    *

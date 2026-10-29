@@ -150,4 +150,13 @@ describe('C5 人工接管状态机', () => {
     h.setEvents(many)
     expect(h.handoff.summary().messages).toHaveLength(6)
   })
+
+  it('TA-45 进入时记录 requestedBy（来自服务端派生的主体）', () => {
+    const h = harness()
+    h.handoff.enter('客户要求人工', 'u-1')
+    expect(h.events[0]).toMatchObject({
+      type: 'handoff/requested',
+      data: { reason: '客户要求人工', requestedBy: 'u-1' },
+    })
+  })
 })

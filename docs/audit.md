@@ -20,7 +20,7 @@
 | 链 | 目录 | 写入方 | 条目 |
 |---|---|---|---|
 | saga 链 | `<root>/<sagaId>/audit.jsonl` | `bank:saga-audit` | `saga/*`（编排、补偿、恢复） |
-| 会话证据链 | `<root>/<sessionId>/audit.jsonl` | `audit:decisions` | `tool/call`（v1）、`tool/result`（v1 **摘要**：`{callId,name,isError,code,durationMs}`，B4）、`sentry/decision`（v2）、`approval/decided`（v2）、`policy/decision`（v2）、`auth/login` / `auth/logout` / `auth/login-failed` / `auth/login-locked`（v2，租户与鉴权 02 的**认证事实**；失败条目只存 `userIdHash`，不存明文） |
+| 会话证据链 | `<root>/<sessionId>/audit.jsonl` | `audit:decisions` | `tool/call`（v1）、`tool/result`（v1 **摘要**：`{callId,name,isError,code,durationMs}`，B4）、`sentry/decision`（v2）、`approval/decided`（v2）、`approval/actor`（v2，租户与鉴权 03 的**审批操作者**；载荷 `{ticketId,tenantId,userId,roles,at}` 只进 `d` 摘要，链行上可读的是 `sub`=票据、`subject=principal:<tenant>/<user>`）、`policy/decision`（v2）、`auth/login` / `auth/logout` / `auth/login-failed` / `auth/login-locked`（v2，租户与鉴权 02 的**认证事实**；失败条目只存 `userIdHash`，不存明文） |
 
 `audit:decisions` 在 boot 期拒绝占用编排链命名空间的会话 ID：`saga-*` 与 `system-startup`
 是保留名（否则两类条目会写进同一个 `audit.jsonl`）。换一个会话 ID 即可，不是环境坏了。

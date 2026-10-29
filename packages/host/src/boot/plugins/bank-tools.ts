@@ -436,6 +436,8 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         ctx,
         sessionId: run.sessionId,
         deps,
+        // 03 TA-47：工具入口的租户闸用进程租户核对会话绑定时的租户
+        tenantId: String(run.tenantId),
         lifecycle: tickets,
         policy: mode === 'bundle' ? () => findPolicyEngine(ctx) : (inlinePolicy ?? undefined),
         policyEngineMode: mode,
