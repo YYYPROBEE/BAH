@@ -6155,3 +6155,60 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 - 01 判定：**复审通过**。唯一实质风险 F-01 不属 01（共用适配器语义），但成为 **02 开工前置**。
 - 证据命令：`pnpm exec vitest run packages/channels packages/host`（87 文件 / 1016 例）、
   `pnpm gate`（50/50）、`pnpm test:snapshot`（9/39）、`pnpm exec tsx scripts/verify-observability.ts`（负控后红）。
+
+---
+
+## 96.42 IM 网关 02 · 通用网关与微信适配器（2026-10-30）
+
+### 96.42.1 出口标准（施工单 02 §0）
+
+| # | 标准 | 证据 |
+|---|---|---|
+| 1 | 通用路由可启动：`GET /healthz` 200；`/im/:platform/:accountKey` 由注册表分派；未知平台/账号 404 | `gateway-flow.test.ts` 的「HTTP 路由」7 例 |
+| 2 | `PlatformAdapter` 契约唯一实现点；微信与 Mock 跑同一套契约测试 | `platform-contract.test.ts` 16 例（`describe.each` 双实现）；门禁 G13 |
+| 3 | mock 端到端：入站 → 子进程 `/api/turn` → SSE 帧 → 出站回复 | `gateway-flow.test.ts` + `fake-child.ts` |
+| 4 | 一平台用户一子进程；跨平台不撞会话；重启可回放 | `supervisor.test.ts` 14 例（复用/并发单飞/跨平台/崩溃重启/回收） |
+| 5 | 验签常量时间、时间戳窗口、DTD 拒绝、报文上限、去重、限流、用户标识不落日志 | `channels/im/protocol/*.test.ts`（76 例）+ 门禁 G2/G3/G7 |
+| 6 | 推送降级：客服消息不可用 → 拉取式，用户发 `0` 取回 | `deliverTurn` 7 例 + `handleInbound` 的 fetch-latest 例 |
+| 7 | 真机 D0 有书面结论 | **未执行**（Q1 缺凭据）；`docs/wechat-setup.md` §D0.5 模板 + `docs/evidence/2026-11-im-gateway/` 已登记 |
+| 8 | 生产 registry 只注册 `wechat`；Mock 只在测试 harness | 门禁 G11/G12 |
+| 9 | `verify-im-gateway` 全绿且负控可红 | G1–G13 全绿；负控见 §96.42.4 |
+
+### 96.42.2 实跑数字
+
+- `pnpm test`：**309 文件 / 3542 例**全绿（02 新增 9 文件 / 162 例）。
+- `pnpm typecheck`：0 error（host + client + scripts 三套）。
+- `pnpm lint`：0 error。
+- `pnpm gate`：**51/51**（新增 `verify-im-gateway`）。
+- `channels/im/**` 覆盖率：行/语句/函数 **100%**，分支 ≥ 89.74%（阈值 80%）。
+- `pnpm test:coverage` 全仓仍有既有欠账（`host/web/{auth,handlers,csrf,config,router,handoff*}` 低于 100%），
+  与 01 单登记一致；本单未引入新的低于 100% 文件。
+
+### 96.42.3 与施工单的偏差（同批登记 `docs/im-gateway.md` §5）
+
+| # | 偏差 | 理由 |
+|---|---|---|
+| 1 | `createRegistry(adapters, accounts?)` 增加第二参数 | 契约无 `accountKey`；账号清单由装配注入 |
+| 2 | 02 只接线 `0`（拉取）；审批指令按普通文本转发 | 审批语义属 03，提前消费会形成第二套真相 |
+| 3 | D0 未执行 | Q1 凭据未提供；Mock + 假微信 API 已自动化验证 |
+| 4 | `apps/im-gateway` 不进覆盖率强制名单 | `COVERAGE_ALLOWLIST` 只认 `packages/*`；判决面在 `channels/im` |
+| 5 | 新增日志码 `im-gateway-start` | §2.15 表缺"网关启动"事件 |
+| 6 | 订阅 SSE 后最多等 500ms | 先 turn 后订阅会丢第一条回复 |
+| 7 | 重启上限按 `firstStartAt` 的 10 分钟窗口 | §2.11 原文，不随重启重置 |
+| 8 | 就绪探针文件改名 `ready.ts`（原本 `handshake.ts`） | `'./handshake.ts'` 含子串 `dsh`，被 `verify-no-upstream-imports` 正则误判；零语义规避 |
+
+### 96.42.4 负控（门禁可红）
+
+| # | 注入 | 结果 |
+|---|---|---|
+| G1 | `config.ts` 写入形如真实 AppID 的字面量 | `verify-im-gateway` 红（G1），已还原 |
+| G5 | overlay 的 `host` 改成 `0.0.0.0` | 红（G5），已还原 |
+| G7 | `turn.ts` 的 `log.warn` 带 `userId` | 红（G7），已还原 |
+| G10 | `server.ts` import `parseWechatXml` | 红（G10），已还原 |
+| G11 | `main.ts` 注册 mock | 红（G11），已还原 |
+| G13 | apps 里复制 `interface PlatformAdapter` | 红（G13），已还原 |
+
+### 96.42.5 结论
+
+02 出口九条中八条有实跑证据；第 7 条（真机 D0）因 Q1 凭据缺失**如实登记为未执行**，
+不以 Mock 结果冒充真机。03 开工前置：拿到凭据后补 D0，并把 `BAH_IM_PUSH_MODE` 的默认值按实测结论定稿。

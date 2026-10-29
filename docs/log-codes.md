@@ -46,6 +46,21 @@
 | `telemetry.span-log-relative` | warn | `packages/host/src/boot/plugins/telemetry.ts` | 相对路径的实际落点 |
 | `telemetry.env-invalid` | warn | `packages/host/src/boot/plugins/telemetry.ts` | 遥测环境变量非法被忽略 |
 | `logging.env-invalid` | warn | `packages/util/src/logging.ts` | 日志级别环境变量非法，回落 info |
+| `im-gateway-start` | info | `apps/im-gateway/src/main.ts` | 网关开始监听（只打端口与平台数量） |
+| `im-platform-unknown` | warn | `apps/im-gateway/src/server.ts` | 未知 platform/account（404） |
+| `im-sig-invalid` | warn | `apps/im-gateway/src/server.ts` | 微信验签失败（只给细分 code，不含期望值） |
+| `im-xml-rejected` | warn | `apps/im-gateway/src/server.ts` | DTD/超长/缺字段等报文拒绝 |
+| `im-duplicate` | info | `apps/im-gateway/src/bridge/turn.ts` | platform+msgId 去重命中 |
+| `im-child-start` | info | `apps/im-gateway/src/session/supervisor.ts` | spawn 子进程（只打 sessionKey/pid/port） |
+| `im-child-ready` | info | `apps/im-gateway/src/session/supervisor.ts` | health 200 + CSRF 握手成功 |
+| `im-child-exit` | warn | `apps/im-gateway/src/session/supervisor.ts` | 非预期退出 / 重启耗尽 |
+| `im-child-reap` | info | `apps/im-gateway/src/session/supervisor.ts` | 闲置回收 / 主动停止 |
+| `im-turn-failed` | warn | `apps/im-gateway/src/bridge/turn.ts` | `/api/turn` 非 202（含 `inbox-full` / `auth` / `halted`） |
+| `im-push-fallback` | warn | `apps/im-gateway/src/bridge/outbound.ts` | 适配器 push 不可用 → 拉取式 |
+| `im-push-failed` | warn | `apps/im-gateway/src/platform/wechat/transport.ts` | 客服消息失败（含 errcode，只在日志） |
+| `im-ratelimited` | info | `apps/im-gateway/src/bridge/turn.ts` | 用户/全局限流命中 |
+| `im-untrusted` | info | `apps/im-gateway/src/bridge/turn.ts` | untrusted 命中（reason=user/marker） |
+| `im-config-invalid` | error | `apps/im-gateway/src/config.ts` | 配置非法导致启动失败 |
 
 > 动态 code：`packages/host/src/boot/plugins/bank-tools.ts` 的 `warnContextSlots(code, …)`
 > 会把 bank 适配器给的 `bank.slots-*` 族直接透传；这些值来自闭集枚举，不是自由文本。

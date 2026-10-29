@@ -3,7 +3,7 @@
 > 口径：只写本仓能回源码、回命令复核的事实。**未实装的逐条列在 §8，不用"设计中"充数**；
 > 每条结论后给落点，答辩时可按落点当场翻代码。
 > 对应赛题：§3.1 权限分级、§3.2 安全设计、§五.5 安全自评材料。
-> 最后核实：2026-10-29（门禁与测试面：`pnpm gate` 50/50、`pnpm test` 300 文件 / 3380 用例 + 前端 365 例、快照 9 文件 39 例；安全面结论沿用 2026-10-27，合流后补记 17 行角色矩阵与 static 双凭证）。
+> 最后核实：2026-10-30（门禁与测试面：`pnpm gate` 51/51、`pnpm test` 309 文件 / 3542 用例 + 前端 365 例、快照 9 文件 39 例；安全面结论沿用 2026-10-27，合流后补记 17 行角色矩阵与 static 双凭证）。
 
 ---
 
@@ -362,7 +362,7 @@ pnpm demo:verifier-fail
 ## 10. 复现命令
 
 ```bash
-pnpm test                                   # 300 文件 / 3380 用例（前端另有 365 例）
+pnpm test                                   # 309 文件 / 3542 用例（前端另有 365 例）
 pnpm vitest run packages/safety/src/sentry/halt.test.ts \
   packages/host/src/boot/plugins/halt.test.ts \
   packages/cli/src/cli/halt.test.ts         # HP-3 / W07 的 46 条（TC-W07-01…07）

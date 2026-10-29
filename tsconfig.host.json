@@ -18,6 +18,7 @@
     { "path": "packages/cli" },
     { "path": "packages/test-support" },
     { "path": "packages/util" },
-    { "path": "packages/telemetry" }
+    { "path": "packages/telemetry" },
+    { "path": "apps/im-gateway" }
   ]
 }
