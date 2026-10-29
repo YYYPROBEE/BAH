@@ -8,12 +8,12 @@
  * I1  能力位单一实现点（`interface ChannelCapabilities` 只许出现在 capabilities.ts）
  * I2  6 渠道穷尽（`ChannelKind` ↔ `CAPABILITIES_BY_CHANNEL` 键集合相等）
  * I3  10 字段（少字段即红，多字段记 notes）
- * I4  profiles/mobile 存在且装配 channel:mobile
- * I5  profile ↔ adapter ↔ 提示词三方一致
+ * I4  profiles/mobile 与 profiles/im 存在且各自装配对应渠道行
+ * I5  profile ↔ adapter ↔ 提示词三方一致（mobile / im 各查一遍）
  * I6  token 入口白名单（所有 profile）：非空、无通配、无分隔符、.html 结尾、无重复、entry ∈ entries；端口不重复
- * I7  移动端配置面不含 admin 开关（键集 ⊆ `WEB_SETTING_KEYS`）
- * I8  mobile 与 web 的业务段规范化序列化相等（"两套账"的早期信号）
- * I9  薄壳纪律（plugins/mobile.ts ≤80 行且不含分发符号）+ 闸序关键词按序
+ * I7  渠道配置面不含 admin 开关（键集 ⊆ `WEB_SETTING_KEYS`）
+ * I8  渠道 profile 与 web 的业务段规范化序列化相等（"两套账"的早期信号）
+ * I9  薄壳纪律（plugins/mobile.ts 与 plugins/im.ts ≤80 行且不含分发符号）+ 闸序关键词按序
  * I10 安全头最小权限姿态逐字钉死（`permissions-policy` 等式比对，任何改动即红）
  */
 
@@ -59,6 +59,34 @@ const BUSINESS_ROWS = [
 /** 入口白名单的默认值（与 `web/config.ts` 的 `DEFAULT_WEB` 同口径；profile 未写时套用）。 */
 const DEFAULT_ENTRY = 'index.html'
 const DEFAULT_ENTRIES: readonly string[] = ['index.html']
+
+/**
+ * 渠道 profile 清单（I4/I5/I7/I8/I9 的检查面）。
+ *
+ * 新增一个渠道 profile 必须同时登记在这里：否则"profile 存在但没人查"就是一道假绿。
+ * desktop 不在本表——它由独立的桌面端方案负责（IM 网关 00 §7）。
+ */
+const CHANNEL_PROFILES = [
+  {
+    name: 'mobile',
+    manifest: 'profiles/mobile/profile.yml',
+    patch: 'profiles/mobile/patch.yml',
+    adapter: 'packages/channels/src/mobile/adapter.ts',
+    idConst: 'MOBILE_CHANNEL_ID',
+    shell: 'packages/host/src/boot/plugins/mobile.ts',
+  },
+  {
+    name: 'im',
+    manifest: 'profiles/im/profile.yml',
+    patch: 'profiles/im/patch.yml',
+    adapter: 'packages/channels/src/im/adapter.ts',
+    idConst: 'IM_CHANNEL_ID',
+    shell: 'packages/host/src/boot/plugins/im.ts',
+  },
+] as const
+
+/** 渠道行的 use 值集合（I6 的入口白名单与端口唯一性检查面）。 */
+const CHANNEL_ROW_IDS: readonly string[] = CHANNEL_PROFILES.map((spec) => `channel:${spec.name}`)
 
 /** patch 行（与 `cli/src/profile.ts` 同款形状）。 */
 interface Row {
@@ -196,50 +224,62 @@ const gate: Gate = {
       }
     }
 
-    // ── I4 profiles/mobile 存在且装配 channel:mobile ─────────────────────
-    for (const rel of ['profiles/mobile/profile.yml', 'profiles/mobile/patch.yml']) {
-      if (!existsSync(join(root, rel))) findings.push(`I4 缺文件 ${rel}（移动渠道 profile 未落地）`)
-    }
-    const manifest = readYaml(root, 'profiles/mobile/profile.yml')
-    if (!isRecord(manifest)) {
-      findings.push('I4 profiles/mobile/profile.yml 不是合法的 YAML 对象')
-    } else {
-      if (manifest['name'] !== 'mobile') findings.push(`I4 profile.yml 的 name 必须是 'mobile'（实际 ${String(manifest['name'])}）`)
-      const bundles = manifest['bundles']
-      if (!Array.isArray(bundles) || !bundles.includes('base')) {
-        findings.push('I4 profile.yml 的 bundles 必须含 base')
+    // ── I4 渠道 profile 存在且装配对应渠道行（mobile / im）────────────────
+    const rowsByChannel = new Map<string, readonly Row[]>()
+    for (const spec of CHANNEL_PROFILES) {
+      for (const rel of [spec.manifest, spec.patch]) {
+        if (!existsSync(join(root, rel))) findings.push(`I4 缺文件 ${rel}（${spec.name} 渠道 profile 未落地）`)
       }
-      if (manifest['patch'] !== './patch.yml') {
-        findings.push(`I4 profile.yml 的 patch 必须指向 './patch.yml'（实际 ${String(manifest['patch'])}）`)
+      const manifest = readYaml(root, spec.manifest)
+      if (!isRecord(manifest)) {
+        findings.push(`I4 ${spec.manifest} 不是合法的 YAML 对象`)
+      } else {
+        if (manifest['name'] !== spec.name) {
+          findings.push(`I4 ${spec.manifest} 的 name 必须是 '${spec.name}'（实际 ${String(manifest['name'])}）`)
+        }
+        const bundles = manifest['bundles']
+        if (!Array.isArray(bundles) || !bundles.includes('base')) {
+          findings.push(`I4 ${spec.manifest} 的 bundles 必须含 base`)
+        }
+        if (manifest['patch'] !== './patch.yml') {
+          findings.push(`I4 ${spec.manifest} 的 patch 必须指向 './patch.yml'（实际 ${String(manifest['patch'])}）`)
+        }
+        if (manifest['hmr'] !== false) findings.push(`I4 ${spec.manifest} 的 hmr 必须是 false（与 web 同理）`)
       }
-      if (manifest['hmr'] !== false) findings.push('I4 profile.yml 的 hmr 必须是 false（与 web 同理）')
-    }
-    const mobilePatchRows = readYaml(root, 'profiles/mobile/patch.yml')
-    const mobileRows: readonly Row[] = Array.isArray(mobilePatchRows) ? (mobilePatchRows as Row[]) : []
-    if (!Array.isArray(mobilePatchRows)) {
-      findings.push('I4 profiles/mobile/patch.yml 必须是行数组')
-    } else {
-      const channelRow = rowOf(mobileRows, 'channel:mobile')
-      if (channelRow === undefined) {
-        findings.push('I4 patch.yml 缺 id === channel:mobile 的行')
-      } else if (channelRow.use !== 'channel:mobile') {
-        findings.push(`I4 channel:mobile 行的 use 必须是 'channel:mobile'（实际 ${String(channelRow.use)}）`)
+      const patchRows = readYaml(root, spec.patch)
+      const rows: readonly Row[] = Array.isArray(patchRows) ? (patchRows as Row[]) : []
+      rowsByChannel.set(spec.name, rows)
+      if (!Array.isArray(patchRows)) {
+        findings.push(`I4 ${spec.patch} 必须是行数组`)
+      } else {
+        const channelId = `channel:${spec.name}`
+        const channelRow = rowOf(rows, channelId)
+        if (channelRow === undefined) {
+          findings.push(`I4 ${spec.patch} 缺 id === ${channelId} 的行`)
+        } else if (channelRow.use !== channelId) {
+          findings.push(`I4 ${channelId} 行的 use 必须是 '${channelId}'（实际 ${String(channelRow.use)}）`)
+        }
       }
     }
 
     // ── I5 profile ↔ adapter ↔ 提示词三方一致 ────────────────────────────
-    const agentRow = rowOf(mobileRows, 'core:agent')
-    const agentConfig = isRecord(agentRow?.config) ? agentRow?.config : undefined
-    if (agentConfig?.['channel'] !== 'mobile') {
-      findings.push(`I5 patch.yml 的 core:agent.config.channel 必须是 'mobile'（实际 ${String(agentConfig?.['channel'])}）`)
-    }
-    const mobileAdapter = readIfExists(root, 'packages/channels/src/mobile/adapter.ts')
-    if (!mobileAdapter.includes('MOBILE_CHANNEL_ID')) {
-      findings.push('I5 packages/channels/src/mobile/adapter.ts 缺 MOBILE_CHANNEL_ID（渠道 id 的唯一落点）')
-    }
     const hints = readIfExists(root, 'packages/runtime/src/system-prompt/sections.ts')
-    if (!/CHANNEL_HINTS[^=]*=\s*\{[\s\S]*?\bmobile:/.test(hints)) {
-      findings.push('I5 CHANNEL_HINTS 缺 mobile 键（sections.ts）——提示词口径与渠道不一致')
+    for (const spec of CHANNEL_PROFILES) {
+      const rows = rowsByChannel.get(spec.name) ?? []
+      const agentRow = rowOf(rows, 'core:agent')
+      const agentConfig = isRecord(agentRow?.config) ? agentRow?.config : undefined
+      if (agentConfig?.['channel'] !== spec.name) {
+        findings.push(
+          `I5 ${spec.patch} 的 core:agent.config.channel 必须是 '${spec.name}'（实际 ${String(agentConfig?.['channel'])}）`,
+        )
+      }
+      const adapter = readIfExists(root, spec.adapter)
+      if (!adapter.includes(spec.idConst)) {
+        findings.push(`I5 ${spec.adapter} 缺 ${spec.idConst}（渠道 id 的唯一落点）`)
+      }
+      if (!new RegExp(`CHANNEL_HINTS[^=]*=\\s*\\{[\\s\\S]*?\\b${spec.name}:`).test(hints)) {
+        findings.push(`I5 CHANNEL_HINTS 缺 ${spec.name} 键（sections.ts）——提示词口径与渠道不一致`)
+      }
     }
 
     // ── I6 所有 profile 的 token 入口白名单 + 端口不重复 ──────────────────
@@ -248,7 +288,7 @@ const gate: Gate = {
       const doc = readYaml(root, rel)
       if (!Array.isArray(doc)) continue
       for (const row of doc as Row[]) {
-        if (row.use !== 'channel:web' && row.use !== 'channel:mobile') continue
+        if (typeof row.use !== 'string' || !CHANNEL_ROW_IDS.includes(row.use)) continue
         const config = isRecord(row.config) ? row.config : {}
         const entries = config['entries'] ?? DEFAULT_ENTRIES
         const entry = config['entry'] ?? DEFAULT_ENTRY
@@ -290,39 +330,51 @@ const gate: Gate = {
     if (settingKeys.length === 0) {
       findings.push('I7 未能从 web/config.ts 提取 WEB_SETTING_KEYS（结构已变，门禁判据需同步）')
     }
-    const mobileChannelRow = rowOf(mobileRows, 'channel:mobile')
-    const mobileChannelConfig = isRecord(mobileChannelRow?.config) ? mobileChannelRow?.config : {}
-    for (const key of Object.keys(mobileChannelConfig)) {
-      if (!settingKeys.includes(key)) {
-        findings.push(`I7 profiles/mobile 的 channel:mobile 出现表外键 '${key}'（WebSettings 不认，boot 期会被拒）`)
+    for (const spec of CHANNEL_PROFILES) {
+      const rows = rowsByChannel.get(spec.name) ?? []
+      const channelRow = rowOf(rows, `channel:${spec.name}`)
+      const channelConfig = isRecord(channelRow?.config) ? channelRow.config : {}
+      for (const key of Object.keys(channelConfig)) {
+        if (!settingKeys.includes(key)) {
+          findings.push(
+            `I7 ${spec.patch} 的 channel:${spec.name} 出现表外键 '${key}'（WebSettings 不认，boot 期会被拒）`,
+          )
+        }
       }
     }
 
-    // ── I8 mobile 与 web 的业务段规范化序列化相等 ────────────────────────
+    // ── I8 渠道 profile 与 web 的业务段规范化序列化相等 ────────────────────
     const webRowsRaw = readYaml(root, 'profiles/web/patch.yml')
     const webRows: readonly Row[] = Array.isArray(webRowsRaw) ? (webRowsRaw as Row[]) : []
-    for (const id of BUSINESS_ROWS) {
-      const left = rowOf(mobileRows, id)
-      const right = rowOf(webRows, id)
-      if (left === undefined || right === undefined) {
-        findings.push(`I8 ${id} 行在 ${left === undefined ? 'mobile' : 'web'} patch 里缺失（业务段必须两边都在）`)
-        continue
-      }
-      if (canonical(left.config) !== canonical(right.config)) {
-        findings.push(
-          `I8 ${id} 的 config 在 mobile 与 web patch 里不一致（两套业务口径的早期信号）：mobile=${canonical(left.config)} web=${canonical(right.config)}`,
-        )
+    for (const spec of CHANNEL_PROFILES) {
+      const rows = rowsByChannel.get(spec.name) ?? []
+      for (const id of BUSINESS_ROWS) {
+        const left = rowOf(rows, id)
+        const right = rowOf(webRows, id)
+        if (left === undefined || right === undefined) {
+          findings.push(`I8 ${id} 行在 ${left === undefined ? spec.name : 'web'} patch 里缺失（业务段必须两边都在）`)
+          continue
+        }
+        if (canonical(left.config) !== canonical(right.config)) {
+          findings.push(
+            `I8 ${id} 的 config 在 ${spec.name} 与 web patch 里不一致（两套业务口径的早期信号）：${spec.name}=${canonical(left.config)} web=${canonical(right.config)}`,
+          )
+        }
       }
     }
 
     // ── I9 薄壳纪律 + 闸序未被改写 ───────────────────────────────────────
-    const thinShell = readIfExists(root, 'packages/host/src/boot/plugins/mobile.ts')
-    const shellLines = thinShell.length === 0 ? 0 : thinShell.split('\n').length
-    if (shellLines === 0) findings.push('I9 packages/host/src/boot/plugins/mobile.ts 不存在')
-    if (shellLines > 80) findings.push(`I9 plugins/mobile.ts 应 ≤80 行（实际 ${String(shellLines)}）——薄壳，路由/闸门一律不在这里`)
-    for (const symbol of ['createDispatcher', 'matchRoute', 'injectWebToken', 'handleStatic']) {
-      if (thinShell.includes(symbol)) {
-        findings.push(`I9 plugins/mobile.ts 含分发符号 '${symbol}'（第二份 dispatch = 口径分叉点）`)
+    for (const spec of CHANNEL_PROFILES) {
+      const thinShell = readIfExists(root, spec.shell)
+      const shellLines = thinShell.length === 0 ? 0 : thinShell.split('\n').length
+      if (shellLines === 0) findings.push(`I9 ${spec.shell} 不存在`)
+      if (shellLines > 80) {
+        findings.push(`I9 ${spec.shell} 应 ≤80 行（实际 ${String(shellLines)}）——薄壳，路由/闸门一律不在这里`)
+      }
+      for (const symbol of ['createDispatcher', 'matchRoute', 'injectWebToken', 'handleStatic']) {
+        if (thinShell.includes(symbol)) {
+          findings.push(`I9 ${spec.shell} 含分发符号 '${symbol}'（第二份 dispatch = 口径分叉点）`)
+        }
       }
     }
     const dispatchText = readIfExists(root, 'packages/host/src/boot/plugins/web/dispatch.ts')

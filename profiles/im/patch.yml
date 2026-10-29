@@ -1,0 +1,105 @@
+# im profile patch（层 2）。IM 网关 01 单。
+#
+# 语义是**整块替换**：每行 config 一出现就完全取代 base 的值。
+# 与 profiles/web/patch.yml 的差异**只有四处**（01 单 §2.7 原文）：
+#   ① 渠道行 id/use = `channel:im`，port 7552 / entry m.html / entries [m.html]；
+#   ② `core:agent.config.channel` = im（系统提示词按 CHANNEL_HINTS.im 裁剪）；
+#   ③ 随渠道名走的两处文案：`bank:knowledge.channel` 与 `demo:echo.prefix`。
+# 其余各行与 web **逐字一致**——一旦不同就是两套业务口径（门禁 I8 比对规范化序列化）。
+#
+# 部署边界：本 profile 只由网关在**本机 loopback** 拉起，公网端口只有网关；
+# `m.html` 只是排障入口（CSRF cookie 握手），公网不可达，也**不是** IM 的 Web UI。
+
+- id: core:model
+  config:
+    provider: router
+    model: router-chat
+    chunkSize: 4
+
+- id: policy:rules
+  config:
+    root: policies
+    active: { bank.tier: bank-tier/1.0.0 }
+    hotReload: true
+    requireSignature: false
+    shadow: { bank.tier: null }
+
+- id: core:persistence
+  config:
+    root: sessions
+    fsync: false
+
+- id: bank:tools
+  config:
+    demoUserId: u-1
+    seed: 7
+    datasetTier: demo
+    policy: { engine: bundle }
+    contextSlots:
+      accounts: 3
+      transactions: 3
+      windowDays: 30
+      timeoutMs: 250
+      maxChars: 800
+      breakerFailures: 3
+      breakerOpenMs: 10000
+
+- id: bank:knowledge
+  use: bank:knowledge
+  config:
+    mode: http
+    baseUrl: http://127.0.0.1:7801
+    channel: im
+    required: false
+
+- id: interaction:approval
+  config:
+    # IM 侧没有弹窗：等人回文本指令或在 H5 页点（默认 unavailable = 拒绝，绝不默认放行）
+    responder: none
+
+- id: safety:sentry
+  config:
+    trace:
+      sink: session
+    rules:
+      crossScenario: true
+
+- id: core:agent
+  config:
+    # ← 与 web 的差异 ②：渠道语气（CHANNEL_HINTS.im）
+    channel: im
+    loop:
+      model: router:router-chat
+      maxSteps: 8
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
+    slots: { source: bank }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }
+      notes:
+        - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。
+
+# C4 跨会话记忆：dbPath 是「租户根下的单段文件名」（写 `sessions/memory.db` 会 boot 期 fail-loud）。
+- id: bah:memory-store
+  use: bah:memory-store
+  config:
+    dbPath: memory.db
+    userId: u-1
+    sensitivityCeiling: 2
+
+- id: demo:echo
+  use: demo:echo
+  config: { prefix: '[im] ' }
+
+# 渠道行（IM 网关 01）：复用 web 的 HTTP 渠道装配，只换适配器与入口。
+# 端口 7552：不撞 7331(web)/7551(mobile)/7801(rag)；占用**不自动换端口**（listen.ts fail-loud）。
+# 入口白名单只有 m.html：IM 子进程不对外提供 Web 壳。
+- id: channel:im
+  use: channel:im
+  config:
+    port: 7552
+    host: 127.0.0.1
+    staticRoot: apps/web
+    heartbeatMs: 15000
+    entry: m.html
+    entries:
+      - m.html
