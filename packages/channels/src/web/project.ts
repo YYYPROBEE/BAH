@@ -437,6 +437,10 @@ export class WebProjector {
     if (String(event.type).startsWith('plan/')) {
       return this.projectPlan(String(event.type), event)
     }
+    // handoff/* 域事件（人机接管 01）：同样不在 `AnySessionEvent` 联合里
+    if (String(event.type).startsWith('handoff/')) {
+      return this.projectHandoff(String(event.type), event)
+    }
     switch (event.type) {
       case 'turn/start': {
         this.turn = event.data.turn
@@ -679,6 +683,82 @@ export class WebProjector {
   /** 轮次帧。 */
   private turnFrame(seq: number, at: number, turn: number, phase: 'start' | 'end'): TurnFrame {
     return { kind: 'turn', seq, at, turn, phase }
+  }
+
+  /**
+   * `handoff/*` 域事件 → 接管帧 / 人工气泡（人机接管 01）。
+   *
+   * 两条纪律：
+   * 1. **人工发言不进模型历史**由事件层的 `ignorable` 保证，这里只负责画；
+   * 2. **认领不重置等待计时**：帧的 `at` 用 `enteredAt`（进入时刻），不是认领时刻。
+   */
+  private projectHandoff(type: string, event: AnySessionEvent): WebFrame[] {
+    const data = event.data as Readonly<Record<string, unknown>>
+    const str = (key: string): string | undefined =>
+      typeof data[key] === 'string' ? (data[key] as string) : undefined
+    const enteredAtOf = (fallback: number): number =>
+      typeof data['enteredAt'] === 'number' && Number.isFinite(data['enteredAt'])
+        ? data['enteredAt']
+        : fallback
+    switch (type) {
+      case 'handoff/requested':
+        return [
+          {
+            kind: 'handoff',
+            seq: event.seq,
+            at: event.at,
+            active: true,
+            ...(str('reason') === undefined ? {} : { reason: str('reason') }),
+          },
+        ]
+      case 'handoff/claimed':
+        return [
+          {
+            kind: 'handoff',
+            seq: event.seq,
+            at: enteredAtOf(event.at),
+            active: true,
+            ...(str('operator') === undefined ? {} : { operator: str('operator') }),
+          },
+        ]
+      case 'handoff/operator-message': {
+        const text = str('text') ?? ''
+        // 空文本不产帧（状态机已拒，这里是第二道防线）
+        if (text === '') return []
+        return [
+          {
+            kind: 'message',
+            seq: event.seq,
+            at: event.at,
+            role: 'operator',
+            blocks: [{ type: 'text', text }],
+            ...(str('operator') === undefined ? {} : { operator: str('operator') }),
+          },
+        ]
+      }
+      case 'handoff/timeout-warned':
+        return [
+          {
+            kind: 'handoff-warn',
+            seq: event.seq,
+            at: event.at,
+            waitedMs: typeof data['waitedMs'] === 'number' ? data['waitedMs'] : 0,
+            slaMs: typeof data['slaMs'] === 'number' ? data['slaMs'] : 0,
+          },
+        ]
+      case 'handoff/resumed':
+        return [
+          {
+            kind: 'handoff',
+            seq: event.seq,
+            at: event.at,
+            active: false,
+            ...(str('operator') === undefined ? {} : { operator: str('operator') }),
+          },
+        ]
+      default:
+        return []
+    }
   }
 
   /**

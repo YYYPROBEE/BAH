@@ -27,6 +27,10 @@ export type RouteHandler =
   | 'approval'
   | 'verify'
   | 'handoff'
+  | 'handoff-message'
+  | 'handoff-claim'
+  | 'handoff-heartbeat'
+  | 'handoff-queue'
   | 'fork'
   | 'admin'
   | 'static'
@@ -35,10 +39,12 @@ export type RouteHandler =
  * 该路由的鉴权面：
  * - `public`：不需要 Web 凭证（只有探活）；
  * - `admin`：管理面，自己的 admin token + 回环绑定，**豁免 CSRF**；
- * - `web`：要求 `Authorization: Bearer`，写方法再过 CSRF；
+ * - `web`：任一有效凭证（客户或坐席），写方法再过 CSRF；
+ * - `user`：**只认客户凭证**（坐席不能替客户发消息 / 打断）；
+ * - `operator`：**只认坐席凭证**；未配置坐席凭证时整条路由 404；
  * - `static`：静态资源，不吃 `/api/` 前缀（`/api/*` 的未知路径仍先过凭证）。
  */
-export type RouteAuth = 'public' | 'admin' | 'web' | 'static'
+export type RouteAuth = 'public' | 'admin' | 'web' | 'user' | 'operator' | 'static'
 
 /** 一条路由。 */
 export interface RouteSpec {
@@ -195,17 +201,17 @@ export const ROUTES: readonly RouteSpec[] = [
     methods: ['POST'],
     path: '/api/turn',
     kind: 'exact',
-    auth: 'web',
+    auth: 'user',
     csrf: true,
     statuses: [202, 400, 401, 403, 423, 503],
     handler: 'turn',
-    note: '提交一轮输入 `{ text }` → 入队并驱动；202 = 已入队，HALT 期间 423',
+    note: '提交一轮输入 `{ text }` → 入队并驱动；202 = 已入队，HALT 期间 423；接管期间 202 落账不驱动',
   },
   {
     methods: ['POST'],
     path: '/api/interrupt',
     kind: 'exact',
-    auth: 'web',
+    auth: 'user',
     csrf: true,
     statuses: [200, 401, 403, 503],
     handler: 'interrupt',
@@ -215,7 +221,8 @@ export const ROUTES: readonly RouteSpec[] = [
     methods: ['POST'],
     path: '/api/approval/',
     kind: 'prefix',
-    auth: 'web',
+    // 人机接管 01：审批是**客户**的动作，坐席不能替客户放行资金
+    auth: 'user',
     csrf: true,
     statuses: [200, 400, 401, 403, 404, 409],
     handler: 'approval',
@@ -226,7 +233,8 @@ export const ROUTES: readonly RouteSpec[] = [
     methods: ['POST'],
     path: '/api/verify/',
     kind: 'prefix',
-    auth: 'web',
+    // 同上：强验证是客户本人的动作
+    auth: 'user',
     csrf: true,
     statuses: [200, 400, 401, 403, 404],
     handler: 'verify',
@@ -242,7 +250,7 @@ export const ROUTES: readonly RouteSpec[] = [
     // C5：人工侧读取接管摘要（只读；持 Web 凭证即可，单用户部署）
     statuses: [200, 401],
     handler: 'handoff',
-    note: '人工接管摘要：`{ active, sessionId, lastSeq, turns, pendingTickets, messages[], reason?, at? }`',
+    note: '人工接管摘要：`{ active, sessionId, lastSeq, turns, pendingTickets, messages[], reason?, at?, waitedMs, overdue, claimed, operatorMessages }`',
   },
   {
     methods: ['POST'],
@@ -253,17 +261,69 @@ export const ROUTES: readonly RouteSpec[] = [
     // 409 = 已经在接管中（重复请求不刷新 `at`，否则"等了多久"失真）
     statuses: [200, 400, 401, 403, 409],
     handler: 'handoff',
-    note: '请求人工接管 `{ reason? }`：之后 `/api/turn` 一律 409，模型不再自动驱动',
+    note: '请求人工接管 `{ reason? }`：接管期间 `/api/turn` 202 落账但不驱动模型（交回后恢复）',
   },
   {
     methods: ['POST'],
     path: '/api/handoff/resume',
     kind: 'exact',
-    auth: 'web',
+    auth: 'operator',
     csrf: true,
     statuses: [200, 400, 401, 403, 409],
     handler: 'handoff',
-    note: '交回会话 `{ operator? }`；未接管时 409——不做"幂等成功"，交回必须是真的一次状态转移',
+    note: '交回会话 `{ handover? }`（坐席凭证；服务端不读 body 的 operator）；未接管时 409',
+  },
+  {
+    methods: ['POST'],
+    path: '/api/handoff/message',
+    kind: 'exact',
+    auth: 'operator',
+    csrf: true,
+    statuses: [200, 400, 401, 403, 404, 409, 413],
+    handler: 'handoff-message',
+    note: '坐席发言：落 `handoff/operator-message`（不进模型历史）',
+  },
+  {
+    methods: ['POST'],
+    path: '/api/handoff/claim',
+    kind: 'exact',
+    auth: 'operator',
+    csrf: true,
+    statuses: [200, 401, 403, 404, 409],
+    handler: 'handoff-claim',
+    note: '坐席认领（幂等；换人 409）——认领只改显示与审计，不改变 `/api/turn` 的接管语义',
+  },
+  {
+    methods: ['POST'],
+    path: '/api/handoff/heartbeat',
+    kind: 'exact',
+    auth: 'operator',
+    csrf: true,
+    statuses: [200, 401, 403, 404],
+    handler: 'handoff-heartbeat',
+    note: '等待时长与超时判定（只告警，不自动交回）；未接管时返回 waitedMs:0',
+  },
+  {
+    methods: ['GET'],
+    path: '/api/handoff/queue',
+    kind: 'exact',
+    auth: 'operator',
+    csrf: false,
+    statuses: [200, 401, 404],
+    handler: 'handoff-queue',
+    note: '单会话部署：depth ∈ {0,1}',
+  },
+  {
+    // 坐席工作台入口。static：页面本身必须能打开才能输凭证；**页面里没有任何凭证**。
+    // 未配置 BAH_OPERATOR_TOKEN 时由 handleStatic 返回 404（不暴露路由存在性）。
+    methods: ['GET'],
+    path: '/operator',
+    kind: 'exact',
+    auth: 'static',
+    csrf: false,
+    statuses: [200, 404],
+    handler: 'static',
+    note: '坐席工作台入口（零注入；凭证由坐席粘贴，存 sessionStorage）',
   },
   {
     // 静态兜底：吃掉所有 GET/HEAD（含未知 `/api/*`，它们会被解析成 404 而不是 405）

@@ -42,6 +42,11 @@ export interface WebSettings {
    * 按普通静态资源返回。按扩展名注入会把 staticRoot 下任何 HTML 变成 token 泄漏面。
    */
   readonly entries: readonly string[]
+  /** 人工接管（C5）：等待超时告警。 */
+  readonly handoff: {
+    /** SLA 毫秒（默认 180_000；0 = 只记录不告警）。**不自动交回**。 */
+    readonly slaMs: number
+  }
 }
 
 /** 默认配置。 */
@@ -54,6 +59,7 @@ export const DEFAULT_WEB: WebSettings = {
   csrf: { enabled: true },
   entry: 'index.html',
   entries: ['index.html'],
+  handoff: { slaMs: 180_000 },
 }
 
 /** 解析 `rateLimit` 配置（未写时用默认值）。 */
@@ -85,6 +91,25 @@ export function parseCsrf(value: unknown): WebSettings['csrf'] {
   return { enabled: readBoolean(record, 'enabled', 'channel:web.csrf', DEFAULT_WEB.csrf.enabled) }
 }
 
+/** 解析 `handoff` 配置（未写时用默认值）。 */
+export function parseHandoff(value: unknown): WebSettings['handoff'] {
+  if (value === undefined) return DEFAULT_WEB.handoff
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new BahError('web-invalid-config', 'channel:web: handoff 必须是对象')
+  }
+  const record = value as Record<string, unknown>
+  rejectUnknownKeys(record, ['slaMs'], 'channel:web.handoff')
+  const raw = record['slaMs']
+  // 与 readPositiveInteger 的差别：**0 合法**（关闭告警）
+  if (
+    raw !== undefined &&
+    (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0)
+  ) {
+    throw new BahError('web-invalid-config', 'channel:web: handoff.slaMs 必须是非负整数')
+  }
+  return { slaMs: (raw as number | undefined) ?? DEFAULT_WEB.handoff.slaMs }
+}
+
 /** 本插件认的顶层键（`validate` 的白名单只此一份）。 */
 const WEB_SETTING_KEYS = [
   'port',
@@ -95,6 +120,7 @@ const WEB_SETTING_KEYS = [
   'csrf',
   'entry',
   'entries',
+  'handoff',
 ] as const
 
 /**
@@ -183,6 +209,7 @@ export function resolveWebSettings(config: Readonly<Record<string, unknown>>): W
       `channel:web: entry '${entry}' 必须出现在 entries 里（收到 ${JSON.stringify(entries)}）`,
     )
   }
+  const handoff = parseHandoff(config['handoff'])
 
   return {
     port: port ?? DEFAULT_WEB.port,
@@ -193,5 +220,6 @@ export function resolveWebSettings(config: Readonly<Record<string, unknown>>): W
     csrf,
     entry,
     entries,
+    handoff,
   }
 }

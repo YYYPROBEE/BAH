@@ -27,9 +27,11 @@ import { HALT_SERVICE, SENTRY_SERVICE } from '@bah/safety'
 import { AGENTS_SERVICE, SESSION_SERVICE, TOOLS_SERVICE, type Agent, type AnySessionEvent } from '@bah/runtime'
 
 import { RUN_SERVICE } from '../../boot.ts'
+import { SESSION_FILES } from '../persistence.ts'
 import { TELEMETRY } from '../telemetry.ts'
 import { createRateLimiter } from '../web-rate-limit.ts'
 import { generateWebToken, readWebToken } from '../web-auth.ts'
+import { readOperatorConfig } from '../web-operator.ts'
 import type { WebSettings } from './config.ts'
 import { tryService, type WebDeps } from './deps.ts'
 import { createDispatcher } from './dispatch.ts'
@@ -94,6 +96,8 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
   // 没配环境变量就每次启动生成一个：演示打不开页面比"没鉴权"更糟，
   // 但 token 也绝不写死——它只存在于本进程与同源页面里。
   const webToken = readWebToken(process.env) ?? generateWebToken()
+  // 坐席凭证与显示名（未配置 token ⇒ 坐席面整体 404；两 token 相同 ⇒ 启动失败）
+  const operator = readOperatorConfig(process.env, webToken)
   // W09：进程级 CSRF token。页面加载时写进 cookie，前端读出后回填 `x-bah-csrf`；
   // 除同源 Origin 外，只接受 cookie 与请求头双提交且都与本值一致。
   const csrfToken = randomBytes(18).toString('base64url')
@@ -152,8 +156,16 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
     session,
     adapter,
     hub, // C5 人工接管（装配细节见 web/handoff.ts）
-    handoff: createHandoff({ session, now: run.now, pendingTickets: () => adapter.pendingTickets().length }),
+    handoff: createHandoff({
+      session,
+      now: run.now,
+      pendingTickets: () => adapter.pendingTickets().length,
+      files: tryService(ctx, SESSION_FILES),
+      slaMs: config.handoff.slaMs,
+    }),
     webToken,
+    operatorToken: operator.token,
+    operatorName: operator.name,
     csrfToken,
     rateLimiter: createRateLimiter(config.rateLimit),
     now: run.now,
@@ -168,6 +180,9 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
     // 施工单 01 / 00 D3：`/` 的落点与 token 白名单都由配置驱动（绝对路径精确等值）
     defaultEntry: join(staticRoot, config.entry),
     tokenEntries: config.entries.map((entry) => join(staticRoot, entry)),
+    operatorEntry: join(staticRoot, 'operator.html'),
+    // 坐席工作台只属于桌面 web 渠道：移动壳没有坐席 UI，开着入口就是"存在但打不开"
+    seatEnabled: options.channelId === 'web' && operator.token !== undefined,
   }
 
   const handle = createDispatcher(config, deps)

@@ -1,13 +1,18 @@
 /**
- * 门禁：Web 前端的四条硬约束（施工单 13 §6「grep 无 vue/react/组件库依赖」的工程化版本）。
+ * 门禁：Web 前端的硬约束（施工单 13 §6「grep 无 vue/react/组件库依赖」的工程化版本）。
  *
  * 1. **纯原生**：`apps/web` 不得依赖框架 / UI 组件库（在 `package.json` 与源码 import 两处查）；
  * 2. **零远程资源**：`src` / `href` / `url()` 里不得出现 `http(s)://`（离线演示、供应链最小面）；
  * 3. **令牌同步**：`apps/web/styles/ds/*.css` 必须与 `design/bah-ds/*.css` 逐字节一致；
- * 4. **令牌纪律**：页面局部样式（`styles/*.css`，排除 `ds/` 副本）不得出现裸色值，只能用 `var(--…)`。
+ * 4. **令牌纪律**：页面局部样式（`styles/*.css`，排除 `ds/` 副本）不得出现裸色值，只能用 `var(--…)`；
+ * 5. **按入口判样式**：每个 HTML 壳挂**它自己的**那份页面 CSS（桌面两个挂 `app.css`、移动壳挂
+ *    `mobile.css`），且模块入口文件真实存在；未登记的入口页一律判红。
  *
  * 为什么第 3 条必须门禁：`design/bah-ds` 是自研视觉基线的唯一定义处，`styles/ds` 是它的分发副本。
  * 没有这条，半年后没人说得清页面上的圆角到底是哪一版令牌。
+ *
+ * 为什么第 5 条要按入口而不是"所有 HTML 都挂 app.css"：移动壳 `m.html` 挂的是 `mobile.css`——
+ * 一刀切会把移动壳判红；反过来只看"有没有 CSS"又会放过漏挂（页面起来但样式全丢）。
  */
 
 import { createHash } from 'node:crypto'
@@ -50,6 +55,20 @@ const FORBIDDEN = [
   'element-plus',
   '@chakra-ui/',
 ]
+
+/** 每个入口页都必须挂的两份设计令牌。 */
+const DS_STYLES = ['./styles/ds/colors_and_type.css', './styles/ds/components.css'] as const
+
+/**
+ * 每个已登记入口的必需样式。
+ *
+ * **新增 HTML 壳必须先在这里登记**：未登记的 `.html` 会被门禁判红，而不是"只要有 CSS 就行"。
+ */
+const REQUIRED_STYLES: Readonly<Record<string, readonly string[]>> = {
+  'index.html': [...DS_STYLES, './styles/app.css'],
+  'operator.html': [...DS_STYLES, './styles/app.css'],
+  'm.html': [...DS_STYLES, './styles/mobile.css'],
+}
 
 /** 读文件（失败返回 `undefined`）。 */
 function read(path: string): string | undefined {
@@ -136,7 +155,8 @@ const gate: Gate = {
       }
     }
 
-    // ④ 令牌纪律：页面局部样式（styles/*.css，排除 ds/ 副本）不得出现裸色值
+    // ④ 令牌纪律：页面局部样式（styles/*.css，排除 ds/ 副本）不得出现裸色值；
+    //    同时校验 `--icon-url` 指向的本地图标真实存在，并收集 `.icon--name` 映射。
     //
     // 施工单 02 §6.2 / E10：扫描集合从 `app.css` 单文件扩到 `styles/*.css`（排除 `ds/`——
     // 副本的内容纪律由 ③ 的 sha256 等价保证，不归本仓令牌纪律管）。
@@ -148,6 +168,8 @@ const gate: Gate = {
     const pageCssFiles = walk(root, [join(WEB_DIR, 'styles')], (name) => name.endsWith('.css')).filter(
       (file) => !relative(root, file).split('\\').join('/').includes('/styles/ds/'),
     )
+    /** 图标类名 → 文件（供 ⑥ 的 JS 检查复用）。 */
+    const iconTargets = new Map<string, string>()
     for (const cssPath of pageCssFiles) {
       const where = relative(root, cssPath).split('\\').join('/')
       const css = read(cssPath) ?? ''
@@ -159,7 +181,6 @@ const gate: Gate = {
           findings.push(`${where}:${String(index + 1)} 出现裸色值（请用 var(--…) 令牌）`)
         }
       })
-
       // 图标路径必须真实存在（防止改名后静默 404）。相对**消费它的那份 CSS** 解析（00 §5.7）。
       for (const match of css.matchAll(/--icon-url:\s*url\(['"]?([^'")]+)['"]?\)/g)) {
         const urlPath = match[1] ?? ''
@@ -170,16 +191,60 @@ const gate: Gate = {
         const target = join(root, WEB_DIR, 'styles', urlPath)
         if (!existsSync(target)) findings.push(`${where}: 图标不存在 ${urlPath}`)
       }
+      // `.icon--name { --icon-url: url(...) }` → 供 ⑥ 的 JS 检查复用（大小写映射在 CSS 里）
+      for (const match of css.matchAll(
+        /\.icon--([\w-]+)\s*\{[^}]*?--icon-url:\s*url\(['"]?([^'")]+)['"]?\)/g,
+      )) {
+        iconTargets.set(match[1] ?? '', match[2] ?? '')
+      }
     }
     notes.push(`④ 令牌纪律扫描 ${String(pageCssFiles.length)} 个页面局部 css`)
 
-    // ⑤ index.html 必须挂本地样式与入口
-    const indexHtml = read(join(root, WEB_DIR, 'index.html'))
-    if (indexHtml === undefined) {
+    // ⑤ 入口页清单：apps/web 下每个 .html 都必须挂齐**该壳**的样式与一个模块入口，
+    //    且入口文件真实存在（不能靠"index.html 一把梭"漏检 operator.html / m.html）。
+    const htmlFiles = files.filter((file) => file.endsWith('.html'))
+    for (const file of htmlFiles) {
+      const where = relative(root, file).split('\\').join('/')
+      const name = where.slice(where.lastIndexOf('/') + 1)
+      const html = read(file) ?? ''
+      const required = REQUIRED_STYLES[name]
+      if (required === undefined) {
+        // 未登记入口：仍按通用规则查一遍（ds 两份 + 至少一份页面局部 CSS），并判红要求登记
+        findings.push(
+          `${where}: 未登记的入口页（请在 scripts/verify-web.ts 的 REQUIRED_STYLES 里声明必需样式）`,
+        )
+        for (const style of DS_STYLES) {
+          if (!html.includes(style)) findings.push(`${where}: 缺少 ${style}`)
+        }
+        if (!/\.\/styles\/[^"']+\.css/.test(html)) findings.push(`${where}: 未挂任何页面局部 CSS`)
+      } else {
+        for (const style of required) {
+          if (!html.includes(style)) findings.push(`${where}: 缺少 ${style}`)
+        }
+      }
+      const entry = /<script[^>]*type=["']module["'][^>]*src=["'](\.\/src\/[^"']+\.js)["']/i.exec(html)
+      if (entry === null) {
+        findings.push(`${where}: 缺少 <script type="module" src="./src/**.js"> 模块入口`)
+      } else if (!existsSync(join(root, WEB_DIR, entry[1] ?? ''))) {
+        findings.push(`${where}: 入口文件不存在 ${entry[1] ?? ''}`)
+      }
+    }
+    if (!htmlFiles.some((file) => file.endsWith('index.html'))) {
       findings.push(`${WEB_DIR}/index.html 不存在`)
-    } else {
-      for (const required of ['./styles/ds/colors_and_type.css', './styles/ds/components.css', './styles/app.css', './src/main.js']) {
-        if (!indexHtml.includes(required)) findings.push(`${WEB_DIR}/index.html: 缺少 ${required}`)
+    }
+
+    // ⑥ JS 里 `icon('name')` 的实参必须在 CSS 里有 `.icon--name` 且文件存在。
+    //    为什么查 CSS 映射而不是直接拼 `<name>.svg`：文件名大小写与 `user → UserCheck.svg`
+    //    的映射都在 CSS 里，直接拼会在 Linux 上假红、在 Windows 上假绿。
+    const jsFiles = files.filter((file) => file.endsWith('.js') && !file.endsWith('.test.js'))
+    for (const file of jsFiles) {
+      const where = relative(root, file).split('\\').join('/')
+      const source = read(file) ?? ''
+      for (const match of source.matchAll(/\bicon\(\s*['"]([\w-]+)['"]/g)) {
+        const name = match[1] ?? ''
+        if (!iconTargets.has(name)) {
+          findings.push(`${where}: icon('${name}') 没有对应的 .icon--${name} 样式/图标`)
+        }
       }
     }
 

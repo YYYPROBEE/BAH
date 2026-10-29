@@ -21,6 +21,7 @@ import type { BankSessionEventMap } from '@bah/bank'
 import type { PolicySessionEventMap } from '../../policy.ts'
 import type { WebDeps, WebRequest } from '../deps.ts'
 import { sendError, sendJson } from '../http.ts'
+import { createHandoffMetrics } from './metrics-handoff.ts'
 import { buildMetricsView, jsonExtrasOf } from './metrics-extra.ts'
 import { handlePrometheusMetrics } from './prometheus.ts'
 
@@ -76,6 +77,9 @@ export async function handleMetrics(
   const byPolicyVerdict: Record<string, number> = {}
   const byPolicyReason: Record<string, number> = {}
 
+  /** 人工接管（C5）：历史从事件算；`active` 从状态机读（"现在"与"历史"两层）。 */
+  const handoff = createHandoffMetrics(deps.handoff)
+
   const count = (bucket: Record<string, number>, key: string): void => {
     bucket[key] = (bucket[key] ?? 0) + 1
   }
@@ -109,6 +113,8 @@ export async function handleMetrics(
       shadowDiffs += 1
       continue
     }
+    // 人机接管：同样走 `String(type)`（appendDomain 不受事件表约束）
+    if (handoff.ingest(event)) continue
     switch (event.type) {
       case 'turn/end':
         turns += 1
@@ -169,6 +175,7 @@ export async function handleMetrics(
       reloadRejected,
     },
     usage: { input, output, cachedInput, costMicroYuan },
+    handoff: handoff.snapshot(),
     // `null` = 本 profile 没装 HALT（不是"未停机"）。区分开才知道该不该去看锁。
     halt:
       halt === undefined

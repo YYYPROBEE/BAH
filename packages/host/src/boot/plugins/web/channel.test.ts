@@ -22,6 +22,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { RUN_SERVICE } from '../../boot.ts'
 import { mobilePlugin, MOBILE_SERVER } from '../mobile.ts'
+import { SESSION_FILES } from '../persistence.ts'
 import { WEB_TOKEN_ENV } from '../web-auth.ts'
 import { WEB_SERVER, webPlugin, type WebSettings } from '../web.ts'
 import type { HostPlugin } from '../../../plugin-manager/index.ts'
@@ -74,6 +75,11 @@ async function boot(
   provideSession(ctx, { sessionId, now })
   provideAgents(ctx, new AgentRegistry())
   ctx.provide(APPROVAL_SERVICE, new ApprovalService({ sessionId, now }))
+  // 两个渠道共用一份装配 ⇒ 都要有会话根（接管状态落与会话日志同目录）
+  ctx.provide(SESSION_FILES, {
+    root: join(tmpdir(), 'bah-channel-parity-sessions'),
+    fileOf: (id) => join(tmpdir(), 'bah-channel-parity-sessions', String(id), 'session.jsonl'),
+  })
 
   await ctx.use(plugin.plugin, plugin.validate({ port: 0, host: '127.0.0.1', staticRoot, ...settings }))
   await ctx.start()

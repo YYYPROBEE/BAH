@@ -27,13 +27,18 @@ import {
 import { handleStatic } from './handlers/static.ts'
 import { handleFork } from './handlers/fork.ts'
 import { handleHandoff } from './handlers/handoff.ts'
+import {
+  handleHandoffClaim,
+  handleHandoffHeartbeat,
+  handleHandoffMessage,
+  handleHandoffQueue,
+} from './handlers/handoff-message.ts'
 import { handleMetrics } from './handlers/metrics.ts'
 import { handleTrace } from './handlers/trace.ts'
 import { sendError } from './http.ts'
 import { METHOD_NOT_ALLOWED_CODE, METHOD_NOT_ALLOWED_STATUS, matchRoute, type RouteHandler } from './router.ts'
 import { startHttpSpan } from './trace.ts'
-import { tokenMatches } from '../web-admin.ts'
-import { presentedWebToken } from '../web-auth.ts'
+import { presentedPrincipal } from '../web-operator.ts'
 
 /** 处理器查表（键与 `RouteHandler` 一一对应）。 */
 const HANDLERS: Readonly<Record<RouteHandler, WebHandler>> = {
@@ -47,6 +52,10 @@ const HANDLERS: Readonly<Record<RouteHandler, WebHandler>> = {
   approval: handleApproval,
   verify: handleVerify,
   handoff: handleHandoff,
+  'handoff-message': handleHandoffMessage,
+  'handoff-claim': handleHandoffClaim,
+  'handoff-heartbeat': handleHandoffHeartbeat,
+  'handoff-queue': handleHandoffQueue,
   fork: handleFork,
   admin: handleAdmin,
   static: handleStatic,
@@ -90,13 +99,35 @@ export function createDispatcher(
       }
     }
 
-    // Web 凭证检查（D5 最小集）：除探活与管理面外，所有 `/api/*` 一律先验 Bearer。
+    const auth = match?.spec.auth
+
+    // 坐席面未配置 ⇒ 路由不存在。放在鉴权之前：401 会告诉探测者"这里有东西"。
+    if (auth === 'operator' && deps.operatorToken === undefined) {
+      sendError(res, 404, 'web-not-found', `没有这个资源：${path}`)
+      return
+    }
+
+    // 身份解析（D5）：`web` = 任一有效凭证；`user` = 仅客户；`operator` = 仅坐席。
     // SSE 例外：`EventSource` 不能设请求头，只能带 `?token=`——只对 GET /api/events 放宽。
-    if (isApi && !isAdmin && match?.spec.auth !== 'public') {
-      const queryToken =
-        method === 'GET' && path === '/api/events' ? url.searchParams.get('token') : null
-      if (!tokenMatches(deps.webToken, presentedWebToken(req.headers, queryToken))) {
+    const queryToken =
+      method === 'GET' && path === '/api/events' ? url.searchParams.get('token') : null
+    const principal = presentedPrincipal(req.headers, queryToken, {
+      webToken: deps.webToken,
+      operatorToken: deps.operatorToken,
+    })
+
+    if (isApi && !isAdmin && auth !== 'public') {
+      if (principal === undefined) {
         sendError(res, 401, 'web-unauthorized', '缺少或错误的访问凭证')
+        return
+      }
+      // 坐席不能替客户发消息 / 打断（D9）；401 而不是 403：不暴露"你可以但你没权限"
+      if (auth === 'user' && principal !== 'user') {
+        sendError(res, 401, 'web-unauthorized', '该接口只接受客户凭证')
+        return
+      }
+      if (auth === 'operator' && principal !== 'operator') {
+        sendError(res, 401, 'web-unauthorized', '该接口只接受坐席凭证')
         return
       }
     }
@@ -121,7 +152,13 @@ export function createDispatcher(
       return
     }
 
-    const request: WebRequest = { method, url, path, rest: match.rest }
+    const request: WebRequest = {
+      method,
+      url,
+      path,
+      rest: match.rest,
+      ...(principal === undefined ? {} : { principal }),
+    }
     await HANDLERS[match.spec.handler](req, res, request, deps)
   }
 }
