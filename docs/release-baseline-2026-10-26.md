@@ -87,7 +87,7 @@ packages/safety/src/sentry/kernel/pii.test.ts:45: original: 'sk-abcdefghijklmnop
 | 问题 | 结论 | 依据 |
 |---|---|---|
 | `sessions/`、`snapshots/` 进不进交付包 | **`snapshots/` 进，`sessions/` 不进** | `snapshots/` 已入库 29 个文件、5 个测试文件 / 18 个用例（4 个回放场景），`snapshot-fresh` 门禁依赖它；`sessions/` 入库 0 个、被 `.gitignore:7` 忽略、本机 1080 个运行期演示目录（2026-10-26 23:18 实测，随演示增长），属于可再生的本地数据 |
-| `bah-audit/`、`sentry-dsh-plugin/` 算交付件还是参考件 | **均为参考件，不进交付包** | 两者都是 MonoRepo 之外的独立 git 仓库；`docs/audit.md:15-16` 明写"bah-audit 不参与本仓证据"，`PROGRESS.md:2575` 记"仓库外层、不参与本仓证据（剥离归 W20）"；`NOTICE.md:7` 说明 sentry 内核已迁入 `packages/safety`，提交包不需要第二份源码 |
+| `bah-audit/`、`sentry-dsh-plugin/` 算交付件还是参考件 | **均为参考件，不进交付包** | 两者都是 MonoRepo 之外的独立 git 仓库；`docs/audit.md:15-16` 明写"bah-audit 不参与本仓证据"，`PROGRESS.md:2575`（2026-10-29 瘦身后现落 `docs/progress-archive-2026-10-18_28.md` §66） 记"仓库外层、不参与本仓证据（剥离归 W20）"；`NOTICE.md:7` 说明 sentry 内核已迁入 `packages/safety`，提交包不需要第二份源码 |
 | `.env.local` 的 key 轮换 | **【待】本人操作** | `.env.local` 被 `.gitignore:5` 忽略且无历史；轮换涉及真实密钥，agent 只看存在性、不读值、不改值 |
 
 `.env.local` 轮换检查清单（交给本人）：
@@ -244,7 +244,7 @@ git rev-parse v1.0-submit^{commit}; git rev-parse HEAD
 | 敏感面命中 30 行，`sessions/` 与 `.tmp` 入库为 0 | `git ls-files \| grep -iE ...` | 30 行 = `.env.example` + 29 个 `snapshots/` 文件；`sessions/` 0、`.tmp` 0 |
 | `.env.local` 被忽略且无历史 | `git check-ignore -v`、`git log --all -- .env.local` | `.gitignore:5` 命中；历史为空 |
 | `snapshots/` 入库 29 个、5 个测试文件 / 18 个用例 | `git ls-files snapshots` + README §7 | 29 个；5 个测试文件（`fixtures.test.ts` + 4 个 `snapshot.test.ts`） |
-| 边界判定引用的三处原文存在 | `docs/audit.md:15-16`、`PROGRESS.md:2575`、`NOTICE.md:7` | 均逐行确认 |
+| 边界判定引用的三处原文存在 | `docs/audit.md:15-16`、`PROGRESS.md:2575`（2026-10-29 瘦身后现落 `docs/progress-archive-2026-10-18_28.md` §66）、`NOTICE.md:7` | 均逐行确认 |
 | CI 的 secret 与 e2e SKIP 注释存在 | `.github/workflows/ci.yml:7/33/82-83` | 均逐行确认 |
 | 地址命中 2 处 | `grep -rn "github.com" README.md docs/deploy.md` | README:3、deploy:13 |
 | 门禁 34/34 | `NODE_EXTRA_CA_CERTS= npx tsx scripts/run-gates.ts` | 23:09 首跑 34/34；23:14 因并发文件变红，见 §7.3 |

@@ -18,7 +18,7 @@
 > 冲突时取分支侧那一行，不要整篇 `--theirs`（那会把 5,700 余行历史重新塞回本文件）。
 > 纪律不变：**一次只推进一个阶段，验收通过才进下一阶段**（底座提示词 README §2.1）。
 
-> 本次重排实测：本文件 **346 行**、归档 **5962 行**、索引 **126 条**（修正明细见 `docs/evidence/2026-10-29-progress-slim/01-adversarial-review.md`）。
+> 本次重排实测：本文件 **352 行**、归档 **5962 行**、索引 **126 条**（修正明细见 `docs/evidence/2026-10-29-progress-slim/01-adversarial-review.md`）。
 
 ## 1. 文档 / 施工单进度（19 行）
 
@@ -343,4 +343,10 @@
   归档 21 处"搬家致断"的相对链接修正；追加协议补上**编号由 main 分配**。
 - 未落库：`verify-doc-links` 门禁实测会逼 `npx tsx scripts/gen-architecture.ts` 重写三份
   生成文档，而那三份是并行会话**未提交**的文件 → 门禁暂存出场，等它们入库再上。
+- 回归检查后的补记（同日）：4 处 `PROGRESS.md:<行号>` 式引用曾随瘦身悬空，已在原处标注新落点
+  （`docs/release-baseline-2026-10-26.md` 引 §66、`docs/snapshot-sandbox-scenario-report.md` 引 §46、
+  `docs/evidence/2026-10-28-mobile-h5/02-adversarial-review.md` 引 §96.36，原引用文本均保留）；
+  `AGENTS.md` 的"27 项 / 10 步"改为实测 50 项 / 14 步并写明以 `facts.md` 为准。
+- 接手口径改由 `docs/handoff-2026-10-29-progress-protocol.md` 承载（旧接手件的"补两节"已标废）。
+
 

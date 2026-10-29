@@ -52,7 +52,7 @@ BAH 门禁 · 共 23 项
 | 日限额 | `forge/index.ts:80` = 100_000 分（¥1000）；`bank-tools.ts:146` 用 Config 收紧；实测 u-1 基准日无转出 | 一致 |
 | C1/C2/C3 | `vitest.config.ts:59-65` 的 forge 豁免；`scripts/coverage-allowlist.ts` 的 `host/boot/` 100% 与 `safety/sentry/`+`sandbox-policy/`（无 `sandbox-runtime/`） | 一致 |
 | 「复制 headless-basic 改 name/prompts」 | mock 脚本写死在 `profiles/headless/patch.yml:14`；`web-channel` 已用场景内 `overlay.yml`（`snapshots/web-channel/scenario.ts:70`、`:100`） | **部分推翻** → C-2 |
-| `PROGRESS.md` 接 `## 46.` | 现文件已有 `## 46.`（`PROGRESS.md:1180`，门禁扩容 07） | **推翻** → C-3 |
+| `PROGRESS.md` 接 `## 46.` | 现文件已有 `## 46.`（`PROGRESS.md:1180`（2026-10-29 瘦身后现落 `docs/progress-archive-2026-10-18_28.md` §46），门禁扩容 07） | **推翻** → C-3 |
 
 ## 2. 沙箱审计时钟（T3）与 T4 不变量用例
 
@@ -312,7 +312,7 @@ SENSITIVE 源文件：204；无场景声明：63（30.9%）；有声明：141
 |---|---|---|---|
 | C-1 | 注入 `run.now` 会让之后事件 `ts` 整体后移；T4 可用 `fixedClock({step:5})` | `fixedClock.now()` 是常量，`tick()` 才推进；老快照所有 `at` 都等于 `clock.start` | 报告按实物写；T4 用自增 `tick`/4096；独立钟改用 `sandboxNow` |
 | C-2 | 复制 `headless-basic`、改 `CASE.name` 与 prompts 即可 | mock 脚本在 `profiles/headless/patch.yml:14`；`web-channel` 用场景内 `overlay.yml` | 新场景加 `overlay.yml` 覆盖 `core:model` + `bank:tools` |
-| C-3 | `PROGRESS.md` 现 45 节，接 `## 46.` | 已有 `## 46.`（`PROGRESS.md:1180`） | 新节用 `## 47.` |
+| C-3 | `PROGRESS.md` 现 45 节，接 `## 46.` | 已有 `## 46.`（`PROGRESS.md:1180`（2026-10-29 瘦身后现落 `docs/progress-archive-2026-10-18_28.md` §46）） | 新节用 `## 47.` |
 | C-4 | 新建场景的 `session.jsonl`/`llm.jsonl` 天然是「本次变化的产物」 | `git status --porcelain` 对未跟踪目录只报 `snapshots/sandbox-compute/`，不展开文件；不 `git add` 时 `snapshot-fresh` 报「覆盖但未重录」 | 必须先 `git add snapshots/sandbox-compute` 再取门禁数（施工单 T7 已写，但 §1.3 的机制描述不完整） |
 | C-5 | stress 档「可直接把 `forge/index.ts` 从 `coverage.exclude` 撤掉」 | 撤掉后 `forge/index.ts` 99.09%（`pick()` 不可达 throw）；且全局另有 5 条 assertNever 未覆盖 | 恢复豁免；把 C1 记为「stress 场景已补，但覆盖率条件仍未满足」 |
 | C-6 | T3 一行 `now: run.now` | 你选了独立计数钟；需要 `RunContext.sandboxNow` 可选字段 | 已按选择实现，并在 §2 说明设计偏差 |
