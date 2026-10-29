@@ -125,8 +125,9 @@
 #   写了会被 rejectUnknownKeys 拒（这正是 01 §3.6 决策的结构保证）。
 #
 # 端口 7551：不撞 7331(web)/7801(rag)；刻意不选 7332（listen.ts 点名它是"最坏的看起来能用"）。
-# ⚠ 02 单待办：`apps/web/m.html` 落盘后，把 entry 改 `m.html`、entries 改 [m.html, index.html]
-#   ——本单落 index.html 是因为 apps/web 当时还没有 m.html（写了 m.html 则 `/` 直接 404）。
+# 入口：`/` 打开 m.html；白名单 [m.html, index.html] —— m.html 自身也是 token 入口
+# （注入 Bearer + CSRF cookie + no-store），index.html 留在名单里是为了移动进程也能直接
+# 打开桌面壳做对照排查（不打开就永远拿不到两者并排的现场）。名单之外的 HTML 一律不注入。
 - id: channel:mobile
   use: channel:mobile
   config:
@@ -135,6 +136,7 @@
     # 00 D1：单静态根双壳，不新建 apps/mobile
     staticRoot: apps/web
     heartbeatMs: 15000
-    entry: index.html
+    entry: m.html
     entries:
+      - m.html
       - index.html
