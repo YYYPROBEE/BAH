@@ -1,0 +1,11 @@
+PASS P1 模型可见正文含卡ID :: 实体卡尾号 1234（卡ID c-1，正常，日限 ¥1,000.00） | 虚拟卡尾号 5678（卡ID c-2，正常，日限 ¥2,000.00）
+PASS P2 账户与卡片并列且区分「卡尾号」
+PASS P3 正文可提取 cardId :: c-1
+PASS P4 正文 cardId 可完成挂失
+PASS P5 挂失落账 card/reported-lost
+PASS P6 尾号不能当 cardId（不猜） :: card-unknown
+PASS P7 未知用户返回空数组而非抛错
+PASS P8 返回副本，改字段不污染账本 :: normal
+PASS P9 无卡时不出现「名下 0 张卡」
+
+结果：9/9 通过

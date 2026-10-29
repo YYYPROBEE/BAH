@@ -1,0 +1,308 @@
+ WARN  Unsupported engine: wanted: {"node":"^22.19 || >=24"} (current: {"node":"v22.17.0","pnpm":"10.34.7"})
+
+> bah-monorepo@ test:snapshot D:\项目集\微众杯银行ai智能体\BAH\CARD-01-WT
+> vitest run --config vitest.snapshot.config.ts
+
+
+ RUN  v3.2.7 D:/项目集/微众杯银行ai智能体/BAH/CARD-01-WT
+
+node.exe : stderr | snapshots/cross-scene/snapshot.test.ts > 快照回放 · cross-scene > re
+cord → replay：无密钥回放，事件流逐条全等
+所在位置 C:\Users\37706\AppData\Roaming\npm\pnpm.ps1:24 字符: 5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (stderr...y：无密钥回放，事件流逐条全等:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+{"ts":"2026-10-29T17:13:36.068Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/cross-scene/snapshot.test.ts > 快照回放 · cross-scene > record → repl
+ay：无密钥回放，事件流逐条全等
+{"ts":"2026-10-29T17:13:36.086Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | snapshots/cross-scene/snapshot.test.ts > 快照回放 · cross-scene > TC-XSC-29 同一快
+照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:36.700Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/cross-scene/snapshot.test.ts > 快照回放 · cross-scene > TC-XSC-29 同一快
+照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:36.711Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | snapshots/cross-scene/snapshot.test.ts > 快照回放 · cross-scene > TC-XSC-29 同一快
+照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:37.267Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/cross-scene/snapshot.test.ts > 快照回放 · cross-scene > TC-XSC-29 同一快
+照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:37.274Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+ ✓ snapshots/cross-scene/snapshot.test.ts (5 tests) 1798ms
+   ✓ 快照回放 · cross-scene > record → replay：无密钥回放，事件流逐条全等  636ms
+   ✓ 快照回放 · cross-scene > TC-XSC-29 同一快照两次回放全等（确定性时钟 + 无网络）  1146ms
+stderr | snapshots/sandbox-compute/snapshot.test.ts > 快照回放 · sandbox-compute > T-AUD
+-005 record → replay：无密钥回放，事件流逐条全等
+{"ts":"2026-10-29T17:13:38.757Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/sandbox-compute/snapshot.test.ts > 快照回放 · sandbox-compute > T-AUD
+-005 record → replay：无密钥回放，事件流逐条全等
+{"ts":"2026-10-29T17:13:38.773Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+(node:64904) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | snapshots/sandbox-compute/snapshot.test.ts > 快照回放 · sandbox-compute > T-AUD
+-006 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:39.317Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/sandbox-compute/snapshot.test.ts > 快照回放 · sandbox-compute > T-AUD
+-006 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:39.325Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+(node:64904) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | snapshots/sandbox-compute/snapshot.test.ts > 快照回放 · sandbox-compute > T-AUD
+-006 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:39.796Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/sandbox-compute/snapshot.test.ts > 快照回放 · sandbox-compute > T-AUD
+-006 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:39.800Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+(node:64904) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ snapshots/sandbox-compute/snapshot.test.ts (4 tests) 1547ms
+   ✓ 快照回放 · sandbox-compute > T-AUD-005 record → replay：无密钥回放，事件流逐条全等  567ms
+   ✓ 快照回放 · sandbox-compute > T-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）  968ms
+stderr | snapshots/web-channel/snapshot.test.ts > 快照回放 · web-channel > T-AUD-005 rec
+ord → replay：无密钥回放，事件流逐条全等
+{"ts":"2026-10-29T17:13:41.239Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/web-channel/snapshot.test.ts > 快照回放 · web-channel > T-AUD-005 rec
+ord → replay：无密钥回放，事件流逐条全等
+{"ts":"2026-10-29T17:13:41.255Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | snapshots/web-channel/snapshot.test.ts > 快照回放 · web-channel > T-AUD-006 同一快
+照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:41.583Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/web-channel/snapshot.test.ts > 快照回放 · web-channel > T-AUD-006 同一快
+照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:41.591Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | snapshots/web-channel/snapshot.test.ts > 快照回放 · web-channel > T-AUD-006 同一快
+照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:41.864Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/web-channel/snapshot.test.ts > 快照回放 · web-channel > T-AUD-006 同一快
+照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:41.870Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+ ✓ snapshots/web-channel/snapshot.test.ts (4 tests) 924ms
+   ✓ 快照回放 · web-channel > T-AUD-005 record → replay：无密钥回放，事件流逐条全等  350ms
+   ✓ 快照回放 · web-channel > T-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）  562ms
+stderr | snapshots/policy-externalized/snapshot.test.ts > 快照回放 · policy-externalized > 
+[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+{"ts":"2026-10-29T17:13:43.156Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/policy-externalized/snapshot.test.ts > 快照回放 · policy-externalized > 
+[2mT-AUD-005 record → replay：无密钥回放，事件流逐条全等
+{"ts":"2026-10-29T17:13:43.175Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r-demo/1.1.0+sha256:dee8183a04ef9750","digest":"dee8183a04ef9750b2a9ad1c56174b59219ca95b6ee9058bb02286d3a77b98da","engi
+ne":"1.0.0"}
+
+stderr | snapshots/policy-externalized/snapshot.test.ts > 快照回放 · policy-externalized > 
+[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:43.485Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/policy-externalized/snapshot.test.ts > 快照回放 · policy-externalized > 
+[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:43.491Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r-demo/1.1.0+sha256:dee8183a04ef9750","digest":"dee8183a04ef9750b2a9ad1c56174b59219ca95b6ee9058bb02286d3a77b98da","engi
+ne":"1.0.0"}
+
+stderr | snapshots/policy-externalized/snapshot.test.ts > 快照回放 · policy-externalized > 
+[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:43.769Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/policy-externalized/snapshot.test.ts > 快照回放 · policy-externalized > 
+[2mT-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:43.774Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r-demo/1.1.0+sha256:dee8183a04ef9750","digest":"dee8183a04ef9750b2a9ad1c56174b59219ca95b6ee9058bb02286d3a77b98da","engi
+ne":"1.0.0"}
+
+ ✓ snapshots/policy-externalized/snapshot.test.ts (6 tests) 930ms
+   ✓ 快照回放 · policy-externalized > T-AUD-005 record → replay：无密钥回放，事件流逐条全等  334ms
+   ✓ 快照回放 · policy-externalized > T-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）  576ms
+stderr | snapshots/headless-basic/snapshot.test.ts > 快照回放 · headless-basic > T-AUD-0
+05 record → replay：无密钥回放，事件流逐条全等
+{"ts":"2026-10-29T17:13:44.999Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/headless-basic/snapshot.test.ts > 快照回放 · headless-basic > T-AUD-0
+05 record → replay：无密钥回放，事件流逐条全等
+{"ts":"2026-10-29T17:13:45.015Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | snapshots/headless-basic/snapshot.test.ts > 快照回放 · headless-basic > T-AUD-0
+06 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:45.318Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/headless-basic/snapshot.test.ts > 快照回放 · headless-basic > T-AUD-0
+06 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:45.323Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | snapshots/headless-basic/snapshot.test.ts > 快照回放 · headless-basic > T-AUD-0
+06 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:45.595Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/headless-basic/snapshot.test.ts > 快照回放 · headless-basic > T-AUD-0
+06 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:45.601Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+ ✓ snapshots/headless-basic/snapshot.test.ts (4 tests) 884ms
+   ✓ 快照回放 · headless-basic > T-AUD-005 record → replay：无密钥回放，事件流逐条全等  324ms
+   ✓ 快照回放 · headless-basic > T-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）  548ms
+stderr | snapshots/plan/snapshot.test.ts > 快照回放 · plan > record → replay：无密钥回放，事件流逐条
+全等
+{"ts":"2026-10-29T17:13:46.793Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/plan/snapshot.test.ts > 快照回放 · plan > record → replay：无密钥回放，事件流逐条
+全等
+{"ts":"2026-10-29T17:13:46.812Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | snapshots/plan/snapshot.test.ts > 快照回放 · plan > 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:47.048Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/plan/snapshot.test.ts > 快照回放 · plan > 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:47.054Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | snapshots/plan/snapshot.test.ts > 快照回放 · plan > 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:47.253Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/plan/snapshot.test.ts > 快照回放 · plan > 同一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:47.258Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+ ✓ snapshots/plan/snapshot.test.ts (4 tests) 683ms
+   ✓ 快照回放 · plan > 同一快照两次回放全等（确定性时钟 + 无网络）  413ms
+stderr | snapshots/compaction/snapshot.test.ts > 快照回放 · compaction > T-AUD-005 recor
+d → replay：无密钥回放，事件流逐条全等
+{"ts":"2026-10-29T17:13:48.421Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/compaction/snapshot.test.ts > 快照回放 · compaction > T-AUD-005 recor
+d → replay：无密钥回放，事件流逐条全等
+{"ts":"2026-10-29T17:13:48.438Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | snapshots/compaction/snapshot.test.ts > 快照回放 · compaction > T-AUD-006 同一快照两
+次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:48.650Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/compaction/snapshot.test.ts > 快照回放 · compaction > T-AUD-006 同一快照两
+次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:48.658Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | snapshots/compaction/snapshot.test.ts > 快照回放 · compaction > T-AUD-006 同一快照两
+次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:48.848Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/compaction/snapshot.test.ts > 快照回放 · compaction > T-AUD-006 同一快照两
+次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:48.854Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+ ✓ snapshots/compaction/snapshot.test.ts (5 tests) 654ms
+   ✓ 快照回放 · compaction > T-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）  404ms
+stderr | snapshots/entity-slots/snapshot.test.ts > 快照回放 · entity-slots > T-AUD-005 r
+ecord → replay 逐条全等；槽位真的进了模型输入，路由仍读用户原话
+{"ts":"2026-10-29T17:13:50.026Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/entity-slots/snapshot.test.ts > 快照回放 · entity-slots > T-AUD-005 r
+ecord → replay 逐条全等；槽位真的进了模型输入，路由仍读用户原话
+{"ts":"2026-10-29T17:13:50.042Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | snapshots/entity-slots/snapshot.test.ts > 快照回放 · entity-slots > T-AUD-006 同
+一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:50.244Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/entity-slots/snapshot.test.ts > 快照回放 · entity-slots > T-AUD-006 同
+一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:50.249Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | snapshots/entity-slots/snapshot.test.ts > 快照回放 · entity-slots > T-AUD-006 同
+一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:50.412Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | snapshots/entity-slots/snapshot.test.ts > 快照回放 · entity-slots > T-AUD-006 同
+一快照两次回放全等（确定性时钟 + 无网络）
+{"ts":"2026-10-29T17:13:50.417Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+ ✓ snapshots/entity-slots/snapshot.test.ts (5 tests) 575ms
+   ✓ 快照回放 · entity-slots > T-AUD-006 同一快照两次回放全等（确定性时钟 + 无网络）  332ms
+ ✓ snapshots/fixtures.test.ts (2 tests) 6ms
+
+ Test Files  9 passed (9)
+      Tests  39 passed (39)
+   Start at  01:13:33
+   Duration  17.87s (transform 1.68s, setup 0ms, collect 7.73s, tests 8.00s, environment 1ms, prepare 959ms)
+
