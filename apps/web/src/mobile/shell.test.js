@@ -515,6 +515,23 @@ describe('createMobileShell（装配与重连）', () => {
     expect(error.textContent).toContain('坐席 坐席小周 已交回会话')
   })
 
+  it('快照里的历史 handoff 帧不点亮横幅（启动真相来自 GET /api/handoff）', async () => {
+    const controlClient = {
+      handoffStatus: vi.fn(async () => ({ ok: true, status: 200, data: { active: false } })),
+      handoff: vi.fn(async () => ({ ok: true, status: 200, data: { active: true } })),
+      fork: vi.fn(async () => ({ ok: true, status: 200, data: {} })),
+    }
+    await start({ controlClient })
+    push({
+      kind: 'snapshot',
+      sessionId: 's-1',
+      maxSeq: 9,
+      frames: [{ kind: 'handoff', seq: 5, at: 5, active: true, reason: '上次接管' }],
+    })
+
+    expect(root.querySelector('[data-role="handoff-banner"]').hidden).toBe(true)
+  })
+
   it('handoff-warn 帧不渲染"未知帧"，实时到达时提示已等待多久', async () => {
     await start()
     push({ kind: 'handoff-warn', seq: 7, at: 7, waitedMs: 7 * 60_000, slaMs: 5 * 60_000 })
