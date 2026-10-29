@@ -84,16 +84,26 @@ export function splitTextByBytes(text: string, maxBytes: number): readonly strin
  * 给多片文本加 `(i/n) ` 前缀，并保证加完后每片**仍**不超过 `maxBytes`。
  *
  * 为什么前缀要占预算：微信把整条消息按字节截断，`(1/3)` 被截在片尾等于用户看到乱码。
- * 预算按最坏情况估（`(999/999) ` = 10 字节），多切一片也比超限好。
+ * 预算按**实际片数的前缀宽度**迭代收敛（片数越多 `(1000/1000) ` 越宽）；
+ * 固定预留 10 字节在片数上千时仍会超限（负控抓到过）。
  */
 export function prefixChunks(chunks: readonly string[], maxBytes: number): readonly string[] {
   if (chunks.length <= 1) return chunks
-  const reserve = 10
-  const budget = maxBytes - reserve
-  const limited: string[] = []
-  for (const chunk of chunks) {
-    const pieces = budget >= 4 && Buffer.byteLength(chunk, 'utf8') > budget ? splitTextByBytes(chunk, budget) : [chunk]
-    for (const piece of pieces) limited.push(piece)
+
+  let pieces: readonly string[] = chunks
+  // 最多 3 轮：每轮按当前片数算前缀宽度重切；片数稳定即收敛
+  for (let round = 0; round < 3; round += 1) {
+    const labelWidth = `(${String(pieces.length)}/${String(pieces.length)}) `.length
+    const budget = maxBytes - labelWidth
+    if (budget < 1) break
+    const next: string[] = []
+    for (const piece of pieces) {
+      const parts = Buffer.byteLength(piece, 'utf8') > budget ? splitTextByBytes(piece, budget) : [piece]
+      for (const part of parts) next.push(part)
+    }
+    const stable = next.length === pieces.length
+    pieces = next
+    if (stable) break
   }
-  return limited.map((piece, index) => `(${String(index + 1)}/${String(limited.length)}) ${piece}`)
+  return pieces.map((piece, index) => `(${String(index + 1)}/${String(pieces.length)}) ${piece}`)
 }

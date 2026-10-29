@@ -181,7 +181,11 @@ function joinOutbounds(outbounds: readonly ImOutbound[]): string {
  */
 export async function deliverTurn(input: DeliverInput): Promise<DeliverResult> {
   const mode = resolveMode(input.mode, input.capabilities)
-  const ack = (): PlatformResponse => input.reply.passive([{ kind: 'text', text: ACK_TEXT }])
+  // 能力位是契约：`passiveReply=false` 的平台不能调 passive，同步响应只能给空体
+  const ack = (): PlatformResponse =>
+    input.capabilities.passiveReply
+      ? input.reply.passive([{ kind: 'text', text: ACK_TEXT }])
+      : { status: 200, headers: {}, body: '' }
 
   const finishInBackground = async (): Promise<void> => {
     const ended = await input.collector.waitEnd(TURN_END_WAIT_MS)
