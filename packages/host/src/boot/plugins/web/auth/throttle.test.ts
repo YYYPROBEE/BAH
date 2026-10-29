@@ -63,3 +63,56 @@ describe('createThrottle', () => {
     expect(Math.max(...[wait ?? 0])).toBeGreaterThan(0)
   })
 })
+
+describe('04 TA-54 · 覆盖率补测（容量 / locked / 退避上限 / size）', () => {
+  it('TA-54-1 locked 只认锁定，不认退避；锁定过期后放行', () => {
+    const throttle = createThrottle({ ...SETTINGS, maxFailures: 2, lockMs: 10_000 })
+    expect(throttle.locked('ghost', 1_000)).toBeNull()
+    throttle.fail('k', 1_000)
+    // 第 1 次失败只是退避：locked 返回 null，check 非空
+    expect(throttle.locked('k', 1_000)).toBeNull()
+    expect(throttle.check('k', 1_000)).not.toBeNull()
+    throttle.fail('k', 1_000)
+    expect(throttle.locked('k', 1_000)).toBe(10)
+    expect(throttle.locked('k', 20_000)).toBeNull()
+  })
+
+  it('TA-54-2 退避有上限（backoffMaxMs）', () => {
+    const throttle = createThrottle({
+      maxFailures: 10,
+      lockMs: 900_000,
+      backoffBaseMs: 1_000,
+      backoffMaxMs: 5_000,
+    })
+    const waits: number[] = []
+    for (let index = 0; index < 5; index += 1) {
+      throttle.fail('k', 1_000)
+      waits.push((throttle.check('k', 1_000) ?? 0) * 1_000)
+    }
+    expect(waits).toEqual([1_000, 2_000, 4_000, 5_000, 5_000])
+  })
+
+  it('TA-54-3 桶表满：新键 check 被拒（fail-closed），旧键仍可用；fail 不新建桶', () => {
+    const throttle = createThrottle({ ...SETTINGS, maxFailures: 100, lockMs: 60_000 })
+    for (let index = 0; index < 1_024; index += 1) throttle.fail(`k-${String(index)}`, 1_000)
+    expect(throttle.size()).toBe(1_024)
+    // 满表 + 全部活跃：新键不被放行（返回锁定秒数作为等待）
+    expect(throttle.check('new-key', 1_000)).toBeGreaterThan(0)
+    // fail 不新建桶（仍然 1024），也不抛
+    expect(() => throttle.fail('new-key', 1_000)).not.toThrow()
+    expect(throttle.size()).toBe(1_024)
+    // 旧键仍可正常查（不被新键挤掉）
+    expect(throttle.check('k-0', 1_000)).not.toBeNull()
+  })
+
+  it('TA-54-4 桶过期后被 prune 清掉，容量恢复；size/reset 可用', () => {
+    const throttle = createThrottle({ ...SETTINGS, maxFailures: 100, lockMs: 60_000 })
+    for (let index = 0; index < 1_024; index += 1) throttle.fail(`k-${String(index)}`, 1_000)
+    // 时间推进到退避全部过期（backoffMax 60s）之后，prune 应清空
+    expect(throttle.check('new-key', 1_000 + 120_000)).toBeNull()
+    throttle.fail('k-0', 1_000 + 120_000)
+    expect(throttle.size()).toBe(1)
+    throttle.reset('k-0')
+    expect(throttle.size()).toBe(0)
+  })
+})

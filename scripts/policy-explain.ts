@@ -1,6 +1,7 @@
 /**
- * `pnpm policy:explain --session <id> --dir <sessions> [--call-id <id>|--seq <n>]`
+ * `pnpm policy:explain --session <id> --dir <tenant-sessions> [--call-id <id>|--seq <n>]`
  * （02 §5.2）：按记录里的 digest 找归档 bundle，复算同一条判决。
+ * `<tenant-sessions>` 是**租户目录**（`<deploy>/<tenant>`），不是部署根。
  *
  * 纯读：不改 state、不写链、不启动 host。实现与排版在 `policy-explain-lib.ts`。
  */
@@ -26,7 +27,7 @@ const paths = adminPaths({
 
 if (session === undefined || dir === undefined || (callId === undefined && seq === undefined)) {
   process.exitCode = usage(
-    '用法：pnpm policy:explain --session <id> --dir <sessions> [--call-id <id>|--seq <n>] [--json] [--require-chain] [--require-evidence]',
+    '用法：pnpm policy:explain --session <id> --dir <tenant-sessions> [--call-id <id>|--seq <n>] [--json] [--require-chain] [--require-evidence]',
   )
 } else {
   try {

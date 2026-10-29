@@ -8,7 +8,7 @@
 ## 1. 机器可读块（门禁只读这一段）
 
 <!-- facts:sources:start -->
-gates=43
+gates=44
 tools=16
 plan_lines=2246
 snapshot_files=8
@@ -18,8 +18,8 @@ coverage_total=34270
 coverage_pct=91.14
 coverage_package_ok=15
 coverage_package_total=16
-tests_main_files=244
-tests_main_cases=2722
+tests_main_files=255
+tests_main_cases=2848
 <!-- facts:sources:end -->
 
 > `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。
@@ -30,7 +30,7 @@ tests_main_cases=2722
 
 | 事实 | 值 | 命令 | 实测输出 |
 |---|---|---|---|
-| 门禁数 | **43** | `ls scripts/verify-*.ts \| wc -l` | 34 → `verify-facts.ts` 后 35 → `verify-docs-consistency.ts` 后 36；S4 新增 `verify-policy-{bundle,conformance,hardcode,registry}.ts` 后 40；可观测性 01 新增 `verify-telemetry.ts` 后 41；租户与鉴权 01 新增 `verify-tenant-scope.ts` 后 42；租户与鉴权 03 新增 `verify-authz-coverage.ts` 后 43；`run-gates` 输出 `43/43` |
+| 门禁数 | **44** | `ls scripts/verify-*.ts \| wc -l` | 34 → `verify-facts.ts` 后 35 → `verify-docs-consistency.ts` 后 36；S4 新增 `verify-policy-{bundle,conformance,hardcode,registry}.ts` 后 40；可观测性 01 新增 `verify-telemetry.ts` 后 41；租户与鉴权 01 新增 `verify-tenant-scope.ts` 后 42；租户与鉴权 03 新增 `verify-authz-coverage.ts` 后 43；租户与鉴权 04 新增 `verify-tenant-isolation.ts` 后 44；`run-gates` 输出 `44/44` |
 | 工具数 | **16** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 16（与 `result-schemas.ts` 16 个出参键一一对应） |
 | plan 非测试行数 | **2,246** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,246（2026-10-27 复核） |
 | 快照文件 / 用例 | **8 / 34** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 8 文件 / 34 例（`pnpm test:snapshot` 同值；S4 新增 `policy-externalized` 6 例） |

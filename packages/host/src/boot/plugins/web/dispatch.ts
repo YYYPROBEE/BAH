@@ -119,7 +119,10 @@ export function createDispatcher(
     // W09 CSRF：鉴权之后、业务之前。管理面已在上一步排除（豁免 CLI 客户端）；
     // 缺凭证仍是 401，不会被 CSRF 抢成 403；`/api/turn` 的 HALT 423 仍由 agent.send 产生。
     if (config.csrf.enabled && isApi && !isAdmin && CSRF_METHODS.has(method)) {
-      const csrf = csrfVerdict(req, deps.auth.csrfExpectation(identity))
+      const csrf = csrfVerdict(req, deps.auth.csrfExpectation(identity), {
+        // 同一个开关：cookie.secure=true ⇔ 整站 HTTPS（Origin 允许 https:）
+        allowHttps: deps.auth.cookie.secure,
+      })
       if (csrf !== 'pass') {
         sendError(
           res,

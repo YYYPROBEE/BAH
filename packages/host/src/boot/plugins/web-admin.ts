@@ -38,6 +38,16 @@ export type AdminOperatorsRead =
 /** 操作员 id 的字符集（会进审计与响应，不允许任意字符）。 */
 const OPERATOR_ID_PATTERN = /^[A-Za-z0-9._:-]{1,64}$/
 
+/** 是否配置了任何管理面凭据（04 §1.2 的启动告警用；不解析 JSON）。 */
+export function hasAdminCredentials(
+  env: Readonly<Record<string, string | undefined>>,
+): boolean {
+  return (
+    readAdminToken(env) !== undefined ||
+    (env[ADMIN_OPERATORS_ENV]?.trim() ?? '') !== ''
+  )
+}
+
 /** `reason` 字段上限（字符）。 */
 const MAX_REASON = 200
 
