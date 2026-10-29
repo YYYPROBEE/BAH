@@ -1,8 +1,8 @@
 /**
- * 坐席凭证与身份解析（HO-4）单测。
+ * 坐席凭证与显示名（HO-4）单测。
  *
- * 钉住：两个 token 的优先级与隔离、长度不等的失败路径、显示名的默认/上限、
- * 以及"两 token 相同 = 启动失败"这条安全红线。
+ * 钉住：显示名的默认/上限、以及"两 token 相同 = 启动失败"这条安全红线。
+ * 凭证 → 主体的映射（双凭证）在 `web/auth/static.test.ts`——本文件只管"读配置"。
  */
 
 import { describe, expect, it } from 'vitest'
@@ -14,7 +14,6 @@ import {
   MAX_OPERATOR_NAME,
   OPERATOR_NAME_ENV,
   OPERATOR_TOKEN_ENV,
-  presentedPrincipal,
   readOperatorConfig,
   readOperatorName,
   readOperatorToken,
@@ -55,40 +54,5 @@ describe('readOperatorConfig：客户与坐席凭证必须分离', () => {
       name: DEFAULT_OPERATOR_NAME,
     })
     expect(readOperatorConfig({}, WEB)).toEqual({ token: undefined, name: DEFAULT_OPERATOR_NAME })
-  })
-})
-
-describe('presentedPrincipal：六条分支', () => {
-  const tokens = { webToken: WEB, operatorToken: OP }
-
-  it('无凭证 → undefined', () => {
-    expect(presentedPrincipal({}, null, tokens)).toBeUndefined()
-    expect(presentedPrincipal({ authorization: '' }, null, tokens)).toBeUndefined()
-    expect(presentedPrincipal({ authorization: 'Basic abc' }, null, tokens)).toBeUndefined()
-  })
-
-  it('错 token → undefined', () => {
-    expect(presentedPrincipal({ authorization: 'Bearer nope' }, null, tokens)).toBeUndefined()
-  })
-
-  it('客户凭证 → user', () => {
-    expect(presentedPrincipal({ authorization: `Bearer ${WEB}` }, null, tokens)).toBe('user')
-  })
-
-  it('坐席凭证 → operator（先比 operator）', () => {
-    expect(presentedPrincipal({ authorization: `Bearer ${OP}` }, null, tokens)).toBe('operator')
-  })
-
-  it('两个都配但传错 → undefined', () => {
-    expect(presentedPrincipal({ authorization: 'Bearer bothtokens' }, null, tokens)).toBeUndefined()
-  })
-
-  it('SSE 的 query token 同样生效（坐席与客户）', () => {
-    expect(presentedPrincipal({}, OP, tokens)).toBe('operator')
-    expect(presentedPrincipal({}, WEB, tokens)).toBe('user')
-  })
-
-  it('未配坐席 token 时，坐席串不会被认成任何人', () => {
-    expect(presentedPrincipal({ authorization: `Bearer ${OP}` }, null, { webToken: WEB, operatorToken: undefined })).toBeUndefined()
   })
 })

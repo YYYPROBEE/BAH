@@ -70,7 +70,7 @@ function makeChain(
 ): void {
   const writer = createSagaAudit({
     now: () => 1_700_000_000_000,
-    rootDir: dir,
+    rootDir: join(dir, 'demo'),
     fsync: false,
     warn: () => undefined,
     signedTypes: signedKey === undefined ? [] : [...SIGNED_TYPES],
@@ -80,7 +80,7 @@ function makeChain(
 }
 
 function chainRows(dir: string, sagaId: string): ChainRecord[] {
-  return readFileSync(join(dir, sagaId, 'audit.jsonl'), 'utf8')
+  return readFileSync(join(dir, 'demo', sagaId, 'audit.jsonl'), 'utf8')
     .trim()
     .split('\n')
     .map((line) => JSON.parse(line) as ChainRecord)
@@ -96,7 +96,7 @@ function anchorOf(dir: string, sagaIds: readonly string[]): { period: string; ro
 }
 
 function writeAnchors(dir: string, value: unknown): void {
-  writeFileSync(join(dir, 'anchors.json'), JSON.stringify(value), 'utf8')
+  writeFileSync(join(dir, 'demo', 'anchors.json'), JSON.stringify(value), 'utf8')
 }
 
 function makeDb(dir: string, rows: ReadonlyArray<readonly [string, string]>, name = 'saga.sqlite'): void {
@@ -114,6 +114,7 @@ describe('parseAuditArgs', () => {
       ok: true,
       args: {
         dir: 'sessions',
+        tenant: 'demo',
         db: join('sessions', 'saga.sqlite'),
         key: 'keys/saga-ed25519.pem',
         format: 'text',
@@ -139,6 +140,7 @@ describe('parseAuditArgs', () => {
       ok: true,
       args: {
         dir: 'x',
+        tenant: 'demo',
         saga: 's',
         db: 'd.sqlite',
         key: 'k.pem',
@@ -286,7 +288,7 @@ describe('runAudit：链与签名', () => {
   it('截断尾行：warn 出口被调用，链仍通过', async () => {
     const dir = root()
     makeChain(dir, 'a', ['saga/created'])
-    appendFileSync(join(dir, 'a', 'audit.jsonl'), '{"truncated":', 'utf8')
+    appendFileSync(join(dir, 'demo', 'a', 'audit.jsonl'), '{"truncated":', 'utf8')
 
     const result = await run(dir, ['--dir', '.', '--no-projection', '--no-signature'])
     expect(result.code).toBe(0)
@@ -312,7 +314,7 @@ describe('runAudit：链与签名', () => {
   it('篡改链 → 链断，退出 1', async () => {
     const dir = root()
     makeChain(dir, 'a', ['saga/created'])
-    const path = join(dir, 'a', 'audit.jsonl')
+    const path = join(dir, 'demo', 'a', 'audit.jsonl')
     const row = JSON.parse(readFileSync(path, 'utf8').trim()) as ChainRecord
     writeFileSync(path, `${JSON.stringify({ ...row, d: 'tampered' })}\n`, 'utf8')
 
@@ -326,8 +328,8 @@ describe('runAudit：链与签名', () => {
 
   it('链文件中间行损坏 → errors，退出 1', async () => {
     const dir = root()
-    mkdirSync(join(dir, 'bad'), { recursive: true })
-    writeFileSync(join(dir, 'bad', 'audit.jsonl'), '{"bad":1}\n{"bad":2}\n', 'utf8')
+    mkdirSync(join(dir, 'demo', 'bad'), { recursive: true })
+    writeFileSync(join(dir, 'demo', 'bad', 'audit.jsonl'), '{"bad":1}\n{"bad":2}\n', 'utf8')
 
     const result = await run(dir, ['--dir', '.', '--no-projection', '--no-signature'])
     expect(result.code).toBe(1)
@@ -369,7 +371,7 @@ describe('runAudit：链与签名', () => {
     const dir = root()
     const key = keyFile(dir)
     makeChain(dir, 's', ['saga/comp-issued'], key.path)
-    const path = join(dir, 's', 'audit.jsonl')
+    const path = join(dir, 'demo', 's', 'audit.jsonl')
     const row = JSON.parse(readFileSync(path, 'utf8').trim()) as ChainRecord
     writeFileSync(
       path,
@@ -386,7 +388,7 @@ describe('runAudit：链与签名', () => {
     const dir = root()
     const key = keyFile(dir)
     makeChain(dir, 's', ['saga/comp-issued', 'saga/comp-issued'], key.path)
-    const path = join(dir, 's', 'audit.jsonl')
+    const path = join(dir, 'demo', 's', 'audit.jsonl')
     const lines = readFileSync(path, 'utf8').trim().split('\n')
     const first = JSON.parse(lines[0] as string) as ChainRecord
     const { sig: _sig, ...unsigned } = first
@@ -443,7 +445,7 @@ describe('runAudit：锚定', () => {
   it('台账损坏 → ledger-invalid，退出 1', async () => {
     const dir = root()
     makeChain(dir, 'a', ['saga/created'])
-    writeFileSync(join(dir, 'anchors.json'), '{', 'utf8')
+    writeFileSync(join(dir, 'demo', 'anchors.json'), '{', 'utf8')
 
     const result = await run(dir, ['--dir', '.', '--no-projection', '--no-signature'])
     expect(result.code).toBe(1)
@@ -463,8 +465,8 @@ describe('runAudit：锚定', () => {
   it('--saga 时其他链损坏：记入 errors，退出 1', async () => {
     const dir = root()
     makeChain(dir, 'a', ['saga/created'])
-    mkdirSync(join(dir, 'bad'), { recursive: true })
-    writeFileSync(join(dir, 'bad', 'audit.jsonl'), '{"bad":1}\n{"bad":2}\n', 'utf8')
+    mkdirSync(join(dir, 'demo', 'bad'), { recursive: true })
+    writeFileSync(join(dir, 'demo', 'bad', 'audit.jsonl'), '{"bad":1}\n{"bad":2}\n', 'utf8')
 
     const result = await run(dir, [
       '--dir',
@@ -510,12 +512,131 @@ describe('runAudit：diff-error', () => {
   it('目录名与链内 sagaId 不一致 → reduceSaga 抛错 → diff-error，退出 1', async () => {
     const dir = root()
     makeChain(dir, 'x', ['saga/created'])
-    mkdirSync(join(dir, 'y'), { recursive: true })
-    copyFileSync(join(dir, 'x', 'audit.jsonl'), join(dir, 'y', 'audit.jsonl'))
+    mkdirSync(join(dir, 'demo', 'y'), { recursive: true })
+    copyFileSync(join(dir, 'demo', 'x', 'audit.jsonl'), join(dir, 'demo', 'y', 'audit.jsonl'))
     makeDb(dir, [['y', 'RUNNING']])
 
     const result = await run(dir, ['--dir', '.', '--saga', 'y', '--no-signature', '--format', 'json'])
     expect(result.code).toBe(1)
     expect(JSON.parse(result.out).chains[0].projectionState).toBe('diff-error')
+  })
+})
+
+describe('03 TA-46 · 审批主体联接（票据 → 结论 → 操作者）', () => {
+  /** 写一条只含审批条目的链（v2 信封与 audit:decisions 的落法一致）。 */
+  function makeApprovalChain(
+    dir: string,
+    entries: readonly { readonly type: string; readonly data: Record<string, unknown> }[],
+  ): void {
+    const writer = createSagaAudit({
+      now: () => 1_700_000_000_000,
+      rootDir: join(dir, 'demo'),
+      fsync: false,
+      warn: () => undefined,
+      signedTypes: [],
+    })
+    for (const entry of entries) {
+      const envelope =
+        entry.type === 'approval/actor'
+          ? {
+              subject: `principal:${String(entry.data['tenantId'])}/${String(entry.data['userId'])}`,
+              decision: 'allow' as const,
+              policyVersion: 'auth-session/1',
+            }
+          : {
+              subject: 'session:a',
+              decision: entry.data['decision'] === 'allowed-once' ? ('allow' as const) : ('deny' as const),
+              policyVersion: 'approval-policy/1',
+            }
+      writer.append('a', entry.type, entry.data, undefined, envelope)
+    }
+  }
+
+  it('TA-46-1 人批：actor 在前、decided 在后 → 三段表给出操作者', async () => {
+    const dir = root()
+    makeApprovalChain(dir, [
+      {
+        type: 'approval/actor',
+        data: { ticketId: 't-1', tenantId: 'demo', userId: 'u-1', roles: ['customer'], at: 1 },
+      },
+      { type: 'approval/decided', data: { ticketId: 't-1', decision: 'allowed-once', at: 2 } },
+    ])
+    const result = await run(dir, ['--dir', '.', '--no-projection', '--no-signature'])
+    expect(result.code).toBe(0)
+    expect(result.out).toContain('审批 t-1 → allow → u-1')
+
+    const json = await run(dir, [
+      '--dir',
+      '.',
+      '--no-projection',
+      '--no-signature',
+      '--format',
+      'json',
+    ])
+    const report = JSON.parse(json.out) as {
+      approvals: Array<Record<string, unknown>>
+      approvalWarnings: string[]
+    }
+    expect(report.approvals).toHaveLength(1)
+    expect(report.approvals[0]).toMatchObject({
+      ticketId: 't-1',
+      decision: 'allow',
+      actor: { ticketId: 't-1', userId: 'u-1', tenantId: 'demo' },
+      machine: false,
+    })
+    expect(report.approvalWarnings).toEqual([])
+  })
+
+  it('TA-46-2 超时/无人值守：只有 decided → machine，且不告警（机器决策是合法态）', async () => {
+    const dir = root()
+    makeApprovalChain(dir, [
+      { type: 'approval/decided', data: { ticketId: 't-timeout', decision: 'unavailable', at: 3 } },
+    ])
+    const result = await run(dir, ['--dir', '.', '--no-projection', '--no-signature'])
+    expect(result.out).toContain('审批 t-timeout → deny → machine')
+    const json = await run(dir, [
+      '--dir',
+      '.',
+      '--no-projection',
+      '--no-signature',
+      '--format',
+      'json',
+    ])
+    const report = JSON.parse(json.out) as {
+      approvals: Array<Record<string, unknown>>
+      approvalWarnings: string[]
+    }
+    expect(report.approvals[0]).toMatchObject({ machine: true })
+    expect(report.approvalWarnings).toEqual([])
+  })
+
+  it('TA-46-3 allowed-once 且无前置 actor → 告警行（人批必有主）', async () => {
+    const dir = root()
+    makeApprovalChain(dir, [
+      { type: 'approval/decided', data: { ticketId: 't-humanless', decision: 'allowed-once', at: 4 } },
+    ])
+    const result = await run(dir, ['--dir', '.', '--no-projection', '--no-signature'])
+    expect(result.out).toContain('告警：人批必有主：t-humanless')
+    expect(result.out).toContain('→ allow → machine')
+  })
+
+  it('TA-46-4 链条目不含 password / cookie / sid（字符串级）', async () => {
+    const dir = root()
+    makeApprovalChain(dir, [
+      {
+        type: 'approval/actor',
+        data: { ticketId: 't-1', tenantId: 'demo', userId: 'u-1', roles: ['customer'], at: 1 },
+      },
+      { type: 'approval/decided', data: { ticketId: 't-1', decision: 'allowed-once', at: 2 } },
+    ])
+    const json = await run(dir, [
+      '--dir',
+      '.',
+      '--no-projection',
+      '--no-signature',
+      '--format',
+      'json',
+    ])
+    expect(json.out).not.toMatch(/password|cookie|"sid"/i)
   })
 })

@@ -2,7 +2,8 @@
  * 坐席动作四条路由（`handlers/handoff-message.ts`）。
  *
  * 钉住三件容易被"状态机已测过"掩盖的事：
- * 1. **身份来自部署配置**：body 里写别人的 `operator` 不生效（I1）；
+ * 1. **身份来自登录主体**（合流 2026-10-29）：body 里写别人的 `operator` 不生效（I1），
+ *    操作者 userId 取 `request.identity`，显示名另取 `deps.operatorName`；
  * 2. **错误码 → HTTP 状态的映射**：未接管 409、空发言 400、超长 413——
  *    前端工作台按状态码分支，映射错了就是把"输入问题"报成"服务器故障"；
  * 3. **队列载荷的形状**：未接管时 `items` 必须为空数组（不是 null），
@@ -13,10 +14,13 @@ import { EventEmitter } from 'node:events'
 
 import { describe, expect, it } from 'vitest'
 
+import { normalizePrincipal, parseTenantId } from '@bah/util'
+
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import type { HandoffHandle, HandoffSummary } from '../handoff.ts'
 import type { WebDeps, WebRequest } from '../deps.ts'
+import type { RequestIdentity } from '../auth/identity.ts'
 import {
   handleHandoffClaim,
   handleHandoffHeartbeat,
@@ -24,7 +28,18 @@ import {
   handleHandoffQueue,
 } from './handoff-message.ts'
 
+/** static 模式坐席主体（`svc:operator` / agent）。 */
+const OPERATOR_ID = 'svc:operator'
 const OPERATOR = '坐席小周'
+const SERVICE_IDENTITY: RequestIdentity = {
+  kind: 'service',
+  principal: normalizePrincipal({
+    tenantId: parseTenantId('demo'),
+    userId: OPERATOR_ID,
+    roles: ['agent'],
+    source: 'demo-config',
+  }),
+}
 
 const SUMMARY: HandoffSummary = {
   active: true,
@@ -77,8 +92,8 @@ function reqOf(body?: unknown): IncomingMessage {
   } as unknown as IncomingMessage
 }
 
-function request(method: string, path: string): WebRequest {
-  return { method, url: new URL(`http://127.0.0.1${path}`), path, rest: '' }
+function request(method: string, path: string, identity = SERVICE_IDENTITY): WebRequest {
+  return { method, url: new URL(`http://127.0.0.1${path}`), path, rest: '', identity }
 }
 
 /** 可观察的接管桩：记录调用参数，返回按用例定制的判决。 */
@@ -98,12 +113,12 @@ function handoffStub(overrides: Partial<HandoffHandle> = {}): {
       calls.push({ method: 'resume', args: [operator, handover] })
       return { ok: true, summary: IDLE }
     },
-    claim: (operator) => {
-      calls.push({ method: 'claim', args: [operator] })
+    claim: (operatorId, operatorLabel) => {
+      calls.push({ method: 'claim', args: [operatorId, operatorLabel] })
       return { ok: true, summary: SUMMARY }
     },
-    say: (operator, text) => {
-      calls.push({ method: 'say', args: [operator, text] })
+    say: (operatorId, text, operatorLabel) => {
+      calls.push({ method: 'say', args: [operatorId, text, operatorLabel] })
       return { ok: true, seq: 31 }
     },
     heartbeat: () => {
@@ -133,7 +148,7 @@ describe('POST /api/handoff/claim', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toMatchObject({ active: true, claimed: true })
-    expect(calls).toEqual([{ method: 'claim', args: [OPERATOR] }])
+    expect(calls).toEqual([{ method: 'claim', args: [OPERATOR_ID, OPERATOR] }])
   })
 
   it('未接管 → 409 handoff-not-active；被别人认领 → 409 handoff-claimed-by-other', async () => {
@@ -174,7 +189,9 @@ describe('POST /api/handoff/message', () => {
 
     expect(res.statusCode).toBe(200)
     expect(JSON.parse(res.body)).toEqual({ ok: true, seq: 31 })
-    expect(calls).toEqual([{ method: 'say', args: [OPERATOR, '您好，我是人工坐席'] }])
+    expect(calls).toEqual([
+      { method: 'say', args: [OPERATOR_ID, '您好，我是人工坐席', OPERATOR] },
+    ])
   })
 
   it('坏 JSON → 400 web-invalid-body（不讲成 409）', async () => {
@@ -195,7 +212,7 @@ describe('POST /api/handoff/message', () => {
     for (const body of [{}, { text: '   ' }]) {
       const said: string[] = []
       const { handle } = handoffStub({
-        say: (_operator, text) => {
+        say: (_operatorId, text) => {
           said.push(text)
           return { ok: false, code: 'handoff-text-empty' }
         },

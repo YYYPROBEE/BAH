@@ -33,8 +33,9 @@ import {
   verifyManifest,
 } from '@bah/knowledge'
 import type { FixtureKnowledgeOptions, KnowledgePort } from '@bah/knowledge'
+import type { TenantId } from '@bah/util'
 import { SESSION_SERVICE, TOOLS_SERVICE } from '@bah/runtime'
-import { BahError } from '@bah/util'
+import { BahError, tenantEnvSuffix } from '@bah/util'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
@@ -281,6 +282,37 @@ function applySignatureGate(options: {
   }
 }
 
+/**
+ * 知识库令牌的**环境变量解析结果**（01 TA-17）。
+ *
+ * `tenantScoped: false` 表示用的是共享令牌（回退）；非 demo 租户**不许**这样跑，
+ * 否则一台机器上两个租户共用一把密钥，任一泄漏即全平台可查。
+ */
+export interface KnowledgeTokenEnv {
+  readonly envName: string
+  readonly tenantScoped: boolean
+}
+
+/**
+ * 按租户选环境变量名（带回退）。
+ *
+ * 顺序：`<base>_<TENANT>` → `<base>` → 未设置。
+ *
+ * 为什么**必须**留回退：CI 与本地都只配一个 `BAH_KNOWLEDGE_TOKEN`（`ci-matrix.yml` 就是这么
+ * 注入的），删掉回退会让装知识库的那两个 profile 在 CI 里直接起不来——过渡期必须能跑。
+ * 代价由调用方兜：非 demo 租户用到回退时是 fail-loud。
+ */
+export function resolveKnowledgeTokenEnv(
+  env: Readonly<Record<string, string | undefined>>,
+  tenantId: TenantId,
+  baseEnv: string,
+): KnowledgeTokenEnv | undefined {
+  const perTenant = `${baseEnv}_${tenantEnvSuffix(tenantId)}`
+  if ((env[perTenant] ?? '').trim() !== '') return { envName: perTenant, tenantScoped: true }
+  if ((env[baseEnv] ?? '').trim() !== '') return { envName: baseEnv, tenantScoped: false }
+  return undefined
+}
+
 export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
   id: 'bank:knowledge',
 
@@ -292,6 +324,7 @@ export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
       const tools = ctx.get(TOOLS_SERVICE)
       const session = ctx.get(SESSION_SERVICE)
       const identity = ctx.get(BANK_IDENTITY)
+      const tenantId = run.tenantId
 
       const fixture =
         config.mode === 'fixture' && config.fixturePath !== undefined
@@ -299,8 +332,31 @@ export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
           : undefined
       // 空串等同于未设置：带一个空 Bearer 只会把 401 拖到第一次工具调用，
       // 启动期就该按"缺 token"处理（见下方告警）。
-      const token = process.env[config.tokenEnv]
+      const tokenEnv = resolveKnowledgeTokenEnv(process.env, tenantId, config.tokenEnv)
+      const token = tokenEnv === undefined ? undefined : process.env[tokenEnv.envName]
       const hasToken = token !== undefined && token.trim() !== ''
+      // 非 demo 租户用共享令牌 = 跨租户共用密钥：**启动期就拒绝**（不是告警）。
+      // `--dump-config`（probe=false）只看配置、不启动服务，按告警处理：
+      // 它的 stderr 契约（A8 严格为空）不能被一条"部署会失败"的提示破坏。
+      if (tokenEnv !== undefined && !tokenEnv.tenantScoped && String(tenantId) !== 'demo') {
+        const message =
+          `${WHERE} 租户 ${String(tenantId)} 正在回退到共享令牌 ${tokenEnv.envName}；` +
+          `多租户部署必须配 per-tenant 变量 ${config.tokenEnv}_${tenantEnvSuffix(tenantId)}（否则任一租户的 token 泄漏 = 全平台可查）`
+        if (run.probe === false) {
+          run.warn?.(`${message}（--dump-config 只看配置，真正的启动会失败：knowledge-token-shared）`)
+        } else {
+          throw bootError('knowledge-token-shared', message, {
+            tenantId: String(tenantId),
+            envName: tokenEnv.envName,
+          })
+        }
+      } else if (tokenEnv !== undefined && !tokenEnv.tenantScoped && run.probe !== false) {
+        // demo 用回退：起得来，但必须留痕（演示机与 CI 都靠这条回退）
+        run.warn?.(
+          `${WHERE} 租户 demo 回退到共享令牌 ${tokenEnv.envName}；` +
+            `多租户部署必须为每个租户配 ${config.tokenEnv}_<TENANT>`,
+        )
+      }
       const port =
         fixture?.port ??
         createHttpKnowledgePort({
@@ -318,7 +374,7 @@ export const knowledgePlugin: HostPlugin<KnowledgeSettings> = {
           // 启动期就要说清，不能等演示现场第一次提问才暴露。
           if (!hasToken) {
             run.warn?.(
-              `${WHERE} 未设置 ${config.tokenEnv}（mode=http）：sidecar 的 /v1/* 一律要求 Bearer token；` +
+              `${WHERE} 未设置 ${config.tokenEnv}（也未设置 ${config.tokenEnv}_${tenantEnvSuffix(tenantId)}；mode=http）：sidecar 的 /v1/* 一律要求 Bearer token；` +
                 'knowledge 工具将返回 knowledge-denied（fail-closed）。' +
                 '请用 scripts/rag.mjs / pnpm demo:rag 注入同一 token。',
             )

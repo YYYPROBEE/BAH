@@ -137,4 +137,79 @@ describe('transport · SSE 续订（§8）', () => {
     expect(FakeEventSource.instances).toHaveLength(11)
     transport.close()
   })
+
+  it('password 模式断线 401 探测：会话失效 → 不再重连并交回登录门', async () => {
+    vi.useFakeTimers()
+    document.head.innerHTML = '<meta name="bah-auth-mode" content="password" />'
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) }))
+    const received = []
+    const listener = () => received.push('unauthorized')
+    window.addEventListener('bah:unauthorized', listener)
+    const transport = connect()
+    try {
+      FakeEventSource.instances[0].emit('error')
+      await vi.runAllTimersAsync()
+      expect(received).toEqual(['unauthorized'])
+      expect(FakeEventSource.instances).toHaveLength(1)
+    } finally {
+      window.removeEventListener('bah:unauthorized', listener)
+      transport.close()
+      document.head.innerHTML = ''
+    }
+  })
+
+  it('password 模式断线探测仍有效（/api/auth/me 200）→ 照常退避重连', async () => {
+    vi.useFakeTimers()
+    document.head.innerHTML = '<meta name="bah-auth-mode" content="password" />'
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
+    const transport = connect()
+    try {
+      FakeEventSource.instances[0].emit('error')
+      await vi.runAllTimersAsync()
+      expect(FakeEventSource.instances).toHaveLength(2)
+    } finally {
+      transport.close()
+      document.head.innerHTML = ''
+    }
+  })
+})
+
+describe('transport · 02 TA-31 会话失效收敛', () => {
+  it('任何 API 返回 401 → 派发 bah:unauthorized（登录门负责回登录卡片）', async () => {
+    const received = []
+    const listener = () => received.push('unauthorized')
+    window.addEventListener('bah:unauthorized', listener)
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: { code: 'web-unauthorized', reason: '缺少或失效的登录状态' } }),
+    }))
+    try {
+      const api = createHttpApi({ token: '' })
+      const result = await api.session()
+      expect(result.ok).toBe(false)
+      expect(result.status).toBe(401)
+      expect(received).toEqual(['unauthorized'])
+    } finally {
+      window.removeEventListener('bah:unauthorized', listener)
+    }
+  })
+
+  it('非 401 的失败不触发登录门（403/500 是单次操作失败，不是会话失效）', async () => {
+    const received = []
+    const listener = () => received.push('unauthorized')
+    window.addEventListener('bah:unauthorized', listener)
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { code: 'web-csrf-required', reason: '缺少 CSRF' } }),
+    }))
+    try {
+      const api = createHttpApi({ token: 'web-token' })
+      await api.turn('查余额')
+      expect(received).toEqual([])
+    } finally {
+      window.removeEventListener('bah:unauthorized', listener)
+    }
+  })
 })

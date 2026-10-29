@@ -10,7 +10,7 @@ import { APPROVAL_SERVICE, ApprovalService } from '@bah/interaction'
 import { AgentRegistry, provideAgents, provideSession, SESSION_SERVICE } from '@bah/runtime'
 import { HALT_SERVICE, HaltState, SENTRY_SERVICE } from '@bah/safety'
 import { asSessionId } from '@bah/test-support'
-import { BahError } from '@bah/util'
+import { BahError, DEFAULT_TENANT_ID } from '@bah/util'
 import { mkdtempSync, rmSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -23,10 +23,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { RUN_SERVICE } from '../boot.ts'
 import { SESSION_FILES } from './persistence.ts'
-import { ADMIN_TOKEN_ENV } from './web-admin.ts'
+import { ADMIN_OPERATORS_ENV, ADMIN_TOKEN_ENV } from './web-admin.ts'
 import { WEB_TOKEN_ENV } from './web-auth.ts'
 import { OPERATOR_NAME_ENV, OPERATOR_TOKEN_ENV } from './web-operator.ts'
 import { DEFAULT_WEB, WEB_SERVER, webPlugin, type WebSettings } from './web.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 测试侧的透明接缝：捕获 channel:web 的请求监听器（供非回环 403 用例注入假 socket）
@@ -154,14 +155,18 @@ async function boot(
   if (extras.operator === 'absent') delete process.env[OPERATOR_TOKEN_ENV]
   else process.env[OPERATOR_TOKEN_ENV] = extras.operatorToken ?? OPERATOR_TOKEN
 
-  ctx.provide(RUN_SERVICE, { sessionId, now })
+  ctx.provide(RUN_SERVICE, testRunContext({ sessionId, now }))
   provideSession(ctx, { sessionId, now })
 
-  // 接管状态落盘需要会话根（生产由 core:persistence 提供，测试给临时目录）
+  // 接管状态落盘需要会话根（生产由 core:persistence 提供，测试给临时目录）。
+  // 租户化后 `root` 是**租户根**（`<baseRoot>/<tenant>`），fileOf 也要带租户段。
   const sessionRoot = mkdtempSync(join(tmpdir(), 'bah-web-handoff-'))
+  const tenantRoot = join(sessionRoot, String(DEFAULT_TENANT_ID))
   ctx.provide(SESSION_FILES, {
-    root: sessionRoot,
-    fileOf: (id) => join(sessionRoot, String(id), 'session.jsonl'),
+    root: tenantRoot,
+    baseRoot: sessionRoot,
+    tenantId: DEFAULT_TENANT_ID,
+    fileOf: (id) => join(tenantRoot, String(id), 'session.jsonl'),
   })
 
   // 边收边写的监听器（必须在 Web 插件之前注册，见 BootExtras.traceWriter）
@@ -727,6 +732,26 @@ describe('channel:web 静态资源安全', () => {
       // 页面是 token 的唯一载体：注入 meta 且不许缓存（重启后 token 会换）
       expect(await index.text()).toContain(`name="bah-web-token" content="${WEB_TOKEN}"`)
       expect(index.headers.get('cache-control')).toBe('no-store')
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('password 模式下 index 不注入口令（缺口 1），但仍下发 CSRF cookie 供登录用', async () => {
+    const harness = await boot({
+      auth: { ...DEFAULT_WEB.auth, mode: 'password', directory: { path: 'auth/users.example.yml' } },
+    })
+    try {
+      const index = await authedFetch(harness.url)
+      expect(index.status).toBe(200)
+      const html = await index.text()
+      // 任何能连端口的人都能拿到的口令，在 password 模式下必须消失
+      expect(html).not.toContain('bah-web-token')
+      expect(html).not.toContain(WEB_TOKEN)
+      // 登录请求本身也过 CSRF：页面必须带上 cookie
+      expect(index.headers.get('set-cookie') ?? '').toContain('bah_csrf=')
+      // 认证模式是服务端注入的事实，前端据此决定先验会话
+      expect(html).toContain('name="bah-auth-mode" content="password"')
     } finally {
       await shutdown(harness)
     }
@@ -1327,18 +1352,24 @@ describe('channel:web 管理路由（HP-0）', () => {
     }
   })
 
-  it('HP0-08 正确 token + 已冻结 → 200 unfrozen:true，by/reason 透传到服务', async () => {
+  it('HP0-08 正确 token + 已冻结 → 200 unfrozen:true，by 从 token 派生、reason 透传', async () => {
     setToken('correct-token-value')
     const harness = await boot({}, { sentry: 'frozen' })
     try {
       const response = await post(
         harness.url,
-        { by: 'ops-7', reason: '客服复核：误报' },
+        { reason: '客服复核：误报' },
         { authorization: 'Bearer correct-token-value' },
       )
       expect(response.status).toBe(200)
-      expect(await response.json()).toEqual({ ok: true, unfrozen: true })
-      expect(harness.unfreezeCalls).toEqual([{ by: 'ops-7', reason: '客服复核：误报' }])
+      expect(await response.json()).toEqual({
+        ok: true,
+        unfrozen: true,
+        by: 'admin',
+        bySource: 'admin-token',
+      })
+      // 响应说的 by 必须与下游（落 trace / sentry/unfrozen 事件）收到的一致
+      expect(harness.unfreezeCalls).toEqual([{ by: 'admin', reason: '客服复核：误报' }])
     } finally {
       await shutdown(harness)
     }
@@ -1350,30 +1381,37 @@ describe('channel:web 管理路由（HP-0）', () => {
     try {
       const response = await post(
         harness.url,
-        { by: 'ops-7' },
+        {},
         { authorization: 'Bearer correct-token-value' },
       )
       expect(response.status).toBe(200)
-      expect(await response.json()).toEqual({ ok: true, unfrozen: false })
+      expect(await response.json()).toEqual({
+        ok: true,
+        unfrozen: false,
+        by: 'admin',
+        bySource: 'admin-token',
+      })
       // 未写 reason 时用缺省值，而不是空串
       expect(harness.unfreezeCalls[0]?.reason).toBe('operator-unfreeze')
+      expect(harness.unfreezeCalls[0]?.by).toBe('admin')
     } finally {
       await shutdown(harness)
     }
   })
 
-  it('HP0-10 缺 by / 未知键 / 坏 JSON → 400（都不是 500）', async () => {
+  it('HP0-10 body 带 by / 未知键 / 坏 JSON → 400（都不是 500）', async () => {
     setToken('correct-token-value')
     const harness = await boot({}, { sentry: 'frozen' })
     const auth = { authorization: 'Bearer correct-token-value' }
     try {
-      const noBy = await post(harness.url, { reason: 'x' }, auth)
-      expect(noBy.status).toBe(400)
-      expect(((await noBy.json()) as { error: { code: string } }).error.code).toBe(
-        'web-admin-invalid-body',
-      )
+      // 03 TA-44：by 从 token 派生，body 里的 by 必须被明确拒绝
+      const forged = await post(harness.url, { by: 'ops-7' }, auth)
+      expect(forged.status).toBe(400)
+      const forgedBody = (await forged.json()) as { error: { code: string; reason: string } }
+      expect(forgedBody.error.code).toBe('web-admin-invalid-body')
+      expect(forgedBody.error.reason).toContain('by')
 
-      const unknown = await post(harness.url, { by: 'ops-7', nope: 1 }, auth)
+      const unknown = await post(harness.url, { nope: 1 }, auth)
       expect(unknown.status).toBe(400)
 
       const broken = await authedFetch(`${harness.url}api/admin/sentry/unfreeze`, {
@@ -1395,7 +1433,7 @@ describe('channel:web 管理路由（HP-0）', () => {
     try {
       const response = await post(
         harness.url,
-        { by: 'ops-7' },
+        {},
         { authorization: 'Bearer correct-token-value' },
       )
       expect(response.status).toBe(503)
@@ -1752,13 +1790,18 @@ describe('C5 人工接管（handoff）', () => {
       const resume = await operatorFetch(`${harness.url}api/handoff/resume`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        // body 里的 operator 是旧接口字段：人机接管 01 起一律忽略（I1）
-        body: JSON.stringify({ operator: '坐席-A' }),
+        // 合流后 body 只接受 `handover`：操作者字段一律 400（T-08.2）
+        body: JSON.stringify({}),
       })
       expect(resume.status).toBe(200)
-      const after = (await resume.json()) as { active: boolean; operator?: string }
+      const after = (await resume.json()) as {
+        active: boolean
+        operator?: string
+        operatorId?: string
+      }
       expect(after.active).toBe(false)
-      // 身份来自 BAH_OPERATOR_NAME，不是请求体
+      // 身份来自登录主体（static 模式 = 合成服务主体 svc:operator）；显示名另取 BAH_OPERATOR_NAME
+      expect(after.operatorId).toBe('svc:operator')
       expect(after.operator).toBe(OPERATOR_NAME)
 
       // 未接管时再交回 → 409 handoff-not-active（不做幂等成功）
@@ -1927,7 +1970,7 @@ describe('C5 人工接管（handoff）', () => {
     }
   })
 
-  it('客户凭证打坐席路由 → 401；坐席凭证打 /api/turn 与审批 → 401（权限面收窄）', async () => {
+  it('客户凭证打坐席路由 → 403；坐席凭证打 /api/turn 与审批 → 403（角色门收窄）', async () => {
     const harness = await boot()
     try {
       await authedFetch(`${harness.url}api/handoff`, {
@@ -1935,34 +1978,39 @@ describe('C5 人工接管（handoff）', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({}),
       })
+      // 合流：客户凭证 = svc:web / customer ⇒ 坐席动作被角色门挡下（403 而非 401）
       const userOnOperator = await authedFetch(`${harness.url}api/handoff/message`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: '我不是坐席' }),
       })
-      expect(userOnOperator.status).toBe(401)
+      expect(userOnOperator.status).toBe(403)
+      expect(((await userOnOperator.json()) as { error: { code: string } }).error.code).toBe(
+        'web-forbidden',
+      )
 
+      // 坐席凭证 = svc:operator / agent ⇒ 客户专属动作（turn/interrupt/approval/verify）一律 403
       const operatorOnTurn = await operatorFetch(`${harness.url}api/turn`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ text: '坐席替客户发言' }),
       })
-      expect(operatorOnTurn.status).toBe(401)
+      expect(operatorOnTurn.status).toBe(403)
       expect(harness.sent).toEqual([])
 
-      // 坐席不能替客户放行资金：审批与强验证都降到 user
+      // 坐席不能替客户放行资金：审批与强验证都只许 customer（D3）
       const operatorOnApproval = await operatorFetch(`${harness.url}api/approval/ticket%3Aghost`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ decision: 'allowed-once' }),
       })
-      expect(operatorOnApproval.status).toBe(401)
+      expect(operatorOnApproval.status).toBe(403)
       const operatorOnVerify = await operatorFetch(`${harness.url}api/verify/ticket%3Aghost`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({}),
       })
-      expect(operatorOnVerify.status).toBe(401)
+      expect(operatorOnVerify.status).toBe(403)
     } finally {
       await shutdown(harness)
     }
@@ -2129,6 +2177,101 @@ describe('C5 人工接管（handoff）', () => {
           (event) => String(event.type) === 'handoff/operator-message',
         ),
       ).toHaveLength(0)
+    } finally {
+      await shutdown(harness)
+    }
+  })
+})
+
+describe('租户（01 TA-16）', () => {
+  it('TA-16-1 /api/metrics 的返回体第一层带 tenant（进程级事实，不从请求取）', async () => {
+    const harness = await boot()
+    try {
+      const response = await authedFetch(`${harness.url}api/metrics`)
+      expect(response.status).toBe(200)
+      const body = (await response.json()) as { tenant: string; sessionId: string }
+      expect(body.tenant).toBe('demo')
+      // 与 sessionId 同层：租户是"这次进程为谁服务"，不是某个会话的属性
+      expect(body.sessionId).toBe('s-web-test')
+    } finally {
+      await shutdown(harness)
+    }
+  })
+})
+
+describe('03 TA-44/45 · 操作者不可伪造（追加用例，不改既有行为）', () => {
+  const savedToken = process.env[ADMIN_TOKEN_ENV]
+  const savedOperators = process.env[ADMIN_OPERATORS_ENV]
+  const setToken = (value: string | undefined): void => {
+    if (value === undefined) delete process.env[ADMIN_TOKEN_ENV]
+    else process.env[ADMIN_TOKEN_ENV] = value
+  }
+
+  afterEach(() => {
+    setToken(savedToken)
+    if (savedOperators === undefined) delete process.env[ADMIN_OPERATORS_ENV]
+    else process.env[ADMIN_OPERATORS_ENV] = savedOperators
+  })
+
+  it('TA-44-1 两个操作员各自解冻：链上（下游收到）的 by 是各自 id', async () => {
+    setToken(undefined)
+    process.env[ADMIN_OPERATORS_ENV] = JSON.stringify([
+      { id: 'ops-li', token: 'tok-li' },
+      { id: 'ops-wang', token: 'tok-wang' },
+    ])
+    const harness = await boot({}, { sentry: 'frozen' })
+    try {
+      const first = await authedFetch(`${harness.url}api/admin/sentry/unfreeze`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer tok-li' },
+        body: '{}',
+      })
+      expect(first.status).toBe(200)
+      expect(((await first.json()) as { by: string }).by).toBe('ops-li')
+
+      // 第二次已解冻 → unfrozen:false，但操作者仍必须记录
+      const second = await authedFetch(`${harness.url}api/admin/sentry/unfreeze`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer tok-wang' },
+        body: '{}',
+      })
+      expect(second.status).toBe(200)
+      expect(((await second.json()) as { by: string }).by).toBe('ops-wang')
+      expect(harness.unfreezeCalls.map((call) => call.by)).toEqual(['ops-li', 'ops-wang'])
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('TA-45-3 resume 的 body 带 operator → 400；去掉后正常交回（操作者从主体派生）', async () => {
+    const harness = await boot()
+    try {
+      await authedFetch(`${harness.url}api/handoff`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      })
+      // 交回是坐席动作：客户凭证连角色门都过不去（403），用坐席凭证才验得到 body 伪造
+      const forged = await operatorFetch(`${harness.url}api/handoff/resume`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operator: '坐席-A' }),
+      })
+      expect(forged.status).toBe(400)
+      expect(((await forged.json()) as { error: { reason: string } }).error.reason).toContain(
+        'operator',
+      )
+
+      const ok = await operatorFetch(`${harness.url}api/handoff/resume`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      })
+      expect(ok.status).toBe(200)
+      const summary = (await ok.json()) as { operatorId: string; operator: string }
+      // 操作者是登录主体（static 模式 = svc:operator），显示名另取 BAH_OPERATOR_NAME
+      expect(summary.operatorId).toBe('svc:operator')
+      expect(summary.operator).toBe(OPERATOR_NAME)
     } finally {
       await shutdown(harness)
     }

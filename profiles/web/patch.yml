@@ -88,6 +88,23 @@
     # 鉴权 fail-loud：sidecar 与宿主必须用同一 BAH_KNOWLEDGE_TOKEN（见 docs/knowledge.md）。
     required: false
 
+# 认证面（租户与鉴权 02）。**整块注释掉 = auth.mode: static = 改动前的行为**。
+# 打开 password 模式之前必须先做三件事（boot 期会 fail-loud）：
+#   1) cp auth/users.example.yml auth/users.yml 并换掉口令；
+#       目录缺失 → auth-directory-missing；tenant 不一致 → auth-directory-tenant-mismatch；
+#   2) 去掉 bank:tools 的 demoUserId（上面那行）→ 否则 auth-demo-user-conflict；
+#   3) 去掉 core:agent 的 runtimeContext.user（下面 name: 张三 那行）→ 否则 auth-static-user-conflict
+#      （姓名改由实体槽位现算；否则换个人登录时 slots-user-mismatch 会让每个 turn 失败）。
+#
+# - id: channel:web
+#   config:
+#     auth:
+#       mode: password
+#       cookie: { name: bah_sid, secure: false }   # 生产（HTTPS）必须 true
+#       session: { idleMs: 1800000, absoluteMs: 28800000 }
+#       directory: { path: auth/users.yml }
+#       login: { maxFailures: 5, lockMs: 900000, backoffBaseMs: 1000, backoffMaxMs: 60000 }
+
 - id: interaction:approval
   config:
     # Web 有弹窗：不设自动应答者，等人点（默认结论 unavailable = 拒绝，绝不默认放行）
@@ -128,14 +145,15 @@
 # 三条接线（写入 `turn/end` / 召回 `agent/pre-step` / 注入提示词段）见
 # `packages/host/src/boot/plugins/memory.ts` 的模块注释。
 #
-# dbPath 放在会话根下（与 `core:persistence.root` 同根）：换 `--jsonl` 目录时记忆跟着走，
-# 不会出现"日志在 A 目录、记忆在 B 目录"的分裂。
-# 诚实边界：单租户（tenant 写死 demo）、影子核验未接（记忆不会被银行权威状态覆盖）。
+# dbPath 是**相对租户根的单段文件名**（TA-13 / AR-08）：实际落点
+# `<core:persistence.root>/<tenant>/memory.db`，换 `--jsonl` 或 `--tenant` 时记忆跟着走。
+# 写 `sessions/memory.db` 或绝对路径会在 boot 期 fail-loud（"相对谁"说不清 = 共库事故）。
+# 租户**不在**这里写：它只来自 `--tenant` / `BAH_TENANT`（写 `tenant:` 会被当成未知键拒绝）。
+# 诚实边界：影子核验未接（记忆不会被银行权威状态覆盖）。
 - id: bah:memory-store
   use: bah:memory-store
   config:
-    dbPath: sessions/memory.db
-    tenant: demo
+    dbPath: memory.db
     userId: u-1
     sensitivityCeiling: 2
 

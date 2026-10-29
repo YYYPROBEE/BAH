@@ -88,7 +88,7 @@ describe('SentryBreaker（窗口 + 锁存 + 解冻）', () => {
   })
 
   it('T-SNT-010 显式人工解冻是唯一解除路径；未冻结时是 no-op', () => {
-    const { breaker, events, tick } = harness({ breaker: { denyThreshold: 1, windowSeconds: 600 } })
+    const { breaker, events, tick, trace } = harness({ breaker: { denyThreshold: 1, windowSeconds: 600 } })
     expect(breaker.unfreeze('ops', 'not-frozen', 1_000)).toBe(false)
     expect(events).toHaveLength(0)
 
@@ -99,6 +99,15 @@ describe('SentryBreaker（窗口 + 锁存 + 解冻）', () => {
     expect(breaker.frozen).toBe(false)
     expect(breaker.countInWindow(1_100)).toBe(0)
     expect(events.map((event) => event.type)).toEqual(['sentry/breaker-frozen', 'sentry/unfrozen'])
+
+    // 03 TA-44：「文件（trace）里的 by」与「会话事件里的 by」必须同源——
+    // 响应说 A、链上写 B 是审计最怕的形态
+    const unfrozenEvent = events.find((event) => event.type === 'sentry/unfrozen')
+    expect((unfrozenEvent?.data as { by?: string }).by).toBe('ops')
+    const unfrozenTrace = (trace.rings.get('s-1') ?? []).find(
+      (record) => record['kind'] === 'breaker-unfrozen',
+    )
+    expect(unfrozenTrace?.['by']).toBe('ops')
 
     // 解冻后重新计数：再次达到阈值才会再冻结
     expect(breaker.recordDeny('call-2', 1_200)).toBe(true)

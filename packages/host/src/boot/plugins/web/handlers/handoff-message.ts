@@ -5,7 +5,8 @@
  * 这里的每一条都要求 `auth:'operator'`，而客户侧是 `web`/`operator` 混合。
  * 分文件让"哪条路由是坐席面"在目录结构上就能看出来。
  *
- * 纪律：`operator` 一律取 `deps.operatorName`（来自部署配置），**不读 body**（I1）。
+ * 纪律（合流 2026-10-29）：**身份取 `request.identity` 的 userId**，显示名另取（static 模式是
+ * `BAH_OPERATOR_NAME`，password 模式回落到 userId）；body 里不接受任何操作者字段。
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -15,14 +16,25 @@ import { describeThrown } from '@bah/core'
 import type { WebDeps, WebRequest } from '../deps.ts'
 import { readBodyString, readJson, sendError, sendJson } from '../http.ts'
 
+/** 本次请求的操作者 userId（路由已保证是已认证主体；缺省时空串由状态机拒绝）。 */
+function operatorIdOf(request: WebRequest): string {
+  const identity = request.identity
+  return identity === undefined || identity.kind === 'anonymous' ? '' : identity.principal.userId
+}
+
+/** 显示名：static 模式取部署配置，password 模式由状态机回落到 userId。 */
+function operatorLabelOf(request: WebRequest, deps: WebDeps): string | undefined {
+  return request.identity?.kind === 'service' ? deps.operatorName : undefined
+}
+
 /** `POST /api/handoff/claim` —— 坐席认领（幂等；换人 409）。 */
 export async function handleHandoffClaim(
   _req: IncomingMessage,
   res: ServerResponse,
-  _request: WebRequest,
+  request: WebRequest,
   deps: WebDeps,
 ): Promise<void> {
-  const result = deps.handoff.claim(deps.operatorName)
+  const result = deps.handoff.claim(operatorIdOf(request), operatorLabelOf(request, deps))
   if (!result.ok) {
     sendError(
       res,
@@ -41,7 +53,7 @@ export async function handleHandoffClaim(
 export async function handleHandoffMessage(
   req: IncomingMessage,
   res: ServerResponse,
-  _request: WebRequest,
+  request: WebRequest,
   deps: WebDeps,
 ): Promise<void> {
   let body: Record<string, unknown>
@@ -53,7 +65,7 @@ export async function handleHandoffMessage(
     return
   }
   const text = readBodyString(body, 'text') ?? ''
-  const result = deps.handoff.say(deps.operatorName, text)
+  const result = deps.handoff.say(operatorIdOf(request), text, operatorLabelOf(request, deps))
   if (!result.ok) {
     const status =
       result.code === 'handoff-not-active'

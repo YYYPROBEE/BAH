@@ -34,6 +34,7 @@ import { createCatalog } from './index.ts'
 import { PLAN_SERVICE, planPlugin } from './plan.ts'
 
 import type { Bundle, ConfigLayer, PluginRow } from '../profile-plugins.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 const PROFILE: ProfileSummary = { name: 'plan', bundles: ['base'], hmr: false }
 
@@ -129,7 +130,7 @@ async function bootPlan(extraLayers: readonly ConfigLayer[] = []): Promise<Boote
     bundles: [bundle],
     layers: [profileLayer(), ...extraLayers],
     catalog: createCatalog(),
-    run: { sessionId: asSessionId('s-plan'), now: () => 1_000, jsonlDir: dir },
+    run: testRunContext({ sessionId: asSessionId('s-plan'), now: () => 1_000, jsonlDir: dir }),
   }
   return { app: await boot(options), cleanup: () => rmSync(dir, { recursive: true, force: true }) }
 }
@@ -606,7 +607,7 @@ describe('plan:dag 集成（真实依赖清单 + profile plan）', () => {
       // ★ 唯一区别：不加 profile patch，因此没有 plan:dag 这一行
       layers: [],
       catalog: createCatalog(),
-      run: { sessionId: asSessionId('s-plan-off'), now: () => 1_000, jsonlDir: dir },
+      run: testRunContext({ sessionId: asSessionId('s-plan-off'), now: () => 1_000, jsonlDir: dir }),
     })
     try {
       // service-missing 是内核的 fail-loud 码：`get` 不返回 undefined，也不静默降级

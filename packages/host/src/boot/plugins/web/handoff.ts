@@ -35,8 +35,6 @@
  * - 模型的记忆：交回时 `user/message(source='handoff-handover')`（冻结键）→ 进模型历史。
  */
 
-import { dirname, join } from 'node:path'
-
 import { BahError, reasonOf } from '@bah/util'
 
 import type { SessionApi } from '@bah/runtime'
@@ -44,6 +42,7 @@ import type { SessionApi } from '@bah/runtime'
 import type { SessionFiles } from '../persistence.ts'
 import {
   createHandoffStore,
+  handoffFileNextToSession,
   type HandoffPersistence,
   type HandoffSnapshot,
 } from './handoff-store.ts'
@@ -75,8 +74,12 @@ export interface HandoffSummary {
   readonly messages: readonly HandoffMessage[]
   readonly reason?: string
   readonly at?: number
-  /** 交回的操作者标识（只在 `resumed` 后有值，供审计对账）。 */
+  /** 坐席显示名（只在 `resumed` 后有值，供客户页横幅使用）。 */
   readonly operator?: string
+  /** 请求接管的 userId（审计身份；来自登录主体）。 */
+  readonly requestedBy?: string
+  /** 认领 / 交回的 userId（审计身份）。 */
+  readonly operatorId?: string
   /** 已等待毫秒（未接管为 0）。 */
   readonly waitedMs: number
   /** 超过 SLA（未设 slaMs 恒 false）。 */
@@ -132,10 +135,12 @@ export interface HandoffHandle {
   readonly active: boolean
   /** 当前 SLA（0 = 不告警）。metrics 直接读它，不要在别处再判一次。 */
   readonly slaMs: number
-  enter(reason?: string): HandoffEnterResult
-  resume(operator: string | undefined, handover?: string): HandoffResumeResult
-  claim(operator: string): HandoffClaimResult
-  say(operator: string, text: string): HandoffSayResult
+  /** `requestedBy` 来自登录主体（03 TA-45），不接受请求体自报。 */
+  enter(reason?: string, requestedBy?: string): HandoffEnterResult
+  /** `operatorId` / `operatorLabel` 来自登录主体（03 TA-45），不接受请求体自报。 */
+  resume(operatorId: string | undefined, handover?: string, operatorLabel?: string): HandoffResumeResult
+  claim(operatorId: string, operatorLabel?: string): HandoffClaimResult
+  say(operatorId: string, text: string, operatorLabel?: string): HandoffSayResult
   heartbeat(): HandoffHeartbeat
   summary(): HandoffSummary
 }
@@ -179,13 +184,14 @@ export class HandoffRegistry implements HandoffHandle {
     return this.state !== undefined
   }
 
-  enter(reason?: string): HandoffEnterResult {
+  enter(reason?: string, requestedBy?: string): HandoffEnterResult {
     if (this.state !== undefined) return { ok: false, code: 'handoff-already-active' }
     const at = this.options.now()
     const snapshot: HandoffSnapshot = {
       at,
       lastSeq: this.options.session.lastSeq(),
       ...(reason === undefined ? {} : { reason }),
+      ...(requestedBy === undefined ? {} : { requestedBy }),
     }
     // 先落盘再改内存：写盘失败 → 抛错 → 状态仍是未接管
     this.saveSnapshot(snapshot)
@@ -194,12 +200,17 @@ export class HandoffRegistry implements HandoffHandle {
     // 事件失败最多丢一条证据，不会让"日志说接管了、系统还在自动回话"
     this.options.append('handoff/requested', {
       ...(reason === undefined ? {} : { reason }),
+      ...(requestedBy === undefined ? {} : { requestedBy }),
       at,
     })
     return { ok: true, summary: this.summary() }
   }
 
-  resume(operator: string | undefined, handover?: string): HandoffResumeResult {
+  resume(
+    operatorId: string | undefined,
+    handover?: string,
+    operatorLabel?: string,
+  ): HandoffResumeResult {
     const current = this.state
     if (current === undefined) return { ok: false, code: 'handoff-not-active' }
     // 先校验交接语再清状态：否则"交回失败但已经交回"会成为一个说不清的状态
@@ -211,7 +222,8 @@ export class HandoffRegistry implements HandoffHandle {
     this.state = undefined
     const at = this.options.now()
     this.options.append('handoff/resumed', {
-      ...(operator === undefined ? {} : { operator }),
+      ...(operatorId === undefined ? {} : { operatorId }),
+      ...(operatorLabel === undefined ? {} : { operatorLabel }),
       at,
     })
     // 交接语走冻结键：模型下一轮真的看得到（D4）；缺省/空串不落（T-17）
@@ -225,25 +237,33 @@ export class HandoffRegistry implements HandoffHandle {
         active: false,
         at: current.at,
         ...(current.reason === undefined ? {} : { reason: current.reason }),
-        ...(operator === undefined ? {} : { operator }),
+        ...(operatorLabel === undefined ? {} : { operator: operatorLabel }),
+        ...(operatorId === undefined ? {} : { operatorId }),
+        ...(current.requestedBy === undefined ? {} : { requestedBy: current.requestedBy }),
       },
     }
   }
 
-  claim(operator: string): HandoffClaimResult {
+  claim(operatorId: string, operatorLabel?: string): HandoffClaimResult {
     const current = this.state
     if (current === undefined) return { ok: false, code: 'handoff-not-active' }
-    if (current.operator !== undefined && current.operator !== operator) {
+    // 换人判定用 userId，不用显示名：同名不同人是两回事（旧文件没有 operatorId ⇒ 视为未知，不阻断）
+    if (current.operatorId !== undefined && current.operatorId !== operatorId) {
       return { ok: false, code: 'handoff-claimed-by-other' }
     }
     // 幂等：同一人重复认领不落第二条事件，也不刷新 `at`
-    if (current.operator === operator) return { ok: true, summary: this.summary() }
+    if (current.operatorId === operatorId) return { ok: true, summary: this.summary() }
 
-    const next: HandoffSnapshot = { ...current, operator }
+    const next: HandoffSnapshot = {
+      ...current,
+      operatorId,
+      ...(operatorLabel === undefined ? {} : { operatorLabel }),
+    }
     this.saveSnapshot(next)
     this.state = next
     this.options.append('handoff/claimed', {
-      operator,
+      operatorId,
+      ...(operatorLabel === undefined ? {} : { operatorLabel }),
       at: this.options.now(),
       // 认领时刻不是"开始等待"的时刻：用户页计时必须继续用进入时间
       enteredAt: current.at,
@@ -251,7 +271,7 @@ export class HandoffRegistry implements HandoffHandle {
     return { ok: true, summary: this.summary() }
   }
 
-  say(operator: string, text: string): HandoffSayResult {
+  say(operatorId: string, text: string, operatorLabel?: string): HandoffSayResult {
     if (this.state === undefined) return { ok: false, code: 'handoff-not-active' }
     const trimmed = typeof text === 'string' ? text.trim() : ''
     if (trimmed === '') return { ok: false, code: 'handoff-text-empty' }
@@ -260,7 +280,14 @@ export class HandoffRegistry implements HandoffHandle {
     // 领域事件 + ignorable：不进模型历史（D3），但进审计链
     const event = this.options.session.appendDomain(
       'handoff/operator-message',
-      { text: trimmed, operator, at: this.options.now() },
+      {
+        text: trimmed,
+        // `operator` 给前端气泡（label），`operatorId` 给审计对账
+        operator: operatorLabel ?? operatorId,
+        operatorId,
+        ...(operatorLabel === undefined ? {} : { operatorLabel }),
+        at: this.options.now(),
+      },
       { ignorable: true },
     )
     return { ok: true, seq: event.seq }
@@ -328,10 +355,12 @@ export class HandoffRegistry implements HandoffHandle {
         .map((item) => ({ role: item.role, text: truncate(item.text) })),
       ...(state?.reason === undefined ? {} : { reason: state.reason }),
       ...(state === undefined ? {} : { at: state.at }),
-      ...(state?.operator === undefined ? {} : { operator: state.operator }),
+      ...(state?.operatorLabel === undefined ? {} : { operator: state.operatorLabel }),
+      ...(state?.requestedBy === undefined ? {} : { requestedBy: state.requestedBy }),
+      ...(state?.operatorId === undefined ? {} : { operatorId: state.operatorId }),
       waitedMs,
       overdue,
-      claimed: state?.operator !== undefined,
+      claimed: state?.operatorId !== undefined || state?.operatorLabel !== undefined,
       turnsSinceHandoff,
       operatorMessages,
     }
@@ -401,8 +430,9 @@ export function createHandoff(options: {
     },
     pendingTickets: options.pendingTickets,
     store: createHandoffStore({
-      // 与 session.jsonl 同目录，但目录布局由 core:persistence 说了算（租户段、--jsonl 生效值）
-      file: join(dirname(files.fileOf(options.session.sessionId)), 'handoff.json'),
+      // 与 session.jsonl 同目录；目录布局（含租户段）由 `core:persistence` 的
+      // `SessionFiles.fileOf` 决定，本文件不自己拼 `root/sessionId`
+      file: handoffFileNextToSession(files, options.session.sessionId),
     }),
     ...(options.slaMs === undefined ? {} : { slaMs: options.slaMs }),
   })

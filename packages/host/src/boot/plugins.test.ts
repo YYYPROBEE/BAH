@@ -24,6 +24,7 @@ import { boot, type BootedApp, type BootOptions, type ProfileSummary } from './b
 import { HOST_PLUGINS, createCatalog } from './plugins/index.ts'
 import { ECHO_TOOL_NAME } from './plugins/echo.ts'
 import { SESSION_FILES } from './plugins/persistence.ts'
+import { testRunContext } from './test-run-context.ts'
 import type { AnySessionEvent, RuntimeContextSource } from '@bah/runtime'
 
 import type { Bundle, PluginRow } from './profile-plugins.ts'
@@ -97,11 +98,11 @@ async function bootWith(
     bundles: [bundle],
     layers: [],
     catalog: options.catalog ?? createCatalog(),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId(options.sessionId ?? 's-plugin'),
       now: () => 1_000,
       ...(options.jsonlDir === undefined ? {} : { jsonlDir: options.jsonlDir }),
-    },
+    }),
   }
   return boot(options_)
 }
@@ -191,7 +192,7 @@ describe('base 插件集 · 进程内跑通 turn（底座出口的进程内版�
       expect(result.content.some((block) => block.text?.includes('[p] 底稿'))).toBe(true)
 
       const file = app.ctx.get(SESSION_FILES).fileOf(asSessionId('s-plugin'))
-      expect(file).toBe(join(dir, 's-plugin', 'session.jsonl'))
+      expect(file).toBe(join(dir, 'demo', 's-plugin', 'session.jsonl'))
       const lines = readFileSync(file, 'utf8')
         .split('\n')
         .filter((line) => line.length > 0)
@@ -250,7 +251,7 @@ describe('base 插件集 · 进程内跑通 turn（底座出口的进程内版�
       })
       expect(settings.find((row) => row.id === 'demo:echo')?.settings).toEqual({ prefix: '' })
       expect(app.ctx.get(SESSION_FILES).fileOf(asSessionId('s-other'))).toBe(
-        join('sessions', 's-other', 'session.jsonl'),
+        join('sessions', 'demo', 's-other', 'session.jsonl'),
       )
     } finally {
       await app.dispose('test')

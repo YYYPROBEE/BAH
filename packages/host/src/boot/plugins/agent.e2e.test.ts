@@ -33,6 +33,7 @@ import { DEEPSEEK_MODELS } from '@bah/llm/deepseek'
 import { boot, type BootOptions } from '../boot.ts'
 import { createCatalog } from './index.ts'
 import type { PluginRow } from '../profile-plugins.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 const hasApiKey = Boolean(process.env['DEEPSEEK_API_KEY'])
 
@@ -131,11 +132,11 @@ describe.skipIf(!hasApiKey)(`真实模型主链路（e2e · ${modelId}）`, () =
         bundles: [{ name: 'e2e', rows: rows() }],
         layers: [],
         catalog: createCatalog(),
-        run: {
+        run: testRunContext({
           sessionId: asSessionId('s-agent-e2e'),
           now: () => Date.now(),
           jsonlDir: dir,
-        },
+        }),
       }
       const app = await boot(options)
       try {

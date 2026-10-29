@@ -18,7 +18,7 @@ import { ADMIN_TOKEN_ENV, DEFAULT_UNFREEZE_REASON } from '@bah/host'
 
 /** 用法一行。 */
 export const SENTRY_USAGE =
-  '用法：bah sentry unfreeze [--url http://127.0.0.1:7331] --by <operator> [--reason <text>]'
+  '用法：bah sentry unfreeze [--url http://127.0.0.1:7331] [--reason <text>]'
 
 /** 完整帮助。 */
 export const SENTRY_HELP = [
@@ -31,10 +31,12 @@ export const SENTRY_HELP = [
   '',
   '选项：',
   '  --url <url>        运行中 web 宿主的地址（缺省 http://127.0.0.1:7331）',
-  '  --by <operator>    操作者标识（必填，≤64 字符）',
   '  --reason <text>    理由（可选，≤200 字符；缺省 operator-unfreeze）',
   '',
+  `操作者由宿主的 ${ADMIN_TOKEN_ENV} / BAH_ADMIN_OPERATORS 派生（03 TA-44），`,
+  '不再接受 --by：body 里自报操作者一律 400。',
   `token 只从环境变量 ${ADMIN_TOKEN_ENV} 读，不接受命令行参数`,
+  '（宿主配了操作员表时，这里填该操作员的 token 即可）。',
   '',
   '注意：headless profile 没有 HTTP 服务，**无法远程解冻**——只能重启进程。',
 ].join('\n')
@@ -59,7 +61,7 @@ const DEFAULT_URL = 'http://127.0.0.1:7331'
 
 /** 一行的解析结果。 */
 type Parsed =
-  | { readonly ok: true; readonly url: string; readonly by: string; readonly reason: string }
+  | { readonly ok: true; readonly url: string; readonly reason: string }
   | { readonly ok: false; readonly error: string }
 
 /**
@@ -70,7 +72,6 @@ type Parsed =
  */
 function parseArgs(argv: readonly string[]): Parsed {
   let url = DEFAULT_URL
-  let by: string | undefined
   let reason = DEFAULT_UNFREEZE_REASON
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -84,10 +85,12 @@ function parseArgs(argv: readonly string[]): Parsed {
         index += 1
         break
       case '--by':
-        if (value === undefined) return { ok: false, error: '--by 需要值' }
-        by = value.trim()
-        index += 1
-        break
+        // 03 TA-44：操作者由服务端 token 派生。显式报错而不是静默忽略——
+        // "传了但没生效"会让运维以为链上记的是自己写的那个名字。
+        return {
+          ok: false,
+          error: '--by 已移除：操作者由 admin token 派生（服务端记录 by）',
+        }
       case '--reason':
         if (value === undefined) return { ok: false, error: '--reason 需要值' }
         reason = value.trim() === '' ? DEFAULT_UNFREEZE_REASON : value.trim()
@@ -98,10 +101,8 @@ function parseArgs(argv: readonly string[]): Parsed {
     }
   }
 
-  if (by === undefined || by === '') return { ok: false, error: '--by 必填' }
-  if ([...by].length > 64) return { ok: false, error: '--by 不得超过 64 字符' }
   if ([...reason].length > 200) return { ok: false, error: '--reason 不得超过 200 字符' }
-  return { ok: true, url, by, reason }
+  return { ok: true, url, reason }
 }
 
 /** 从响应体里取错误码（取不到就用状态码兜底）。 */
@@ -153,7 +154,7 @@ export async function runSentryUnfreeze(
     response = await fetchImpl(`${parsed.url}/api/admin/sentry/unfreeze`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify({ by: parsed.by, reason: parsed.reason }),
+      body: JSON.stringify({ reason: parsed.reason }),
     })
   } catch (error) {
     // 不打印 error 对象本身：它可能带着请求 init（含 authorization 头）
@@ -183,11 +184,13 @@ export async function runSentryUnfreeze(
     io.err('解冻失败：宿主返回的不是 JSON')
     return 1
   }
-  const unfrozen = (body as { unfrozen?: unknown }).unfrozen
-  if (unfrozen === true) {
-    io.out(`已解冻（by=${parsed.by}）`)
+  const payload = body as { unfrozen?: unknown; by?: unknown }
+  const operator = typeof payload.by === 'string' && payload.by !== '' ? payload.by : undefined
+  const suffix = operator === undefined ? '' : `（by=${operator}）`
+  if (payload.unfrozen === true) {
+    io.out(`已解冻${suffix}`)
     return 0
   }
-  io.out('当前未处于冻结状态')
+  io.out(`当前未处于冻结状态${suffix}`)
   return 0
 }

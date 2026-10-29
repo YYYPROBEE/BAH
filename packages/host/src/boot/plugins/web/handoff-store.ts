@@ -30,6 +30,10 @@ import { join, dirname } from 'node:path'
 
 import { BahError, assertSafePathSegment, reasonOf } from '@bah/util'
 
+import type { SessionId } from '@bah/core'
+
+import type { SessionFiles } from '../persistence.ts'
+
 /** 状态文件名（与会话日志 `session.jsonl` 同目录）。 */
 const HANDOFF_FILE = 'handoff.json'
 
@@ -38,8 +42,12 @@ export interface HandoffSnapshot {
   /** 进入接管的时刻（注入钟）。 */
   readonly at: number
   readonly reason?: string
-  /** 认领的坐席（enter 时为空，claim 后填）。 */
-  readonly operator?: string
+  /** 请求接管的 userId（审计身份；旧文件没有该字段）。 */
+  readonly requestedBy?: string
+  /** 认领 / 交回的 userId（审计身份；新写入必须有）。 */
+  readonly operatorId?: string
+  /** 坐席显示名（给前端气泡；旧文件的 `operator` 字符串按它读）。 */
+  readonly operatorLabel?: string
   /** 超时告警时刻（只告警一次）。 */
   readonly warnedAt?: number
   /** 进入时的会话 seq（用于"接管后新增了多少条"）。 */
@@ -66,13 +74,36 @@ export interface HandoffStoreOptions {
 }
 
 /**
- * 接管状态文件路径（**只给单测**；root 已是租户根）。
+ * 接管状态文件路径（**只给单测**；`root` 是部署根，不是租户根）。
  *
- * 生产装配不得用它：`root/sessionId` 的拼法会随租户段变化而与 `session.jsonl` 分家。
+ * 合流后目录布局多一层租户段：`<root>/<tenantId>/<sessionId>/handoff.json`——
+ * 与 `core:persistence` 的 `SessionFiles.fileOf` 同形。生产装配不得用它：
+ * 真实布局由 `SessionFiles` 说了算（见下面的 `handoffFileNextToSession`）。
  */
-export function handoffStateFileOf(root: string, sessionId: string): string {
+export function handoffStateFileOf(root: string, sessionId: string, tenantId = 'demo'): string {
   assertSafePathSegment(sessionId, 'sessionId')
-  return join(root, sessionId, HANDOFF_FILE)
+  assertSafePathSegment(tenantId, 'tenantId')
+  return join(root, tenantId, sessionId, HANDOFF_FILE)
+}
+
+/**
+ * 生产装配用的路径：接管状态与 `session.jsonl` **同目录**。
+ *
+ * 目录布局（含租户段）是 `core:persistence` 的知识：`fileOf` 已经拼好
+ * `<baseRoot>/<tenantId>/<sessionId>/session.jsonl`，本函数只做"同目录换文件名"。
+ * 这里显式读一次 `files.tenantId` 并要求它出现在路径里——布局若被改成不带租户段，
+ * 接管状态会**落到别的租户目录**，那种事故不能在运行期悄悄发生。
+ */
+export function handoffFileNextToSession(files: SessionFiles, sessionId: SessionId): string {
+  const sessionFile = files.fileOf(sessionId)
+  const dir = dirname(sessionFile)
+  if (!dir.includes(String(files.tenantId))) {
+    throw new BahError(
+      'handoff-store-unavailable',
+      `会话目录不含租户段（tenant=${String(files.tenantId)}）：${dir}`,
+    )
+  }
+  return join(dir, HANDOFF_FILE)
 }
 
 /** 造一个基于文件系统的接管状态持久化端口（全同步 IO：启动期就要读）。 */
@@ -112,7 +143,9 @@ export function createHandoffStore(options: HandoffStoreOptions): HandoffPersist
       const body = `${JSON.stringify({
         at: snapshot.at,
         ...(snapshot.reason === undefined ? {} : { reason: snapshot.reason }),
-        ...(snapshot.operator === undefined ? {} : { operator: snapshot.operator }),
+        ...(snapshot.requestedBy === undefined ? {} : { requestedBy: snapshot.requestedBy }),
+        ...(snapshot.operatorId === undefined ? {} : { operatorId: snapshot.operatorId }),
+        ...(snapshot.operatorLabel === undefined ? {} : { operatorLabel: snapshot.operatorLabel }),
         ...(snapshot.warnedAt === undefined ? {} : { warnedAt: snapshot.warnedAt }),
         lastSeq: snapshot.lastSeq,
       })}\n`
@@ -172,9 +205,22 @@ function readSnapshot(value: unknown, file: string): HandoffSnapshot {
   if (reason !== undefined && typeof reason !== 'string') {
     throw invalid(file, 'reason 不是字符串')
   }
-  const operator = record['operator']
-  if (operator !== undefined && typeof operator !== 'string') {
+  // 旧文件只有 `operator` 字符串：按显示名读，`operatorId` 缺失（claim 比较时视为 unknown）。
+  const legacyOperator = record['operator']
+  if (legacyOperator !== undefined && typeof legacyOperator !== 'string') {
     throw invalid(file, 'operator 不是字符串')
+  }
+  const requestedBy = record['requestedBy']
+  if (requestedBy !== undefined && typeof requestedBy !== 'string') {
+    throw invalid(file, 'requestedBy 不是字符串')
+  }
+  const operatorId = record['operatorId']
+  if (operatorId !== undefined && typeof operatorId !== 'string') {
+    throw invalid(file, 'operatorId 不是字符串')
+  }
+  const operatorLabel = record['operatorLabel']
+  if (operatorLabel !== undefined && typeof operatorLabel !== 'string') {
+    throw invalid(file, 'operatorLabel 不是字符串')
   }
   const warnedAt = record['warnedAt']
   if (warnedAt !== undefined && (typeof warnedAt !== 'number' || !Number.isFinite(warnedAt))) {
@@ -184,7 +230,14 @@ function readSnapshot(value: unknown, file: string): HandoffSnapshot {
     at: record['at'],
     lastSeq: record['lastSeq'] as number,
     ...(reason === undefined ? {} : { reason }),
-    ...(operator === undefined ? {} : { operator }),
+    ...(requestedBy === undefined ? {} : { requestedBy }),
+    ...(operatorId === undefined ? {} : { operatorId }),
+    // 旧文件：`operator` 字符串按 label 读（只读不迁移；第一次 claim/resume 后按新 schema 重写）
+    ...(operatorLabel !== undefined
+      ? { operatorLabel }
+      : legacyOperator === undefined
+        ? {}
+        : { operatorLabel: legacyOperator }),
     ...(warnedAt === undefined ? {} : { warnedAt }),
   }
 }

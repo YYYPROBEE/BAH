@@ -16,8 +16,37 @@ import { timingSafeEqual } from 'node:crypto'
 /** 管理 token 的环境变量名（只此一处）。 */
 export const ADMIN_TOKEN_ENV = 'BAH_ADMIN_TOKEN'
 
-/** `by` 字段上限（字符）。 */
-const MAX_BY = 64
+/**
+ * 多操作员表的环境变量名（03 TA-44）。
+ *
+ * JSON：`[{"id":"ops-li","token":"…"},…]`。配了它就以它为准（`BAH_ADMIN_TOKEN` 被忽略），
+ * 解冻链上的 `by` 从命中的 token 派生——body 里的 `by` 一律 400。
+ */
+export const ADMIN_OPERATORS_ENV = 'BAH_ADMIN_OPERATORS'
+
+/** 操作员：token → 操作员 id。 */
+export interface AdminOperator {
+  readonly id: string
+  readonly token: string
+}
+
+/** 操作员表的读取结果（坏配置不抛穿 HTTP 层：调用方统一回 503）。 */
+export type AdminOperatorsRead =
+  | { readonly ok: true; readonly operators: readonly AdminOperator[] }
+  | { readonly ok: false; readonly reason: string }
+
+/** 操作员 id 的字符集（会进审计与响应，不允许任意字符）。 */
+const OPERATOR_ID_PATTERN = /^[A-Za-z0-9._:-]{1,64}$/
+
+/** 是否配置了任何管理面凭据（04 §1.2 的启动告警用；不解析 JSON）。 */
+export function hasAdminCredentials(
+  env: Readonly<Record<string, string | undefined>>,
+): boolean {
+  return (
+    readAdminToken(env) !== undefined ||
+    (env[ADMIN_OPERATORS_ENV]?.trim() ?? '') !== ''
+  )
+}
 
 /** `reason` 字段上限（字符）。 */
 const MAX_REASON = 200
@@ -36,7 +65,7 @@ export const DEFAULT_UNFREEZE_REASON = 'operator-unfreeze'
 
 /** body 解析结果。 */
 export type UnfreezeBody =
-  | { readonly ok: true; readonly by: string; readonly reason: string }
+  | { readonly ok: true; readonly reason: string }
   | { readonly ok: false; readonly code: 'web-admin-invalid-body'; readonly detail: string }
 
 /**
@@ -49,6 +78,67 @@ export function readAdminToken(env: Readonly<Record<string, string | undefined>>
   if (raw === undefined) return undefined
   const token = raw.trim()
   return token === '' ? undefined : token
+}
+
+/**
+ * 读操作员表（03 TA-44）。
+ *
+ * 优先级：`BAH_ADMIN_OPERATORS` > `BAH_ADMIN_TOKEN`（后者兼容成 `{id:'admin'}`）。
+ * **坏配置不静默降级**：解析失败返回 `ok:false`，`guardAdmin` 统一回 503，
+ * 否则一个手滑的 JSON 会让管理面"看起来没配 token"（404）——运维会以为功能没开。
+ */
+export function readAdminOperators(
+  env: Readonly<Record<string, string | undefined>>,
+): AdminOperatorsRead {
+  const raw = env[ADMIN_OPERATORS_ENV]
+  if (raw !== undefined && raw.trim() !== '') return parseAdminOperators(raw)
+  const legacy = readAdminToken(env)
+  return {
+    ok: true,
+    operators: legacy === undefined ? [] : [{ id: 'admin', token: legacy }],
+  }
+}
+
+/** 解析 `BAH_ADMIN_OPERATORS`（错误信息带变量名，方便运维定位）。 */
+function parseAdminOperators(raw: string): AdminOperatorsRead {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return { ok: false, reason: `${ADMIN_OPERATORS_ENV} 不是合法 JSON` }
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return { ok: false, reason: `${ADMIN_OPERATORS_ENV} 必须是非空数组` }
+  }
+  const operators: AdminOperator[] = []
+  const ids = new Set<string>()
+  const tokens = new Set<string>()
+  for (const item of parsed) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      return { ok: false, reason: `${ADMIN_OPERATORS_ENV} 的每一项必须是对象` }
+    }
+    for (const key of Object.keys(item)) {
+      if (key !== 'id' && key !== 'token') {
+        return { ok: false, reason: `${ADMIN_OPERATORS_ENV} 出现未知字段：${key}` }
+      }
+    }
+    const id = (item as Record<string, unknown>)['id']
+    const token = (item as Record<string, unknown>)['token']
+    if (typeof id !== 'string' || !OPERATOR_ID_PATTERN.test(id)) {
+      return { ok: false, reason: `${ADMIN_OPERATORS_ENV} 的 id 必须是 1–64 位 [A-Za-z0-9._:-]` }
+    }
+    if (typeof token !== 'string' || token.trim() === '') {
+      return { ok: false, reason: `${ADMIN_OPERATORS_ENV} 的 token 必须是非空字符串` }
+    }
+    if (ids.has(id)) return { ok: false, reason: `${ADMIN_OPERATORS_ENV} 的 id 重复：${id}` }
+    if (tokens.has(token)) {
+      return { ok: false, reason: `${ADMIN_OPERATORS_ENV} 的 token 重复（操作员不可区分）` }
+    }
+    ids.add(id)
+    tokens.add(token)
+    operators.push({ id, token })
+  }
+  return { ok: true, operators }
 }
 
 /**
@@ -156,7 +246,8 @@ export function parseUnfreezeTicketBody(body: unknown): UnfreezeTicketBody {
 /**
  * 解析解冻请求体。
  *
- * 严格拒绝未知键：管理面不接受"多余字段"，否则以后加字段时无法判断旧客户端意图。
+ * **只接受 `reason`**（03 TA-44）：操作者由命中的 admin token 派生。
+ * body 里出现 `by` 一律 400——接受一个可伪造的字段再覆盖它，比直接拒绝更容易误导运维。
  */
 export function parseUnfreezeBody(body: unknown): UnfreezeBody {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
@@ -164,17 +255,9 @@ export function parseUnfreezeBody(body: unknown): UnfreezeBody {
   }
   const record = body as Record<string, unknown>
   for (const key of Object.keys(record)) {
-    if (key !== 'by' && key !== 'reason') {
+    if (key !== 'reason') {
       return { ok: false, code: 'web-admin-invalid-body', detail: `未知字段：${key}` }
     }
-  }
-
-  const by = record['by']
-  if (typeof by !== 'string' || by.trim() === '') {
-    return { ok: false, code: 'web-admin-invalid-body', detail: 'by 必填且非空' }
-  }
-  if ([...by].length > MAX_BY) {
-    return { ok: false, code: 'web-admin-invalid-body', detail: `by 不得超过 ${String(MAX_BY)} 字符` }
   }
 
   const reason = record['reason']
@@ -194,7 +277,6 @@ export function parseUnfreezeBody(body: unknown): UnfreezeBody {
   const trimmedReason = typeof reason === 'string' ? reason.trim() : ''
   return {
     ok: true,
-    by: by.trim(),
     reason: trimmedReason === '' ? DEFAULT_UNFREEZE_REASON : trimmedReason,
   }
 }

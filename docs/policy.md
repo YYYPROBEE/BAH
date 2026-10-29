@@ -148,7 +148,7 @@ pnpm policy:test policies/bank-tier/1.0.1              # 覆盖 + 变异必须�
 pnpm policy:install policies/bank-tier/1.0.1
 
 # 4. 影子（用录制的会话日志对比旧/新，不改生效版本）
-pnpm policy:shadow --from bank-tier/1.0.0 --to bank-tier/1.0.1 --sessions sessions/<dir>
+pnpm policy:shadow --from bank-tier/1.0.0 --to bank-tier/1.0.1 --sessions <tenant-sessions>   # 如 sessions/demo
 
 # 5. 金丝雀 0.5%（50/10000）或显式会话
 pnpm policy:promote --kind bank.tier --to bank-tier/1.0.1 --percent 50 --reason "canary 0.5%"
@@ -247,7 +247,7 @@ state 写失败 = 链上留一条"意图"记录。
 `policy:explain` 按记录里的 `policyVersion` 找归档 bundle、用 `evidence` 复算：
 
 ```bash
-pnpm policy:explain --session <sessionId> --dir sessions/<dir> --call-id <callId>
+pnpm policy:explain --session <sessionId> --dir <tenant-sessions> --call-id <callId>
 ```
 
 归档缺失 / 摘要不符 / 证据被改 → 显式失败（`policy-archive-missing` /
@@ -282,7 +282,7 @@ pnpm policy:explain --session <sessionId> --dir sessions/<dir> --call-id <callId
 | `verify-policy-registry` | registry/state 形状与引用完整；runtime-state 不入库；rollout 链连续（存在时）；fixtures 不入 registry |
 
 ```bash
-pnpm gate                 # 40 项；策略相关 4 条
+pnpm gate                 # 44 项；策略相关 4 条
 npx tsx scripts/verify-policy-bundle.ts   # 单独跑
 npx tsx scripts/verify-policy-conformance.ts
 npx tsx scripts/verify-policy-hardcode.ts
@@ -345,12 +345,12 @@ pnpm policy:compile <dir> --check      # CI 口径：lock 必须存在且一致
 pnpm policy:test <dir>                 # 语料 + 覆盖 + 变异
 pnpm policy:versions                   # 已安装版本与状态
 pnpm policy:install <dir>              # 安装 + registry
-pnpm policy:shadow --from <a> --to <b> --sessions <dir>
+pnpm policy:shadow --from <a> --to <b> --sessions <tenant-sessions>
 pnpm policy:promote --kind bank.tier --to <ver> --percent <0..10000>
 pnpm policy:rollback --kind bank.tier [--to <ver>]
 pnpm policy:reload                     # 重写 state 触发 watcher
 pnpm policy:audit-verify               # rollout 链连续性
-pnpm policy:explain --session <sessionId> --dir <sessions> --call-id <callId>
+pnpm policy:explain --session <sessionId> --dir <tenant-sessions> --call-id <callId>
 pnpm bench:policy                      # compile/eval/reload 预算
 ```
 

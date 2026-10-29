@@ -49,10 +49,15 @@ describe('T-01 未写过 → load() 返回 undefined', () => {
 })
 
 describe('T-02 save → load 往返字段全等', () => {
-  it('含可选字段（operator / warnedAt）', () => {
+  it('含可选字段（operatorId / operatorLabel / warnedAt）', () => {
     const root = tempRoot()
     const store = createHandoffStore({ file: handoffStateFileOf(root, 's-1') })
-    const full: HandoffSnapshot = { ...SNAPSHOT, operator: '坐席小周', warnedAt: 1_700_000_180_000 }
+    const full: HandoffSnapshot = {
+      ...SNAPSHOT,
+      operatorId: 'u-ops-1',
+      operatorLabel: '坐席小周',
+      warnedAt: 1_700_000_180_000,
+    }
     store.save(full)
     expect(createHandoffStore({ file: handoffStateFileOf(root, 's-1') }).load()).toEqual(full)
   })
@@ -72,7 +77,8 @@ describe('T-03 原子写：只留 handoff.json，无 .tmp 残留', () => {
     const root = tempRoot()
     const store = createHandoffStore({ file: handoffStateFileOf(root, 's-1') })
     store.save(SNAPSHOT)
-    expect(readdirSync(join(root, 's-1'))).toEqual(['handoff.json'])
+    // 目录布局：<root>/<tenant>/<sessionId>/handoff.json（租户段是合流后新增的）
+    expect(readdirSync(join(root, 'demo', 's-1'))).toEqual(['handoff.json'])
     expect(readFileSync(handoffStateFileOf(root, 's-1'), 'utf8').endsWith('\n')).toBe(true)
   })
 })

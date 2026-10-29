@@ -10,6 +10,7 @@
 import { BahError } from '@bah/util'
 
 import { readBoolean, readPositiveInteger, readString, rejectUnknownKeys } from '../../config.ts'
+import { DEFAULT_AUTH, resolveAuthSettings, type AuthSettings } from './auth/config.ts'
 
 /** `channel:web` 的配置（全部随部署变化 → 全部可校验）。 */
 export interface WebSettings {
@@ -47,6 +48,12 @@ export interface WebSettings {
     /** SLA 毫秒（默认 180_000；0 = 只记录不告警）。**不自动交回**。 */
     readonly slaMs: number
   }
+  /**
+   * 认证面（02）。**整个块可选：不写 = `mode: 'static'` = 改动前的行为**（A3）。
+   *
+   * 这一条是本单能否合入的硬门槛：8 个 profile 与 7 个快照不写 auth 时必须一字不变。
+   */
+  readonly auth: AuthSettings
 }
 
 /** 默认配置。 */
@@ -60,6 +67,7 @@ export const DEFAULT_WEB: WebSettings = {
   entry: 'index.html',
   entries: ['index.html'],
   handoff: { slaMs: 180_000 },
+  auth: DEFAULT_AUTH,
 }
 
 /** 解析 `rateLimit` 配置（未写时用默认值）。 */
@@ -121,6 +129,7 @@ const WEB_SETTING_KEYS = [
   'entry',
   'entries',
   'handoff',
+  'auth',
 ] as const
 
 /**
@@ -210,6 +219,7 @@ export function resolveWebSettings(config: Readonly<Record<string, unknown>>): W
     )
   }
   const handoff = parseHandoff(config['handoff'])
+  const auth = resolveAuthSettings(config['auth'])
 
   return {
     port: port ?? DEFAULT_WEB.port,
@@ -221,5 +231,6 @@ export function resolveWebSettings(config: Readonly<Record<string, unknown>>): W
     entry,
     entries,
     handoff,
+    auth,
   }
 }

@@ -19,7 +19,7 @@ import { BahError } from '@bah/util'
 import type { ServiceKey, SessionId } from '@bah/core'
 
 /** 绑定方式（与 `@bah/bank` 的 `IdentityMethod` 同值集；本包不依赖 bank）。 */
-export type IdentityBindingMethod = 'demo-config' | 'mock-login' | 'im-map'
+export type IdentityBindingMethod = 'demo-config' | 'mock-login' | 'im-map' | 'session-auth'
 
 /** 登录用户目录的一行（手机号必须唯一）。 */
 export interface SmsDirectoryUser {
@@ -230,12 +230,16 @@ export class CredentialsService {  private readonly login: MockSmsLoginService
    *
    * @throws `BahError('identity-invalid')` userId 为空
    */
-  bindSession(sessionId: SessionId, userId: string): void {
+  bindSession(
+    sessionId: SessionId,
+    userId: string,
+    method: IdentityBindingMethod = 'mock-login',
+  ): void {
     const normalized = userId.trim()
     if (normalized.length === 0) {
       throw new BahError('identity-invalid', 'credentials: 用户 ID 不能为空', { sessionId })
     }
-    this.binding.bind(sessionId, normalized, 'mock-login')
+    this.binding.bind(sessionId, normalized, method)
   }
 }
 
