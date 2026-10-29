@@ -66,16 +66,16 @@
       breakerFailures: 3
       breakerOpenMs: 10000
 
-# 知识平面：base bundle 不含此行，必须显式开。channel 随渠道名变（① 之外的 ③）。
-- id: bank:knowledge
-  use: bank:knowledge
-  config:
-    mode: http
-    baseUrl: http://127.0.0.1:7801
-    channel: desktop
-    # required=false 让 sidecar 缺席时降级为 knowledge-unavailable（fail-closed）。
-    # 离线演示的诚实边界：桌面端不承诺 RAG 检索（sidecar 不在 zip 里）。
-    required: false
+# 知识平面：**桌面端不装配**（与 web 的第四处实质差异，见下方说明）。
+#
+# WHY 不是"照抄 web 然后 required:false"：`bank:knowledge` 的 `signature` 在 boot 期
+# 校验语料签名密钥，缺 `BAH_KNOWLEDGE_KEY` 直接 **fail-loud 启动失败**——`required:false`
+# 只管"sidecar 探活失败能不能降级"，管不到签名。桌面端由双击 exe 启动，
+# 没有地方给用户设环境变量，所以这一行必须整块不写（不写 = 插件不装配 = 无该工具）。
+#
+# 代价（如实登记）：桌面端没有 `knowledge_answer` / `knowledge_query` 两个工具。
+# 离线演示本来也没有 RAG sidecar（03 §2.5 已写明"不承诺 RAG 检索"），
+# 这是把"本来就做不到"提前到装配层显式化，而不是留一个启动期必炸的配置。
 
 - id: interaction:approval
   config:

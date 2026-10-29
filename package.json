@@ -60,7 +60,11 @@
     "eval:smoke": "tsx scripts/eval.ts --smoke",
     "eval:baseline": "tsx scripts/eval.ts --baseline-check",
     "eval:baseline:record": "tsx scripts/eval.ts --baseline-record",
-    "evidence:replay": "tsx scripts/replay.ts"
+    "evidence:replay": "tsx scripts/replay.ts",
+    "desktop:build": "pnpm -F @bah/desktop run build",
+    "desktop:dev": "pnpm -F @bah/desktop run build && pnpm -F @bah/desktop run start",
+    "desktop:smoke": "tsx scripts/desktop-channel.test.ts",
+    "desktop:pack": "tsx scripts/pack-desktop.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
@@ -77,6 +81,9 @@
   "pnpm": {
     "overrides": {
       "tinypool": "^2.2.0"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "electron"
+    ]
   }
 }
