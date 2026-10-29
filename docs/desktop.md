@@ -121,15 +121,28 @@ pnpm desktop:pack      # → dist-desktop/BAH-desktop-<version>-win-x64.zip
 
 - `apps/desktop/dist/{main.mjs,preload.cjs}` 存在；
 - `packages/{host,cli,util,core}/dist/index.js` 存在；
-- **`packages/cli/dist` 里含 `.js` 回退代码**（`dist` 存在 ≠ 是新的，见 §7 第 2 行）；
+- **`packages/cli/dist` 里含 `.js` 回退代码**（`dist` 存在 ≠ 是新的，见 §8 第 2 行）；
 - 打包后必检：`node_modules/@bah/safety/dist/sandbox-runtime/worker.js`、
   `<resources/app>/node_modules/@bah/safety/dist/sandbox-runtime/handlers/compute.js`、`<resources/app>/packages/cli/bundles/base/index.js`、
   `packages/cli/package.json`、`profiles/desktop/patch.yml`、`apps/web/index.html`。
 
 > **不进 zip 的东西**：会话、记忆、saga 库、`.env*`、`keys/`、`sessions/`。
-> 它们的落点是 `%APPDATA%\bah-desktop`（§5.5）。
+> 它们的落点是 `%APPDATA%\bah-desktop`（见 §9 的「落盘」一行）。
 
-## 7. 故障排查
+## 7. 验收（一条命令，16 条）
+
+```bash
+pnpm desktop:accept                 # 全部 16 条
+node scripts/desktop-acceptance.mjs I-DT-02   # 只跑一条
+```
+
+逐条判据、原始输出与自检见
+[04-逐项验收.md](evidence/2026-10-30-desktop/04-逐项验收.md)。
+它和 `pnpm gate`（51 项静态门禁）、`pnpm test`（303 文件 / 3389 例）**不重复**：
+门禁看代码形态、用例看函数行为、这一条看"交付承诺凭什么成立"（产物 sha256、
+包内文件、git 差异、解压目录的写入面）。
+
+## 8. 故障排查
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
@@ -146,7 +159,7 @@ pnpm desktop:pack      # → dist-desktop/BAH-desktop-<version>-win-x64.zip
 | 打包产物**完全没反应**，日志里有 `Most NODE_OPTIONs are not supported in packaged apps` | 环境里设了 `NODE_OPTIONS`（例如某些 IDE/CLI 注入 `--require`），打包应用会拒 | 启动前 `unset NODE_OPTIONS`；普通用户机不会有这个变量 |
 | 杀软/SmartScreen 拦截 `BAH.exe` | 未签名 | 选择「仍要运行」；本方案不承诺绕过 |
 
-## 8. 安全边界（一页版）
+## 9. 安全边界（一页版）
 
 | 面 | 做法 | 门禁 |
 |---|---|---|
