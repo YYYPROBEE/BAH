@@ -28,13 +28,13 @@ import { createBankHarness } from './testing.ts'
 const CATALOG_DOC = new URL('../../../../docs/tool-catalog.md', import.meta.url)
 
 describe('工具目录（施工单 08 §2）', () => {
-  it('16 个 P0 工具、数量不超上限、名字唯一', () => {
-    expect(BANK_TOOL_SPECS).toHaveLength(16)
+  it('18 个 P0 工具、数量不超上限、名字唯一', () => {
+    expect(BANK_TOOL_SPECS).toHaveLength(18)
     expect(BANK_TOOL_SPECS.length).toBeLessThanOrEqual(BANK_TOOL_LIMIT)
     expect(new Set(BANK_TOOL_NAMES).size).toBe(BANK_TOOL_NAMES.length)
   })
 
-  it('6 查询 + 2 转账 + 3 理财 + 3 强验证 + 2 资产处置，顺序稳定', () => {
+  it('6 查询 + 2 转账 + 3 理财 + 3 强验证 + 2 资产处置 + 2 卡片状态，顺序稳定', () => {
     expect(BANK_TOOL_NAMES).toEqual([
       'account_list',
       'account_balance',
@@ -53,6 +53,9 @@ describe('工具目录（施工单 08 §2）', () => {
       // W03 §1.3 新增（ADR-0003）：挂失（红）与退订（黄）
       'card_report_lost',
       'sub_cancel',
+      // 场景 4 新增（ADR-0006）：冻结（黄）与解冻（红）
+      'card_freeze',
+      'card_unfreeze',
     ])
     expect(specOf('transfer_create').tier).toEqual({ level: 'yellow', amountPath: 'amount' })
     expect(specOf('wealth_purchase').tier.level).toBe('red')
@@ -76,7 +79,7 @@ describe('工具目录（施工单 08 §2）', () => {
     }
   })
 
-  it('TC-W03-05 16 个工具的档位 + amountPath 逐条钉死', () => {
+  it('TC-W03-05 18 个工具的档位 + amountPath 逐条钉死', () => {
     // 与 `scripts/verify-tiers.ts` 同源：门禁管提交前，这条管测试面（两边任何一边漏都红）
     const expected: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
       account_list: { level: 'green' },
@@ -95,6 +98,8 @@ describe('工具目录（施工单 08 §2）', () => {
       verify_ushield: { level: 'green' },
       card_report_lost: { level: 'red' },
       sub_cancel: { level: 'yellow' },
+      card_freeze: { level: 'yellow' },
+      card_unfreeze: { level: 'red' },
     }
     expect(Object.fromEntries(BANK_TOOL_NAMES.map((name) => [name, specOf(name).tier]))).toEqual(
       expected,

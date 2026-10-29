@@ -25,6 +25,7 @@ import type {
   WealthPurchaseResult,
 } from './dto.ts'
 import type { AccountStatus, TxnCategory } from '../core/model.ts'
+import type { CardStateResult } from './account-ops.ts'
 import { ACCOUNT_TYPE_LABEL, formatYuan, yuanToCents } from '../core/model.ts'
 
 /**
@@ -283,6 +284,21 @@ export function wealthPurchasedCard(result: WealthPurchaseResult): UiCard {
       shares: result.shares,
       disclaimerId: result.disclaimerId,
       atText: when(result.at),
+    },
+  }
+}
+
+/** 卡片状态迁移卡片（冻结/解冻）。 */
+export function cardStateCard(result: CardStateResult): UiCard {
+  return {
+    kind: 'bank.card-state',
+    data: {
+      title: result.status === 'frozen' ? '卡片已冻结' : '卡片已解冻',
+      cardId: result.cardId,
+      tail: result.tail,
+      status: result.status,
+      statusLabel: CARD_STATUS_LABEL[result.status],
+      changed: result.changed,
     },
   }
 }

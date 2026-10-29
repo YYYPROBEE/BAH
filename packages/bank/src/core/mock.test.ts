@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { asSessionId, asTicketId, captureThrown } from '@bah/test-support'
 
 import { buildBankDataset, DEFAULT_LIMITS, DEMO_NOW, type BankDataset } from '../forge/index.ts'
-import { accountDisplayName, bankIds, type BankLimits, type Account } from './model.ts'
+import { accountDisplayName, bankIds, type BankLimits, type Account, type Card, type User } from './model.ts'
 import { MockBankCore } from './mock.ts'
 import type { TicketBinding, TicketRef } from './ticket.ts'
 
@@ -823,5 +823,125 @@ describe('getUser（只读主体，实体槽位用它校验"是谁"）', () => {
     const second = await core.getUser(USER)
     expect(second?.name).toBe('张三')
     expect(first.name).toBe('李四')
+  })
+})
+
+/* ── 卡片状态机（ADR-0006 / L3 T1–T10 的 core 面） ───────────────────────── */
+
+describe('卡片冻结 / 解冻（core）', () => {
+  const CARD_1 = bankIds.card('c-1')
+
+  it('T1 冻结正常卡 → frozen；T2 重复冻结幂等 changed=false', async () => {
+    const core = setup()
+    expect(await core.freezeCard(USER, CARD_1)).toEqual({
+      cardId: CARD_1,
+      tail: '1234',
+      status: 'frozen',
+      changed: true,
+    })
+    expect((await core.freezeCard(USER, CARD_1)).changed).toBe(false)
+  })
+
+  it('T3 冻结已挂失卡 → card-lost', async () => {
+    const core = setup()
+    await core.reportCardLost(USER, CARD_1)
+    expect((await rejection(() => core.freezeCard(USER, CARD_1))).code).toBe('card-lost')
+  })
+
+  it('T4 解冻冻结卡 → normal；T5 解冻正常卡幂等 changed=false', async () => {
+    const core = setup()
+    await core.freezeCard(USER, CARD_1)
+    expect(await core.unfreezeCard(USER, CARD_1)).toEqual({
+      cardId: CARD_1,
+      tail: '1234',
+      status: 'normal',
+      changed: true,
+    })
+    expect((await core.unfreezeCard(USER, CARD_1)).changed).toBe(false)
+  })
+
+  it('T6 解冻已挂失卡 → card-lost', async () => {
+    const core = setup()
+    await core.reportCardLost(USER, CARD_1)
+    expect((await rejection(() => core.unfreezeCard(USER, CARD_1))).code).toBe('card-lost')
+  })
+
+  it('T7 冻结他人卡 → card-not-owned（跨用户是越权）', async () => {
+    const base = dataset()
+    const otherUser: User = { ...base.users[0]!, id: bankIds.user('u-2') }
+    const otherAccount: Account = {
+      ...base.accounts[0]!,
+      id: bankIds.account('a-9'),
+      userId: otherUser.id,
+      number: '6222 0202 0000 0009',
+    }
+    const otherCard: Card = {
+      ...base.cards[0]!,
+      id: bankIds.card('c-9'),
+      accountId: otherAccount.id,
+      tail: '0009',
+    }
+    const core = setup({
+      users: [...base.users, otherUser],
+      accounts: [...base.accounts, otherAccount],
+      cards: [...base.cards, otherCard],
+    })
+    expect((await rejection(() => core.freezeCard(USER, bankIds.card('c-9')))).code).toBe(
+      'card-not-owned',
+    )
+  })
+
+  it('T8 冻结卡：预检 block card-unavailable；直调 createTransfer 也拒且票据不核销', async () => {
+    const core = setup()
+    await core.freezeCard(USER, CARD_1)
+    const preview = await core.previewTransfer({ ...transfer({ amountCents: 10_000 }), viaCardId: CARD_1 })
+    expect(preview.verdict).toBe('block')
+    expect(preview.risks.find((risk) => risk.code === 'card-unavailable')?.severity).toBe('block')
+    expect(preview.viaCard).toEqual({ tail: '1234', status: 'frozen' })
+
+    const ref = ticket(core, { amountCents: 10_000 })
+    const before = await core.balance(ACCOUNT)
+    expect(
+      (await rejection(() => core.createTransfer({ ...transfer({ amountCents: 10_000 }), viaCardId: CARD_1 }, ref)))
+        .code,
+    ).toBe('card-unavailable')
+    expect(core.tickets.status(ref.ticketId)).toBe('approved')
+    expect(await core.balance(ACCOUNT)).toEqual(before)
+  })
+
+  it('T9 正常卡 viaCardId：预检带 viaCard，执行成功', async () => {
+    const core = setup()
+    const preview = await core.previewTransfer({ ...transfer({ amountCents: 10_000 }), viaCardId: CARD_1 })
+    expect(preview.viaCard).toEqual({ tail: '1234', status: 'normal' })
+    expect(preview.verdict).toBe('allow')
+
+    const created = await core.createTransfer(
+      { ...transfer({ amountCents: 10_000 }), viaCardId: CARD_1 },
+      ticket(core, { amountCents: 10_000 }),
+    )
+    expect(created.amountCents).toBe(10_000)
+  })
+
+  it('T10 不传 viaCardId：零回归（无 viaCard、原语义）', async () => {
+    const core = setup()
+    const preview = await core.previewTransfer(transfer({ amountCents: 10_000 }))
+    expect(preview.viaCard).toBeUndefined()
+    expect(preview.verdict).toBe('allow')
+    expect((await core.createTransfer(transfer({ amountCents: 10_000 }), ticket(core, { amountCents: 10_000 }))).amountCents).toBe(
+      10_000,
+    )
+  })
+
+  it('跨账户用卡 → card-not-owned（不是参数错）', async () => {
+    const core = setup()
+    expect(
+      (await rejection(() =>
+        core.previewTransfer({
+          ...transfer({ amountCents: 10_000 }),
+          fromAccountId: FIXED,
+          viaCardId: CARD_1,
+        }),
+      )).code,
+    ).toBe('card-not-owned')
   })
 })

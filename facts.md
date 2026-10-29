@@ -12,7 +12,7 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **294 文件 / 3337 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **294 文件 / 3360 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **27 文件 / 375 用例** |
 
@@ -33,10 +33,10 @@
 | 任务成功率 / 越权拦截率 / 拒答正确率 | 49/49 · 5/5 · 6/6，平均 1.25 步 |
 | 对抗集 | 45 例（分母 44，排除 1 例 `[unverified]` 来源），总拦截 41/44；注入 14/14、越权 15/15、幻觉 12/15 |
 
-## 2. 工具：16 个（12 绿 / 2 黄 / 2 红）
+## 2. 工具：18 个（12 绿 / 3 黄 / 3 红）
 
 > 口径注脚：`goal_set` / `todo_write`（04 单）与 `intent_resolve` / `prompt_ask`（03 单）是
-> **runtime / interaction 内置绿级工具**，不在"银行工具目录 16 个"里——工具目录由
+> **runtime / interaction 内置绿级工具**，不在"银行工具目录 18 个"里——工具目录由
 > `pnpm tool-catalog` 生成、门禁逐字比对，本套单一个银行工具都没加（D9）。
 
 | # | 工具 | 级别 | 职责 |
@@ -57,10 +57,12 @@
 | 14 | `verify_ushield` | green | U 盾挑战 |
 | 15 | `card_report_lost` | **red** | 挂失银行卡（不可逆，必进审批 + 强验证） |
 | 16 | `sub_cancel` | **yellow** | 取消自动扣款订阅（可逆） |
+| 17 | `card_freeze` | **yellow** | 冻结银行卡（可逆止损，一次确认） |
+| 18 | `card_unfreeze` | **red** | 解冻银行卡（恢复支付能力，强验证 + 审批） |
 
 口径：
 
-- 上限 28，当前 16（`docs/tool-catalog.md` 由 `pnpm tool-catalog` 生成，门禁逐字比对）。
+- 上限 28，当前 18（`docs/tool-catalog.md` 由 `pnpm tool-catalog` 生成，门禁逐字比对）。
 - `verify_*` 虽为 green，但 `sideEffect: write`，不参与并行读批。
 - 模型参数金额单位是**元**，核心与事件是**分**（字段带 `Cents`）。
 

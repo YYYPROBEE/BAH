@@ -117,6 +117,17 @@ export interface BankSessionEventMap {
     readonly status: 'lost'
     readonly at: number
   }
+  /** 卡片状态迁移（ADR-0006；冻结/解冻。挂失仍走 card/reported-lost）。 */
+  'card/state-changed': {
+    readonly cardId: string
+    readonly tail: string
+    readonly from: 'normal' | 'frozen'
+    readonly to: 'normal' | 'frozen'
+    readonly reason: 'freeze' | 'unfreeze'
+    /** 可选的用户/模型给出的原因（只落审计，不参与判定）。 */
+    readonly note?: string
+    readonly at: number
+  }
   /** 取消自动扣款订阅（ADR-0003；黄档写操作）。 */
   'sub/cancelled': {
     readonly subscriptionId: string
@@ -152,6 +163,7 @@ export const BANK_SESSION_EVENT_TYPES = [
   'verify/locked',
   'ticket/ledger-failed',
   'card/reported-lost',
+  'card/state-changed',
   'sub/cancelled',
 ] as const satisfies readonly BankSessionEventType[]
 
