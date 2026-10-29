@@ -17,6 +17,7 @@ import { echoPlugin } from './echo.ts'
 import { factPlugin } from './fact.ts'
 import { knowledgePlugin } from './knowledge.ts'
 import { intentPlanePlugin } from './intent.ts'
+import { merchantPlugin } from './merchant.ts'
 import { modelPlugin } from './model.ts'
 import { persistencePlugin } from './persistence.ts'
 import { planPlugin } from './plan.ts'
@@ -78,6 +79,8 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   // G2/G3：到期唤醒驱动器与生活事实库（登记 = 可被 use 引用，装配由 profile 决定）
   schedulerPlugin,
   factPlugin,
+  // G4：商户域（mock 商户；资金腿仍走银行工具）
+  merchantPlugin,
   // C4：跨会话记忆。登记 = 可被 use 引用；真正装配由 profile 的 patch 决定
   // （默认不装：记忆会改变模型输入，不做静默开启）
   memoryPlugin,
@@ -93,6 +96,7 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
 
 export {
   agentPlugin,
+  merchantPlugin,
   factPlugin,
   approvalPlugin,
   auditDecisionsPlugin,

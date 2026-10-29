@@ -51,6 +51,11 @@ export interface ArmedPlan {
   readonly plan: Plan
   /** 武装时刻（判定"这个实例跑过没有"的下界）。 */
   readonly armedAt: number
+  /**
+   * 商户腿（G4）：银行腿成功后由执行器串行履约（**不进 DAG**）。
+   * `offerId` 必须来自本会话 `merchant_search` 的结果（引用闭包由商户服务校验）。
+   */
+  readonly merchant?: { readonly offerId: string }
   /** `armed` 才会被 `duePlans` 选中；`cancelled` 只能通过 `plan_disarm` 进入。 */
   readonly state: 'armed' | 'cancelled'
 }
