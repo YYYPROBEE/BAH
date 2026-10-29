@@ -5970,3 +5970,74 @@ Web 段 200→401→403→202 + 审批帧 + 批准后 59 事件落账、端口�
 - 继承红项：`assertions` / `tracked-sources` 两条仍属并行「可观测性」线（`cli/src/cli/observe-http.test.ts`），本单未修、未替别人 `git add`；
 - 如实登记的不做/边界：不做 SW/PWA、不做页面内语音识别（IME 口径，零麦克风权限）、
   手势与强验证都是 UI 约束（服务端 `decide()` 不校验 `verify()`）、`todo` 帧只留只读渲染位、金额内联输入的 `inputmode=decimal` 分支暂无生产调用点。
+
+## 96.37 赛前状态盘点（2026-10-29，不改代码）
+
+- **范围**：只盘点不改码。产出物在**仓库外**——`BAH-未完成清单-2026-10-29.md`（取代同日 10-28 那份，
+  后者已移入 `文档归档/`）。本轮**未跑任何测试或门禁**：工作树脏 48 项、并行「可观测性」线在写，
+  跑出来的数不属于任何一条线；因此本节所有数字要么标"实测"（git/grep 亲验），要么标明引自 `facts.md`/PROGRESS。
+- **当天漂移**（同一工作树，间隔 3 小时）：HEAD `04de7f1`（11:11）→ `bff324c`（14:27）；
+  `pnpm gate` 44/44 → **45/45**；`test:web` 12 文件/139 例 → **22 文件/333 例**（§96.36）；
+  未推提交 28 → **30**。结论：**任何写死绝对值的清单当天就会过期**，判活只认 `git log` + `ls scripts/verify-*.ts | wc -l`。
+- **补登两条 PROGRESS 一直缺的已完成项**（代码在 main 里，日志里没有，后人只能重新调查）：
+  1. `fe3f833` 端口绑定避开 Fetch 禁用端口。**真因不是 `server.address()` 回落**：本机 Windows 动态端口范围
+     1024–15000 里有 16 个属 WHATWG Fetch 禁用端口（2049/3659/4045/4190/5060/5061/6000/6566/6665–6669/6679/6697/10080），
+     `port: 0` 偶尔分到它们 → 服务正常 `listen`、`fetch` 在连接前抛 `bad port`（每轮约 60 次绑定 × 16/13977 ≈ 6.9%，
+     与"1/5–1/30 随机"吻合）。修法三条硬约束见 `web/listen.ts`：`FETCH_BAD_PORTS` + 关闭重绑最多 8 次、
+     拿不到真实端口即抛 `web-listen-failed`（**不回退配置端口**）、显式端口命中禁用表 fail-loud 不偷偷换。
+     ⚠️ 10-27/10-28 两份报告写的"有界重试无效、正解是断言 `boundPort>0`"**只对一半**：对同一个 `:0` 反复解析确实无效，
+     但对 OS 随机名额，重绑换名额正是正解。归因来源是仓库外 `文档归档/BAH-门禁与稳定性完成与复审-2026-10-28.md`。
+  2. `360f6d6` 供应链 action 锁 SHA。本轮 `grep 'uses: ' .github/workflows/*.yml` 实测 **23 处全部 40 位 SHA、0 处未锁**
+     （10-28 清单登记的"5 处未锁"已作废）。
+- **合流缺口（本轮最大的"做完了但看不见"）**：`git worktree list` 6 份检出，main 不含以下两条线：
+  - 人机接管 `handoff-01-core` `7806e51` + `handoff-02-workbench` `9659006`（base `bbb7a80`，main 之后又走 5 个提交；
+    分支改 59 文件、与 main 重叠 **23** 个、`git merge-tree` 冲突标记 **33** 处）；
+  - 租户与鉴权 `tenant-01…04`（`dc26952`/`2285796`/`be9426b`/`529a851`，base `6af6d64`，main 之后 4 个提交；
+    分支改 199 文件、重叠 **41** 个、冲突标记 **45** 处）。
+  - 合流必做的收尾：重灾区 `plugins/web.ts` + `web/{config,router,dispatch}.ts` + `web/handlers/metrics.ts`
+    两边都插了闸，要逐处判"两条都要"；派生文件重算（`snapshots/*`、`assertion-baseline.json`、`facts.md` 与
+    `docs/facts-sources.md` 必须同批，否则 `verify-docs-consistency` 钉回旧数）；`/api/trace` 无 roles →
+    合并后 `verify-authz-coverage` 会红；**三份 PROGRESS 节号已撞**（main 的 §96.35/§96.36 = 移动 H5 01/02，
+    `TENANT-04-WT` 的 §96.35 = 租户 01，`HANDOFF-02-WT` 的 §96.36 = 接管 02），合回同一文件必须重排号。
+- **赛题硬性项缺口（§五）**：答辩 PPT 与演示视频**仍 0 成品**（全工作区 `.pptx` = 0；`.mp4` 只有
+  `.tmp-w18/probe/` 四个录屏探针，`.ppt` 只有第三方夹具 `preview.ppt`）；演示目录 docs/demo 不存在；
+  仓库外 `赛事规则/10.28线上答疑-问题清单-…-草案.md` §4 答案回填表 A1–A9/B1–B6 **逐格空白**、文件状态仍是"草案"，
+  而其 §5 要求会后 24h 内回填（到期日即 10-29）。部署说明/安全自评/技术文档/简介四项已具备（10-23 清单的
+  "❌ 无 deploy.md""⚠️ 自评只覆盖 audit 插件"两条判断作废）。
+- **推送面一处待澄清的矛盾**：`文档归档/BAH-门禁与稳定性完成与复审-2026-10-28.md` 称"远端 `main` 与
+  `v1.0-submit` 都指向 `c7a25ab`"，但本地 `refs/remotes/origin/main` 只到 `ad9dc53`（12:09，比 `c7a25ab` 早 32 分钟）。
+  本轮两次 `git ls-remote` 均在 21s 后超时（`Failed to connect to github.com:443`）→ **远端真实头无法核实，推送动作当前被网络挡住**。
+  网络恢复后第一件事就是核这两个 ref，再看 `ci.yml` 徽章（`check:ci` 全 14 步含 coverage、严格模式不接受 SKIP，
+  未配 `DEEPSEEK_API_KEY` secret 时 `test:e2e` 判红）。
+- **口径**：可以说"端口随机红已按真因消除、23 处 action 全锁 SHA、实体槽位/策略外置/可观测性/移动 01+02 已入 main"；
+  **不能**说"多租户已实现""坐席工作台已交付"（两条线在分支、main clone 不到）、"生产已切 sentry 外置规则"
+  （`rules.engine` 默认 legacy、profiles 未切）、"策略文件防篡改"（生产签名 overlay 未启用）、
+  "覆盖率台账已刷新"（`docs/coverage-baseline.json` 只认 CI 口径，PE-46 待 CI 跑批）、"交付材料齐了"（PPT/视频 0 成品）。
+- **本轮未验**：`pnpm check` / `gate` / `vitest` 均未跑；§96.35/§96.36 与两条分支的测试数取自各自 PROGRESS，
+  **未在合并后的树上复现**；冲突标记数是 `git merge-tree` 静态计数，没真做过一次合并试算。
+
+## 96.38 2026-10-29 收口：可观测性线 + 移动 H5 04 提交、门禁四红解除
+
+- **三笔提交**（同工作树多线并行，分笔提交；均走 pre-commit，未用 `--no-verify`）：
+  - `19d05f1` feat(obs)：可观测性线收口——观测 tab / observability 客户端 / metrics·trace·cost CLI /
+    SSE 手动续订 / UI 修正，51 文件；
+  - `7f34320` feat(runtime)：移动 H5 04 单施工——goal/todo 平面、`POST /api/session/fork`、
+    cross-scene 快照与门禁，95 文件；
+  - `0ac51ba` docs(evidence)：04 单复审报告与 SHA256SUMS。
+- **门禁四红 → 47/47**（`pnpm gate` 4/47 红 → 47/47，证据 `docs/evidence/2026-10-28-mobile-h5/04-gate-final.txt`）：
+  - `assertions`：并行线 `observe-http.test.ts` 24 条登记进基线（8872 条 / 278 文件）；
+  - `tracked-sources`：并行线测试随 `19d05f1` 入库；本单未跟踪源码 `git add -N` 后随本单入库，现未跟踪源码 0；
+  - `snapshot-fresh`：`packages/saga/src/gates/` 计入 `snapshots/web-channel/scenario.json` 的
+    `coveredSources` 并 `pnpm snapshot:reverify`（`6af6d64` 是纯搬移）；`snapshots/cross-scene/` 先
+    `git add -N`，门禁才看得见 `reverified.json`；
+  - `docs-paths`：§96.37 的 docs/demo/ 引用改为非代码跨度（避免被当路径检查）。
+- **共享文件分离**：`apps/web/src/transport.js`、`scripts/verify-docs-consistency.ts`、
+  `docs/web-frontend.md`、`scripts/assertion-baseline.json` 两线改动已分笔；复核方式
+  `git show <hash> -- <file>`，两笔提交互不含对方文件。
+- **验证口径（如实）**：本轮未重跑 `pnpm test`；264 文件 / 3047 例等数字引自 04 施工批
+  （web 23/338、snapshot 9/39、eval:unit 22/158）。本次实跑 `snapshot:reverify`
+  （9 文件 / 39 例全过）与 `pnpm gate` 47/47；四个原红项另行单独复跑均 exit 0。
+- **仍未闭合**：含本记录在内 `origin/main` 之后 **36** 个提交未推，远端可达性未核（此前两次
+  `git ls-remote` 21s 超时）；赛题 PPT / 演示视频仍 0 成品；`test:e2e` 无 key、`pnpm check` 未整体跑。
+- **口径更正**：§96.37 的"工作树脏 48 项 / 未推 28–30 / HEAD 04de7f1"是 14:32 的时点值，
+  已被本节取代；docs/demo 目录仍不存在（赛题演示材料未产出）。
