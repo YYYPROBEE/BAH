@@ -20,7 +20,7 @@ import {
   findToolContracts,
 } from '@bah/runtime'
 import { PROMPT_ASK_TOOL } from '@bah/interaction'
-import { BahError, validateAgainstSchema } from '@bah/util'
+import { BahError, DEFAULT_TENANT_ID, validateAgainstSchema } from '@bah/util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { ToolExecContext } from '@bah/core'
@@ -60,7 +60,12 @@ async function bootIntent(rows: readonly PluginRow[] = ROWS): Promise<BootedApp>
     bundles: [{ name: 't', rows }],
     layers: [],
     catalog: createCatalog(),
-    run: { sessionId: asSessionId('s-intent'), now: () => 1_700_000_000_000, jsonlDir: dir },
+    run: {
+      sessionId: asSessionId('s-intent'),
+      tenantId: DEFAULT_TENANT_ID,
+      now: () => 1_700_000_000_000,
+      jsonlDir: dir,
+    },
   })
 }
 
@@ -300,7 +305,11 @@ describe('装配面（E3 注册点）', () => {
       { id: 'core:tools' },
       // memory 插件 inject `runtime:system-prompt`（记忆段挂进提示词），所以要先装 core:prompt
       { id: 'core:prompt' },
-      { id: 'bah:memory-store', config: { dbPath: ':memory:', tenant: 'demo', userId: 'u-1' } },
+      // 合流：记忆库按租户根落盘 ⇒ 需要 `core:persistence` 提供 SESSION_FILES；
+      // `tenant` 也不再是 bah-memory 的配置键（租户只来自 `--tenant` / RunContext）
+      { id: 'core:persistence' },
+      // 租户化后 dbPath 是"租户根下的单段文件名"（`:memory:` 已不再被当特例）
+      { id: 'bah:memory-store', config: { dbPath: 'memory.db', userId: 'u-1' } },
       { id: 'intent:plane' },
       { id: 'prompt:ask' },
     ]

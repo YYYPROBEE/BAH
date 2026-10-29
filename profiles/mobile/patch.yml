@@ -126,11 +126,12 @@
         - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。
 
 # C4 跨会话记忆：base bundle 不含此行，由 profile 显式写（与 web 同）。
+# 合流 2026-10-29：`dbPath` 是「租户根下的单段文件名」；租户只来自 `--tenant` / `BAH_TENANT`，
+# 写 `tenant:` 会被当成未知键 fail-loud（旧口径 `sessions/memory.db` 会落成双 sessions 段）。
 - id: bah:memory-store
   use: bah:memory-store
   config:
-    dbPath: sessions/memory.db
-    tenant: demo
+    dbPath: memory.db
     userId: u-1
     sensitivityCeiling: 2
 

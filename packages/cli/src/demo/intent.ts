@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 
 import { boot, createCatalog } from '@bah/host'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
+import { DEFAULT_TENANT_ID } from '@bah/util'
 
 import type { SessionId } from '@bah/core'
 import { loadBundles } from '../bundles.ts'
@@ -97,6 +98,7 @@ async function main(): Promise<void> {
     catalog: createCatalog(),
     run: {
       sessionId: 's-demo-intent' as SessionId,
+      tenantId: DEFAULT_TENANT_ID,
       now,
       jsonlDir: SCRATCH,
     },

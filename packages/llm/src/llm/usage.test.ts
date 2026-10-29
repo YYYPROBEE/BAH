@@ -1,4 +1,4 @@
-﻿import { BahError } from '@bah/util'
+import { BahError } from '@bah/util'
 import { describe, expect, it } from 'vitest'
 
 import { UsageLedger } from './usage.ts'

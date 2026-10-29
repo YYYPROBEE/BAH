@@ -90,6 +90,8 @@ function depsOf(overrides: Partial<WebDeps> = {}): WebDeps {
     webToken: WEB_TOKEN,
     operatorToken: undefined,
     csrfToken: CSRF_TOKEN,
+    // 入口注入只看 `auth.mode`；静态模式是改动前的行为（A3 基线）
+    auth: { mode: 'static' },
     ...overrides,
   } as unknown as WebDeps
 }
@@ -117,6 +119,43 @@ describe('静态入口：`/` 落点由 entry 决定（TC-MCH-12）', () => {
     )
     expect(probe.status).toBe(200)
     expect(probe.body).toContain('bah-web-token')
+  })
+})
+
+describe('password 模式：所有 token 入口都不承载口令（T-04.1）', () => {
+  const passwordDeps = (overrides: Partial<WebDeps> = {}): WebDeps =>
+    depsOf({ auth: { mode: 'password' } as WebDeps['auth'], ...overrides })
+
+  it('多入口（index + m）：两页都无 token meta，都有 mode meta，都下发 CSRF cookie', async () => {
+    const entries = [join(root, 'index.html'), join(root, 'm.html')]
+    for (const entry of entries) {
+      const probe = await call(passwordDeps({ tokenEntries: entries }), `/${entry.split(/[\\/]/).pop()}`)
+      expect(probe.status).toBe(200)
+      expect(probe.body).not.toContain('bah-web-token')
+      expect(probe.body).toContain('<meta name="bah-auth-mode" content="password"')
+      expect(probe.headers['set-cookie']).toContain('bah_csrf=')
+      expect(probe.headers['cache-control']).toBe('no-store')
+    }
+  })
+
+  it('static 模式多入口：两页都注入 token（对照组，证明差异只在 mode）', async () => {
+    const entries = [join(root, 'index.html'), join(root, 'm.html')]
+    for (const entry of entries) {
+      const probe = await call(depsOf({ tokenEntries: entries }), `/${entry.split(/[\\/]/).pop()}`)
+      expect(probe.body).toContain('bah-web-token')
+      expect(probe.body).not.toContain('bah-auth-mode')
+    }
+  })
+
+  it('password 模式下坐席入口未启用（D2 未做）→ 404；启用时只注入 mode + CSRF', async () => {
+    const off = await call(passwordDeps(), '/operator')
+    expect(off.status).toBe(404)
+
+    const on = await call(passwordDeps({ seatEnabled: true }), '/operator')
+    expect(on.status).toBe(200)
+    expect(on.body).not.toContain('bah-web-token')
+    expect(on.body).toContain('<meta name="bah-auth-mode" content="password"')
+    expect(on.headers['set-cookie']).toContain('bah_csrf=')
   })
 })
 
@@ -231,7 +270,7 @@ describe('坐席入口（B1：零注入、未启用即 404）', () => {
     }
   })
 
-  it('启用 ⇒ /operator 200 text/html，零凭证、不写 CSRF cookie、可缓存', async () => {
+  it('启用 ⇒ /operator 200 text/html，零凭证、不写 CSRF cookie、no-store', async () => {
     const probe = await call(depsOf({ seatEnabled: true, operatorToken: OPERATOR_TOKEN }), '/operator')
     expect(probe.status).toBe(200)
     expect(probe.headers['content-type']).toContain('text/html')
@@ -240,7 +279,8 @@ describe('坐席入口（B1：零注入、未启用即 404）', () => {
     expect(probe.body).not.toContain(OPERATOR_TOKEN)
     expect(probe.body).not.toContain('bah-web-token')
     expect(probe.headers['set-cookie']).toBeUndefined()
-    expect(probe.headers['cache-control']).toBe('no-cache')
+    // 合流 T-04：入口页（token 入口与坐席入口）统一 no-store——注入值随进程变化
+    expect(probe.headers['cache-control']).toBe('no-store')
   })
 
   it('启用 ⇒ /operator.html 直接访问同样零注入', async () => {
@@ -266,6 +306,7 @@ describe('坐席入口（B1：零注入、未启用即 404）', () => {
     expect(probe.status).toBe(200)
     expect(probe.body).not.toContain('bah-web-token')
     expect(probe.headers['set-cookie']).toBeUndefined()
-    expect(probe.headers['cache-control']).toBe('no-cache')
+    // 合流 T-04：入口页（token 入口与坐席入口）统一 no-store——注入值随进程变化
+    expect(probe.headers['cache-control']).toBe('no-store')
   })
 })

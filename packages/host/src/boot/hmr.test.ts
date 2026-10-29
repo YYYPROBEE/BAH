@@ -22,6 +22,7 @@ import { boot, type ProfileSummary } from './boot.ts'
 import { readString, rejectUnknownKeys } from './config.ts'
 import { startConfigHmr } from './hmr.ts'
 import { createCatalog } from './plugins/index.ts'
+import { testRunContext } from './test-run-context.ts'
 import type { Bundle, ConfigLayer, PluginRow } from './profile-plugins.ts'
 
 /** apply 次数探针（证明"插件代码不重载"）。 */
@@ -63,7 +64,7 @@ async function bootApp(path: string, profile: ProfileSummary) {
     bundles: [BUNDLE],
     layers: [readLayer(path)],
     catalog: CATALOG,
-    run: { sessionId: asSessionId('s-hmr'), now: () => 1_000 },
+    run: testRunContext({ sessionId: asSessionId('s-hmr'), now: () => 1_000 }),
   })
 }
 

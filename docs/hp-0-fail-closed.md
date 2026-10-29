@@ -211,7 +211,7 @@ ctx.effect(ctx.events.on('tools/post-execute', createSentryPostExecuteListener({
 
 鉴权与环境：
 
-- `BAH_ADMIN_TOKEN` 必须存在且非空；未设置时路由返回 **404**（不暴露存在性）。
+- `BAH_ADMIN_TOKEN` 必须存在且非空（或配置 `BAH_ADMIN_OPERATORS` 多操作员表）；两者都没有时路由返回 **404**（不暴露存在性）。
 - 仅接受本机回环：`req.socket.remoteAddress` ∈ `127.0.0.0/8`、`::1`、`::ffff:127.0.0.1`；否则 **403**。
 - `Authorization: Bearer <token>`；缺失/错误 → **401**；比较用 `timingSafeEqual`，长度先判。
 - 不读配置文件里的 token；不把 token 写入日志、错误体、审计事件。
@@ -249,21 +249,22 @@ ctx.effect(ctx.events.on('tools/post-execute', createSentryPostExecuteListener({
 命令：
 
 ```text
-bah sentry unfreeze [--url http://127.0.0.1:7331] --by <operator> [--reason <text>]
+bah sentry unfreeze [--url http://127.0.0.1:7331] [--reason <text>]
 ```
 
 - `--url`：缺省 `http://127.0.0.1:7331`；只允许 http/https；末尾斜杠去掉。
-- `--by`：必填，≤64 字符。
+- `--by`：**03 TA-44 起已移除**——操作者由宿主命中的 admin token 派生，body 里带 `by` → 400；
+  命令传 `--by` 会以用法错误退出 2（不静默忽略）。
 - `--reason`：可选，≤200 字符；缺省 `operator-unfreeze`。
 - token：只从环境变量 `BAH_ADMIN_TOKEN` 读取；**不提供 `--token`**，避免进程列表/shell history 泄漏。
 - 请求：`POST <url>/api/admin/sentry/unfreeze`，`authorization: Bearer <token>`，`content-type: application/json`。
 - 输出：
-  - `unfrozen: true` → `已解冻（by=<by>）`，退出 0。
-  - `unfrozen: false` → `当前未处于冻结状态`，退出 0。
+  - `unfrozen: true` → `已解冻（by=<服务端返回的 operator>）`，退出 0。
+  - `unfrozen: false` → `当前未处于冻结状态（by=<operator>）`，退出 0。
   - 401/403 → 打印结构化错误，退出 1。
   - 404 → `管理路由未启用：请确认 profile 是 web 且已设置 BAH_ADMIN_TOKEN`，退出 1。
   - 网络失败 → `无法连接 web 宿主：<reason>`，退出 1。
-  - 缺 token / 缺 `--by` / 未知参数 → 退出 2。
+  - 缺 token / 传 `--by` / 未知参数 → 退出 2。
 - `parseCommand` 增加：
 
 ```ts
@@ -295,14 +296,14 @@ bah sentry unfreeze [--url http://127.0.0.1:7331] --by <operator> [--reason <tex
 | HP0-02 | fail-closed | 监听器正常 → 原样返回，不改判决 |
 | HP0-03 | fail-closed | 抛错 → 落 `sentry/verifier-failed` + trace，消息截断 200 字 |
 | HP0-04 | sentry 集成 | downstream 抛错 → sentry 包装器返回 block，结果不进入模型可信内容 |
-| HP0-05 | web-admin | 未设 `BAH_ADMIN_TOKEN` → 404 |
+| HP0-05 | web-admin | 未设 `BAH_ADMIN_TOKEN`（且无 `BAH_ADMIN_OPERATORS`）→ 404 |
 | HP0-06 | web-admin | 缺/错 token → 401；长度不同也不抛时序异常 |
 | HP0-07 | web-admin | 非回环地址 → 403（helper 单测 + 路由分支） |
 | HP0-08 | web-admin | 正确 token + 冻结 → 200 `unfrozen:true`，fake 收到 by/reason |
 | HP0-09 | web-admin | 正确 token + 未冻结 → 200 `unfrozen:false` |
 | HP0-10 | web-admin | body 缺 by / 超长 / 未知键 → 400 |
 | HP0-11 | web-admin | sentry 服务缺失 → 503，web 仍可启动 |
-| HP0-12 | CLI | 缺 `--by` / 缺 token / 未知参数 → 退出 2 |
+| HP0-12 | CLI | 缺 token / 传 `--by` / 未知参数 → 退出 2 |
 | HP0-13 | CLI | 正确请求 → POST 路径/头/body 正确，200 true → 退出 0 |
 | HP0-14 | CLI | 404 / 网络失败 → 退出 1，错误可读且不泄漏 token |
 | HP0-15 | CLI | `HELP` 含 `bah sentry unfreeze`；`parseCommand` 不误吞 `--profile sentry` |

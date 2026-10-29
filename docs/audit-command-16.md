@@ -280,11 +280,22 @@ bah audit · 目录 sessions · 链 2 条 · 事件 148 条
     }
   ],
   "anchors": [{ "period": "2026-10", "merkleRoot": "a3f9…", "state": "ledger-missing" }],
+  "approvals": [
+    { "ticketId": "t-1", "decision": "allow", "actor": { "ticketId": "t-1", "tenantId": "demo", "userId": "u-1" }, "at": 1792000000000, "machine": false },
+    { "ticketId": "t-2", "decision": "deny", "at": 1792000000001, "machine": true }
+  ],
+  "approvalWarnings": [],
   "ok": true
 }
 ```
 
 契约要点（每条都是实测踩出来的）：
+
+- `approvals` / `approvalWarnings`（03 TA-46）：按 `ticketId` 把 `approval/actor` 与
+  `approval/decided` 配对，输出"票据 → 结论 → 操作者"。**只读链行信封**——`d` 是
+  `sha256(data)`，载荷原文在 `session.jsonl`；拿 `d` 当 JSON 解析会得到"不是 JSON"的告警。
+  没有 actor 的结论标 `machine`；`decision: allow` 却没有前置 actor 会落一条
+  "人批必有主"告警，**不改退出码**（告警不是断链）。
 
 - `signatureState` **四态**：`verified` / `invalid` / `skipped-no-key` / `skipped-disabled`（§2.2 关键点 3）。核心是"**没验**与"验了但失败"必须分字段——缺密钥 = 环境没配好（退出码 2），用户显式降级 = 已知取舍（退出码 0），invalid = 数据被改（退出码 1）。三者处置完全不同，合并成一个布尔会把审计结论抹平。
 - `projectionState` **四态**：`diff-zero` / `diff-nonzero` / `runtime-missing` / `skipped-no-db`。

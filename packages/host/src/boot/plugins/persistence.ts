@@ -12,19 +12,36 @@ import { join } from 'node:path'
 
 import { defineService } from '@bah/core'
 import { JsonlPersistence } from '@bah/persistence'
-import { assertSafePathSegment, logJson } from '@bah/util'
+import { BahError, assertSafePathSegment, isTenantId, logJson } from '@bah/util' 
 
 import type { SessionEvent, SessionId } from '@bah/core'
+import type { TenantId } from '@bah/util'
 import type { SessionHandle, JsonlOptions } from '@bah/persistence'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
 import { readBoolean, readString, rejectUnknownKeys } from '../config.ts'
 
-/** 会话文件定位服务（宿主打印"落盘在哪"用，避免宿主自己拼路径）。 */
+/**
+ * 会话文件定位服务（宿主打印"落盘在哪"用，避免宿主自己拼路径）。
+ *
+ * ## 租户化之后（01 TA-12）`root` 的语义
+ *
+ * `root` 是**租户根** `<config.root>/<tenantId>`，不是部署根。所有拿 `root` 的调用方
+ * 直接得到"已经拼好租户的目录"，**不要再自己拼一次**——那正是 AR-01 的形态
+ * （一处漏拼 = 审计在租户外，而且不会报错）。
+ *
+ * 唯一的例外是 `baseRoot`：`bank:saga-store` 的 sqlite 按 01 §5 的裁剪决策
+ * **不按租户分库**（单库单进程 + `verify-saga-wiring` 以固定路径为基线），
+ * 所以它显式取 `baseRoot`。**别在别处用 `baseRoot`**。
+ */
 export interface SessionFiles {
-  /** 会话根目录（`root` / `--jsonl` 生效值；saga 审计链跟它同根）。 */
+  /** 本租户的根目录：`<config.root>/<tenantId>`（会话目录 / 审计链 / 停机状态都在它下面）。 */
   readonly root: string
+  /** 部署根（未拼租户）。只给"按设计单文件共享"的 saga 库用，见上。 */
+  readonly baseRoot: string
+  /** 本进程服务的租户（与 `RunContext.tenantId` 同源）。 */
+  readonly tenantId: TenantId
   /** 某会话的 JSONL 文件路径（会话尚未创建时返回**将要**写入的路径）。 */
   fileOf(sessionId: SessionId): string
 }
@@ -34,7 +51,7 @@ export const SESSION_FILES = defineService<SessionFiles>('bah:session-files')
 
 /** `core:persistence` 的配置。 */
 export interface PersistenceSettings {
-  /** 会话根目录（每个会话一个子目录）。 */
+  /** 部署根（每个租户一段、每个会话再一段；见 `tenantRootOf`）。 */
   readonly root: string
   /** 每次 append 后是否 `fsync`（默认 true；演示/测试可关）。 */
   readonly fsync: boolean
@@ -43,10 +60,35 @@ export interface PersistenceSettings {
 /**
  * 默认会话根目录（相对进程 cwd）。
  *
- * 导出给 `safety:sentry` 用：HALT 停机状态与会话日志同根（`<root>/<sessionId>/halt.json`），
+ * 导出给 `safety:sentry` 用：HALT 停机状态与会话日志同根（租户根下的 `halt.json`），
  * 这样"停机证据跟着部署目录走"，而不是跟着进程或某个会话 ID 走。
  */
 export const DEFAULT_ROOT = 'sessions'
+
+/**
+ * 租户根 = 部署根 + 租户段（**布局公式的唯一实现**）。
+ *
+ * 会话日志、审计链、记忆库、HALT 状态都从这里派生。之所以做成函数、而不是让每个
+ * 调用方自己 `join`：AR-01 的教训是"一处漏拼不会报错，只会让审计跑到租户外"。
+ *
+ * @param baseRoot 部署根（`--jsonl` 覆盖值或 `core:persistence.root`）
+ * @param tenantId 启动期确定的租户
+ * @throws `BahError('tenant-id-invalid')` 不是合法租户 ID
+ */
+export function tenantRootOf(baseRoot: string, tenantId: TenantId): string {
+  const id = String(tenantId)
+  // 用**租户字符集**而不是路径白名单：路径白名单会放过 `undefined` / `Demo` / `demo_1`
+  // 这类"路径安全但不是租户"的值（复审 AR-03：JS 调用方漏传 tenantId 时会落成
+  // `<root>/undefined`，既没有报错也没有意义）。`asTenantId` 是无校验断言，这里是兜底。
+  if (!isTenantId(id)) {
+    throw new BahError(
+      'tenant-id-invalid',
+      `租户根解析失败：${JSON.stringify(id)} 不是合法租户 ID（TenantId 必须经 parseTenantId 产出）`,
+      { tenantId: id, baseRoot },
+    )
+  }
+  return join(baseRoot, id)
+}
 
 export const persistencePlugin: HostPlugin<PersistenceSettings> = {
   id: 'core:persistence',
@@ -56,7 +98,9 @@ export const persistencePlugin: HostPlugin<PersistenceSettings> = {
     inject: [RUN_SERVICE.id],
     apply(ctx, config) {
       const run = ctx.get(RUN_SERVICE)
-      const root = run.jsonlDir ?? config.root
+      // 部署根（`--jsonl` 优先）；租户根是它下面的一段，见 `tenantRootOf`
+      const baseRoot = run.jsonlDir ?? config.root
+      const root = tenantRootOf(baseRoot, run.tenantId)
       const backend = new JsonlPersistence({
         fsync: config.fsync,
         // 尾行截断是**可容忍**的损坏（半写），告警但继续；中间行损坏仍抛错
@@ -79,6 +123,8 @@ export const persistencePlugin: HostPlugin<PersistenceSettings> = {
 
       ctx.provide<SessionFiles>(SESSION_FILES, {
         root,
+        baseRoot,
+        tenantId: run.tenantId,
         fileOf: (sessionId) => join(dirOf(sessionId), 'session.jsonl'),
       })
 

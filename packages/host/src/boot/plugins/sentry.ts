@@ -36,7 +36,7 @@ import { BahError, assertNever, reasonOf } from '@bah/util'
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { DECISION_AUDIT } from './audit-decisions.ts'
 import { createHaltStore } from './halt-store.ts'
-import { DEFAULT_ROOT } from './persistence.ts'
+import { DEFAULT_ROOT, tenantRootOf } from './persistence.ts'
 import { findSentryRules } from './policy.ts'
 import { RUN_SERVICE } from '../boot.ts'
 
@@ -199,10 +199,14 @@ export const sentryPlugin: HostPlugin<SentryPluginSettings> = {
         sessionId: run.sessionId,
         now: run.now,
         ...(ruleSetView === undefined ? {} : { ruleSet: () => ruleSetView.rulesFor(String(run.sessionId)) }),
-        // HALT 跨重启（C3）：`<root>/halt.json` 与会话 ID 无关——停机是部署级事实，
-        // 换个会话 ID 不该绕过它。固定 `fsync: true`：停机写入不在审批热路径上
-        // （一次停机只写一次），没有理由为了演示省这一次 fsync。
-        haltPersistence: createHaltStore({ root: run.jsonlDir ?? DEFAULT_ROOT }),
+        // HALT 跨重启（C3）：租户根下的 `halt.json` 与会话 ID 无关——停机是**部署级**
+        // 事实，换个会话 ID 不该绕过它；但它是**租户级**事实，别的租户的进程不该被它挡住
+        // （两个租户共用一个 jsonlDir 时，共享一份 halt.json 就是跨租户 DoS）。
+        // 固定 `fsync: true`：停机写入不在审批热路径上（一次停机只写一次），
+        // 没有理由为了演示省这一次 fsync。
+        haltPersistence: createHaltStore({
+          root: tenantRootOf(run.jsonlDir ?? DEFAULT_ROOT, run.tenantId),
+        }),
         record: (type, data) => {
           session.appendDomain(type, data, { ignorable: true })
         },

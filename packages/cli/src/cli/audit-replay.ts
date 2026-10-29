@@ -5,9 +5,10 @@
  * 不启动 Agent / 不调模型 / 不调工具。
  */
 
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import { replaySession } from '@bah/persistence'
+import { DEFAULT_TENANT_ID, isTenantId } from '@bah/util'
 
 import type { CliIo, CliOptions } from './run.ts'
 
@@ -15,6 +16,8 @@ import type { CliIo, CliOptions } from './run.ts'
 export interface AuditReplayArgs {
   readonly session?: string
   readonly dir: string
+  /** 租户（链与会话都在 `<dir>/<tenant>/` 下；04 隔离口径）。 */
+  readonly tenant: string
   readonly key?: string
   readonly format: 'text' | 'json'
   readonly help: boolean
@@ -26,6 +29,7 @@ export function parseAuditReplayArgs(
 ): { ok: true; args: AuditReplayArgs } | { ok: false; error: string } {
   let session: string | undefined
   let dir = 'sessions'
+  let tenant: string = String(DEFAULT_TENANT_ID)
   let key: string | undefined
   let format: 'text' | 'json' = 'text'
   let help = false
@@ -51,6 +55,13 @@ export function parseAuditReplayArgs(
         const read = value()
         if (read === undefined) return { ok: false, error: '--dir 需要一个值' }
         dir = read
+        break
+      }
+      case '--tenant': {
+        const read = value()
+        if (read === undefined) return { ok: false, error: '--tenant 需要一个值' }
+        if (!isTenantId(read)) return { ok: false, error: `--tenant 的值不是合法租户 ID：${read}` }
+        tenant = read
         break
       }
       case '--key': {
@@ -81,6 +92,7 @@ export function parseAuditReplayArgs(
     args: {
       ...(session === undefined ? {} : { session }),
       dir,
+      tenant,
       ...(key === undefined ? {} : { key }),
       format,
       help,
@@ -104,14 +116,17 @@ export async function runAuditReplay(
       [
         'bah audit replay —— 只读重放会话（不启动 Agent / 不调模型 / 不调工具）',
         '',
-        '用法：bah audit replay --session <id> [--dir sessions] [--key <pem>] [--format text|json]',
+        '用法：bah audit replay --session <id> [--dir sessions] [--tenant demo] [--key <pem>] [--format text|json]',
       ].join('\n'),
     )
     return parsed.args.help ? 0 : 2
   }
   const cwd = options.root ?? process.cwd()
+  // 与 `bah audit` 同口径：--dir 是部署根，真正会话根是 `<dir>/<tenant>`。
+  // 不拼租户会在 `<dir>/<session>` 找文件 → session-missing；更糟的是多租户时可能读错租户。
+  const tenantDir = join(resolve(cwd, parsed.args.dir), parsed.args.tenant)
   const result = replaySession({
-    root: resolve(cwd, parsed.args.dir),
+    root: tenantDir,
     sessionId: parsed.args.session,
     ...(parsed.args.key === undefined ? {} : { keyPath: resolve(cwd, parsed.args.key) }),
   })

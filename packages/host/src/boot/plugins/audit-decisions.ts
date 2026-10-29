@@ -30,7 +30,7 @@ import { defineService, type Context } from '@bah/core'
 import type { BankSessionEventMap } from '@bah/bank'
 import { ChainFile, SIGNED_TYPES, createSagaAudit, toolResultSummaryOf } from '@bah/persistence'
 import type { ChainDecision } from '@bah/persistence'
-import { BahError, logJson, reasonOf } from '@bah/util'
+import { BahError, logJson, reasonOf, type Role } from '@bah/util' 
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
@@ -39,6 +39,32 @@ import { SESSION_FILES } from './persistence.ts'
 
 /** 审批策略版本（与 `sentry-policy/2` 分开：两张判决面的规则来源不同）。 */
 export const APPROVAL_POLICY_VERSION = 'approval-policy/1'
+
+/**
+ * 认证事实的链上版本（02 TA-30）。
+ *
+ * 认证不是"判决"（没有 allow/deny 的业务含义），但它是**证据**：谁在何时登录/失败/登出。
+ * 单独一个 policyVersion 让审计报告能按"认证策略版本"分组，而不与审批策略混在一起。
+ */
+export const AUTH_POLICY_VERSION = 'auth-session/1'
+
+/** 链上允许的条目类型（判决三类 + 认证四类 + 审批主体一类）。 */
+export type DecisionEntryType =
+  | 'sentry/decision'
+  | 'approval/decided'
+  | 'approval/actor'
+  | 'policy/decision'
+  | 'auth/login'
+  | 'auth/logout'
+  | 'auth/login-failed'
+  | 'auth/login-locked'
+
+/** 审批操作者（03 TA-46）：`approval/actor` 的载荷。 */
+export interface ApprovalActor {
+  readonly tenantId: string
+  readonly userId: string
+  readonly roles: readonly Role[]
+}
 
 /** 缺省私钥路径（与 `bank:saga-audit` 同源；演示/CI 通常不存在）。 */
 const DEFAULT_SIGNING_KEY_PATH = 'keys/saga-ed25519.pem'
@@ -57,7 +83,7 @@ export interface AuditDecisionsSettings {
 
 /** 一条待写链的判决（v2 信封字段由本层补齐）。 */
 export interface DecisionChainEntry {
-  readonly type: 'sentry/decision' | 'approval/decided' | 'policy/decision'
+  readonly type: DecisionEntryType
   readonly data: unknown
   readonly subject: string
   readonly decision: ChainDecision
@@ -94,6 +120,13 @@ declare module '@bah/core' {
 export interface DecisionAudit {
   /** 写一条 v2 判决到当前会话链。 */
   append(entry: DecisionChainEntry): void
+  /**
+   * 记一条"这次审批是谁按的"（03 TA-46）。
+   *
+   * **必须写在 `approval/decided` 之前**：链上先有 actor 再有 decided 才说明"人批的"；
+   * 只有 decided 是合法的另一态——超时 / 无人值守的 `unavailable`，报告里标 `machine`。
+   */
+  appendActor(ticketId: string, actor: ApprovalActor, at: number): void
   /** 只验连续性（不读密钥）：启动时扫全部链。 */
   verifyAll(): readonly ChainBreak[]
 }
@@ -165,6 +198,9 @@ export const auditDecisionsPlugin: HostPlugin<AuditDecisionsSettings> = {
       const audit = createSagaAudit({
         now: run.now,
         rootDir: root,
+        // 租户在建链时给一次：四类 append（tool/call、tool/result、sentry/decision、
+        // approval/decided）因此全部带租户，不存在"漏传一处"的可能（TA-15）
+        tenant: String(run.tenantId),
         // 密钥在 boot 期判定：存在 → 对白名单全量签名；缺钥 → 空集（unsigned）
         signedTypes: keyExists ? SESSION_SIGNED_TYPES : [],
         ...(keyExists ? { signingKeyPath: settings.signingKeyPath } : {}),
@@ -181,13 +217,57 @@ export const auditDecisionsPlugin: HostPlugin<AuditDecisionsSettings> = {
               policyVersion: entry.policyVersion,
             })
           },
+          appendActor(ticketId, actor, at) {
+            // 载荷里不放口令 / cookie / sid：只有租户、用户、角色与时刻。
+            // 链行本身已经带 `tenant`（01 TA-15），载荷里再写一份是为了让
+            // `bah audit` 只读单行也能回答"这是哪个租户的谁"。
+            audit.append(
+              chainId,
+              'approval/actor',
+              {
+                ticketId,
+                tenantId: actor.tenantId,
+                userId: actor.userId,
+                roles: actor.roles,
+                at,
+              },
+              undefined,
+              {
+                subject: `principal:${actor.tenantId}/${actor.userId}`,
+                decision: 'allow',
+                policyVersion: AUTH_POLICY_VERSION,
+              },
+            )
+          },
           verifyAll() {
             const breaks: ChainBreak[] = []
+            const tenant = String(run.tenantId)
+            // 读文件只为租户对账；截断告警仍走结构化日志（W08 的"不静默"判据）
+            const files = new ChainFile({
+              rootDir: root,
+              fsync: false,
+              warn: (line) => logJson('warn', 'host.audit-write-failed', { line }),
+            })
             for (const id of chainIds(root)) {
               try {
                 const result = audit.verifyContinuity(id)
                 if (!result.ok) {
                   breaks.push({ chainId: id, brokenAt: result.brokenAt ?? 0 })
+                  continue
+                }
+                /**
+                 * 租户对账（复审 AR-02）：整目录被搬到别的租户下时，哈希链**仍然连续**，
+                 * 只有这一条能发现。历史行没有 `tenant`，跳过（迁移前的链只能靠目录位置）。
+                 */
+                const foreign = files
+                  .read(id)
+                  .find((row) => row.tenant !== undefined && row.tenant !== tenant)
+                if (foreign !== undefined) {
+                  breaks.push({
+                    chainId: id,
+                    brokenAt: foreign.q,
+                    error: `链行租户 ${String(foreign.tenant)} ≠ 本进程租户 ${tenant}（链目录可能被搬错租户）`,
+                  })
                 }
               } catch (error) {
                 breaks.push({ chainId: id, brokenAt: 0, error: reasonOf(error) })

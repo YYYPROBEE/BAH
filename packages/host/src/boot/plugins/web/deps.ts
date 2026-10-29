@@ -16,12 +16,14 @@ import type { Context, ServiceKey } from '@bah/core'
 import type { Agent, SessionApi } from '@bah/runtime'
 import type { SloSample } from '@bah/saga'
 import type { HaltHandle, SentryHandle } from '@bah/safety'
+import type { TenantId } from '@bah/util'
 
 import type { HandoffHandle } from './handoff.ts'
 import type { TelemetryHandle } from '../telemetry.ts'
+import type { DecisionAudit } from '../audit-decisions.ts'
 import type { createRateLimiter } from '../web-rate-limit.ts'
-import type { Principal } from '../web-operator.ts'
 import type { SseHub } from './sse.ts'
+import type { AuthRuntime, RequestIdentity } from './auth/index.ts'
 
 /** 限流器实例类型（`createRateLimiter` 的返回，不另立接口）。 */
 export type RateLimiter = ReturnType<typeof createRateLimiter>
@@ -30,6 +32,20 @@ export type RateLimiter = ReturnType<typeof createRateLimiter>
 export interface WebDeps {
   /** 会话服务（读 `sessionId` / `lastSeq` / `events`）。 */
   readonly session: SessionApi
+  /**
+   * 本进程服务的租户（来自 `RunContext.tenantId`，01 TA-16）。
+   *
+   * 处理器只**读**它（`/api/metrics` 的返回体、跨租户判定），不许从请求头/查询参数取租户：
+   * 客户端声明的租户永远不可信（`verify-tenant-scope` 判据 3）。
+   */
+  readonly tenantId: TenantId
+  /**
+   * 认证运行期（02 TA-24）：**唯一的**身份解析入口。
+   *
+   * `dispatch` 每个请求调一次 `identify()`，把结果挂到 `WebRequest.identity`；
+   * 处理器只读那个结果，不自己再解析（否则就有第二份身份真相）。
+   */
+  readonly auth: AuthRuntime
   /** 审批 / 强验证的传输层（归属校验在适配器里；web 与 mobile 同一个实现，00 D2）。 */
   readonly adapter: HttpChannelAdapter
   /** SSE 广播与连接管理。 */
@@ -54,6 +70,13 @@ export interface WebDeps {
   readonly trySentry: () => SentryHandle | undefined
   /** 惰性取 HALT（同上）。 */
   readonly tryHalt: () => HaltHandle | undefined
+  /**
+   * 惰性取审计链（03 TA-46：审批操作者入链）。
+   *
+   * 同样**不进** `inject`：没装 `audit:decisions` 的 profile 必须照常起。
+   * 缺失时"谁批的"只存在于会话事件里，`bah audit` 会标 `machine`——不静默冒充成功。
+   */
+  readonly tryAudit: () => DecisionAudit | undefined
   /**
    * 惰性取遥测（可观测性 01）。
    *
@@ -102,12 +125,13 @@ export interface WebRequest {
   /** 前缀路由的尾段（`/api/approval/t-1` → `t-1`）；其余为空串。 */
   readonly rest: string
   /**
-   * 出示凭证的身份（dispatch 判定；`auth:'public'` 路由不填）。
+   * 本次请求的身份（`dispatch` 解析后挂上来）。
    *
-   * 不放 `deps` 上：`deps` 的生命周期是插件实例，`principal` 是一条请求——
-   * 混在一起就会出现"上一个请求的身份泄漏给下一个"。
+   * 为什么挂在请求上而不是让 handler 再 `identify()` 一次：同一个请求解析两次就有
+   * 第二份身份真相（一次读过 cookie 后会话被撤销，两次结果会不同）。
+   * 直接构造 `WebRequest` 的单测可以不给（handler 按"匿名"处理）。
    */
-  readonly principal?: Principal
+  readonly identity?: RequestIdentity
 }
 
 /** 处理器签名（4 个 handler 模块统一，dispatch 查表调用）。 */

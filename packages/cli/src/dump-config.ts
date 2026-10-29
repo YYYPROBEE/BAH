@@ -8,6 +8,7 @@
  */
 
 import type { ProfileSummary, ValidatedRow } from '@bah/host'
+import type { TenantId } from '@bah/util'
 
 /** 表头。 */
 const HEADER = ['id', '来源层', '配置'] as const
@@ -16,15 +17,21 @@ const HEADER = ['id', '来源层', '配置'] as const
  * 渲染生效树。
  *
  * 只吃"profile 摘要 + 行快照"两样东西（不依赖已启动的 app），这样它能被单独测。
+ * 第三个参数是可选的 `run` 输入（`--tenant`）：租户**不在** patch 里，所以它不会
+ * 出现在任何一行配置上；不单独打印的话，"这次 dump 是在哪个租户下生效"就无从判断。
  *
  * @returns 多行文本（末尾**不带**换行，交给调用方决定）
  */
 export function renderDumpConfig(
   profile: ProfileSummary,
   rows: readonly ValidatedRow[],
+  run?: { readonly tenantId: TenantId },
 ): string {
   const lines = [
     `bah: profile ${profile.name}（bundles: ${profile.bundles.join(' + ')}；config HMR: ${profile.hmr ? '开' : '关'}）`,
+    ...(run === undefined
+      ? []
+      : [`bah: 租户 ${String(run.tenantId)}（运行输入：--tenant > $BAH_TENANT > demo；不进 patch）`]),
     'bah: 层序 bundle → profile patch → home patch → overlay（整块替换，不深合并；未写字段走插件默认值）',
     '',
   ]

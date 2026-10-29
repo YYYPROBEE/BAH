@@ -20,18 +20,21 @@ import { randomBytes } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import { join, resolve } from 'node:path'
 
-import { deltaFrame, WebProjector, type ChannelId, type HttpChannelAdapter } from '@bah/channels'
+import { WebProjector, type ChannelId, type HttpChannelAdapter } from '@bah/channels'
 import { describeThrown, type Context, type ServiceKey } from '@bah/core'
-import { APPROVAL_SERVICE, type ApprovalResponder } from '@bah/interaction'
+import { APPROVAL_SERVICE } from '@bah/interaction'
 import { HALT_SERVICE, SENTRY_SERVICE } from '@bah/safety'
 import { AGENTS_SERVICE, SESSION_SERVICE, TOOLS_SERVICE, type Agent, type AnySessionEvent } from '@bah/runtime'
+import { logJson } from '@bah/util'
 
 import { RUN_SERVICE } from '../../boot.ts'
+import { DECISION_AUDIT } from '../audit-decisions.ts'
 import { SESSION_FILES } from '../persistence.ts'
 import { TELEMETRY } from '../telemetry.ts'
 import { createRateLimiter } from '../web-rate-limit.ts'
 import { generateWebToken, readWebToken } from '../web-auth.ts'
 import { readOperatorConfig } from '../web-operator.ts'
+import { createWebAuthRuntime } from './auth/wire.ts'
 import type { WebSettings } from './config.ts'
 import { tryService, type WebDeps } from './deps.ts'
 import { createDispatcher } from './dispatch.ts'
@@ -40,6 +43,16 @@ import { sendThrown } from './http.ts'
 import { sloReader } from './slo.ts'
 import { bindPort } from './listen.ts'
 import { createSseHub } from './sse.ts'
+import { wireWebPipelines } from './wire.ts'
+
+/**
+ * D2 拍板开关（T-04.2）：`password` 模式下是否开放坐席。
+ *
+ * 本轮不做：password 作业面与坐席登录卡片要一起改（`seat/main.js` 复用登录卡片、
+ * `createSeatApi` 走 cookie + `x-bah-csrf`、SSE 用 cookie）。在它落地前，password
+ * 模式的 `/operator` 与 5 条坐席 API 一律 404（**在身份解析之前**判，401 会暴露存在性）。
+ */
+const SEAT_PASSWORD_LOGIN = false
 
 /** 绑定后的服务信息（测试 / 桌面壳内嵌 / CLI 打印用）。 */
 export interface WebServerInfo {
@@ -108,35 +121,21 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
     now: run.now,
   })
 
-  // ① 会话事件 → 帧（唯一的实时数据源）
-  ctx.effect(
-    ctx.events.on('session/event', (payload) => {
-      for (const frame of projector.apply(payload.event)) hub.publish(frame)
-    }),
-  )
+  // 认证运行期（02 TA-24）：装配细节在 `auth/wire.ts`（会话存储 / 口令目录 / 节流 / 审计）。
+  // static 双凭证（合流 T-06）：`svc:web=customer` / `svc:operator=agent`。
+  const warn = run.warn ?? ((message: string) => logJson('warn', 'web.channel-warn', { reason: message }))
+  const auth = createWebAuthRuntime({
+    ctx,
+    run,
+    config,
+    webToken,
+    operatorToken: operator.token,
+    serverCsrf: csrfToken,
+    warn,
+  })
 
-  // ② 流式分片 → ephemeral delta（不入日志；断线即丢，权威仍是 assistant/message）
-  ctx.effect(
-    ctx.events.on('llm/stream', (streamer, next) => {
-      const tapped: typeof streamer = async function* (call, signal) {
-        for await (const chunk of streamer(call, signal)) {
-          if (chunk.kind === 'text-delta') hub.publish(deltaFrame(chunk.text, run.now()))
-          yield chunk
-        }
-      }
-      return next(tapped)
-    }),
-  )
-
-  // ③ 审批应答者：只登记，结论从 HTTP 提交（人点按钮 → adapter.decide → view.answer）。
-  //    应答者 id = 渠道 id（`ApprovalService` 要求唯一；web/mobile 各一个实例）。
-  const responder: ApprovalResponder = {
-    id: options.channelId,
-    attach(view) {
-      adapter.attachApproval(view)
-    },
-  }
-  ctx.effect(approval.attach(responder))
+  // ①②③ 三条事件管线（W16 从 apply 搬出；合流改成共用一份接线，避免 web/mobile 分叉）
+  wireWebPipelines({ ctx, hub, projector, adapter, approval, now: run.now })
 
   // ④ agent 常驻驱动（首次提交时懒启动：headless 测试不会因空转挂住）
   let driver: Promise<void> | undefined
@@ -154,6 +153,9 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
 
   const deps: WebDeps = {
     session,
+    // 本进程服务的租户（01 TA-16）：只能来自启动期，绝不从请求头取
+    tenantId: run.tenantId,
+    auth,
     adapter,
     hub, // C5 人工接管（装配细节见 web/handoff.ts）
     handoff: createHandoff({
@@ -174,6 +176,8 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
     ensureDriver,
     trySentry: () => tryService(ctx, SENTRY_SERVICE),
     tryHalt: () => tryService(ctx, HALT_SERVICE),
+    // 审批操作者入链（03 TA-46）：没装 audit:decisions 的 profile 必须照常起
+    tryAudit: () => tryService(ctx, DECISION_AUDIT),
     tryTelemetry: () => tryService(ctx, TELEMETRY),
     trySlo: sloReader(ctx),
     staticRoot,
@@ -181,8 +185,13 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
     defaultEntry: join(staticRoot, config.entry),
     tokenEntries: config.entries.map((entry) => join(staticRoot, entry)),
     operatorEntry: join(staticRoot, 'operator.html'),
-    // 坐席工作台只属于桌面 web 渠道：移动壳没有坐席 UI，开着入口就是"存在但打不开"
-    seatEnabled: options.channelId === 'web' && operator.token !== undefined,
+    // 坐席工作台只属于桌面 web 渠道：移动壳没有坐席 UI，开着入口就是"存在但打不开"。
+    // password 模式的坐席登录本轮不做（D2）：`SEAT_PASSWORD_LOGIN=false` ⇒ 整条 404。
+    seatEnabled:
+      options.channelId === 'web' &&
+      (config.auth.mode === 'password'
+        ? SEAT_PASSWORD_LOGIN
+        : operator.token !== undefined),
   }
 
   const handle = createDispatcher(config, deps)

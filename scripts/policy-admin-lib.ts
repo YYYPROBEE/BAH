@@ -491,7 +491,7 @@ export function touchState(paths: AdminPaths, now: number): StateFile {
   return next
 }
 
-/** 读会话链（`<root>/<session>/session.jsonl`）里可解释的 `tier/decided`。 */
+/** 读会话链（`<tenant-sessions>/<session>/session.jsonl`）里可解释的 `tier/decided`。 */
 export function readSessionEvents(
   sessionsDir: string,
   sessionId: string,

@@ -1,0 +1,15 @@
+#                      | 期望                 | 实测                 | 结果  
+-----------------------+--------------------+--------------------+-----
+M1 凭证搬运                | 401                | 401                | PASS
+M2 凭证→/me              | 401 且不含 demo       | 401 不含 demo        | PASS
+M3 票据搬运                | 404 unknown-ticket | 404 unknown-ticket | PASS
+M4 demo 目录无 acme 标识    | 0 命中               | 0 命中               | PASS
+M5 acme 目录无 demo 标识    | 0 命中               | 0 命中               | PASS
+M6 demo 记忆库无 acme user | 0 行                | 0 行                | PASS
+M7 metrics 租户          | demo / acme        | demo / acme        | PASS
+M8 租户头注入               | 401                | 401 不含 acme        | PASS
+
+8/8 PASS
+保留目录：C:\Users\37706\AppData\Local\Temp\bah-tenant-matrix-VGTbcw
+  demo: http://127.0.0.1:17331  acme: http://127.0.0.1:17341
+（--keep 时进程在脚本退出时仍会关闭；目录保留供人工检查）

@@ -59,7 +59,7 @@ log（10MB）          n=  5  p50=65.11ms  p95=76.14ms
 
 ## 4. 日志保留策略（文档口径，开关未实现）
 
-现状：`sessions/<sessionId>/session.jsonl` 与 `audit.jsonl` **只增不减**，
+现状：`<部署根>/<tenant>/<sessionId>/session.jsonl` 与 `audit.jsonl` **只增不减**，
 启动时 `verifyAll()` 会扫全部链。策略定如下，但**启动清理开关本期没做**：
 
 - **保留**：演示与取证会话永久保留（它们是审计证据，删了就不可复核）；

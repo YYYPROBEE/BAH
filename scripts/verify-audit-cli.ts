@@ -22,6 +22,7 @@ import { isMainModule, runStandalone, type Gate, type GateResult } from './gate-
 
 const AUDIT_SOURCES = [
   'packages/cli/src/cli/audit.ts',
+  'packages/cli/src/cli/audit-approvals.ts',
   'packages/cli/src/cli/audit-projection.ts',
   'packages/cli/src/cli/audit-anchors.ts',
   'packages/persistence/src/chain/audit-report.ts',
@@ -33,6 +34,8 @@ const TOP_LEVEL_KEYS = [
   'chains',
   'anchors',
   'reverseGaps',
+  'approvals',
+  'approvalWarnings',
   'errors',
   'dbState',
   'ok',
@@ -226,9 +229,10 @@ async function contractCheck(root: string): Promise<Pick<GateResult, 'findings' 
   const temp = mkdtempSync(join(tmpdir(), 'bah-audit-gate-'))
   try {
     mkdirSync(temp, { recursive: true })
+    // 租户化之后链在 <部署根>/<tenant>/ 下（01 TA-12）；夹具与真实布局一致
     const writer = createSagaAudit({
       now: () => 1_700_000_000_000,
-      rootDir: temp,
+      rootDir: join(temp, 'demo'),
       fsync: false,
       signedTypes: [],
       warn: () => undefined,

@@ -14,6 +14,7 @@ import { createContext } from '@bah/core'
 import { APPROVAL_SERVICE, ApprovalService } from '@bah/interaction'
 import { AgentRegistry, provideAgents, provideSession } from '@bah/runtime'
 import { asSessionId } from '@bah/test-support'
+import { DEFAULT_TENANT_ID } from '@bah/util'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -71,14 +72,19 @@ async function boot(
   const ctx = createContext()
   const sessionId = asSessionId('s-parity')
   const now = (): number => 1_700_000_000_000
-  ctx.provide(RUN_SERVICE, { sessionId, now })
+  ctx.provide(RUN_SERVICE, { sessionId, tenantId: DEFAULT_TENANT_ID, now })
   provideSession(ctx, { sessionId, now })
   provideAgents(ctx, new AgentRegistry())
   ctx.provide(APPROVAL_SERVICE, new ApprovalService({ sessionId, now }))
-  // 两个渠道共用一份装配 ⇒ 都要有会话根（接管状态落与会话日志同目录）
+  // 两个渠道共用一份装配 ⇒ 都要有会话根（接管状态落与会话日志同目录）。
+  // `root` 是租户根（`<baseRoot>/<tenant>`），fileOf 带租户段。
+  const sessionRoot = join(tmpdir(), 'bah-channel-parity-sessions')
+  const tenantRoot = join(sessionRoot, String(DEFAULT_TENANT_ID))
   ctx.provide(SESSION_FILES, {
-    root: join(tmpdir(), 'bah-channel-parity-sessions'),
-    fileOf: (id) => join(tmpdir(), 'bah-channel-parity-sessions', String(id), 'session.jsonl'),
+    root: tenantRoot,
+    baseRoot: sessionRoot,
+    tenantId: DEFAULT_TENANT_ID,
+    fileOf: (id) => join(tenantRoot, String(id), 'session.jsonl'),
   })
 
   await ctx.use(plugin.plugin, plugin.validate({ port: 0, host: '127.0.0.1', staticRoot, ...settings }))

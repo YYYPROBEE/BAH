@@ -40,10 +40,10 @@ async function run(
   return { code, out: captured.out.join('\n'), err: captured.err.join('\n') }
 }
 
-/** 在 `<root>/sessions/s-1/` 写一个只有一条 user/message 的合法会话。 */
-function writeSession(dir: string): void {
+/** 在 `<root>/sessions/<tenant>/s-1/` 写一个只有一条 user/message 的合法会话。 */
+function writeSession(dir: string, tenant = 'demo'): void {
   const handle = new JsonlPersistence({ fsync: false, redact: false, warn: () => undefined }).create(
-    join(dir, 'sessions', 's-1'),
+    join(dir, 'sessions', tenant, 's-1'),
     asSessionId('s-1'),
     { now: 1 },
   )
@@ -55,25 +55,33 @@ describe('bah audit replay · 参数解析', () => {
   it('支持空格分隔与 = 内联两种写法，缺省值稳定', () => {
     expect(parseAuditReplayArgs(['--session', 's-1', '--dir', 'logs'])).toEqual({
       ok: true,
-      args: { session: 's-1', dir: 'logs', format: 'text', help: false },
+      args: { session: 's-1', dir: 'logs', tenant: 'demo', format: 'text', help: false },
     })
     expect(parseAuditReplayArgs(['--session=s-1', '--format=json', '--key=k.pem'])).toEqual({
       ok: true,
-      args: { session: 's-1', dir: 'sessions', key: 'k.pem', format: 'json', help: false },
+      args: { session: 's-1', dir: 'sessions', tenant: 'demo', key: 'k.pem', format: 'json', help: false },
     })
     expect(parseAuditReplayArgs(['--verify'])).toMatchObject({
       ok: true,
-      args: { dir: 'sessions', format: 'text' },
+      args: { dir: 'sessions', tenant: 'demo', format: 'text' },
+    })
+    expect(parseAuditReplayArgs(['--session', 's-1', '--tenant', 'acme'])).toMatchObject({
+      ok: true,
+      args: { tenant: 'acme' },
     })
   })
 
-  it('非法参数 / 缺值 / 越界 format 都返回结构化错误', () => {
+  it('非法参数 / 缺值 / 越界 format / 非法租户 都返回结构化错误', () => {
     expect(parseAuditReplayArgs(['--nope'])).toEqual({ ok: false, error: '未知参数 --nope' })
     expect(parseAuditReplayArgs(['--session'])).toEqual({ ok: false, error: '--session 需要一个值' })
     expect(parseAuditReplayArgs(['--dir='])).toEqual({ ok: false, error: '--dir 需要一个值' })
     expect(parseAuditReplayArgs(['--format', 'yaml'])).toEqual({
       ok: false,
       error: '--format 只接受 text | json',
+    })
+    expect(parseAuditReplayArgs(['--tenant', '../demo'])).toEqual({
+      ok: false,
+      error: '--tenant 的值不是合法租户 ID：../demo',
     })
   })
 })
@@ -118,5 +126,18 @@ describe('bah audit replay · 执行与退出码', () => {
     expect(parsed.sessionId).toBe('s-1')
     expect(parsed.ok).toBe(true)
     expect(parsed.events).toHaveLength(1)
+  })
+
+  it('租户隔离：acme 的会话在默认 demo 下读不到，切 --tenant 才可见', async () => {
+    const dir = root()
+    writeSession(dir, 'acme')
+
+    const wrongTenant = await run(dir, ['--session', 's-1'])
+    expect(wrongTenant.code).toBe(1)
+    expect(wrongTenant.err).toContain('session-missing')
+
+    const acme = await run(dir, ['--session', 's-1', '--tenant', 'acme'])
+    expect(acme.code).toBe(0)
+    expect(acme.out).toContain('events=1')
   })
 })

@@ -11,6 +11,7 @@ import { createContext } from '@bah/core'
 import { APPROVAL_SERVICE, ApprovalService } from '@bah/interaction'
 import { AgentRegistry, provideAgents, provideSession } from '@bah/runtime'
 import { asSessionId } from '@bah/test-support'
+import { DEFAULT_TENANT_ID } from '@bah/util'
 
 import { rmSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -48,14 +49,19 @@ async function boot(): Promise<{ ctx: Context; url: string; restore: () => void 
   const sessionId = asSessionId('s-mobile-test')
   const now = (): number => 1_700_000_000_000
 
-  ctx.provide(RUN_SERVICE, { sessionId, now })
+  ctx.provide(RUN_SERVICE, { sessionId, tenantId: DEFAULT_TENANT_ID, now })
   provideSession(ctx, { sessionId, now })
   provideAgents(ctx, new AgentRegistry())
   ctx.provide(APPROVAL_SERVICE, new ApprovalService({ sessionId, now }))
-  // 真 profile 里 `core:persistence` 一定在；接管状态要落与会话日志同目录
+  // 真 profile 里 `core:persistence` 一定在；接管状态要落与会话日志同目录。
+  // `root` 是租户根（`<baseRoot>/<tenant>`），fileOf 带租户段。
+  const sessionRoot = join(tmpdir(), 'bah-mobile-test-sessions')
+  const tenantRoot = join(sessionRoot, String(DEFAULT_TENANT_ID))
   ctx.provide(SESSION_FILES, {
-    root: join(tmpdir(), 'bah-mobile-test-sessions'),
-    fileOf: (id) => join(tmpdir(), 'bah-mobile-test-sessions', String(id), 'session.jsonl'),
+    root: tenantRoot,
+    baseRoot: sessionRoot,
+    tenantId: DEFAULT_TENANT_ID,
+    fileOf: (id) => join(tenantRoot, String(id), 'session.jsonl'),
   })
 
   const settings = mobilePlugin.validate({ port: 0, host: '127.0.0.1', staticRoot })

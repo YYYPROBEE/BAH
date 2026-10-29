@@ -18,13 +18,18 @@
  *
  * ## 诚实边界（写进文档，也写进这里）
  *
- * - **单租户**：`tenant` 是配置项，默认 `demo`。没有租户隔离，多租户是 D4。
+ * - **租户来自 `RunContext.tenantId`**（01 TA-13）：不再有 `tenant` 配置键。
+ *   库文件是**租户根下的单段文件名**（`<config.root>/<tenant>/memory.db`），
+ *   跨租户隔离靠目录 + `WHERE tenant = ?` 两道；一个进程只服务一个租户。
  * - **影子核验未实现**：检索时传的是 `@bah/memory-store` 的 `NULL_BANK_QUERY`
  *   （永远返回 null；`layer.ts` 里 `void bankQuery`），所以记忆**不会**被银行权威状态覆盖。
  *   这正是要显式声明的：不覆盖意味着"记忆说什么就是什么"，`state`/`valid_to`/保留期三道过滤仍在。
  * - **场景判不出来就不检索**（`unknown` → `planRoute` 返回空域）：记忆层刻意禁止
  *   "匹配不上就全查"，接线不替它放宽。
  */
+
+import { mkdirSync } from 'node:fs'
+import { isAbsolute, resolve } from 'node:path'
 
 import { defineService } from '@bah/core'
 import { MEMORY_CONTEXT_DECLARATION, NULL_BANK_QUERY, createMemoryLayer } from '@bah/memory-store'
@@ -41,10 +46,11 @@ import type { SessionApi } from '@bah/runtime'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
-import { readString, rejectUnknownKeys } from '../config.ts'
+import { bootError, readString, rejectUnknownKeys } from '../config.ts'
+import { SESSION_FILES } from './persistence.ts'
 
 /** 本插件认的配置键。 */
-const KEYS = ['dbPath', 'tenant', 'userId', 'sensitivityCeiling', 'maxK', 'sectionOrder'] as const
+const KEYS = ['dbPath', 'userId', 'sensitivityCeiling', 'maxK', 'sectionOrder'] as const
 
 /** 记忆段在提示词装配里的序（`runtime.context`=30 与 `policy.approval`=40 之间）。 */
 const DEFAULT_SECTION_ORDER = 35
@@ -56,10 +62,14 @@ const DEFAULT_MAX_K = 8
 const DEFAULT_CEILING = 2
 
 export interface MemoryPluginSettings {
-  /** sqlite 文件路径（相对 cwd 由调用方解析；推荐放会话根下）。 */
+  /**
+   * 记忆库文件名（**必须是单段文件名**，相对租户根解析）。
+   *
+   * 不许写 `sessions/memory.db` 或绝对路径：那是"相对谁"说不清的东西，
+   * 两个租户配置同一个路径就会共库，而且**不会报错**（AR-08 的教训）。
+   * 实际落点是 `<config.root>/<tenantId>/<dbPath>`。
+   */
   readonly dbPath: string
-  /** 租户（单租户部署固定值；多租户是 D4）。 */
-  readonly tenant: string
   /** 记忆归属用户（与 `bank:tools.demoUserId` 同口径）。 */
   readonly userId: string
   readonly sensitivityCeiling?: number
@@ -119,14 +129,22 @@ export const memoryPlugin: HostPlugin<MemoryPluginSettings> = {
 
   plugin: {
     name: 'bah:memory-store',
-    inject: [RUN_SERVICE.id, SESSION_SERVICE.id, SYSTEM_PROMPT_SERVICE.id],
+    inject: [RUN_SERVICE.id, SESSION_SERVICE.id, SYSTEM_PROMPT_SERVICE.id, SESSION_FILES.id],
     apply(ctx, config) {
       const run = ctx.get(RUN_SERVICE)
       const session = ctx.get(SESSION_SERVICE) as SessionApi
       const prompts = ctx.get(SYSTEM_PROMPT_SERVICE)
+      const files = ctx.get(SESSION_FILES)
+      // 租户唯一注入点：`RunContext.tenantId`。库文件 = 租户根 + 单段文件名，
+      // 于是"这个租户的全部痕迹"是一次 `ls <config.root>/<tenant>` 就能列全的东西。
+      const tenant = String(run.tenantId)
+      // 租户根可能是第一次创建（persistence 是懒建目录的）：sqlite 不会替你 mkdir，
+      // 不建就是 `unable to open database file`——新租户第一次启动必红。
+      mkdirSync(files.root, { recursive: true })
+      const dbPath = resolve(files.root, config.dbPath)
 
       const layer = createMemoryLayer({
-        dbPath: config.dbPath,
+        dbPath,
         now: run.now,
         ...(config.sensitivityCeiling === undefined
           ? {}
@@ -139,7 +157,7 @@ export const memoryPlugin: HostPlugin<MemoryPluginSettings> = {
 
       const maxK = config.maxK ?? DEFAULT_MAX_K
       const sessionId = String(run.sessionId)
-      const query = { tenant: config.tenant, user_id: config.userId, session_id: sessionId }
+      const query = { tenant, user_id: config.userId, session_id: sessionId }
 
       let cached: string | undefined
       let cachedRoute: string | undefined
@@ -267,11 +285,22 @@ export const memoryPlugin: HostPlugin<MemoryPluginSettings> = {
 
   validate(config) {
     rejectUnknownKeys(config, [...KEYS], 'bah-memory')
-    // 三项都**必填**：dbPath 缺省会让两个部署悄悄共用一个库；tenant/userId 缺省
-    // 会让所有人的记忆落进同一个桶——都是最难查的那类事故。
+    // dbPath / userId 两项**必填**：dbPath 缺省会让两个部署悄悄共用一个库；
+    // userId 缺省会让所有人的记忆落进同一个桶——都是最难查的那类事故。
+    // `tenant` 已从配置面删除：租户只来自 `--tenant` / `BAH_TENANT`（写了就是未知键，fail-loud）。
     const dbPath = requireString(config, 'dbPath')
-    const tenant = requireString(config, 'tenant')
     const userId = requireString(config, 'userId')
+    if (dbPath.includes('/') || dbPath.includes('\\') || isAbsolute(dbPath)) {
+      // 半开放（"有斜杠就当相对 cwd"）必然落成 sessions/sessions/demo/memory.db 这种既错又不报错的落点
+      throw bootError(
+        'invalid-config',
+        `bah-memory: dbPath 必须是单段文件名（相对租户根解析），收到 ${JSON.stringify(dbPath)}`,
+        { dbPath },
+      )
+    }
+    if (dbPath === '.' || dbPath === '..') {
+      throw bootError('invalid-config', `bah-memory: dbPath 不能是 ${JSON.stringify(dbPath)}`, { dbPath })
+    }
     const ceiling = config['sensitivityCeiling']
     if (ceiling !== undefined && (typeof ceiling !== 'number' || ceiling < 0 || ceiling > 3)) {
       throw new Error('bah-memory: sensitivityCeiling 必须是 0–3 的数字')
@@ -280,7 +309,6 @@ export const memoryPlugin: HostPlugin<MemoryPluginSettings> = {
     const sectionOrder = readPositiveInt(config['sectionOrder'], 'sectionOrder')
     return {
       dbPath,
-      tenant,
       userId,
       ...(ceiling === undefined ? {} : { sensitivityCeiling: ceiling }),
       ...(maxK === undefined ? {} : { maxK }),

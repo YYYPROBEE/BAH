@@ -18,6 +18,7 @@ import { boot, createCatalog, SESSION_FILES } from '../packages/host/src/index.t
 import { WEB_SERVER } from '../packages/host/src/boot/plugins/web.ts'
 import { SESSION_SERVICE, type SessionApi } from '../packages/runtime/src/index.ts'
 import { asSessionId } from '../packages/test-support/src/index.ts'
+import { DEFAULT_TENANT_ID } from '../packages/util/src/index.ts'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const keep = process.argv.includes('--keep')
@@ -121,6 +122,7 @@ const app = await boot({
   catalog: createCatalog(),
   run: {
     sessionId: asSessionId(SESSION),
+    tenantId: DEFAULT_TENANT_ID,
     now: () => Date.now(),
     probe: true,
     jsonlDir: runDir,

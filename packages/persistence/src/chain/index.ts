@@ -2,7 +2,8 @@
  * 审计证据链（SA-07 §3.3 / SA-11 §3.1–3.6）。
  *
  * - `recordHash = sha256(prevHash | canonicalJson(unsigned))`；
- *   unsigned = `{ s, q, t, sub, hb, d, keyVersion, recordedAt }`，`p`/`r`/`v`/`sig` 不入哈希。
+ *   unsigned = `{ s, q, t, sub, hb, d, keyVersion, recordedAt }`（v2 另加四个信封字段，
+ *   租户化后新行另加 `tenant`），`p`/`r`/`v`/`sig` 不入哈希。
  * - `seqInSaga` 由 saga 内计数器生成；跨 saga 只用 `happensBefore` 显式边。
  * - Ed25519 签名白名单见 `SIGNED_TYPES`；`signedTypes` 只能取子集。
  * - 链记录写 `<root>/<sagaId>/audit.jsonl`（`ChainFile`），append 后 fsync。
@@ -57,6 +58,15 @@ export const SIGNED_TYPES = [
   'saga/residual-recorded',
   'saga/manually-closed',
   'approval/decided',
+  // 03：审批操作者（"谁点的允许"）。必须与 `approval/decided` 成对签名，
+  // 否则"人批必有主"只在一侧可验。
+  'approval/actor',
+  // 租户与鉴权 02：认证事实也是证据（谁在何时登录/失败/登出/被锁）。
+  // 白名单只放行、不强制：缺钥时仍 unsigned 启动（见 `audit-decisions.ts` 的 boot 期判定）。
+  'auth/login',
+  'auth/logout',
+  'auth/login-failed',
+  'auth/login-locked',
 ] as const
 
 /** `bank:saga-audit` 的配置（SA-00 §10 / SA-11 §2）。 */
@@ -116,6 +126,15 @@ export interface SagaAuditOptions {
   readonly fsync?: boolean
   /** 尾行截断告警出口。 */
   readonly warn?: (message: string) => void
+  /**
+   * 租户（01 TA-15）：写了就给**本链句柄写的每一行**带上 `tenant`。
+   *
+   * 放在**建链时**而不是每次 `append` 传，是为了"不可能漏传"：一个进程只服务一个租户，
+   * 链句柄的生命周期内租户不会变。四类 append（tool/call、tool/result、
+   * sentry/decision、approval/decided）因此天然都带租户——若做成逐次传参，
+   * 忘一处就是一条无主的证据行，而它审计时看起来完全正常。
+   */
+  readonly tenant?: string
 }
 
 /** 校验并补齐 `bank:saga-audit` 配置。 */
@@ -160,6 +179,7 @@ export function createSagaAudit(options: SagaAuditOptions): SagaAuditHandle {
   const signedTypes = options.signedTypes ?? [...SIGNED_TYPES]
   const signingKeyPath = options.signingKeyPath ?? 'keys/saga-ed25519.pem'
   const anchorTargets = options.anchorTargets ?? []
+  const tenant = options.tenant
   const file = new ChainFile({
     ...(options.rootDir === undefined ? {} : { rootDir: resolve(options.rootDir) }),
     ...(options.fsync === undefined ? {} : { fsync: options.fsync }),
@@ -188,6 +208,8 @@ export function createSagaAudit(options: SagaAuditOptions): SagaAuditHandle {
       d: sha256Hex(canonicalJson(data)),
       keyVersion,
       recordedAt: now(),
+      // 只有建链时给了租户才写这个键：历史链没有它，读取端按"有则入哈希"兼容
+      ...(tenant === undefined ? {} : { tenant }),
       ...(envelope === undefined
         ? {}
         : {

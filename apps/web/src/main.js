@@ -11,6 +11,7 @@
  * 只要换掉这两个对象，五个视图照样能挂起来。
  */
 
+import { bootstrapPasswordGate, logout, readAuthMode } from './auth.js'
 import { clear, el, icon } from './dom.js'
 import { createObservability } from './observability.js'
 import { formatWaited } from './format.js'
@@ -193,6 +194,23 @@ export function mountApp(options) {
   // D13：接管横幅是**另一个节点**，不复用 setBanner（后者写死了"连接异常"）。
   const handoffBanner = el('div', { class: 'app-banner', id: 'handoff-banner', hidden: true })
 
+  // 退出登录：只在 password 模式出现（static 模式没有"登录"这回事，多一个按钮只会误导）
+  const logoutButton =
+    readAuthMode() === 'password'
+      ? el(
+          'button',
+          {
+            class: 'ds-btn ds-btn--ghost ds-btn--sm',
+            type: 'button',
+            title: '退出登录并清除本地会话',
+            onClick: () => {
+              void logout()
+            },
+          },
+          [icon('user', 14), '退出'],
+        )
+      : null
+
   const shell = el('div', { class: 'app-shell' }, [
     el('header', { class: 'app-header' }, [
       el('div', { class: 'app-header__brand' }, [
@@ -202,7 +220,7 @@ export function mountApp(options) {
           el('div', { class: 'app-header__subtitle', text: 'Web 渠道 · 纯原生渲染 · 事件驱动' }),
         ]),
       ]),
-      el('div', { class: 'app-header__meta' }, [sessionLabel, statusDot]),
+      el('div', { class: 'app-header__meta' }, [sessionLabel, statusDot, logoutButton]),
     ]),
     banner,
     handoffBanner,
@@ -509,10 +527,20 @@ export function mountApp(options) {
   }
 }
 
-/** 自动挂载（浏览器里 `#app` 存在时；测试导入不会触发）。 */
+/**
+ * 自动挂载（浏览器里 `#app` 存在时；测试导入不会触发）。
+ *
+ * 认证模式由服务端注入的 meta 决定（TA-28/TA-31）：
+ * - `password`：先 `GET /api/auth/me`，401 渲染登录卡片，200 才挂主界面；
+ * - 其它 / 没有 meta：**同步挂载**，与改动前逐字一致（web 用例与截图靠它）。
+ */
 const root = document.querySelector('#app')
 if (root instanceof HTMLElement) {
-  mountApp({ root })
+  if (readAuthMode() === 'password') {
+    void bootstrapPasswordGate({ root, mount: () => mountApp({ root }) })
+  } else {
+    mountApp({ root })
+  }
 }
 
 /** 供测试与调试使用。 */

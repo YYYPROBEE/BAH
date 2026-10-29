@@ -119,14 +119,15 @@ describe('C5 人工接管状态机', () => {
     expect(h.events).toHaveLength(1)
   })
 
-  it('交回 → active 立刻为 false，并落 `handoff/resumed`（带 operator）', () => {
+  it('交回 → active 立刻为 false，并落 `handoff/resumed`（带 operatorId + label）', () => {
     const h = harness()
     h.handoff.enter()
-    const resumed = h.handoff.resume('坐席-A')
+    const resumed = h.handoff.resume('u-ops-a', undefined, '坐席-A')
     expect(resumed.ok).toBe(true)
     if (!resumed.ok) return
     expect(resumed.summary.active).toBe(false)
     expect(resumed.summary.operator).toBe('坐席-A')
+    expect(resumed.summary.operatorId).toBe('u-ops-a')
     expect(h.handoff.active).toBe(false)
     expect(h.events.map((event) => event.type)).toEqual(['handoff/requested', 'handoff/resumed'])
   })
@@ -179,6 +180,15 @@ describe('C5 人工接管状态机', () => {
     h.setEvents(many)
     expect(h.handoff.summary().messages).toHaveLength(6)
   })
+
+  it('TA-45 进入时记录 requestedBy（来自服务端派生的主体）', () => {
+    const h = harness()
+    h.handoff.enter('客户要求人工', 'u-1')
+    expect(h.events[0]).toMatchObject({
+      type: 'handoff/requested',
+      data: { reason: '客户要求人工', requestedBy: 'u-1' },
+    })
+  })
 })
 
 describe('人机接管 01：认领 / 发言 / 心跳 / 恢复', () => {
@@ -227,22 +237,25 @@ describe('人机接管 01：认领 / 发言 / 心跳 / 恢复', () => {
     h.handoff.enter('客户要求人工')
 
     clock = 2_000
-    const first = h.handoff.claim('坐席-A')
+    const first = h.handoff.claim('u-ops-a', '坐席-A')
     expect(first.ok).toBe(true)
     if (!first.ok) return
     expect(first.summary.claimed).toBe(true)
     expect(first.summary.operator).toBe('坐席-A')
+    expect(first.summary.operatorId).toBe('u-ops-a')
     const claimed = h.events.find((event) => event.type === 'handoff/claimed')
     expect(claimed?.data['enteredAt']).toBe(1_000)
     expect(claimed?.data['at']).toBe(2_000)
+    // 换人判定用 userId（显示名只是标签）
+    expect(claimed?.data['operatorId']).toBe('u-ops-a')
 
     // 同一人重复认领：幂等，不落第二条事件，`at` 不变
     clock = 3_000
-    expect(h.handoff.claim('坐席-A').ok).toBe(true)
+    expect(h.handoff.claim('u-ops-a', '坐席-A').ok).toBe(true)
     expect(h.events.filter((event) => event.type === 'handoff/claimed')).toHaveLength(1)
     expect(h.handoff.summary().at).toBe(1_000)
 
-    const other = h.handoff.claim('坐席-B')
+    const other = h.handoff.claim('u-ops-b', '坐席-B')
     expect(other).toEqual({ ok: false, code: 'handoff-claimed-by-other' })
   })
 
@@ -382,7 +395,7 @@ describe('人机接管 01：认领 / 发言 / 心跳 / 恢复', () => {
       store,
     })
     first.enter('客户要求人工')
-    first.claim('坐席-A')
+    first.claim('u-ops-a', '坐席-A')
 
     const restarted = new HandoffRegistry({
       session: { sessionId: 's', lastSeq: () => 0, events: () => [] } as unknown as SessionApi,

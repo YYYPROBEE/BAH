@@ -27,3 +27,8 @@ services/rag/web/evidence_panel/panel*.png
 # 策略外置（S3）：运行时灰度/回滚状态与变更链是**部署事实**，不入库
 policies/runtime-state.json
 policies/policy-rollout/
+
+# 租户与鉴权 02：口令目录（只有示例入库；真实目录含口令哈希，绝不提交）
+auth/users.yml
+auth/*.local.yml
+!auth/users.example.yml

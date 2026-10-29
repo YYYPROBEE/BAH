@@ -1,10 +1,18 @@
 /**
- * 静态资源 handler（W16 从 `web.ts` 拆出）。
+ * `channel:web` 的静态资源 handler（W16 从 `web.ts` 拆出；合流 2026-10-29 重写入口判定）。
  *
- * 两条安全约束不能因为搬家丢掉：
+ * 四条安全约束不能因为搬家丢掉：
  * 1. **穿越一律 404，不返回 403**——403 等于告诉探测者"这个路径存在，只是不让看"；
  * 2. **先去掉前导斜杠再规范化**——`path.normalize('/../../x')` 会把 `..` 夹在根上吞掉，
  *    直接 join 反而读到了 staticRoot 里的文件，这是"看起来安全"的穿越。
+ * 3. **`password` 模式下页面不再承载口令**（02 TA-28）：所有 token 入口都不注入
+ *    `bah-web-token`，改为注入 `bah-auth-mode` + 下发 CSRF cookie（登录请求本身也过 CSRF）。
+ * 4. **坐席页零注入**（人机接管 01）：`operator.html` 永不注入任何凭证；坐席未启用时
+ *    页面本身 404（存在性也不白给）。
+ *
+ * 入口判定按**规范化后的绝对路径**做（token 白名单 / 坐席入口），不做字面量路径比较：
+ * `//operator.html`、`/./operator.html`、`/operator%2ehtml` 都会先规范化成同一个目标
+ * （施工单 01 对抗式复审 P1-1）。
  */
 
 import { readFile } from 'node:fs/promises'
@@ -15,7 +23,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { csrfCookieHeader } from '../csrf.ts'
 import type { WebDeps, WebRequest } from '../deps.ts'
 import { SECURITY_HEADERS, sendError } from '../http.ts'
-import { injectWebToken } from '../../web-auth.ts'
+import { injectAuthModeMeta, injectWebToken } from '../../web-auth.ts'
 
 /** 静态资源 MIME（不引第三方库；未知类型一律 `application/octet-stream`）。 */
 const MIME: Readonly<Record<string, string>> = {
@@ -31,22 +39,19 @@ const MIME: Readonly<Record<string, string>> = {
   '.map': 'application/json; charset=utf-8',
 }
 
-/** `GET/HEAD` 兜底：解析路径、读文件、注入 token 与 CSRF cookie。 */
+/** 去掉页面里可能残留的 token meta（`injectAuthModeMeta` 不会自动清理）。 */
+function stripTokenMeta(html: string): string {
+  return html.replace(/<meta name="bah-web-token"[^>]*>\s*/i, '')
+}
+
+/** `GET/HEAD` 兜底：解析路径、读文件、按入口注入 token / 登录模式标记 / CSRF cookie。 */
 export async function handleStatic(
   _req: IncomingMessage,
   res: ServerResponse,
   request: WebRequest,
   deps: WebDeps,
 ): Promise<void> {
-  // 坐席入口默认不存在：未配 BAH_OPERATOR_TOKEN（或不是 web 渠道）时 /operator 与
-  // /operator.html 都 404（不暴露"这系统有坐席台"）。页面里没有任何凭证，但存在性本身也不该白给。
-  const isOperatorEntry = request.path === '/operator' || request.path === '/operator.html'
-  if (isOperatorEntry && !deps.seatEnabled) {
-    sendError(res, 404, 'web-not-found', `没有这个资源：${request.path}`)
-    return
-  }
-  // 路径映射必须在 decodeURIComponent 之前：走同一条解码/规范化/越界判定。
-  // `operator.html` 不在 `deps.tokenEntries` 白名单里，所以天然不注入 token、不带 set-cookie。
+  // `/operator` 是坐席页的别名；映射在 decode 之前，走同一条解码/规范化/越界判定。
   const pathname = request.path === '/operator' ? '/operator.html' : request.path
   const headOnly = request.method === 'HEAD'
 
@@ -71,22 +76,48 @@ export async function handleStatic(
     return
   }
 
+  // 坐席入口的判定用**规范化后的目标**：`//operator.html` / `/./operator.html` /
+  // `/operator%2ehtml` 都落在同一个 target 上，字面量比较会漏掉别名（复审 P1-1）。
+  const isOperatorEntry = target === deps.operatorEntry
+  if (isOperatorEntry && !deps.seatEnabled) {
+    sendError(res, 404, 'web-not-found', `没有这个资源：${pathname}`)
+    return
+  }
+
   try {
     const raw = await readFile(target)
-    // 只有 token 入口白名单里的 HTML 才注入：注入后必须 no-store，避免浏览器缓存旧 token。
-    // `no-store` / `set-cookie` / 注入三者**同生同灭**，判定必须来自同一个变量（01 §3.8 不变量 4）。
+    const html = raw.toString('utf8')
     // 坐席页是第二层硬排除：即便部署把 operator.html 误配进 entries，也不许它带凭证。
-    const isTokenEntry = deps.tokenEntries.includes(target) && target !== deps.operatorEntry
-    const content = isTokenEntry
-      ? Buffer.from(injectWebToken(raw.toString('utf8'), deps.webToken))
-      : raw
+    const isTokenEntry = deps.tokenEntries.includes(target) && !isOperatorEntry
+    const passwordMode = deps.auth.mode === 'password'
+
+    let content: Buffer
+    if (isTokenEntry) {
+      // 顺序：先去 token 标记再注入。`bah-auth-mode` 只在 password 模式注入：
+      // static/none 的前端启动路径与改动前**逐字一致**（A3 零回归）。
+      content = Buffer.from(
+        passwordMode
+          ? injectAuthModeMeta(stripTokenMeta(html), deps.auth.mode)
+          : injectWebToken(html, deps.webToken),
+      )
+    } else if (isOperatorEntry && passwordMode) {
+      // 坐席登录（D2 未做）：页面只拿到"这是 password 模式"与 CSRF cookie；
+      // password 模式坐席本轮整体 404（seatEnabled=false），这条分支留给后续 D2 开启。
+      content = Buffer.from(injectAuthModeMeta(stripTokenMeta(html), deps.auth.mode))
+    } else {
+      content = raw
+    }
+
+    // 入口页（token 入口 / 坐席入口）统一 no-store：注入值随进程变化，缓存旧值等于缓存旧凭证。
+    const isEntryPage = isTokenEntry || isOperatorEntry
+    const needsCsrfCookie = isTokenEntry || (isOperatorEntry && passwordMode)
     res.writeHead(200, {
       ...SECURITY_HEADERS,
       'content-type': MIME[extname(target).toLowerCase()] ?? 'application/octet-stream',
       'content-length': content.length,
-      'cache-control': isTokenEntry ? 'no-store' : 'no-cache',
-      // 不是 HttpOnly：double-submit 需要同源脚本读 cookie 回填请求头
-      ...(isTokenEntry ? { 'set-cookie': csrfCookieHeader(deps.csrfToken) } : {}),
+      'cache-control': isEntryPage ? 'no-store' : 'no-cache',
+      // 不是 HttpOnly：double-submit 需要同源脚本读 cookie 回填请求头。
+      ...(needsCsrfCookie ? { 'set-cookie': csrfCookieHeader(deps.csrfToken) } : {}),
     })
     res.end(headOnly ? undefined : content)
   } catch {

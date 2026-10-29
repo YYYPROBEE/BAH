@@ -52,6 +52,13 @@ export interface ApprovalViewLike {
   readonly ticketId: string
   /** 票据所属会话（W04 归属校验；与适配器绑定的 sessionId 不一致即拒绝）。 */
   readonly sessionId: string
+  /**
+   * 票据所属用户（03 TA-43；可选）。
+   *
+   * 当前仲裁器还拿不到"这张票是哪个登录用户签发的"——视图没有这个字段时，
+   * 用户层判定跳过，只剩会话层（与今天行为一致）。
+   */
+  readonly userId?: string
   readonly callId: string
   readonly name: string
   readonly signal: AbortSignal
@@ -89,6 +96,17 @@ export type VerifyResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly code: string; readonly reason: string }
 
+/**
+ * 审批动作的操作者（03 TA-43）。
+ *
+ * `sessionId` 必须来自服务端会话（**不是**请求头）；`userId` 来自登录主体。
+ * 不传 = 保持 W04 的旧行为（只判会话），供单测与纯投影场景使用。
+ */
+export interface TicketOwner {
+  readonly sessionId: string
+  readonly userId?: string
+}
+
 /** 工厂入参：渠道差异**只**允许前两个字段。 */
 export interface HttpChannelAdapterOptions {
   /** 渠道 id；原样出现在 `ChannelAdapter.id` 与 `/api/session` 上报里。 */
@@ -110,9 +128,13 @@ export interface HttpChannelAdapter extends ChannelAdapter {
   /** 登记一次待应答的审批（`ApprovalResponder.attach` 的实现体，必须立即返回）。 */
   attachApproval(view: ApprovalViewLike): void
   /** 提交人的结论；返回判定（HTTP 层只翻译，不做业务判断）。 */
-  decide(ticketId: string, body: { readonly decision?: unknown; readonly reason?: unknown }): DecideResult
+  decide(
+    ticketId: string,
+    body: { readonly decision?: unknown; readonly reason?: unknown },
+    actor?: TicketOwner,
+  ): DecideResult
   /** 执行一次强验证（红级）；无挑战的票据返回 `no-challenge`。 */
-  verify(ticketId: string): Promise<VerifyResult>
+  verify(ticketId: string, actor?: TicketOwner): Promise<VerifyResult>
   /** 仍待应答的票据 ID（运维 / 健康检查用）。 */
   pendingTickets(): readonly string[]
   /** 注销全部在途审批（插件 dispose 时调用）。 */
@@ -134,9 +156,25 @@ const MAX_REASON = 500
 export function createHttpChannelAdapter(options: HttpChannelAdapterOptions): HttpChannelAdapter {
   const pending = new Map<string, ApprovalViewLike>()
 
-  /** 归属校验：适配器未绑定会话时保持旧行为（单测 / 纯投影场景）。 */
-  const ownedByThisSession = (view: ApprovalViewLike): boolean =>
-    options.sessionId === undefined || view.sessionId === options.sessionId
+  /**
+   * 归属校验（W04 会话层 + 03 用户层）。
+   *
+   * - `actor` 不传：沿用旧行为——适配器绑定了会话就必须与票据会话一致；
+   * - `actor.sessionId`：必须与票据会话一致（与服务端会话同源）；
+   * - `actor.userId` 与 `view.userId` **都存在**才比对；视图没带就跳过。
+   */
+  const ownedBy = (view: ApprovalViewLike, actor: TicketOwner | undefined): boolean => {
+    const sessionId = actor?.sessionId ?? options.sessionId
+    if (sessionId !== undefined && view.sessionId !== sessionId) return false
+    if (
+      actor?.userId !== undefined &&
+      view.userId !== undefined &&
+      actor.userId !== view.userId
+    ) {
+      return false
+    }
+    return true
+  }
 
   return {
     id: options.id,
@@ -167,12 +205,12 @@ export function createHttpChannelAdapter(options: HttpChannelAdapterOptions): Ht
       })
     },
 
-    decide(ticketId, body) {
+    decide(ticketId, body, actor) {
       const view = pending.get(ticketId)
       if (view === undefined) {
         return { ok: false, code: 'unknown-ticket', reason: `没有待应答的票据 ${ticketId}` }
       }
-      if (!ownedByThisSession(view)) {
+      if (!ownedBy(view, actor)) {
         // 404 与 403 的响应体形状一致（`{error:{code,reason}}`），不泄露"票存在但你没权限"
         return { ok: false, code: 'foreign-ticket', reason: '票据不属于当前会话' }
       }
@@ -207,12 +245,12 @@ export function createHttpChannelAdapter(options: HttpChannelAdapterOptions): Ht
       return { ok: true }
     },
 
-    async verify(ticketId) {
+    async verify(ticketId, actor) {
       const view = pending.get(ticketId)
       if (view === undefined) {
         return { ok: false, code: 'unknown-ticket', reason: `没有待应答的票据 ${ticketId}` }
       }
-      if (!ownedByThisSession(view)) {
+      if (!ownedBy(view, actor)) {
         return { ok: false, code: 'foreign-ticket', reason: '票据不属于当前会话' }
       }
       if (view.challenge === undefined) {

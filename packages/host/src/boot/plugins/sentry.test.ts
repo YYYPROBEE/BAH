@@ -25,6 +25,7 @@ import { boot, type BootOptions, type BootedApp } from '../boot.ts'
 import { createCatalog } from './index.ts'
 import { sentryPlugin } from './sentry.ts'
 import type { PluginRow } from '../profile-plugins.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 /** 造一组 base 行（bank:tools + safety:sentry；审批行可省略）。 */
 function rows(options: {
@@ -112,11 +113,11 @@ async function bootWith(options: {
     bundles: [{ name: 'fx-sentry', rows: rows(options) }],
     layers: [],
     catalog: createCatalog(),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId(options.sessionId ?? `s-sentry-${bootSeq}`),
       now: () => 1_792_000_000_000,
       jsonlDir: sessionDir,
-    },
+    }),
   }
   return boot(bootOptions)
 }
@@ -510,11 +511,11 @@ describe('C3 HALT 跨重启（部署级停机）', () => {
       bundles: [{ name: 'fx-halt', rows: rows({ script }) }],
       layers: [],
       catalog: createCatalog(),
-      run: {
+      run: testRunContext({
         sessionId: asSessionId(`s-halt-${String(bootSeq)}`),
         now: () => 1_792_000_000_000,
         jsonlDir: dirPath,
-      },
+      }),
     })
   }
 
@@ -606,7 +607,7 @@ describe('S5 · sentry.rules 外置（engine=bundle）', () => {
       expect(String(denied[0]?.['reason'])).toContain('CMD-001')
       expect(denied[0]?.['stage']).toBe('rules')
 
-      const chain = readFileSync(join(sessionDir, sessionId, 'audit.jsonl'), 'utf8')
+      const chain = readFileSync(join(sessionDir, 'demo', sessionId, 'audit.jsonl'), 'utf8')
         .trim()
         .split('\n')
         .map((line) => JSON.parse(line) as Record<string, unknown>)

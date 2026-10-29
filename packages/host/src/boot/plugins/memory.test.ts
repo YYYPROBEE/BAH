@@ -29,6 +29,7 @@ import { boot, type BootedApp } from '../boot.ts'
 import { createCatalog } from './index.ts'
 import { MEMORY_SERVICE, memoryPlugin, sceneOf } from './memory.ts'
 import type { PluginRow } from '../profile-plugins.ts'
+import { testRunContext } from '../test-run-context.ts'
 
 let dir = ''
 let seq = 0
@@ -62,8 +63,8 @@ function rows(script: readonly unknown[], withMemory: boolean): readonly PluginR
           {
             id: 'bah:memory-store',
             config: {
-              dbPath: join(dir, 'memory.db'),
-              tenant: 'demo',
+              // 单段文件名：实际落点是 `<jsonlDir>/demo/memory.db`（TA-13 / AR-08）
+              dbPath: 'memory.db',
               userId: 'u-1',
             } as Readonly<Record<string, unknown>>,
           },
@@ -84,11 +85,11 @@ async function bootWith(
     layers: [],
     catalog: createCatalog(),
     ...(warn === undefined ? {} : { warn }),
-    run: {
+    run: testRunContext({
       sessionId: asSessionId(`s-memory-${String(seq)}`),
       now: () => 1_792_000_000_000,
       jsonlDir: dir,
-    },
+    }),
   })
 }
 
@@ -232,14 +233,25 @@ describe('C4 记忆接线（写入 → 召回 → 注入）', () => {
 })
 
 describe('配置 fail-loud', () => {
-  it('缺 dbPath / tenant / userId 一律拒绝（没有安全缺省值）', () => {
-    expect(() => memoryPlugin.validate({ tenant: 'demo', userId: 'u-1' })).toThrowError(/dbPath/)
-    expect(() => memoryPlugin.validate({ dbPath: 'm.db', userId: 'u-1' })).toThrowError(/tenant/)
-    expect(() => memoryPlugin.validate({ dbPath: 'm.db', tenant: 'demo' })).toThrowError(/userId/)
+  it('缺 dbPath / userId 一律拒绝（没有安全缺省值）', () => {
+    expect(() => memoryPlugin.validate({ userId: 'u-1' })).toThrowError(/dbPath/)
+    expect(() => memoryPlugin.validate({ dbPath: 'm.db' })).toThrowError(/userId/)
+  })
+
+  it('写 tenant 键 → unknown-config-key（租户只来自 --tenant，不做第二真相源）', () => {
+    expect(() =>
+      memoryPlugin.validate({ dbPath: 'm.db', userId: 'u-1', tenant: 'demo' }),
+    ).toThrowError(/tenant/)
+  })
+
+  it('dbPath 必须是单段文件名（带斜杠 / 绝对路径 / . 都拒）', () => {
+    for (const dbPath of ['sessions/memory.db', 'demo\\memory.db', join('x', 'm.db'), '/abs/m.db', '.', '..']) {
+      expect(() => memoryPlugin.validate({ dbPath, userId: 'u-1' }), dbPath).toThrowError(/单段文件名|不能是/)
+    }
   })
 
   it('未知键 / sensitivityCeiling 越界 / maxK 非正整数 一律拒绝', () => {
-    const base = { dbPath: 'm.db', tenant: 'demo', userId: 'u-1' }
+    const base = { dbPath: 'm.db', userId: 'u-1' }
     expect(() => memoryPlugin.validate({ ...base, nope: 1 })).toThrowError(/nope/)
     expect(() => memoryPlugin.validate({ ...base, sensitivityCeiling: 9 })).toThrowError(
       /sensitivityCeiling/,
@@ -248,16 +260,14 @@ describe('配置 fail-loud', () => {
   })
 
   it('合法配置原样返回（可选键不填就不出现）', () => {
-    expect(memoryPlugin.validate({ dbPath: 'm.db', tenant: 'demo', userId: 'u-1' })).toEqual({
+    expect(memoryPlugin.validate({ dbPath: 'm.db', userId: 'u-1' })).toEqual({
       dbPath: 'm.db',
-      tenant: 'demo',
       userId: 'u-1',
     })
     // 可选正整数的成功侧：写多少回多少（此前只验了拒绝侧，成功分支从未执行）
     expect(
       memoryPlugin.validate({
         dbPath: 'm.db',
-        tenant: 'demo',
         userId: 'u-1',
         sensitivityCeiling: 2,
         maxK: 4,
@@ -265,7 +275,6 @@ describe('配置 fail-loud', () => {
       }),
     ).toEqual({
       dbPath: 'm.db',
-      tenant: 'demo',
       userId: 'u-1',
       sensitivityCeiling: 2,
       maxK: 4,

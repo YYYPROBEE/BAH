@@ -160,6 +160,14 @@ export interface BankGovernanceOptions {
     readonly enforce: boolean
     readonly ttlMs: number
   }
+  /**
+   * 当前进程的租户（03 TA-47）。
+   *
+   * 会话绑定时记录了租户；两者不一致说明会话身份被搬到别的租户下复用——
+   * 这是比"没身份"更严重的越权，所以 `wrong-tenant` 排在 `no-identity` 之前。
+   * 缺省 `undefined` = 旧装配 / 单测，不判租户（不改变既有行为）。
+   */
+  readonly tenantId?: string
 }
 
 /**
@@ -305,6 +313,7 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
         paramsDigest,
         evaluationParams,
         lookupPolicy,
+        ...(options.tenantId === undefined ? {} : { tenantId: options.tenantId }),
       })
       appendTierDecided({
         callId: input.call.callId,
@@ -471,6 +480,8 @@ interface EvaluateArgs {
   readonly paramsDigest: string
   readonly evaluationParams: Readonly<Record<string, number>>
   readonly lookupPolicy: () => PolicyEngine | undefined
+  /** 当前进程租户（03 TA-47）；缺省不判租户。 */
+  readonly tenantId?: string
 }
 
 /**
@@ -499,7 +510,24 @@ async function evaluateCall(args: EvaluateArgs): Promise<DecisionAudit> {
     ruleIds: [],
   })
 
-  const userId = deps.identity.resolve(sessionId)
+  /**
+   * 租户闸（03 TA-47）：**在 no-identity 之前**。
+   * 跨租户是比"没身份"更严重的越权，先报它，审计上才看得见"有人在试跨租户"。
+   * 历史绑定可能没有租户（旧载荷 / 旧调用），此时不误拒。
+   */
+  const binding = deps.identity.resolveIdentity?.(sessionId)
+  if (
+    args.tenantId !== undefined &&
+    binding?.tenantId !== undefined &&
+    binding.tenantId !== args.tenantId
+  ) {
+    return early(
+      { kind: 'deny', code: 'wrong-tenant', reason: '会话身份与当前租户不一致' },
+      spec.tier.level,
+    )
+  }
+
+  const userId = binding?.userId ?? deps.identity.resolve(sessionId)
   if (userId === undefined || userId.trim().length === 0) {
     return early(
       { kind: 'deny', code: 'no-identity', reason: '当前会话未绑定银行用户身份' },
