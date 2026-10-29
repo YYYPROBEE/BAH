@@ -1,0 +1,1078 @@
+ WARN  Unsupported engine: wanted: {"node":"^22.19 || >=24"} (current: {"node":"v22.17.0","pnpm":"10.34.7"})
+
+> bah-monorepo@ test D:\项目集\微众杯银行ai智能体\BAH\CARD-01-WT
+> vitest run
+
+
+ RUN  v3.2.7 D:/项目集/微众杯银行ai智能体/BAH/CARD-01-WT
+
+node.exe : (node:70488) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+所在位置 C:\Users\37706\AppData\Roaming\npm\pnpm.ps1:24 字符: 5
++     & "node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ((node:70488) Ex...nge at any time:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:70488) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:70488) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | packages/host/src/boot/plugins/web/auth/password.test.ts > hashPassword / verifyPassword
+ > TA-21-4 坏编码串 → false 且不抛（坏目录不该把登录打成 500）
+{"ts":"2026-10-29T17:55:42.587Z","level":"warn","code":"web.auth-password-hash-invalid","reason":"口令编码串非法（期望 
+scrypt$N$r$p$salt$hash）；该账户无法登录"}
+
+stderr | packages/host/src/boot/plugins/web/auth/password.test.ts > hashPassword / verifyPassword
+ > TA-21-4 坏编码串 → false 且不抛（坏目录不该把登录打成 500）
+{"ts":"2026-10-29T17:55:42.589Z","level":"warn","code":"web.auth-password-hash-invalid","reason":"口令编码串非法（期望 
+scrypt$N$r$p$salt$hash）；该账户无法登录"}
+
+stderr | packages/host/src/boot/plugins/web/auth/password.test.ts > hashPassword / verifyPassword
+ > TA-21-4 坏编码串 → false 且不抛（坏目录不该把登录打成 500）
+{"ts":"2026-10-29T17:55:42.589Z","level":"warn","code":"web.auth-password-hash-invalid","reason":"口令编码串非法（期望 
+scrypt$N$r$p$salt$hash）；该账户无法登录"}
+
+stderr | packages/host/src/boot/plugins/web/auth/password.test.ts > hashPassword / verifyPassword
+ > TA-21-4 坏编码串 → false 且不抛（坏目录不该把登录打成 500）
+{"ts":"2026-10-29T17:55:42.589Z","level":"warn","code":"web.auth-password-hash-invalid","reason":"口令编码串非法（期望 
+scrypt$N$r$p$salt$hash）；该账户无法登录"}
+
+stderr | packages/host/src/boot/plugins/web/auth/password.test.ts > hashPassword / verifyPassword
+ > TA-21-4 坏编码串 → false 且不抛（坏目录不该把登录打成 500）
+{"ts":"2026-10-29T17:55:42.590Z","level":"warn","code":"web.auth-password-hash-invalid","reason":"口令编码串非法（期望 
+scrypt$N$r$p$salt$hash）；该账户无法登录"}
+
+(node:70488) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:70488) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:70488) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ packages/bank/src/core/mock.test.ts (52 tests) 758ms
+   ✓ 幂等表软上限 > 超过 1024 条后清扫过期键（不无界增长）  713ms
+(node:70488) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ packages/safety/src/sandbox-runtime/runner.test.ts (11 tests) 945ms
+stdout | packages/host/src/boot/plugins/web/auth/password.test.ts > hashPassword / verifyPassword > TA-21-6 真实校验与 dummy 校验同量级（耗时同形的判据；5 次采样）
+[TA-21-6] scrypt 单次验证耗时 p50=54.6ms p95=57.3ms（5 次采样）
+
+ ✓ packages/host/src/boot/plugins/web/auth/password.test.ts (6 tests) 1259ms
+   ✓ hashPassword / verifyPassword > TA-21-6 真实校验与 dummy 校验同量级（耗时同形的判据；5 次采样）  601ms
+ ✓ scripts/policy-admin.test.ts (6 tests) 795ms
+ ✓ packages/policy/src/compile.test.ts (35 tests) 889ms
+ ✓ packages/saga/src/convergence.test.ts (10 tests) 1382ms
+   ✓ SA-12 收敛闭环 > T-SA12-010：日终勾稽差异率 0.1% 告警 / 0.5% P0  411ms
+ ✓ packages/saga/src/coordinator/recovery-kill.test.ts (1 test) 785ms
+   ✓ T-SA08-007 崩溃恢复 > SIGKILL 后重启：EXECUTED 不重发，CALLING→probe，PLANNED→reissue  784ms
+ ✓ packages/persistence/src/chain/chain.test.ts (16 tests) 793ms
+ ✓ packages/policy/src/property.test.ts (2 tests) 2462ms
+   ✓ 求值器属性（10000 组，种子 0xBA11） > 单调 / 确定 / 总函数 / 输入不可变 / 规则完备 / 理由合法 / 输出不含金额  2457ms
+ ✓ packages/saga/src/observability.test.ts (15 tests) 1686ms
+   ✓ SA-13 观测·回放·告警 > T-SA13-005：抽样 20 个 saga 回放终态 == 运行时终态（diff=0）  400ms
+stderr | scripts/policy-explain.test.ts > policy:explain · 真实 host 会话（S3 闭环） > bundl
+e 判决 → tier/decided.evidence → policy/decision 链 → explain 复现
+{"ts":"2026-10-29T17:55:45.183Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > 幕 2：注入在工具面被拦截（sentry/* 事件） > T-SNT-001 直接注入 → 入口高风险；W09 起高风险 + 非绿工具被 sentry 拒（risk-score）
+{"ts":"2026-10-29T17:55:45.188Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | scripts/policy-explain.test.ts > policy:explain · 真实 host 会话（S3 闭环） > bundl
+e 判决 → tier/decided.evidence → policy/decision 链 → explain 复现
+{"ts":"2026-10-29T17:55:45.193Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22m3 节点全成功：3 条 tool/call、1 条 approval/asked、3 条 node-result
+{"ts":"2026-10-29T17:55:45.201Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > 幕 2：注入在工具面被拦截（sentry/* 事件） > 对抗用例 2：用户声称"上限是 5 万"不改变 Config 阈值（1,001 仍升红）
+{"ts":"2026-10-29T17:55:45.243Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22m3 节点全成功：3 条 tool/call、1 条 approval/asked、3 条 node-result
+{"ts":"2026-10-29T17:55:45.230Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > 幕 2：注入在工具面被拦截（sentry/* 事件） > T-SNT-003 base64 payload 塞进 remark → scanToolArgs 命中 → deny（sentry/tool-denied）
+{"ts":"2026-10-29T17:55:45.290Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 载入与判决 > 正常载入
+：发 policy/bundle-loaded，引擎给出 level/reason/ruleIds/policyVersion
+{"ts":"2026-10-29T17:55:45.304Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+ ✓ scripts/policy-explain.test.ts (8 tests) 2621ms
+   ✓ policy:explain · 真实 host 会话（S3 闭环） > bundle 判决 → tier/decided.evidence → policy/decision 链 → explain 复现  2346ms
+stderr | packages/host/src/boot/plugins/sentry.test.ts > 熔断：锁存 / 吊销 / 显式解冻 > 票据服务只暴露
+ status + revokeAll（核销入口不跨包）
+{"ts":"2026-10-29T17:55:45.317Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > 熔断：锁存 / 吊销 / 显式解冻 > T-SNT-0
+08/009/010 连续 5 次拒绝 → 冻结；6th 非绿被拒；显式解冻后恢复正常
+{"ts":"2026-10-29T17:55:45.332Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+(node:69692) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ packages/saga/src/scenario-a.test.ts (12 tests) 1645ms
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 载入与判决 > 缺 co
+ntext.input → 抛 policy-input-invalid（绝不静默求值）
+{"ts":"2026-10-29T17:55:45.359Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 载入与判决 > 未知 k
+ind → 抛 policy-unavailable
+{"ts":"2026-10-29T17:55:45.379Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 载入与判决 > bund
+le 规则 deny → 判决 deny（code/reason 与四字段一起带出）
+{"ts":"2026-10-29T17:55:45.485Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r-deny/1.0.0+sha256:fbd3b24c4718569d","digest":"fbd3b24c4718569dd9a327587d439b036935429e670d06f08d5d51d9a4551d14","engi
+ne":"1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 载入与判决 > regi
+stry 缺省时按 root/<name>/<version> 推断目录（S2 的兼容路径）
+{"ts":"2026-10-29T17:55:45.507Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 灰度与影子 > 显式名单
+命中候选版本；未命中的会话留在 active
+{"ts":"2026-10-29T17:55:45.572Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mB1 模型闭环：plan_propose → plan_execute，3 节点各走一次管线、两次审批
+{"ts":"2026-10-29T17:55:45.578Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mB1 模型闭环：plan_propose → plan_execute，3 节点各走一次管线、两次审批
+{"ts":"2026-10-29T17:55:45.590Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/cli/src/profile-boot.test.ts > W08 TC-07：三个 profile 真 boot > headl
+ess：boot 成功，sentry trace.sink=session，audit:decisions 在场
+{"ts":"2026-10-29T17:55:45.612Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 灰度与影子 > 万分比 
+10000 → 全部命中候选；0 → 全部留在 active；分桶纯函数稳定
+{"ts":"2026-10-29T17:55:45.630Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/cli/src/profile-boot.test.ts > W08 TC-07：三个 profile 真 boot > headl
+ess：boot 成功，sentry trace.sink=session，audit:decisions 在场
+{"ts":"2026-10-29T17:55:45.629Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mB1 非法 DAG：环 / 非银行工具 / 超节点数 / 空计划 全部 plan-invalid
+{"ts":"2026-10-29T17:55:45.667Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mB1 非法 DAG：环 / 非银行工具 / 超节点数 / 空计划 全部 plan-invalid
+{"ts":"2026-10-29T17:55:45.678Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 灰度与影子 > 万分比 
+10000 → 全部命中候选；0 → 全部留在 active；分桶纯函数稳定
+{"ts":"2026-10-29T17:55:45.693Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mB1 模型计划的字段类型逐项校验：非对象 / 坏 id / 缺 tool / args / deps / optional / idempotencyKey
+{"ts":"2026-10-29T17:55:45.703Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/bank-tools.test.ts > bank:tools · 槽位告警与参数绑定（交付面 P1） >
+ bundle 声明的参数集与部署参数不一致 → 启动失败 policy-param-mismatch
+{"ts":"2026-10-29T17:55:45.703Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r-alt/1.0.0+sha256:39872d38032f29a9","digest":"39872d38032f29a99b7de7098476272a50e4719663f5a7f50532e0c121208988","engin
+e":"1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mB1 模型计划的字段类型逐项校验：非对象 / 坏 id / 缺 tool / args / deps / optional / idempotencyKey
+{"ts":"2026-10-29T17:55:45.712Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > 幻觉防护（turn-stopping 纠正真的回到 inbox） > 
+[22mT-SNT-007 无工具结果却陈述余额 → 纠正提示作为 context 用户消息回到模型
+{"ts":"2026-10-29T17:55:45.726Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22m第 2 节点失败：第 3 节点没有 tool/call，落 node-blocked，completed 判 failed
+{"ts":"2026-10-29T17:55:45.726Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 灰度与影子 > 影子：候
+选与生效不同 → 发 policy/shadow-diff，判决仍是生效版本
+{"ts":"2026-10-29T17:55:45.735Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/cli/src/profile-boot.test.ts > W08 TC-07：三个 profile 真 boot > plan：
+boot 成功，sentry trace.sink=session，audit:decisions 在场
+{"ts":"2026-10-29T17:55:45.738Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22m第 2 节点失败：第 3 节点没有 tool/call，落 node-blocked，completed 判 failed
+{"ts":"2026-10-29T17:55:45.739Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/bank-tools.test.ts > bank:tools · 槽位告警与参数绑定（交付面 P1） >
+ bundle 参数越界（部署值低于声明下限）→ 启动失败 policy-param-mismatch
+{"ts":"2026-10-29T17:55:45.757Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:117b6977ea3079b6","digest":"117b6977ea3079b6ef9853ccc61c875a0c3dc4f27914d186f4e20034718601f2","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 灰度与影子 > 影子与生
+效一致 → 不发事件（差异为零不是"没有影子"）
+{"ts":"2026-10-29T17:55:45.769Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mdry-run：tool/call 与 approval/* 都是 0，node-result 仍是 3 条
+{"ts":"2026-10-29T17:55:45.772Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > 幻觉防护（turn-stopping 纠正真的回到 inbox） > 
+[22mT-SNT-006 陈述金额与工具结果不一致 → numeric 纠正（权威值进上下文）
+{"ts":"2026-10-29T17:55:45.777Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+ ✓ packages/host/src/boot/plugins/bank-tools.test.ts (39 tests) 597ms
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mdry-run：tool/call 与 approval/* 都是 0，node-result 仍是 3 条
+{"ts":"2026-10-29T17:55:45.780Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22m审批拒绝：decided 记 rejected，节点 failed(approval-rejected)，下游 blocked
+{"ts":"2026-10-29T17:55:45.793Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 热重载 > state 
+变更 → policy/bundle-switched，后续判决走新版本
+{"ts":"2026-10-29T17:55:45.801Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 热重载 > state 
+变更 → policy/bundle-switched，后续判决走新版本
+{"ts":"2026-10-29T17:55:45.818Z","level":"info","code":"policy.switched","kind":"bank.tier","from":"bank-tier
+/1.0.0+sha256:97764bc1298834d6","to":"bank-tier-demo/1.0.0+sha256:02bc9984b1be344f","percent":10000,"epoch":0}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 热重载 > 坏 stat
+e → policy/reload-rejected，旧版本继续服务（I10）
+{"ts":"2026-10-29T17:55:45.840Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 热重载 > 坏 stat
+e → policy/reload-rejected，旧版本继续服务（I10）
+{"ts":"2026-10-29T17:55:45.842Z","level":"warn","code":"policy.reloadRejected","kind":"bank.tier","message":"
+runtime-state.json 不是合法 JSON：SyntaxError: Expected property name or '}' in JSON at position 2 (line 1 column 3)"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 热重载 > hotRel
+oad=false → 不暴露手动重载句柄（生产默认不热换）
+{"ts":"2026-10-29T17:55:45.862Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 热重载 > state 
+没变 → 重载不产生 bundle-switched（事件只跟真实版本变化）
+{"ts":"2026-10-29T17:55:45.880Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/cli/src/profile-boot.test.ts > W08 TC-07：三个 profile 真 boot > plan：
+boot 成功，sentry trace.sink=session，audit:decisions 在场
+{"ts":"2026-10-29T17:55:45.747Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22m审批拒绝：decided 记 rejected，节点 failed(approval-rejected)，下游 blocked
+{"ts":"2026-10-29T17:55:45.901Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > 装配细节（覆盖率与可观察性） > trace.sink
+=stderr：逐批写标准错误（不碰 fs）
+{"ts":"2026-10-29T17:55:45.919Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/web.test.ts > channel:web 静态资源安全 > password 
+模式下 index 不注入口令（缺口 1），但仍下发 CSRF cookie 供登录用
+{"ts":"2026-10-29T17:55:45.923Z","level":"warn","code":"web.channel-warn","reason":"[web-auth] 口令目录已载入：1 个用户（
+D:\\项目集\\微众杯银行ai智能体\\BAH\\CARD-01-WT\\auth\\users.example.yml）"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 热重载 > 描述符是活引
+用：重载后 version/canary 立即反映新版本
+{"ts":"2026-10-29T17:55:45.925Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 热重载 > 描述符是活引
+用：重载后 version/canary 立即反映新版本
+{"ts":"2026-10-29T17:55:45.940Z","level":"info","code":"policy.switched","kind":"bank.tier","from":"bank-tier
+/1.0.0+sha256:97764bc1298834d6","to":"bank-tier-demo/1.0.0+sha256:02bc9984b1be344f","percent":10000,"epoch":0}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > 装配细节（覆盖率与可观察性） > trace.sink
+=session：逐条落 durable 会话事件（可回放）
+{"ts":"2026-10-29T17:55:45.955Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22m取消：plan/aborted 恰好 1 条，completed 记 aborted，剩余节点算 cancelled
+{"ts":"2026-10-29T17:55:45.979Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > 装配细节（覆盖率与可观察性） > 未注册工具的 tie
+r 查询返回 undefined（控制面按红级保守处理）
+{"ts":"2026-10-29T17:55:45.994Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/cli/src/profile-boot.test.ts > W08 TC-07：三个 profile 真 boot > web：b
+oot 成功，sentry trace.sink=session，audit:decisions 在场
+{"ts":"2026-10-29T17:55:46.016Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > 装配细节（覆盖率与可观察性） > sentry/* 治
+理事件按 ignorable 落账（平台 reader 可跳过）
+{"ts":"2026-10-29T17:55:46.037Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/cli/src/profile-boot.test.ts > W08 TC-07：三个 profile 真 boot > web：b
+oot 成功，sentry trace.sink=session，audit:decisions 在场
+{"ts":"2026-10-29T17:55:46.037Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22m取消：plan/aborted 恰好 1 条，completed 记 aborted，剩余节点算 cancelled
+{"ts":"2026-10-29T17:55:46.038Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+ ✓ packages/host/src/boot/plugins/saga-bridge.test.ts (22 tests) 497ms
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mTC-W10-02 续跑只跑剩余节点：已 succeeded 的节点不再产生 tool/call
+{"ts":"2026-10-29T17:55:46.073Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mTC-W10-02 续跑只跑剩余节点：已 succeeded 的节点不再产生 tool/call
+{"ts":"2026-10-29T17:55:46.085Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > C3 HALT 跨重启（部署级停机） > 第一次 bo
+ot 停机 → 第二次 boot（新会话 ID、同部署目录）仍是 HALTED
+{"ts":"2026-10-29T17:55:46.093Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+ ✓ packages/host/src/boot/plugins/web/handlers/auth.test.ts (19 tests) 1767ms
+   ✓ TA-26 · 登录 / 登出 / 自查 > TA-26-3 连续 5 次失败 → 第 6 次 409 web-login-locked（带 retry-after）  322ms
+   ✓ TA-26 · 登录 / 登出 / 自查 > TA-26-9 五次失败各自越过退避窗口 → 五次全 401，第 6 次才 409（允许 5 次失败）  334ms
+stderr | packages/host/src/boot/plugins/sentry.test.ts > C3 HALT 跨重启（部署级停机） > 第一次 bo
+ot 停机 → 第二次 boot（新会话 ID、同部署目录）仍是 HALTED
+{"ts":"2026-10-29T17:55:46.114Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > C3 HALT 跨重启（部署级停机） > 重启后的 H
+ALTED 在第一道闸就拒新 turn（工具层根本到不了）
+{"ts":"2026-10-29T17:55:46.120Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > C3 HALT 跨重启（部署级停机） > 凭票据解除后
+落盘被清除：再 boot 恢复 RUNNING
+{"ts":"2026-10-29T17:55:46.127Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > C3 HALT 跨重启（部署级停机） > 凭票据解除后
+落盘被清除：再 boot 恢复 RUNNING
+{"ts":"2026-10-29T17:55:46.136Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mTC-W10-01 续跑一份改过的计划 → plan-identity-mismatch，一个节点都不跑
+{"ts":"2026-10-29T17:55:46.162Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mTC-W10-01 续跑一份改过的计划 → plan-identity-mismatch，一个节点都不跑
+{"ts":"2026-10-29T17:55:46.174Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > S5 · sentry.rules 外置（engine=bundle） 
+> 恶意参数命中外置 CMD-001，链上 policyVersion 是 sentry bundle 身份
+{"ts":"2026-10-29T17:55:46.190Z","level":"info","code":"policy.loaded","kind":"sentry.rules","version":"sentr
+y-rules/1.0.0+sha256:a9f0206cec2548e5","digest":"a9f0206cec2548e5a4fa501da32700da756f6e75f698ff110c1d528a59cf67e6","eng
+ine":"1.0.0"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > S5 · sentry.rules 外置（engine=bundle） 
+> 恶意参数命中外置 CMD-001，链上 policyVersion 是 sentry bundle 身份
+{"ts":"2026-10-29T17:55:46.192Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mTC-W10-09 from 指向不存在的节点 → plan-resume-target-missing
+{"ts":"2026-10-29T17:55:46.228Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22mTC-W10-09 from 指向不存在的节点 → plan-resume-target-missing
+{"ts":"2026-10-29T17:55:46.238Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+ ✓ packages/cli/src/cli/audit.test.ts (32 tests) 847ms
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22m未装配 plan:dag 的 profile：拿不到 bah:plan（默认 profile 零影响的证据）
+{"ts":"2026-10-29T17:55:46.281Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22m未装配 plan:dag 的 profile：拿不到 bah:plan（默认 profile 零影响的证据）
+{"ts":"2026-10-29T17:55:46.324Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > S5 · sentry.rules 外置（engine=bundle） 
+> policy:rules 在场但没有 sentry.rules kind → 启动失败 sentry-rules-missing
+{"ts":"2026-10-29T17:55:46.337Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > S5 · sentry.rules 外置（engine=bundle） 
+> policy:rules 在场但没有 sentry.rules kind → 启动失败 sentry-rules-missing
+{"ts":"2026-10-29T17:55:46.340Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22m总开关关掉：行装配了 `plan:dag`，但拿不到服务（`enabled: false` 等价于没装）
+{"ts":"2026-10-29T17:55:46.340Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/sentry.test.ts > S5 · sentry.rules 外置（engine=bundle） 
+> engine=bundle 但没装配 policy:rules → 启动失败 sentry-rules-missing（不静默退回内核）
+{"ts":"2026-10-29T17:55:46.342Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag 集成（真实依赖清单 + profile plan） > 
+[22m总开关关掉：行装配了 `plan:dag`，但拿不到服务（`enabled: false` 等价于没装）
+{"ts":"2026-10-29T17:55:46.350Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag · W11 接缝（incident / node-waiting 
+/ 动态 args） > TC-W11-06 审批等待落 node-waiting：恰好 1 条，nodeId 是走审批的那个节点
+{"ts":"2026-10-29T17:55:46.364Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+ ✓ packages/host/src/boot/plugins/sentry.test.ts (20 tests) 1188ms
+   ✓ 熔断：锁存 / 吊销 / 显式解冻 > T-SNT-008/009/010 连续 5 次拒绝 → 冻结；6th 非绿被拒；显式解冻后恢复正常  392ms
+ ✓ packages/policy/src/sentry-rules.test.ts (51 tests) 748ms
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules × bank:tools（S2 端到端） > 
+真实 bundle 判决：tier/decided 带版本/规则/参数摘要/证据，行为与等价基线一致
+{"ts":"2026-10-29T17:55:46.374Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+ ✓ packages/cli/src/cli/run.test.ts (26 tests) 855ms
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag · W11 接缝（incident / node-waiting 
+/ 动态 args） > TC-W11-06 审批等待落 node-waiting：恰好 1 条，nodeId 是走审批的那个节点
+{"ts":"2026-10-29T17:55:46.373Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules × bank:tools（S2 端到端） > 
+部署参数越过 bundle 声明的区间 → 启动失败 policy-param-mismatch
+{"ts":"2026-10-29T17:55:46.432Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag · W11 接缝（incident / node-waiting 
+/ 动态 args） > incident：工具报 upstream-unavailable → 节点落第 9 态，completed 判 failed，resume 能重跑
+{"ts":"2026-10-29T17:55:46.436Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 链上身份（S3） > b
+undle 判决写入 policy/decision：信封的 policyVersion 是内容寻址身份
+{"ts":"2026-10-29T17:55:46.445Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag · W11 接缝（incident / node-waiting 
+/ 动态 args） > incident：工具报 upstream-unavailable → 节点落第 9 态，completed 判 failed，resume 能重跑
+{"ts":"2026-10-29T17:55:46.449Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 链上身份（S3） > b
+undle 判决写入 policy/decision：信封的 policyVersion 是内容寻址身份
+{"ts":"2026-10-29T17:55:46.452Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag · W11 接缝（incident / node-waiting 
+/ 动态 args） > 并发同一 planId：第二次被拒后**还回**第一次的 guard，正在跑的 run 不撞 plan-guard-missing
+{"ts":"2026-10-29T17:55:46.476Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag · W11 接缝（incident / node-waiting 
+/ 动态 args） > 并发同一 planId：第二次被拒后**还回**第一次的 guard，正在跑的 run 不撞 plan-guard-missing
+{"ts":"2026-10-29T17:55:46.501Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+ ✓ packages/saga/src/coordinator/coordinator.test.ts (4 tests) 445ms
+ ✓ packages/cli/src/profile-boot.test.ts (3 tests) 979ms
+   ✓ W08 TC-07：三个 profile 真 boot > web：boot 成功，sentry trace.sink=session，audit:decisions 在场  525ms
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag · W11 接缝（incident / node-waiting 
+/ 动态 args） > 动态 args 端到端：取的是**结构化原值**，不是 projectContent 渲染出来的文本
+{"ts":"2026-10-29T17:55:46.549Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > plan:dag · W11 接缝（incident / node-waiting 
+/ 动态 args） > 动态 args 端到端：取的是**结构化原值**，不是 projectContent 渲染出来的文本
+{"ts":"2026-10-29T17:55:46.558Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > 04 单：goal / todo 平面在 plan 插件里注册 > goal_set / todo_write 是绿级内置工具；originTurn 来自 turn/start；零新事件键
+{"ts":"2026-10-29T17:55:46.580Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 形状负例（S3） > 显
+式 allowedKeyVersions 会传给编译（不被默认值吞掉）
+{"ts":"2026-10-29T17:55:46.591Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > 04 单：goal / todo 平面在 plan 插件里注册 > goal_set / todo_write 是绿级内置工具；originTurn 来自 turn/start；零新事件键
+{"ts":"2026-10-29T17:55:46.613Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > 04 单：goal / todo 平面在 plan 插件里注册 > goal_set 的形状校验 fail-loud（经管线归一化为 isError，不冒泡）
+{"ts":"2026-10-29T17:55:46.624Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 重载参数绑定（S3） > 候选 bundle 与部署参数不兼容 → reload-rejected，旧版继续服务
+{"ts":"2026-10-29T17:55:46.625Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/plan.test.ts > 04 单：goal / todo 平面在 plan 插件里注册 > goal_set 的形状校验 fail-loud（经管线归一化为 isError，不冒泡）
+{"ts":"2026-10-29T17:55:46.632Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 重载参数绑定（S3） > 候选 bundle 与部署参数不兼容 → reload-rejected，旧版继续服务
+{"ts":"2026-10-29T17:55:46.639Z","level":"warn","code":"policy.reloadRejected","kind":"bank.tier","message":"
+模拟：部署参数不兼容"}
+
+ ✓ packages/host/src/boot/plugins/plan.test.ts (25 tests) 1469ms
+   ✓ plan:dag 集成（真实依赖清单 + profile plan） > 3 节点全成功：3 条 tool/call、1 条 approval/asked、3 条 node-result  379ms
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 影子隔离（S3） > 影
+子候选求值抛错 → 只落 shadow-error，生效判决仍是 active
+{"ts":"2026-10-29T17:55:46.712Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · 影子隔离（S3） > 影
+子候选求值抛错 → 只落 shadow-error，生效判决仍是 active
+{"ts":"2026-10-29T17:55:46.713Z","level":"warn","code":"host.policy-shadow-eval-failed","reason":"BahError: 整
+数运算溢出：1000000000000 * 1000000000000"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · sentry.rules 第二类 bundle（S
+5） > 载入后服务给出 13 条规则与 sentry 身份串（描述符 kind 正确）
+{"ts":"2026-10-29T17:55:46.736Z","level":"info","code":"policy.loaded","kind":"sentry.rules","version":"sentr
+y-rules/1.0.0+sha256:a9f0206cec2548e5","digest":"a9f0206cec2548e5a4fa501da32700da756f6e75f698ff110c1d528a59cf67e6","eng
+ine":"1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · sentry.rules 第二类 bundle（S
+5） > 灰度：canary 会话拿到候选版本，其他会话留在 active
+{"ts":"2026-10-29T17:55:46.779Z","level":"info","code":"policy.loaded","kind":"sentry.rules","version":"sentr
+y-rules/1.0.0+sha256:a9f0206cec2548e5","digest":"a9f0206cec2548e5a4fa501da32700da756f6e75f698ff110c1d528a59cf67e6","eng
+ine":"1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · sentry.rules 第二类 bundle（S
+5） > 只装 sentry 时银行描述符读取失败（fail-loud，不做假版本兜底）
+{"ts":"2026-10-29T17:55:46.793Z","level":"info","code":"policy.loaded","kind":"sentry.rules","version":"sentr
+y-rules/1.0.0+sha256:a9f0206cec2548e5","digest":"a9f0206cec2548e5a4fa501da32700da756f6e75f698ff110c1d528a59cf67e6","eng
+ine":"1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · sentry.rules 第二类 bundle（S
+5） > 只装银行时 sentry 视图读取失败 / rulesFor 返回 undefined（不伪造规则集）
+{"ts":"2026-10-29T17:55:46.811Z","level":"info","code":"policy.loaded","kind":"bank.tier","version":"bank-tie
+r/1.0.0+sha256:97764bc1298834d6","digest":"97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a","engine":"
+1.0.0"}
+
+stderr | packages/host/src/boot/plugins/policy.test.ts > policy:rules · sentry.rules 第二类 bundle（S
+5） > sentry 影子指向另一版本 → 正常编译（与灰度同一平面）
+{"ts":"2026-10-29T17:55:46.921Z","level":"info","code":"policy.loaded","kind":"sentry.rules","version":"sentr
+y-rules/1.0.0+sha256:a9f0206cec2548e5","digest":"a9f0206cec2548e5a4fa501da32700da756f6e75f698ff110c1d528a59cf67e6","eng
+ine":"1.0.0"}
+
+ ✓ packages/host/src/boot/plugins/policy.test.ts (54 tests) 1674ms
+(node:56508) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ packages/host/src/boot/plugins/web/contract.test.ts (17 tests) 46ms
+ ✓ packages/host/src/boot/plugins/memory-tenant.test.ts (2 tests) 347ms
+ ✓ packages/cli/src/profile.test.ts (17 tests) 352ms
+ ✓ packages/host/src/boot/plugins/knowledge.test.ts (23 tests) 316ms
+stderr | packages/host/src/boot/plugins/halt.test.ts > TC-W07-01 新 turn 直接抛 safety-halted > 
+[22msend() 抛错且不产生 tool/call / turn/start
+{"ts":"2026-10-29T17:55:47.358Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+ ✓ packages/host/src/boot/plugins/web.test.ts (71 tests) 2185ms
+ ✓ packages/persistence/src/saga-store/saga-store.test.ts (10 tests) 287ms
+stderr | packages/host/src/boot/plugins/halt.test.ts > TC-W07-02 工具执行在 next() 之前被拒（无票据） > 直接调 ToolPipeline → isError / safety-halted / 无 ticket/issued
+{"ts":"2026-10-29T17:55:47.383Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/halt.test.ts > TC-W07-03 plan 在宿主层被拦截（引擎零改动） > 
+[2m零 node-started / 零 tool/call；completed=aborted + aborted=halted
+{"ts":"2026-10-29T17:55:47.407Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/halt.test.ts > TC-W10-HALT 停机期间 resume 也被拦（HALT 面不能被续跑绕过）
+ > resume 返回 aborted、零 plan/resumed、零新 tool/call
+{"ts":"2026-10-29T17:55:47.426Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+ ✓ packages/bank/src/context/slots.test.ts (32 tests) 323ms
+stderr | packages/host/src/boot/plugins/halt.test.ts > TC-W07-04 / 05 / 06 解除只凭会话内 MFA 票据 > 
+[22m未知票据 / mfa=false / 已过期 都拒绝，状态仍 HALTED
+{"ts":"2026-10-29T17:55:47.490Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+ ✓ scripts/gates.smoke.test.ts (3 tests) 5599ms
+   ✓ 门禁自身冒烟 > 每个 verify-*.ts 都能导入并导出 gate；name 是 kebab-case、全局唯一、与文件名对应  5594ms
+stderr | packages/host/src/boot/plugins/halt.test.ts > TC-W07-04 / 05 / 06 解除只凭会话内 MFA 票据 > 
+[22m有效票据解除 → RUNNING；两个事件载荷逐字冻结；重复操作不落重复事件
+{"ts":"2026-10-29T17:55:47.547Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/halt.test.ts > TC-W07-04 / 05 / 06 解除只凭会话内 MFA 票据 > 
+[22m没有应答者（responder: none）→ 不签票，返回 halt-approval-rejected
+{"ts":"2026-10-29T17:55:47.600Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/halt.test.ts > P0 命中 3 次触发 HALT（写死阈值） > dest
+ructive 族连续 3 次 → safety/halt reason=p0-threshold
+{"ts":"2026-10-29T17:55:47.623Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+(node:24916) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ packages/cli/src/cli/audit-projection.test.ts (10 tests) 237ms
+stderr | packages/host/src/boot/plugins/halt.test.ts > 惰性缺省与 fail-closed 边界 > 没有 saf
+ety:sentry 的装配：plan 照常执行（不因缺服务起不来 / 不误拦）
+{"ts":"2026-10-29T17:55:47.716Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/halt.test.ts > 惰性缺省与 fail-closed 边界 > 没有 int
+eraction:approval：申请解除 → halt-approval-rejected（不造票）
+{"ts":"2026-10-29T17:55:47.732Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/audit-decisions.test.ts > W08 · 会话级证据链 > TC-
+W08-01：一次转账后链中有 tool/call、tool/result、sentry/decision、approval/decided
+{"ts":"2026-10-29T17:55:47.743Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+(node:24916) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ packages/host/src/boot/plugins/sandbox.test.ts (5 tests) 284ms
+stderr | packages/host/src/boot/plugins/audit-decisions.test.ts > W08 · 会话级证据链 > pol
+icy/decision 写链失败只告警（I17：已做出的判决不被翻转）
+{"ts":"2026-10-29T17:55:47.809Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+bah-audit: audit/chain-broken 审计链断裂：s-w08-tail 第 1 条
+ ✓ packages/persistence/src/replay/replay.test.ts (12 tests) 223ms
+stderr | packages/host/src/boot/plugins/audit-decisions.test.ts > W08 · 会话级证据链 > TC-
+W08-04（运行时）：启动发现断链 → audit/chain-broken + stderr + HALT
+{"ts":"2026-10-29T17:55:47.911Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/halt.test.ts > 惰性缺省与 fail-closed 边界 > 审批被拒：a
+pproval/decided 带 reason 与 code，申请解除 fail-closed
+{"ts":"2026-10-29T17:55:47.944Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+stderr | packages/host/src/boot/plugins/audit-decisions.test.ts > W08 · 会话级证据链 > ver
+ifyAll：链文件中段损坏读不出来 → 记为 brokenAt=0 并带 error（不能静默跳过）
+{"ts":"2026-10-29T17:55:47.950Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+ ✓ scripts/intent-determinism.test.ts (11 tests) 457ms
+stderr | packages/host/src/boot/plugins/audit-decisions.test.ts > 03 TA-46 · 审批主体入链（不新增会话事件键）
+ > appendActor 先于 approval/decided；主体只含 tenant/user/roles（无 password/cookie/sid）
+{"ts":"2026-10-29T17:55:47.982Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 keys/saga-e
+d25519.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah audit --key`）"}
+
+ ✓ packages/host/src/boot/plugins/audit-decisions.test.ts (10 tests) 261ms
+ ✓ packages/host/src/boot/plugins/halt.test.ts (11 tests) 658ms
+ ✓ packages/channels/src/capabilities.test.ts (12 tests) 21ms
+ ✓ packages/saga/src/acceptance.test.ts (12 tests) 4823ms
+   ✓ SA-14 终局验收 > T-SA14-001：33 项断言逐项归位，无一悬空  597ms
+   ✓ SA-14 终局验收 > T-SA14-009：verify-event-modes 门禁通过（tick 唯一 serial）  3676ms
+ ✓ packages/host/src/boot/plugins/web/handoff-store.test.ts (15 tests) 148ms
+ ✓ packages/host/src/boot/plugins/web/channel.test.ts (6 tests) 363ms
+stderr | packages/persistence/src/jsonl/backend.test.ts > T-SESS-007 版本与读取容错 > 尾行半写 
+→ 丢弃并告警；中间行损坏 → 直接抛错
+{"ts":"2026-10-29T17:55:48.323Z","level":"warn","code":"persistence.jsonl-tail-dropped","message":"jsonl: 丢弃截
+断的尾行（第 3 行）：C:\\Users\\37706\\AppData\\Local\\Temp\\bah-jsonl-xNMO7u\\tail\\session.jsonl"}
+
+ ✓ packages/persistence/src/jsonl/backend.test.ts (14 tests) 187ms
+ ✓ packages/host/src/boot/plugins/saga-store.test.ts (5 tests) 152ms
+ ✓ packages/runtime/src/agent-loop/agent.test.ts (45 tests) 198ms
+ ✓ packages/core/src/events.test.ts (16 tests) 133ms
+ ✓ packages/saga/src/projection.test.ts (2 tests) 203ms
+ ✓ scripts/cross-scene-gate.test.ts (8 tests) 1792ms
+   ✓ verify-cross-scene · 反夹具必须打红 > 干净仓库：gate 绿（findings 空、notes 有扫描面）  1775ms
+ ✓ packages/persistence/src/chain/audit-report.test.ts (9 tests) 158ms
+ ✓ packages/host/src/boot/plugins/saga.test.ts (6 tests) 107ms
+ ✓ packages/cli/src/cli/run-hmr.test.ts (2 tests) 274ms
+ ✓ packages/host/src/boot/plugins/halt-store.test.ts (8 tests) 100ms
+ ✓ packages/policy/src/table.test.ts (31 tests) 125ms
+ ✓ packages/knowledge/src/verify-port.test.ts (13 tests) 109ms
+ ✓ packages/llm/src/deepseek/adapter.test.ts (23 tests) 76ms
+ ✓ packages/saga/src/compensation/compensation.test.ts (11 tests) 76ms
+stderr | packages/host/src/boot/plugins/telemetry.test.ts > obs:telemetry · 配置校验 > B
+AH_TELEMETRY_MAX_SPANS 非法时忽略并回落 config
+{"ts":"2026-10-29T17:55:49.403Z","level":"warn","code":"telemetry.env-invalid","value":"abc"}
+{"ts":"2026-10-29T17:55:49.404Z","level":"warn","code":"telemetry.env-invalid","value":"0"}
+{"ts":"2026-10-29T17:55:49.404Z","level":"warn","code":"telemetry.env-invalid","value":"-1"}
+{"ts":"2026-10-29T17:55:49.404Z","level":"warn","code":"telemetry.env-invalid","value":"1.5"}
+
+stderr | packages/host/src/boot/plugins/telemetry.test.ts > obs:telemetry · 装配与派生 > 
+spanLog 目录建不出来 → fail-open（装配不失败）
+{"ts":"2026-10-29T17:55:49.415Z","level":"warn","code":"telemetry.span-log-unavailable","reason":"Error: EEXI
+ST: file already exists, mkdir 'C:\\Users\\37706\\AppData\\Local\\Temp\\bah-telemetry-bad-5dnwrz\\not-a-dir'"}
+{"ts":"2026-10-29T17:55:49.416Z","level":"info","code":"telemetry.span-log-enabled","path":"C:\\Users\\37706\\AppData\\
+Local\\Temp\\bah-telemetry-bad-5dnwrz\\not-a-dir\\span.jsonl"}
+
+stderr | packages/host/src/boot/plugins/telemetry.test.ts > obs:telemetry · span.jsonl 落盘 > 
+[22m相对路径按 run.jsonlDir 解析，一行一条 JSON
+{"ts":"2026-10-29T17:55:49.423Z","level":"warn","code":"telemetry.span-log-relative","resolved":"C:\\Users\\3
+7706\\AppData\\Local\\Temp\\bah-telemetry-i5CnJW\\span.jsonl","base":"C:\\Users\\37706\\AppData\\Local\\Temp\\bah-telem
+etry-i5CnJW"}
+{"ts":"2026-10-29T17:55:49.424Z","level":"info","code":"telemetry.span-log-enabled","path":"C:\\Users\\37706\\AppData\\
+Local\\Temp\\bah-telemetry-i5CnJW\\span.jsonl"}
+
+ ✓ packages/host/src/boot/plugins/telemetry.test.ts (22 tests) 33ms
+ ✓ packages/runtime/src/intent/resolve.test.ts (33 tests) 87ms
+ ✓ packages/test-support/src/session-snapshot/harness.test.ts (11 tests) 106ms
+ ✓ packages/host/src/boot/plugins/memory.test.ts (11 tests) 138ms
+ ✓ packages/host/src/boot/plugins/mobile.test.ts (6 tests) 229ms
+ ✓ packages/host/src/boot/plugins/web/auth/session-store.test.ts (6 tests) 14ms
+ ✓ packages/host/src/boot/plugins/web/handlers/static.test.ts (19 tests) 55ms
+ ✓ packages/host/src/boot/hmr.test.ts (5 tests) 177ms
+ ✓ packages/cli/src/cli/audit-anchors.test.ts (12 tests) 81ms
+ ✓ packages/host/src/boot/plugins/intent.test.ts (20 tests) 109ms
+ ✓ packages/host/src/boot/plugins/approval.test.ts (12 tests) 146ms
+ ✓ packages/knowledge/src/sign.test.ts (11 tests) 59ms
+ ✓ packages/policy/src/error-matrix.test.ts (4 tests) 55ms
+ ✓ packages/memory-store/src/store.test.ts (8 tests) 91ms
+ ✓ scripts/migrate-tenant-layout.test.ts (6 tests) 59ms
+ ✓ packages/host/src/boot/plugins/web/auth/directory.test.ts (8 tests) 79ms
+ ✓ packages/cli/src/cli/audit-replay.test.ts (7 tests) 67ms
+ ✓ packages/bank/src/tools/policy-equivalence.test.ts (5 tests) 38ms
+ ✓ packages/host/src/boot/plugins/verify.test.ts (7 tests) 90ms
+ ✓ packages/bank/src/tools/queries.test.ts (17 tests) 42ms
+ ✓ packages/core/src/context.test.ts (20 tests) 36ms
+ ✓ packages/runtime/src/plan/engine.test.ts (52 tests) 43ms
+ ✓ packages/host/src/boot/plugins/web-rate-limit.test.ts (5 tests) 44ms
+ ✓ packages/util/src/logging.test.ts (8 tests) 20ms
+ ✓ packages/safety/src/sentry/pipeline/pipeline.test.ts (9 tests) 45ms
+ ✓ packages/runtime/src/tools/pipeline.test.ts (34 tests) 56ms
+ ✓ packages/test-support/src/mock-ctx/index.test.ts (8 tests) 33ms
+ ✓ packages/host/src/boot/plugins/model.test.ts (21 tests) 35ms
+ ✓ packages/bank/src/tools/governance.test.ts (18 tests) 48ms
+stderr | packages/host/src/boot/plugins/audit-tenant-mismatch.test.ts > verifyAll · 租户对账 > AR-02-1 链行租户与目录租户不一致 → 报出来，并指到具体条目
+{"ts":"2026-10-29T17:55:51.457Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 C:\\Users\\
+37706\\AppData\\Local\\Temp\\bah-audit-tenant-mix-zqxXug\\no-such-key.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah aud
+it --key`）"}
+
+stderr | packages/host/src/boot/plugins/audit-tenant-mismatch.test.ts > verifyAll · 租户对账 > AR-02-2 本租户的链不误报（历史行没有 tenant 也照样通过）
+{"ts":"2026-10-29T17:55:51.468Z","level":"warn","code":"host.audit-key-missing","reason":"未找到签名私钥 C:\\Users\\
+37706\\AppData\\Local\\Temp\\bah-audit-tenant-mix-wXX92F\\no-such-key.pem；会话链以 unsigned 模式运行（哈希链仍保证连续性，验签需私钥 + `bah aud
+it --key`）"}
+
+ ✓ packages/persistence/src/chain/chain-tenant.test.ts (4 tests) 34ms
+ ✓ packages/host/src/boot/plugins/audit-tenant-mismatch.test.ts (2 tests) 25ms
+ ✓ packages/host/src/boot/plugins.test.ts (14 tests) 65ms
+stderr | packages/host/src/boot/plugins/web/dispatch.test.ts > W16 分派矩阵 · 管理面 > 03 T
+A-44：操作员表坏配置 → 503（fail-closed），非回环仍 403（不泄漏存在性）
+{"ts":"2026-10-29T17:55:51.527Z","level":"error","code":"web.admin-config-invalid","reason":"BAH_ADMIN_OPERAT
+ORS 不是合法 JSON"}
+
+ ✓ packages/host/src/boot/plugins/web/dispatch.test.ts (33 tests) 35ms
+ ✓ packages/policy/src/corpus.test.ts (14 tests) 37ms
+ ✓ packages/runtime/src/system-prompt/sections.test.ts (22 tests) 27ms
+ ✓ packages/cli/src/cli/observe-commands.test.ts (29 tests) 148ms
+ ✓ packages/cli/src/cli/audit-tenant.test.ts (3 tests) 140ms
+ ✓ packages/channels/src/web/project.test.ts (49 tests) 35ms
+ ✓ packages/saga/src/gates/gates.test.ts (9 tests) 28ms
+stderr | packages/bank/src/tools/governance-policy.test.ts > 策略外置 S2 · 审计旁路（I17） > t
+ier/decided 写失败不改判：余额查询仍然成功，只告警
+{"ts":"2026-10-29T17:55:51.975Z","level":"warn","code":"bank.tier-persist-failed","reason":"audit sink down"}
+
+ ✓ packages/bank/src/tools/governance-policy.test.ts (11 tests) 36ms
+ ✓ packages/test-support/src/session-snapshot/fixtures.test.ts (6 tests) 25ms
+ ✓ packages/safety/src/sentry/pipeline/control.test.ts (19 tests) 26ms
+ ✓ packages/host/src/boot/plugins/web/handlers/trace.test.ts (11 tests) 23ms
+ ✓ packages/channels/src/web/snapshot.test.ts (7 tests) 24ms
+ ✓ packages/host/src/boot/plugins/alert-webhook.test.ts (8 tests) 32ms
+ ✓ packages/bank/src/tools/accumulation.test.ts (4 tests) 29ms
+ ✓ packages/safety/src/sentry/pipeline/honesty.test.ts (21 tests) 26ms
+ ✓ packages/bank/src/forge/index.test.ts (7 tests) 22ms
+ ✓ packages/knowledge/src/client.test.ts (15 tests) 29ms
+ ✓ packages/runtime/src/compaction/summarize.test.ts (27 tests) 24ms
+ ✓ packages/test-support/src/session-snapshot/session-log.test.ts (4 tests) 24ms
+ ✓ packages/memory-store/src/review.test.ts (11 tests) 24ms
+ ✓ packages/telemetry/src/recorder.test.ts (18 tests) 30ms
+ ✓ packages/saga/src/templates/templates.test.ts (6 tests) 23ms
+ ✓ packages/bank/src/tools/governance-cases.test.ts (8 tests) 22ms
+ ✓ packages/bank/src/tools/transfers.test.ts (11 tests) 20ms
+ ✓ packages/interaction/src/approval/service.test.ts (27 tests) 20ms
+ ✓ packages/saga/src/probe/probe.test.ts (5 tests) 18ms
+ ✓ packages/bank/src/forge/tenant-salt.test.ts (7 tests) 20ms
+ ✓ packages/policy/src/expr/expr.test.ts (36 tests) 18ms
+ ✓ packages/interaction/src/approval/ticket-ledger.test.ts (22 tests) 18ms
+ ✓ packages/runtime/src/system-prompt/model-turn.test.ts (3 tests) 18ms
+ ✓ packages/bank/src/tools/catalog.test.ts (10 tests) 17ms
+ ✓ packages/telemetry/src/export-json.test.ts (8 tests) 18ms
+ ✓ packages/telemetry/src/metrics.test.ts (21 tests) 20ms
+ ✓ packages/runtime/src/intent/slots.test.ts (25 tests) 13ms
+ ✓ packages/llm/src/mock/adapter.test.ts (23 tests) 16ms
+ ✓ packages/test-support/src/llm-mock-server/index.test.ts (10 tests) 35ms
+ ✓ packages/runtime/src/intent/tool.test.ts (9 tests) 15ms
+ ✓ packages/bank/src/core/ticket.test.ts (15 tests) 21ms
+ ✓ packages/safety/src/sentry/halt.test.ts (23 tests) 21ms
+ ✓ packages/host/src/boot/runtime-context.test.ts (17 tests) 14ms
+ ✓ packages/memory-store/src/vault.test.ts (8 tests) 19ms
+ ✓ packages/cli/src/cli/halt.test.ts (18 tests) 19ms
+ ✓ packages/channels/src/web/adapter.test.ts (16 tests) 13ms
+ ✓ packages/cli/src/cli/sentry.test.ts (22 tests) 18ms
+ ✓ packages/safety/src/sentry/pipeline/fail-closed.test.ts (14 tests) 15ms
+ ✓ packages/bank/src/tools/policy.test.ts (5 tests) 16ms
+ ✓ packages/bank/src/tools/account-ops.test.ts (12 tests) 25ms
+ ✓ packages/bank/src/tools/wealth.test.ts (7 tests) 15ms
+ ✓ packages/llm/src/deepseek/wire.test.ts (18 tests) 13ms
+ ✓ packages/runtime/src/goal/goal.test.ts (12 tests) 12ms
+ ✓ packages/host/src/boot/plugins/web/handoff.test.ts (14 tests) 12ms
+ ✓ packages/safety/src/sentry/pipeline/ingress.test.ts (5 tests) 15ms
+ ✓ packages/telemetry/src/span.test.ts (39 tests) 17ms
+ ✓ packages/saga/src/state-machine/reduce.test.ts (7 tests) 15ms
+ ✓ packages/core/src/plugin.test.ts (17 tests) 15ms
+ ✓ packages/llm/src/demo/router.test.ts (30 tests) 17ms
+ ✓ packages/runtime/src/agent-loop/request.test.ts (14 tests) 13ms
+ ✓ packages/runtime/src/compaction/apply.test.ts (5 tests) 15ms
+ ✓ packages/channels/src/http-adapter.test.ts (9 tests) 12ms
+ ✓ packages/runtime/src/plan/machine.test.ts (4 tests) 14ms
+ ✓ packages/llm/src/demo/index.test.ts (7 tests) 14ms
+ ✓ packages/safety/src/sandbox-policy/policy.test.ts (24 tests) 10ms
+ ✓ packages/telemetry/src/derive.test.ts (29 tests) 13ms
+ ✓ packages/memory-store/src/extract.test.ts (8 tests) 14ms
+ ✓ packages/knowledge/src/tools.test.ts (7 tests) 13ms
+ ✓ packages/eval/src/scenario/runner.mechanism.test.ts (2 tests) 21ms
+ ✓ packages/host/src/boot/plugins/web/handlers/fork.test.ts (8 tests) 12ms
+ ✓ packages/bank/src/tools/verification.test.ts (7 tests) 12ms
+ ✓ packages/safety/src/sentry/pipeline/audit.test.ts (6 tests) 11ms
+ ✓ packages/runtime/src/session/service.test.ts (5 tests) 13ms
+ ✓ packages/runtime/src/system-prompt/reconcile.test.ts (6 tests) 12ms
+ ✓ packages/safety/src/sentry/kernel/rules.test.ts (20 tests) 12ms
+stdout | scripts/tenant-scope.test.ts > selfTest > TA-19-10 内联坏样本全部被抓、合法样本不被误报
+✔ 抓到（1 条）：记忆 API 缺租户实参
+✔ 抓到（2 条）：记忆 API 租户实参写错位
+✔ 抓到（1 条）：host 拼会话路径但没有 tenant
+✔ 抓到（1 条）：从请求头取租户
+✔ 抓到（1 条）：从查询参数取租户
+✔ 抓到（1 条）：新插件偷用 baseRoot（部署根，未拼租户）
+✔ 未误报：合法 listUnits
+✔ 未误报：合法 readScoped
+✔ 未误报：带 tenant 的 host 路径拼接
+✔ 未误报：saga-store 合法使用 baseRoot（白名单）
+自检通过：6 条坏样本全部被抓、4 条合法样本未被误报
+
+ ✓ scripts/tenant-scope.test.ts (13 tests) 11ms
+ ✓ packages/telemetry/src/ids.test.ts (24 tests) 11ms
+ ✓ packages/runtime/src/plan/validate.test.ts (20 tests) 11ms
+ ✓ packages/saga/src/idempotency/idempotency.test.ts (5 tests) 12ms
+ ✓ packages/safety/src/sentry/kernel/detect.test.ts (15 tests) 10ms
+ ✓ packages/runtime/src/session/store.test.ts (4 tests) 17ms
+ ✓ packages/runtime/src/tools/contracts.test.ts (8 tests) 12ms
+ ✓ packages/safety/src/verify/verify.test.ts (13 tests) 11ms
+ ✓ packages/host/src/boot/plugins/web/authz/matrix.test.ts (4 tests) 9ms
+ ✓ packages/host/src/boot/boot.test.ts (13 tests) 16ms
+ ✓ packages/channels/src/web/project.choice.test.ts (9 tests) 12ms
+ ✓ packages/host/src/boot/plugins/web/handlers/metrics.test.ts (6 tests) 12ms
+ ✓ packages/util/src/tool-contract-validate.test.ts (34 tests) 11ms
+ ✓ packages/safety/src/sentry/kernel/pii.test.ts (13 tests) 10ms
+ ✓ packages/safety/src/sentry/pipeline/config.test.ts (10 tests) 10ms
+ ✓ packages/host/src/boot/plugins/web-admin.test.ts (19 tests) 12ms
+ ✓ packages/llm/src/llm/route.test.ts (9 tests) 12ms
+ ✓ packages/telemetry/src/export-chrome.test.ts (9 tests) 9ms
+ ✓ packages/runtime/src/agent-loop/tool-calls.test.ts (9 tests) 11ms
+ ✓ packages/host/src/boot/plugins/knowledge-spans.test.ts (5 tests) 11ms
+ ✓ packages/interaction/src/prompt/tool.test.ts (7 tests) 9ms
+ ✓ packages/persistence/src/credentials/index.test.ts (12 tests) 10ms
+ ✓ packages/bank/src/verify/port.test.ts (7 tests) 10ms
+ ✓ packages/host/src/boot/profile-plugins.test.ts (17 tests) 11ms
+ ✓ packages/host/src/boot/plugins/web/handlers/metrics-extra.test.ts (8 tests) 11ms
+ ✓ packages/runtime/src/intent/recall.test.ts (18 tests) 8ms
+ ✓ packages/llm/src/llm/assemble.test.ts (11 tests) 10ms
+ ✓ packages/test-support/src/fixtures/index.test.ts (6 tests) 9ms
+ ✓ packages/runtime/src/system-prompt/registry.test.ts (8 tests) 9ms
+ ✓ packages/safety/src/sentry/kernel/trace.test.ts (10 tests) 9ms
+ ✓ packages/host/src/boot/plugins/web/auth/identity.test.ts (7 tests) 8ms
+ ✓ packages/knowledge/src/contract.test.ts (7 tests) 10ms
+ ✓ packages/bank/src/tools/tier.test.ts (24 tests) 9ms
+ ✓ packages/host/src/boot/plugins/web/handlers/handoff-message.test.ts (9 tests) 9ms
+ ✓ packages/safety/src/sentry/pipeline/breaker.test.ts (5 tests) 9ms
+ ✓ packages/safety/src/sentry/kernel/normalize.test.ts (15 tests) 8ms
+ ✓ packages/host/src/boot/plugins/web/listen.test.ts (9 tests) 9ms
+ ✓ packages/host/src/boot/plugins/web/auth/throttle.test.ts (9 tests) 9ms
+ ✓ packages/runtime/src/system-prompt/history-cache.test.ts (4 tests) 11ms
+ ✓ packages/saga/src/state-machine/cas.test.ts (2 tests) 9ms
+ ✓ packages/runtime/src/agent-loop/inbox.test.ts (13 tests) 9ms
+ ✓ packages/runtime/src/todo/todo.test.ts (12 tests) 9ms
+ ✓ packages/bank/src/verify/index.test.ts (6 tests) 9ms
+ ✓ packages/llm/src/llm/repair.test.ts (9 tests) 8ms
+ ✓ packages/policy/src/schema.test.ts (15 tests) 9ms
+ ✓ packages/channels/src/web/amount.test.ts (15 tests) 8ms
+ ✓ packages/safety/src/sentry/pipeline/ticketing.test.ts (4 tests) 9ms
+ ✓ packages/host/src/boot/config.test.ts (10 tests) 8ms
+ ✓ packages/runtime/src/session/derive.test.ts (10 tests) 13ms
+ ✓ packages/util/src/jsonl/codec.test.ts (8 tests) 7ms
+ ✓ packages/saga/src/alert/sink.test.ts (4 tests) 7ms
+ ✓ packages/cli/src/cli/observe-http.test.ts (8 tests) 7ms
+ ✓ packages/host/src/boot/plugins/web/config.test.ts (14 tests) 8ms
+ ✓ packages/bank/src/tools/compute.test.ts (10 tests) 8ms
+ ✓ packages/bank/src/forge/risk.test.ts (9 tests) 6ms
+ ✓ packages/core/src/scope.test.ts (4 tests) 7ms
+ ✓ packages/host/src/boot/plugins/web/authz/authorize.test.ts (13 tests) 7ms
+ ✓ packages/runtime/src/policy/ticket.test.ts (8 tests) 8ms
+ ✓ packages/telemetry/src/tree.test.ts (10 tests) 7ms
+ ✓ packages/llm/src/llm/registry.test.ts (8 tests) 8ms
+ ✓ packages/bank/src/core/verify-gateway.test.ts (5 tests) 6ms
+ ✓ packages/host/src/boot/plugins/persistence-tenant.test.ts (4 tests) 9ms
+ ✓ packages/safety/src/sentry/kernel/budget.test.ts (9 tests) 7ms
+ ✓ packages/interaction/src/prompt/candidates.test.ts (8 tests) 7ms
+ ✓ packages/saga/src/settings.test.ts (6 tests) 9ms
+ ✓ packages/util/src/tenant.test.ts (13 tests) 7ms
+ ✓ packages/host/src/boot/plugins/log.test.ts (2 tests) 8ms
+ ✓ packages/persistence/src/jsonl/redact.test.ts (5 tests) 8ms
+ ✓ packages/util/src/principal.test.ts (10 tests) 6ms
+ ✓ packages/host/src/boot/plugins/web/handlers/metrics-handoff.test.ts (10 tests) 7ms
+ ✓ packages/telemetry/src/prometheus.test.ts (6 tests) 7ms
+ ✓ packages/test-support/src/assertions/index.test.ts (6 tests) 6ms
+ ✓ packages/safety/src/sentry/kernel/breaker.test.ts (6 tests) 6ms
+ ✓ packages/host/src/boot/plugins/web/trace.test.ts (8 tests) 9ms
+ ✓ packages/safety/src/sentry/pipeline/numeric.test.ts (7 tests) 7ms
+ ✓ packages/bank/src/core/time.test.ts (9 tests) 7ms
+ ✓ packages/host/src/boot/plugins/web/csrf.test.ts (6 tests) 5ms
+ ✓ packages/interaction/src/approval/headless-responder.test.ts (7 tests) 7ms
+ ✓ packages/bank/src/tools/identity-tenant.test.ts (5 tests) 5ms
+ ✓ packages/runtime/src/agent-loop/rollback.test.ts (2 tests) 7ms
+ ✓ packages/host/src/boot/plugins/web/auth/static.test.ts (6 tests) 5ms
+ ✓ packages/core/src/service.test.ts (7 tests) 6ms
+ ✓ packages/llm/src/llm/usage.test.ts (6 tests) 6ms
+ ✓ packages/saga/src/coordinator/commit.test.ts (5 tests) 7ms
+ ✓ packages/host/src/boot/plugins/web/metrics-tenant.test.ts (2 tests) 6ms
+ ✓ packages/llm/src/mock/script.test.ts (7 tests) 6ms
+ ✓ packages/util/src/util/canonical.test.ts (7 tests) 6ms
+ ✓ packages/saga/src/state-machine/index.test.ts (3 tests) 6ms
+ ✓ packages/knowledge/src/fixture.test.ts (3 tests) 5ms
+ ✓ packages/runtime/src/tools/recovery.test.ts (3 tests) 5ms
+ ✓ packages/host/src/boot/plugins/web/auth/config.test.ts (6 tests) 6ms
+ ✓ packages/saga/src/event-modes.test.ts (1 test) 6ms
+ ✓ packages/host/src/boot/plugins/web/sse.test.ts (6 tests) 6ms
+ ✓ packages/eval/src/scenario/validate.test.ts (2 tests) 9ms
+ ✓ packages/host/src/boot/plugins/web-auth.test.ts (8 tests) 6ms
+ ✓ packages/safety/src/sentry/pipeline/state.test.ts (4 tests) 6ms
+ ✓ packages/telemetry/src/usage.test.ts (4 tests) 6ms
+ ✓ packages/cli/src/dump-config.test.ts (2 tests) 5ms
+ ✓ packages/channels/src/web/audit.test.ts (4 tests) 6ms
+ ✓ packages/llm/src/llm/turns.test.ts (13 tests) 6ms
+ ✓ packages/channels/src/web/follow.test.ts (7 tests) 6ms
+ ✓ packages/runtime/src/agent-loop/interrupt.test.ts (5 tests) 6ms
+ ✓ packages/runtime/src/tools/guard.test.ts (4 tests) 5ms
+ ✓ packages/runtime/src/plan/topo.test.ts (6 tests) 6ms
+ ✓ packages/channels/src/mobile/adapter.test.ts (3 tests) 5ms
+ ✓ packages/host/src/boot/plugins/alert-stats.test.ts (4 tests) 5ms
+ ✓ packages/host/src/boot/plugins/web-operator.test.ts (4 tests) 5ms
+ ✓ packages/memory-store/src/adapters/bank-query.test.ts (5 tests) 6ms
+ ✓ packages/runtime/src/tools/registry.test.ts (4 tests) 7ms
+ ✓ packages/saga/src/registration.test.ts (2 tests) 5ms
+ ✓ packages/bank/src/tools/result-schemas.test.ts (4 tests) 5ms
+ ✓ packages/safety/src/sentry/kernel/tool-glob.test.ts (6 tests) 5ms
+ ✓ packages/bank/src/core/model.test.ts (4 tests) 4ms
+ ✓ packages/runtime/src/session/buffer.test.ts (2 tests) 4ms
+ ✓ packages/safety/src/sentry/pipeline/im.test.ts (3 tests) 4ms
+ ✓ packages/host/src/boot/auth-compat.test.ts (5 tests) 4ms
+ ✓ packages/eval/src/metrics/aggregate.test.ts (4 tests) 5ms
+ ✓ packages/telemetry/src/process.test.ts (1 test) 3ms
+ ✓ packages/cli/src/cli/tenant.test.ts (5 tests) 5ms
+ ✓ packages/host/src/boot/test-run-context.test.ts (3 tests) 4ms
+ ✓ packages/runtime/src/plan/events.test.ts (1 test) 4ms
+ ✓ packages/interaction/src/approval/events.test.ts (1 test) 3ms
+ ✓ packages/host/src/boot/plugins/web/http.test.ts (3 tests) 3ms
+ ✓ packages/bank/src/tools/identity.test.ts (4 tests) 4ms
+ ✓ packages/eval/src/adversarial/expected.test.ts (3 tests) 10ms
+ ✓ packages/host/src/plugin-manager/index.test.ts (2 tests) 3ms
+ ✓ packages/knowledge/src/events.test.ts (1 test) 3ms
+ ✓ packages/eval/src/baseline.test.ts (2 tests) 6ms
+ ✓ packages/host/src/boot/plugins/web/slo.test.ts (2 tests) 4ms
+ ✓ packages/cli/src/cli/command.test.ts (5 tests) 5ms
+ ✓ packages/host/src/boot/plugins/agent.test.ts (2 tests) 4ms
+ ✓ packages/runtime/src/session/types.test.ts (1 test) 3ms
+ ✓ packages/knowledge/src/service.test.ts (1 test) 3ms
+ ✓ packages/cli/src/cli/command.exhaustive.test.ts (1 test) 6ms
+ ✓ packages/cli/src/main.smoke.test.ts (5 tests) 46829ms
+   ✓ CLI 入口（进程级冒烟） > --help：退出码 0、stdout 是帮助、stderr 干净  1423ms
+   ✓ CLI 入口（进程级冒烟） > --profile headless --dump-config：真实 profile 加载成功、生效树带来源层  1859ms
+   ✓ CLI 入口（进程级冒烟） > --profile web --dump-config：web profile 起得来（W04 TC-08）  3136ms
+   ✓ CLI 入口（进程级冒烟） > 三个 profile 的审批配置实测值（W04 TC-09）  21762ms
+   ✓ CLI 入口（进程级冒烟） > W08 TC-08：6 个 headless patch 变体全部可载入（trace.sink 继承）  18646ms
+
+ Test Files  294 passed (294)
+      Tests  3360 passed (3360)
+   Start at  01:55:40
+   Duration  47.83s (transform 35.31s, setup 0ms, collect 161.99s, tests 99.43s, environment 85ms, prepare 122.96s)
+
