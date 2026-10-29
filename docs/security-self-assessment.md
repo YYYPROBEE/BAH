@@ -248,7 +248,7 @@ saga/residual-recorded、saga/manually-closed、approval/decided
 
 | 面 | 事实 | 边界 |
 |---|---|---|
-| 进入 | `POST /api/handoff`（Bearer + CSRF）→ 落 `handoff/requested`（`appendDomain`，不进事件表冻结键）→ 之后 `/api/turn` 一律 **409 `handoff-active`** | 409 是**真拒绝**：消息不入 inbox（用例钉住 `sent === []`） |
+| 进入 | `POST /api/handoff`（Bearer + CSRF）→ 落 `handoff/requested`（`appendDomain`，不进事件表冻结键）→ 之后 `/api/turn` **202 `accepted=queued-for-operator`**（落会话日志、不驱动模型） | 202 不是拒绝也不是驱动：消息出现在会话流但**不进模型 inbox**（用例钉住 `sent === []`）；`/api/session/fork` 仍 409 |
 | 人工侧读取 | `GET /api/handoff` 返回摘要：`turns` / `lastSeq` / 待应答票据数 / **最近 6 条原话**（逐条截断 200 字，排除 `runtime-context`） | 持 Web 凭证即可读——单用户部署成立；多租户要按租户分区（D4） |
 | 交回 | `POST /api/handoff/resume`（`operator?`）→ 落 `handoff/resumed`，状态立刻清空，`/api/turn` 恢复 202 | 未接管时交回 → **409**，不做"幂等成功"（交回必须是真的状态转移） |
 | 与审批的区别 | 审批是"放行一次动作"，接管是"把会话控制权交出去"：接管期间模型完全不被驱动 | 不要拿审批弹窗冒充接管 |

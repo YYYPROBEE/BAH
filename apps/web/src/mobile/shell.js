@@ -160,6 +160,9 @@ export function dispatchFrame(frame, ctx) {
       // 接管状态帧（`HandoffFrame`）：**不进会话流**（落进 default 会渲染成"未知帧：handoff"）。
       // 横幅由 `onFrame` 的实时帧与启动的 `GET /api/handoff` 负责，快照重放不逐帧改横幅。
       return undefined
+    case 'handoff-warn':
+      // 等待超时提醒（`HandoffWarnFrame`）：同样不进会话流；实时到达时由 `onFrame` 提示。
+      return undefined
     default:
       return ctx.feed.appendUnknown(frame)
   }
@@ -321,6 +324,13 @@ export function createMobileShell(deps) {
   let handoffActive = false
   let handoffApplied = false
 
+  /** 等待超时提醒：只给一条可见文案，不重画横幅（横幅描述状态，提醒描述已等多久）。 */
+  function applyHandoffWarn(frame) {
+    const waitedMs = Number(frame?.waitedMs ?? 0)
+    const minutes = Math.max(1, Math.round(waitedMs / 60_000))
+    composer?.showError(`人工接管已等待 ${String(minutes)} 分钟，坐席尚未处理。`, true)
+  }
+
   /** `handoff` 帧的落点：横幅跟着服务端事实走，不往会话流里放"未知帧"。 */
   function applyHandoffFrame(frame) {
     const active = frame?.active === true
@@ -419,6 +429,7 @@ export function createMobileShell(deps) {
     // 只认**实时**到达的 handoff 帧：历史里的 handoff/requested 不能把重启后的横幅点亮
     // （接管状态是进程内的，启动真相来自 GET /api/handoff）。快照里的 handoff 帧不经过这里。
     if (frame.kind === 'handoff') applyHandoffFrame(frame)
+    if (frame.kind === 'handoff-warn') applyHandoffWarn(frame)
   }
 
   function onStatus(status) {

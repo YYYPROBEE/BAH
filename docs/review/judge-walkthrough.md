@@ -50,7 +50,7 @@
 |---|---|---|---|---|---:|
 | 模糊表达 / 省略上下文 | 压缩摘要自带"每轮要点"，指代按摘要补全；摘要不宣告失忆 | `docs/plans/…` 修复回执见 `PROGRESS.md` §96.12；`packages/runtime/src/compaction/summarize.ts` | 实体槽位是**静态**（无运行时写入方），复杂指代靠摘要文本而非结构化槽位 | 修：见缺口报告 A1；赛前按"方案 A 承认静态"处理即可 | 3 |
 | 复杂任务 DAG | `plan:dag` 引擎（拓扑、并发、超时、dry-run、可选节点） | `packages/runtime/src/plan/engine.ts`；`profiles/plan/patch.yml` | 业务样例薄（见 1.1 末行） | **建议补一份样例** | 3 |
-| 中断 / 回退 / 人工接管 | turn 级取消（各阶段边界明确）；回退分叉；审批拒绝走人工；**运行时人工接管平面已落地（C5）**：`POST /api/handoff` 接管 → `/api/turn` 一律 409（不入 inbox）→ `GET /api/handoff` 会话摘要 → `POST /api/handoff/resume` 交回 | `docs/agent-loop.md` §5、§7；`docs/review/judge-walkthrough.md` §2 | 接管状态**在进程内**（重启回到未接管）、**不是**坐席工作台（无排队 / 工单 / SLA）；回退靠 fork 重放，不是交互式"退回一步" | **已做**（C5，2026-10-27 更新，8 条单测 + Web 端点）：残余边界照实说，不宣称坐席级接管 | 4 |
+| 中断 / 回退 / 人工接管 | turn 级取消（各阶段边界明确）；回退分叉；审批拒绝走人工；**运行时人工接管平面已落地（C5）**：`POST /api/handoff` 接管 → `/api/turn` **202 落账但不驱动模型**（消息可见、模型不动）→ `GET /api/handoff` 会话摘要 → 坐席工作台 `POST /api/handoff/resume` 交回 | `docs/agent-loop.md` §5、§7；`docs/review/judge-walkthrough.md` §2 | 接管状态**在进程内**（重启回到未接管）、**不是**坐席工作台（无排队 / 工单 / SLA）；回退靠 fork 重放，不是交互式"退回一步" | **已做**（C5，2026-10-29 更新，Web 端点 + 移动壳横幅/入队提示）：残余边界照实说，不宣称坐席级接管 | 4 |
 
 ## 2. plan 三条硬约束（逐条给证据与"能否判红"）
 
