@@ -21,9 +21,12 @@
 
 | 时机 | 机制 | 跑什么 | 失败后果 |
 |---|---|---|---|
-| 提交前 | `.githooks/pre-commit` | `pnpm gate`（27 项） | 拒绝提交 |
-| 推送前 | `.githooks/pre-push` | `pnpm check`（10 步） | 拒绝推送 |
+| 提交前 | `.githooks/pre-commit` | `pnpm gate`（50 项） | 拒绝提交 |
+| 推送前 | `.githooks/pre-push` | `pnpm check`（14 步） | 拒绝推送 |
 | 推送后 | `.github/workflows/ci.yml` / `security.yml` | `pnpm check:ci`（严格模式）+ npm audit（pip-audit 先收集基线） | 记录为红色 run |
+
+项数与步数以 `facts.md` 为准（`verify-facts` 重算门禁数 = `scripts/verify-*.ts` 文件数）；
+新增门禁必须同批改 `facts.md`、`docs/facts-sources.md` 与上表，否则 `verify-facts` 红。
 
 钩子通过 `core.hooksPath` 生效（`pnpm install` 时的 `prepare` 会自动设置，也可手动
 `git config core.hooksPath .githooks`）。
