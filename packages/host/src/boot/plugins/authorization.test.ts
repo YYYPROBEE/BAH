@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { boot, type BootOptions, type BootedApp, type ProfileSummary } from '../boot.ts'
 import { createCatalog } from './index.ts'
+import { MERCHANT_SERVICE } from './merchant.ts'
 import { PLAN_WAKE_SERVICE } from './plan.ts'
 import type { Bundle, ConfigLayer, PluginRow } from '../profile-plugins.ts'
 import { testRunContext } from '../test-run-context.ts'
@@ -54,6 +55,7 @@ const ROWS: readonly PluginRow[] = [
   { id: 'bank:saga-audit' },
   { id: 'bank:saga-bridge', config: { enabled: false } },
   { id: 'fact:store', config: { enabled: true } },
+  { id: 'bank:merchant', config: { enabled: true, fault: 'none' } },
   {
     id: 'plan:dag',
     config: {
@@ -264,4 +266,76 @@ describe('重启补跑（D1 的实测证据）', () => {
     await second.app.dispose('test-done')
     rmSync(dir, { recursive: true, force: true })
   }, 15_000)
+})
+
+
+describe('商户腿（G4）：搜索闭包 + 缺货换店', () => {
+  let app: BootedApp | undefined
+
+  afterEach(async () => {
+    if (app !== undefined) await app.dispose('test-done')
+  })
+
+  it('搜索结果才能下单；没搜过的 offerId 一律拒（引用闭包）', async () => {
+    app = (await bootHost()).app
+    const searched = (await callTool(app, 'merchant_search', { category: 'cake' })) as {
+      offers: readonly { offerId: string }[]
+    }
+    expect(searched.offers.length).toBeGreaterThan(0)
+
+    const service = app.ctx.get(MERCHANT_SERVICE)
+    const ok = service.fulfil('s-authz', searched.offers[0]!.offerId, 100_000)
+    expect(ok.status).toBe('ok')
+
+    const denied = service.fulfil('s-authz', 'o-flower-a1', 100_000)
+    expect(denied.status).toBe('failed')
+    expect(denied.attempts[0]).toMatchObject({ code: 'offer-not-searched' })
+  })
+
+  it('缺货 ⇒ 自动换一家（fallback，最多两家）', async () => {
+    const stockout = ROWS.map((row) =>
+      row.id === 'bank:merchant' ? { ...row, config: { enabled: true, fault: 'stockout' } } : row,
+    )
+    app = (await bootHost(undefined, stockout)).app
+    const searched = (await callTool(app, 'merchant_search', { category: 'flower' })) as {
+      offers: readonly { offerId: string; merchantId: string }[]
+    }
+    // 售罄开关针对 m-flower-a：先从搜索结果里选它家的商品（演示"选到这家、下单才发现卖完"）
+    const picked = searched.offers.find((offer) => offer.merchantId === 'm-flower-a')
+    expect(picked).toBeDefined()
+    const service = app.ctx.get(MERCHANT_SERVICE)
+    const result = service.fulfil('s-authz', picked!.offerId, 100_000)
+    expect(result.status).toBe('fallback')
+    expect(result.attempts).toHaveLength(2)
+    expect(result.order).toBeDefined()
+  })
+
+  it('涨价超预算 ⇒ 不成交（不擅自加价）', async () => {
+    const priceUp = ROWS.map((row) =>
+      row.id === 'bank:merchant' ? { ...row, config: { enabled: true, fault: 'price-up' } } : row,
+    )
+    app = (await bootHost(undefined, priceUp)).app
+    const searched = (await callTool(app, 'merchant_search', { category: 'cake' })) as {
+      offers: readonly { offerId: string }[]
+    }
+    const service = app.ctx.get(MERCHANT_SERVICE)
+    // 预算只有 100 元：涨价后最便宜的蛋糕也超预算
+    const result = service.fulfil('s-authz', searched.offers[0]!.offerId, 10_000)
+    expect(result.status).toBe('failed')
+    expect(result.attempts.some((attempt) => attempt.code === 'over-budget')).toBe(true)
+  })
+
+  it('arm 带 merchantOfferId ⇒ wake 的条目里有商户履约结果', async () => {
+    app = (await bootHost()).app
+    const searched = (await callTool(app, 'merchant_search', { category: 'cake' })) as {
+      offers: readonly { offerId: string }[]
+    }
+    await callTool(app, 'plan_arm', {
+      ...PLAN_ARGS,
+      merchantOfferId: searched.offers[0]!.offerId,
+    })
+    const report = await app.ctx.get(PLAN_WAKE_SERVICE).wake({ at: NOW, source: 'cli' })
+    expect(report.entries[0]?.status).toBe('executed')
+    expect(report.entries[0]?.merchant?.status).toBe('ok')
+  })
 })

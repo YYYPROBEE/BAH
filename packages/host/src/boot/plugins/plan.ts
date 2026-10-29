@@ -85,6 +85,7 @@ import type { HostPlugin, ValidatedRow } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
 import { BANK_BALANCE_PROBE } from './bank-tools.ts'
 import { FACT_SERVICE, type FactStore } from './fact.ts'
+import { MERCHANT_SERVICE, type MerchantFulfilment } from './merchant.ts'
 import {
   bootError,
   readBoolean,
@@ -361,6 +362,8 @@ export interface PlanWakeEntry {
   readonly code?: string
   /** 失守条件明细（`expected` / `actual`）。 */
   readonly failed?: readonly { readonly kind: string; readonly expected: string; readonly actual: string }[]
+  /** 商户腿结果（计划带 `merchant` 且银行腿成功时存在）。 */
+  readonly merchant?: MerchantFulfilment
   /** 执行摘要（`executed` 时存在）。 */
   readonly summary?: {
     readonly status: string
@@ -995,11 +998,31 @@ export const planPlugin: HostPlugin<PlanSettings> = {
               const summary = await api.run(item.plan, {
                 authorization: { kind: 'window', ref: item.windowId, digest: verdict.digest },
               })
+              // 商户腿：银行腿成功后串行履约（不进 DAG；失败不静默）
+              let merchantLeg: MerchantFulfilment | undefined
+              if (item.merchant !== undefined) {
+                let merchantService
+                try {
+                  merchantService = ctx.get(MERCHANT_SERVICE)
+                } catch {
+                  merchantService = undefined
+                }
+                merchantLeg =
+                  merchantService === undefined
+                    ? {
+                        status: 'failed',
+                        attempts: [
+                          { offerId: item.merchant.offerId, ok: false, code: 'merchant-service-missing' },
+                        ],
+                      }
+                    : merchantService.fulfil(String(session.sessionId), item.merchant.offerId, item.budgetCents)
+              }
               entries.push({
                 ...base,
                 status: 'executed',
                 digest: verdict.digest,
                 inputs: verdict.inputs,
+                ...(merchantLeg === undefined ? {} : { merchant: merchantLeg }),
                 summary: {
                   status: summary.status,
                   succeeded: summary.succeeded,
@@ -1008,19 +1031,11 @@ export const planPlugin: HostPlugin<PlanSettings> = {
                   durationMs: summary.durationMs,
                 },
               })
-              const decision = deriveNotify(
-                notifyHistory,
-                { priority: summary.failed > 0 || summary.blocked > 0 ? 'alert' : 'exec', at: now, key },
-                DEFAULT_NOTIFY_BUDGET,
-              )
+              const merchantFailed = merchantLeg !== undefined && merchantLeg.status !== 'ok'
+              const priority = summary.failed > 0 || summary.blocked > 0 || merchantFailed ? 'alert' : 'exec'
+              const decision = deriveNotify(notifyHistory, { priority, at: now, key }, DEFAULT_NOTIFY_BUDGET)
               notified.push({ key, send: decision.send, channel: decision.channel, reason: decision.reason })
-              if (decision.send) {
-                notifyHistory.push({
-                  priority: summary.failed > 0 || summary.blocked > 0 ? 'alert' : 'exec',
-                  at: now,
-                  key,
-                })
-              }
+              if (decision.send) notifyHistory.push({ priority, at: now, key })
             } catch (error) {
               entries.push({
                 ...base,
@@ -1182,6 +1197,10 @@ export const planPlugin: HostPlugin<PlanSettings> = {
               description: '授权档（缺省 standard）；红级动作永不无人执行',
             },
             budgetYuan: { type: 'number', description: '预算上限（元）' },
+            merchantOfferId: {
+              type: 'string',
+              description: '商户腿（可选）：merchant_search 返回的 offerId；只允许本会话搜过的商品',
+            },
             dueAt: { type: 'string', description: '到期时刻（ISO 8601，如 2026-10-22T10:00:00+08:00）' },
             expiresAt: { type: 'string', description: '窗口过期时刻（ISO 8601；可选）' },
             recurrence: {
@@ -1273,6 +1292,9 @@ export const planPlugin: HostPlugin<PlanSettings> = {
               plan,
               armedAt: clock(),
               state: 'armed',
+              ...(args['merchantOfferId'] === undefined
+                ? {}
+                : { merchant: { offerId: String(args['merchantOfferId']) } }),
             }
             armedStore.arm(armed)
             return armed

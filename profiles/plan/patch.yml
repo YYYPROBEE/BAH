@@ -78,3 +78,8 @@
 - id: plan:scheduler
   use: plan:scheduler
   config: { enabled: true, catchUpOnBoot: true }
+
+# G4（跨场景主动能力）：mock 商户域。资金腿仍走 transfer_create；商户腿只回执货物。
+- id: bank:merchant
+  use: bank:merchant
+  config: { enabled: true, fault: none }

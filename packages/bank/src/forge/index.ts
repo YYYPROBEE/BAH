@@ -524,3 +524,6 @@ function pick<T>(random: () => number, items: readonly T[]): T {
   }
   return value
 }
+
+// 商户域（跨场景主动能力 G4）：mock 商户种子 + 搜索 + 下单（资金腿仍走 transfer_create）
+export * from './merchants.ts'

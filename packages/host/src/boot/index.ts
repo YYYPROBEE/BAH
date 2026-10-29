@@ -30,6 +30,7 @@ export {
   agentPlugin,
   echoPlugin,
   factPlugin,
+  merchantPlugin,
   modelPlugin,
   persistencePlugin,
   planPlugin,
@@ -51,6 +52,7 @@ export {
   type PlanWakeSource,
 } from './plugins/index.ts'
 export { FACT_SERVICE, type FactSettings } from './plugins/fact.ts'
+export { MERCHANT_SERVICE, type MerchantFulfilment, type MerchantService } from './plugins/merchant.ts'
 export { schedulerPlugin as planSchedulerPlugin } from './plugins/scheduler.ts'
 export { DEFAULT_ROOT, SESSION_FILES, tenantRootOf, type SessionFiles } from './plugins/persistence.ts'
 // 测试夹具：`RunContext` 工厂（租户与鉴权 01 TA-11）。与 `RunContext` 类型同包，

@@ -167,6 +167,14 @@
         "enabled": true,
         "catchUpOnBoot": true
       }
+    },
+    {
+      "id": "bank:merchant",
+      "use": "bank:merchant",
+      "config": {
+        "enabled": true,
+        "fault": "none"
+      }
     }
   ],
   "model": {

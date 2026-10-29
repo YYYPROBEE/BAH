@@ -161,6 +161,7 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       // G2/G3：到期唤醒驱动器与生活事实库（同样只登记不默认装配）
       'plan:scheduler',
       'fact:store',
+      'bank:merchant',
       // C4 跨会话记忆：同样只登记不默认装配（记忆会改变模型输入，由 profile 显式开）
       'bah:memory-store',
       // 03 单：意图平面与追问。两行按序装配（prompt:ask 取 intent:plane 的会话状态）
