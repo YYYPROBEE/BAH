@@ -10,6 +10,7 @@ import type {
   AccountId,
   BankLimits,
   BillAnomaly,
+  Card,
   CardId,
   Holding,
   PayeeBinding,
@@ -178,7 +179,7 @@ export interface PurchaseReq {
  * 业务能力面（施工单 07 §2）。
  *
  * 读操作不需要票据；**写操作全部强制 `TicketRef`**（授权进领域边界）。
- * card / subscription 的读写随施工单 08 的工具对齐补齐（本阶段只落九实体与造数）。
+ * card：list / reportLost 已接；申请/提额/限额未加。subscription：只有 cancel。
  */
 /** 挂失银行卡的结果（ADR-0003）。 */
 export interface CardLostResult {
@@ -214,6 +215,15 @@ export interface BankCoreProvider {
   createTransfer(req: TransferReq, ticket: TicketRef): Promise<TransferResult>
   /** 购买理财（写；票据门禁同上）。 */
   purchaseWealth(req: PurchaseReq, ticket: TicketRef): Promise<Holding>
+
+  /**
+   * 列出用户名下全部卡片（只读）。
+   *
+   * 归属判定走账户：`Card` 没有 `userId`，卡的属主是它挂的账户（`core/model.ts:160-169`）。
+   * 不认识的用户返回 `[]`（"没有卡"是业务结果，不是故障）；实现必须返回副本，
+   * 调用方改字段不能污染账本。
+   */
+  listCards(userId: UserId): Promise<Card[]>
 
   /** 挂失银行卡（写；红档，票据门禁同上）。 */
   reportCardLost(userId: UserId, cardId: CardId): Promise<CardLostResult>

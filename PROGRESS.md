@@ -301,7 +301,7 @@
 ### 96.40.4 验证与证据
 
 - `pnpm typecheck` / `pnpm lint` / `pnpm build` 绿。
-- `pnpm test` **294 文件 / 3333 例**；`pnpm test:web` **27 文件 / 365 例**；`pnpm test:snapshot` **9 文件 / 39 例**；`pnpm eval:unit` **22 文件 / 158 例**。
+- `pnpm test` **294 文件 / 3337 例**；`pnpm test:web` **27 文件 / 375 例**；`pnpm test:snapshot` **9 文件 / 39 例**；`pnpm eval:unit` **22 文件 / 158 例**。
 - `pnpm gate` **50/50**；`tenant-matrix` **8/8**；`verify-tenant-scope` 6 坏样本全抓 / 4 合法不误报；`verify-tenant-isolation` 4 坏样本全抓 / 3 合法不误报；`pnpm handoff:demo` 闭环通过。
 - 证据目录 `docs/evidence/2026-10-29-integration/`（本单新增 02–09 与 `SHA256SUMS`）。
 

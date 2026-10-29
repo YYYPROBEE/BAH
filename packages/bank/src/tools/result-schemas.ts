@@ -37,12 +37,36 @@ const ACCOUNT_VIEW: ToolSchema = {
   },
 }
 
+/** 卡片视图（`CardView`）。 */
+const CARD_VIEW: ToolSchema = {
+  type: 'object',
+  required: [
+    'cardId',
+    'accountId',
+    'tail',
+    'type',
+    'status',
+    'dailyLimitCents',
+    'monthlyLimitCents',
+  ],
+  properties: {
+    cardId: { type: 'string' },
+    accountId: { type: 'string' },
+    tail: { type: 'string' },
+    type: { type: 'string' },
+    status: { type: 'string' },
+    dailyLimitCents: { type: 'integer' },
+    monthlyLimitCents: { type: 'integer' },
+  },
+}
+
 export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSchema>>> = {
   account_list: {
     type: 'object',
-    required: ['accounts', 'availableTotalCents'],
+    required: ['accounts', 'cards', 'availableTotalCents'],
     properties: {
       accounts: { type: 'array', items: ACCOUNT_VIEW },
+      cards: { type: 'array', items: CARD_VIEW },
       availableTotalCents: { type: 'integer' },
     },
   },

@@ -145,6 +145,7 @@ describe('T-TOOLS-009 presenter 纯度', () => {
           availableCents: 1_234_567,
         },
       ],
+      cards: [],
       availableTotalCents: 1_234_567,
     }
     const balance: BalanceResult = {

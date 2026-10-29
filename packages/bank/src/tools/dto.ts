@@ -16,6 +16,8 @@ import type {
   AccountType,
   BillAnomaly,
   CardId,
+  CardStatus,
+  CardType,
   HoldingId,
   PayeeBinding,
   ProductId,
@@ -44,6 +46,8 @@ export interface AccountView {
 /** `account_list` 的结果。 */
 export interface AccountsResult {
   readonly accounts: readonly AccountView[]
+  /** 卡清单。顺序 = 账本顺序；无卡时为空数组，不是 `undefined`。 */
+  readonly cards: readonly CardView[]
   /** 全部可用余额合计（分）。 */
   readonly availableTotalCents: number
 }
@@ -237,12 +241,17 @@ export interface VerifyResult {
   readonly lockedUntil?: number
 }
 
-/** 卡片（`card.list` 的 P1 视图；08 只落 DTO，Provider 方法随施工单 08 的工具对齐补齐）。 */
+/** 卡片（`account_list` 的 cards[] 元素；字段对齐 04 卷 §7 的 Card 实体）。 */
 export interface CardView {
   readonly cardId: CardId
+  readonly accountId: AccountId
   readonly tail: string
-  readonly type: 'physical' | 'virtual'
-  readonly status: 'normal' | 'frozen' | 'lost'
+  readonly type: CardType
+  readonly status: CardStatus
+  /** 单笔/日累计限额（分）；展示用，判定仍以 core 为准。 */
+  readonly dailyLimitCents: number
+  /** 月度限额（分）。当前账本不参与判定（`core/model.ts:168` 零读取），只作展示。 */
+  readonly monthlyLimitCents: number
 }
 
 /** 订阅视图（P1）。 */

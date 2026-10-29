@@ -11,7 +11,7 @@ import { BahError } from '@bah/util'
 
 import type { ToolDefinition, ToolExecContext } from '@bah/core'
 
-import type { Account, Transaction, TxnCategory } from '../core/index.ts'
+import type { Account, Card, Transaction, TxnCategory } from '../core/index.ts'
 import { bankIds, formatYuan, PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX, toPct } from '../core/index.ts'
 import { DAY_MS, monthKey, periodRange, previousMonth } from '../core/time.ts'
 import { requireAccount, requireUserId, tailOf } from './accounts.ts'
@@ -26,11 +26,21 @@ import type {
   BillCategoryLine,
   BillPayeeLine,
   BillReportResult,
+  CardView,
   TxnQueryResult,
   TxnView,
 } from './dto.ts'
 import { parsePeriod } from './inputs.ts'
-import { analysisCard, accountsCard, balanceCard, billAnalysisCard, billReportCard, txnsCard } from './presenters.ts'
+import {
+  analysisCard,
+  accountsCard,
+  balanceCard,
+  billAnalysisCard,
+  billReportCard,
+  CARD_STATUS_LABEL,
+  CARD_TYPE_LABEL,
+  txnsCard,
+} from './presenters.ts'
 import { specOf } from './specs.ts'
 import { formatInstant, parseInstant, shiftMonth } from './time.ts'
 import type { BankToolDeps } from './types.ts'
@@ -57,9 +67,13 @@ export function createAccountListTool(deps: BankToolDeps): ToolDefinition<unknow
     tier: spec.tier,
     execute: async (_args, ctx) => {
       const userId = requireUserId(deps, ctx.sessionId)
-      const accounts = await deps.core.listAccounts(bankIds.user(userId))
+      const [accounts, cards] = await Promise.all([
+        deps.core.listAccounts(bankIds.user(userId)),
+        deps.core.listCards(bankIds.user(userId)),
+      ])
       const result: AccountsResult = {
         accounts: accounts.map(toAccountView),
+        cards: cards.map(toCardView),
         availableTotalCents: accounts.reduce((total, account) => total + account.availableCents, 0),
       }
       deps.audit.append('read/accounts', { result })
@@ -70,10 +84,18 @@ export function createAccountListTool(deps: BankToolDeps): ToolDefinition<unknow
         (account) =>
           `尾号 ${account.tail}（${account.type}）：余额 ${formatYuan(account.balanceCents)}，可用 ${formatYuan(account.availableCents)}`,
       )
+      const cardLines = result.cards.map(
+        (card) =>
+          `${CARD_TYPE_LABEL[card.type]}卡尾号 ${card.tail}（卡ID ${card.cardId}，${CARD_STATUS_LABEL[card.status]}，日限 ${formatYuan(card.dailyLimitCents)}）`,
+      )
       return [
         {
           type: 'text',
-          text: `共 ${result.accounts.length} 个账户，可用合计 ${formatYuan(result.availableTotalCents)}。\n${lines.join('\n')}`,
+          text:
+            `共 ${result.accounts.length} 个账户，可用合计 ${formatYuan(result.availableTotalCents)}。\n${lines.join('\n')}` +
+            (cardLines.length === 0
+              ? ''
+              : `\n名下 ${result.cards.length} 张卡：\n${cardLines.join('\n')}`),
         },
       ]
     },
@@ -543,6 +565,19 @@ function toAccountView(account: Account): AccountView {
     status: account.status,
     balanceCents: account.balanceCents,
     availableCents: account.availableCents,
+  }
+}
+
+/** 卡片 → 视图。 */
+function toCardView(card: Card): CardView {
+  return {
+    cardId: card.id,
+    accountId: card.accountId,
+    tail: card.tail,
+    type: card.type,
+    status: card.status,
+    dailyLimitCents: card.dailyLimitCents,
+    monthlyLimitCents: card.monthlyLimitCents,
   }
 }
 

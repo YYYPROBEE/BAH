@@ -37,6 +37,8 @@ const TOOL_TITLE: Readonly<Record<string, string>> = {
   verify_face: '人脸强验证',
   verify_sms: '短信强验证',
   verify_ushield: 'U 盾强验证',
+  card_report_lost: '挂失银行卡',
+  sub_cancel: '取消订阅',
   knowledge_answer: '知识问答',
   knowledge_query: '知识检索',
 }

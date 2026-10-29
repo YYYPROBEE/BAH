@@ -7,7 +7,7 @@
 
 | # | 工具 | 级别 | 场景 | 参数 | 落账事件 | 说明 |
 |---|---|---|---|---|---|---|
-| 1 | `account_list` | green | 账户/账单 | 无 | `read/accounts` | 列出当前用户名下全部银行账户（尾号、类型、状态、余额）。用户问“我有几张卡/哪些账户”时用；不要用它查单笔流水或账单分析。 |
+| 1 | `account_list` | green | 账户/账单 | 无 | `read/accounts` | 列出当前用户名下全部账户与卡片（账户尾号/类型/余额；卡尾号/类型/状态/日限额）。用户问“我有几张卡/哪些账户/卡什么状态”时用；不要用它查单笔流水或账单分析。 |
 | 2 | `account_balance` | green | 账户/账单 | accountId? | `read/balance` | 查询某个账户的余额与可用余额（含冻结金额说明）。用户问“我还有多少钱/余额多少”时用；不要用它做转账或查询历史交易。 |
 | 3 | `txn_query` | green | 账户/账单 | accountId?, range{from*, to*}?, category?, direction?, page?, cursor?, limit? | `read/txns` | 按时间区间、分类、收支方向分页查询交易流水。用户问“最近花了什么/某笔转账到了吗”时用；不要用它做汇总分析（用 bill_analyze）。 |
 | 4 | `bill_analyze` | green | 账户/账单 | period*, groupBy? | `read/bill-analyzed` | 按月度或季度汇总收支、分类占比、环比与异常（大额 / 夜间 / 重复扣费）。用户问“这个月钱花哪了/帮我分析账单”时用；不要用它列单笔明细（用 txn_query）。 |
