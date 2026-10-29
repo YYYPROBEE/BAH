@@ -273,7 +273,8 @@ export const REQUIRED_SLOTS: Readonly<Record<string, readonly SlotName[]>> = {
   transfer: ['payee', 'amountCents'],
   bills: ['timeRange'],
   investment: ['product'],
-  card: ['account'],
+  // 卡场景的必填槽位不是账户：用户说的是卡，不是账户（卡槽位属 P2）
+  card: [],
   subscription: [],
   cross_scene: ['targetScene'],
   unknown: [],

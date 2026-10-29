@@ -285,7 +285,11 @@ function classify(
     return { kind: 'elliptical', evidence }
   }
 
-  // R-EXP-1：直白动作 + 槽位齐备（基线）
+  // R-EXP-1：直白动作 + 槽位齐备（基线）。
+  // 没有动作动词、也没有任何可执行实体的句子一律不判 explicit：
+  // 卡场景的 required 是空集，若不看动词，"钱包被偷了"这类陈述会直接 proceed。
+  // 纯数值句（"500"）保留 explicit 基线：它有实体，只是缺上下文（TC-INT-08）。
+  if (!hasVerb && !hasNamedAmount && !hasNamedPayee) return { kind: 'implicit', evidence }
   if (hasVerb && required.length === 0) add('R-EXP-1', utterance)
   return { kind: 'explicit', evidence }
 }

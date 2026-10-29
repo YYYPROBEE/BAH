@@ -26,6 +26,8 @@ export const ACTION_VERBS: readonly string[] = [
   '申购',
   '取消',
   '挂失',
+  '冻结',
+  '解冻',
   '对比',
   '试算',
   '改',
