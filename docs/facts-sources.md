@@ -8,7 +8,7 @@
 ## 1. 机器可读块（门禁只读这一段）
 
 <!-- facts:sources:start -->
-gates=50
+gates=51
 tools=16
 plan_lines=2246
 snapshot_files=9
@@ -18,8 +18,8 @@ coverage_total=46877
 coverage_pct=89.06
 coverage_package_ok=16
 coverage_package_total=18
-tests_main_files=300
-tests_main_cases=3380
+tests_main_files=309
+tests_main_cases=3542
 <!-- facts:sources:end -->
 
 > `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。
@@ -30,13 +30,13 @@ tests_main_cases=3380
 
 | 事实 | 值 | 命令 | 实测输出 |
 |---|---|---|---|
-| 门禁数 | **50** | `ls scripts/verify-*.ts \| wc -l` | 34 → `verify-facts.ts` 后 35 → … → 移动 H5 03 后 46；租户与鉴权 01–04 新增 `verify-tenant-scope.ts` / `verify-tenant-isolation.ts` / `verify-authz-coverage.ts` 后 49；人机接管 01 新增 `verify-handoff-wiring.ts` 后 50；合流后 `run-gates` 输出 `50/50` |
+| 门禁数 | **51** | `ls scripts/verify-*.ts \| wc -l` | 34 → `verify-facts.ts` 后 35 → … → 移动 H5 03 后 46；租户与鉴权 01–04 新增 `verify-tenant-scope.ts` / `verify-tenant-isolation.ts` / `verify-authz-coverage.ts` 后 49；人机接管 01 新增 `verify-handoff-wiring.ts` 后 50；IM 网关 02 新增 `verify-im-gateway.ts` 后 51 |
 | 工具数 | **16** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 16（与 `result-schemas.ts` 16 个出参键一一对应） |
 | plan 非测试行数 | **2,246** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,246（2026-10-27 复核） |
 | 快照文件 / 用例 | **9 / 39** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 9 文件 / 39 例（`pnpm test:snapshot` 同值） |
 | 覆盖率（行） | **91.14%** | `pnpm test:coverage:all`（**CI / Ubuntu 口径**） | 覆盖 31233 行 / 参与统计 34270 行（2026-10-28 CI run 40631263792，端口守卫新增 36 行后） |
 | 覆盖率（包） | **15/16** | 同上 | 只有 `eval` 53.20% 未达 80%；`memory-store` 89.40% 已达标 |
-| 主仓测试 | **300 文件 / 3380 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 300 passed / 3380 例（IM 网关 01 收口复跑：+6 文件 / +47 例） |
+| 主仓测试 | **309 文件 / 3542 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 309 passed / 3542 例（IM 网关 02 收口复跑：+9 文件 / +162 例，含 `apps/im-gateway/{src,test}` 与 `channels/im/protocol`） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
 | web 测试 | **27 文件 / 365 例** | `pnpm test:web` | 27 passed / 365 passed（合流后：双凭证 / 17 行矩阵 / password 多入口） |
 | 快照跑批 | **9 文件 / 39 例** | `pnpm test:snapshot` | 9 passed / 39 passed（合流后重跑；`snapshot:reverify` 写入 7 个、未变 1 个） |
