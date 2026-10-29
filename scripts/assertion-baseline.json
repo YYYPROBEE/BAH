@@ -38,6 +38,7 @@
   "packages/channels/src/web/project.choice.test.ts": 17,
   "packages/channels/src/web/project.test.ts": 126,
   "packages/channels/src/web/snapshot.test.ts": 23,
+  "packages/cli/src/bundles.test.ts": 8,
   "packages/cli/src/cli/audit-anchors.test.ts": 16,
   "packages/cli/src/cli/audit-projection.test.ts": 27,
   "packages/cli/src/cli/audit-replay.test.ts": 29,

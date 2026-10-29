@@ -78,14 +78,31 @@ export async function loadBundles(
 /**
  * 加载单个 bundle。
  *
- * @throws `BahError('unknown-bundle')` 目录或 `index.ts` 不存在
+ * ## 为什么 `.ts` 优先、缺失时回退 `.js`（桌面端 03 / T-DTB-010）
+ *
+ * 仓库内 **只存在 `index.ts`**（bundle 是 TS 数据 + 声明），所以"优先 `.ts`"让
+ * 仓库行为一字不变。而打包后的桌面端没有 TS loader：
+ *
+ * - dev：`apps/desktop/src/boot.ts` 在 `loadBundles` 之前注册 `tsx` ⇒ 走 `.ts`；
+ * - packaged：注册不了（也不该在用户机器上装 loader）⇒ 构建期把 `index.ts` 编成
+ *   `index.js` 一起进包，这里回退到 `.js`。
+ *
+ * ⚠ 回退是**有序**的，不是"哪个存在用哪个"：两份同时存在时 `.ts` 胜出，
+ * 否则本机开发会莫名其妙跑起上一次打包的产物（那是"改了代码没生效"的经典现场）。
+ *
+ * @throws `BahError('unknown-bundle')` 目录里既没有 `index.ts` 也没有 `index.js`
  * @throws `BahError('invalid-bundle')` 导出的 `bundle` 形状不对
  */
 export async function loadBundle(root: string, name: string): Promise<Bundle> {
   const dir = bundleDir(root, name)
-  const entry = join(dir, 'index.ts')
-  if (!existsSync(entry)) {
-    throw bootError('unknown-bundle', `bundle '${name}' 不存在：${entry} 缺失`, { bundle: name, entry })
+  const candidates = [join(dir, 'index.ts'), join(dir, 'index.js')]
+  const entry = candidates.find((path) => existsSync(path))
+  if (entry === undefined) {
+    throw bootError(
+      'unknown-bundle',
+      `bundle '${name}' 不存在：${candidates.join(' 与 ')} 都不存在`,
+      { bundle: name, entry: candidates.join('|') },
+    )
   }
   const module: unknown = await import(pathToFileURL(entry).href)
   return readBundle(module, name)
@@ -100,7 +117,7 @@ export function readBundle(module: unknown, name: string): Bundle {
   const exported =
     typeof module === 'object' && module !== null ? (module as Record<string, unknown>)['bundle'] : undefined
   if (typeof exported !== 'object' || exported === null) {
-    throw bootError('invalid-bundle', `bundle '${name}' 的 index.ts 必须导出 bundle 对象`, { bundle: name })
+    throw bootError('invalid-bundle', `bundle '${name}' 的入口文件必须导出 bundle 对象`, { bundle: name })
   }
   const record = exported as Record<string, unknown>
   if (record['name'] !== name) {

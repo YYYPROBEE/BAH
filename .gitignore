@@ -32,3 +32,6 @@ policies/policy-rollout/
 auth/users.yml
 auth/*.local.yml
 !auth/users.example.yml
+
+# 桌面端 03：便携打包产物（解压即用的目录与 zip，132 MB，不入库）
+dist-desktop/
