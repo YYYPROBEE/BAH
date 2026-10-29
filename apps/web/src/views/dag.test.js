@@ -85,6 +85,13 @@ describe('DAG · 可访问性', () => {
     expect(svg.getAttribute('viewBox')).toContain('0 0')
   })
 
+  it('按自然尺寸渲染（width/height 属性 = viewBox），不交给 CSS 等比缩放', () => {
+    const svg = renderDag(dagFrame())
+    const [, , width, height] = (svg.getAttribute('viewBox') ?? '').split(' ')
+    expect(svg.getAttribute('width')).toBe(width)
+    expect(svg.getAttribute('height')).toBe(height)
+  })
+
   it('字号走 CSS 类（令牌），不再硬编码 font-size 属性', () => {
     const svg = renderDag(dagFrame())
     const label = svg.querySelector('[data-node-id="call:A"] .dag__label')

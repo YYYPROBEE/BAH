@@ -58,11 +58,16 @@ export function renderTurn(frame) {
 /** 消息气泡。 */
 export function renderMessage(frame) {
   const role = frame.role === 'operator' ? 'operator' : frame.role === 'user' ? 'user' : 'assistant'
+  // 接管期客户留言（`handoff-waiting`）是**真人说的话**：必须画成 user 气泡并标注
+  // "等待坐席处理"，不能混进下面的上下文样式，否则客户会以为"消息石沉大海"。
+  const handoffWaiting = role === 'user' && frame.source === 'handoff-waiting'
   // 模型的上下文类消息（`context` = 工具后置纠正，`runtime-context` = 每次请求现渲染的用户档案）
   // 都不是用户发言；`handoff-handover` 是人工交回时系统写的交接语，也不是用户原话。
   // 三者都用提示样式，避免"用户说了没说过的话"。
   const contextSource =
-    role === 'user' && typeof frame.source === 'string' && frame.source !== 'user' ? frame.source : null
+    role === 'user' && !handoffWaiting && typeof frame.source === 'string' && frame.source !== 'user'
+      ? frame.source
+      : null
   const contextLabel =
     contextSource === 'context'
       ? '系统纠正（模型可见）'
@@ -77,8 +82,30 @@ export function renderMessage(frame) {
   )
 
   if (contextSource !== null) {
+    // 运行时上下文每轮一张、内容是一整份用户档案（姓名/等级/余额/流水），实测 292px 高，
+    // 比用户气泡和工具卡都大，会把真正的对话挤出屏幕。默认折叠成一行，需要时再展开。
+    // 其余两类（系统纠正 / 交接语）本来就短，保持直接可见。
+    const collapsible = contextSource === 'runtime-context'
+    const toggle = collapsible
+      ? el(
+          'button',
+          {
+            class: 'ds-btn ds-btn--ghost ds-btn--sm message__toggle',
+            type: 'button',
+            'aria-expanded': 'false',
+            onclick: () => {
+              const open = body.hidden
+              body.hidden = !open
+              toggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+              toggle.textContent = open ? '收起' : '展开'
+            },
+          },
+          ['展开'],
+        )
+      : null
+    if (collapsible) body.hidden = true
     return el('div', { class: 'message message--correction', dataset: { seq: String(frame.seq), source: contextSource } }, [
-      el('div', { class: 'message__meta' }, [icon('ai', 14), contextLabel]),
+      el('div', { class: 'message__meta' }, [icon('ai', 14), contextLabel, ...(toggle === null ? [] : [toggle])]),
       body,
     ])
   }
@@ -103,7 +130,7 @@ export function renderMessage(frame) {
   return el(
     'article',
     {
-      class: `message message--${role}`,
+      class: `message message--${role}${handoffWaiting ? ' message--handoff-waiting' : ''}`,
       dataset: { seq: String(frame.seq), role },
     },
     [
@@ -111,6 +138,9 @@ export function renderMessage(frame) {
         icon(iconName, 14),
         label,
         el('span', { class: 'message__seq', text: `#${String(frame.seq)}` }),
+        ...(handoffWaiting
+          ? [el('span', { class: 'ds-tag ds-tag--warning', text: '等待坐席处理' })]
+          : []),
       ]),
       body,
       ...(frame.toolCalls === undefined || frame.toolCalls.length === 0

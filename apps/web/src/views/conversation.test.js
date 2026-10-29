@@ -71,6 +71,31 @@ describe('对话流 · 消息气泡', () => {
     expect(node.textContent).toContain('运行时上下文')
   })
 
+  it('运行时上下文默认折叠，点「展开」才显示正文', () => {
+    const node = renderMessage(message({ source: 'runtime-context' }))
+    const body = node.querySelector('.bubble__body')
+    const toggle = node.querySelector('.message__toggle')
+    expect(body.hidden).toBe(true)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+    toggle.click()
+    expect(body.hidden).toBe(false)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(toggle.textContent).toBe('收起')
+  })
+
+  it('接管期客户留言画成 user 气泡并标注"等待坐席处理"（不是运行时上下文）', () => {
+    const node = renderMessage(
+      message({ source: 'handoff-waiting', blocks: [{ type: 'text', text: '那我等你消息' }] }),
+    )
+    expect(node.className).toContain('message--user')
+    expect(node.className).toContain('message--handoff-waiting')
+    expect(node.className).not.toContain('message--correction')
+    expect(node.textContent).toContain('那我等你消息')
+    expect(node.textContent).toContain('等待坐席处理')
+    expect(node.textContent).not.toContain('运行时上下文')
+  })
+
   it('非文本块留摘要，不丢"有内容"这个事实', () => {
     const node = renderMessage(message({ role: 'assistant', blocks: [{ type: 'other', summary: 'tool_use' }] }))
     expect(node.textContent).toContain('[tool_use]')

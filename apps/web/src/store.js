@@ -67,6 +67,8 @@ export function createStore() {
   let handoff = null
   /** 最近一条超时告警帧。 */
   let handoffWarn = null
+  /** 快照里的会话号（服务重启后会变；装配层据此提示"会话已重置"）。 */
+  let sessionId = null
 
   const listeners = new Set()
 
@@ -79,6 +81,7 @@ export function createStore() {
       fault,
       handoff,
       handoffWarn,
+      sessionId,
     }
   }
 
@@ -100,6 +103,7 @@ export function createStore() {
       order = []
       handoff = null
       handoffWarn = null
+      sessionId = typeof frame.sessionId === 'string' && frame.sessionId.length > 0 ? frame.sessionId : null
       for (const item of frame.frames) put(item)
       streamText = ''
       emit()
@@ -152,6 +156,7 @@ export function createStore() {
     fault = null
     handoff = null
     handoffWarn = null
+    sessionId = null
     emit()
   }
 

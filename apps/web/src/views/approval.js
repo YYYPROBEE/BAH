@@ -252,6 +252,14 @@ export function createApprovalController(root, handlers) {
 
     // 焦点锁定 + Esc 取消
     const onKeydown = (event) => {
+      // 结论生效后不再是"待应答"模态：Esc 只收起结果卡，Tab 不再被锁在弹窗里。
+      if (current !== null && current.closed === true) {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          destroy()
+        }
+        return
+      }
       if (event.key === 'Escape') {
         event.preventDefault()
         void submit('cancelled')
@@ -296,7 +304,11 @@ export function createApprovalController(root, handlers) {
     if (dialog !== null) {
       dialog.dataset.state = frame.decision
       dialog.setAttribute('aria-label', label)
+      // 结论已生效：弹窗不再是 aria-modal（不再吞掉下方的输入与 tab 键）。
+      dialog.setAttribute('aria-modal', 'false')
     }
+    // 遮罩放行（P1-4）：结论生效后只剩"关掉它"，不能让全屏遮罩继续锁住对话。
+    current.node.classList.add('approval-backdrop--passive')
     const foot = current.node.querySelector('.ds-dialog__foot')
     if (foot !== null) {
       foot.replaceChildren(
