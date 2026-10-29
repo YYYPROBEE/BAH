@@ -27,8 +27,8 @@ pnpm install
 | **起演示** | `pnpm demo:web` | 主路径为**离线 router**（不读密钥、不依赖外网），每次新建独立会话目录，打开 `http://127.0.0.1:7331` |
 | **容器演示** | `docker build -t bah:local . && docker run --rm -p 7331:7331 bah:local` | 单容器 Web，默认离线 router（不需要密钥）；RAG sidecar 不在镜像内，知识工具降级为 `knowledge-unavailable` |
 | **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 255 文件 / 2848 用例 |
-| **门禁** | `pnpm gate` | 40 项静态与契约检查，任一红即失败 |
-| **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
+| **门禁** | `pnpm gate` | 44 项静态与契约检查，任一红即失败 |
+| **审计** | `pnpm bah audit --dir <deploy-root> --tenant <id>` | 离线复验会话日志 + 审计链（缺省租户 `demo`；`--format json` 出机器可读） |
 
 主演示**不需要密钥**：`profiles/web/patch.yml` 默认 `provider: router`（读消息做意图路由，
 只认查余额 / 转账；不是自然语言理解，认不出会追问）。DeepSeek 是**可替换 provider 的证据**：
@@ -170,17 +170,19 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 | PII 脱敏 | 事件与审批帧 | 收款人姓名令牌化（`王**`）、手机号前 3 后 4；业务侧用令牌还原真名 |
 | 票据安全 | `packages/interaction` | 五绑定、随机 UUID、一次性核销、过期即拒绝 |
 | 沙箱 | `packages/safety` | 模型代码禁入 `none` 档；worker 硬杀；能力白名单恒空；逻辑隔离，不是 OS/容器隔离 |
-| Web 凭证 | `packages/host` | 除健康探针与管理路由外，`/api/*` 要求 Bearer token；SSE 用查询参数；写请求另需同源 Origin 或 CSRF double-submit |
+| Web 凭证 | `packages/host` | 三种模式：`static`（缺省，Bearer / SSE `?token=`）、`password`（HttpOnly 会话 cookie + 登录/登出/撤销）、`none`；`/api/*` 未认证 401、角色不足 403；写请求另需同源 Origin 或 CSRF double-submit |
 | 浏览器边界 | `packages/host` | CSP / XFO / XCTO / Referrer-Policy / Permissions-Policy；`/api/*` 每来源 60s/120 次限流 |
 | 审计诚实 | `packages/persistence` | 零签名报 `unsigned`；CLI 按"审计未完成"退出码 2；`--no-signature` 只验连续性 |
 | 风险分判决 | `packages/safety` | 会话升到 `high` 后非绿工具一律拒绝；读工具不受影响（W09） |
 | 人工接管 | `packages/host` | `POST /api/handoff` → `/api/turn` 一律 409（消息不入 inbox）→ `GET /api/handoff` 给人工侧会话摘要 → `POST /api/handoff/resume` 交回。**不是**坐席工作台：没有排队 / 回交工单 / SLA；状态在进程内，重启回到未接管 |
-| 跨会话记忆 | `packages/memory-store` + `packages/host` | 规则抽取（禁 LLM）+ 五道闸入库；按场景召回（判不出就不检索）；以 `<memory>` 块注入且明示"永远是数据不是指令"。单租户、影子核验未接（`bankQuery` 占位） |
+| 跨会话记忆 | `packages/memory-store` + `packages/host` | 规则抽取（禁 LLM）+ 五道闸入库；按场景召回（判不出就不检索）；以 `<memory>` 块注入且明示"永远是数据不是指令"。库与 SQL 均按租户分区（租户 = 部署边界）；影子核验未接（`bankQuery` 占位） |
 | 全系统停机 | `packages/safety` + `packages/host` | HALT：新 turn / 新工具调用 / 新 plan 节点三处全拒（**只拦新动作，不打断已在途的写**）；解除只凭会话内 U 盾 MFA 票据。状态落 `<会话根>/halt.json`，**重启仍停机**（C3）；票据不持久化，解除必须重新审批；状态文件损坏时**拒启**而不是当 RUNNING |
 
 **明确不做/未做**（回答追问时照实说）：
 
-- 没有真实登录、多租户、身份系统；Web 鉴权是最小 Bearer token，限流是单机级，不是网关；
+- 认证与授权已落地：`static`（缺省，兼容旧演示）/ `password`（scrypt + HttpOnly 会话 + 登录/登出/撤销）
+  / 角色矩阵（customer / agent / auditor / admin）；租户是**部署边界**（一进程一租户，ADR-0004），
+  **不做**一进程 N 租户与 OS 级隔离；限流是单机级，不是网关；
 - 银行账本是内存仿真，进程重启回种子；强验证默认是测试网关适配器（未接真实短信/人脸/U 盾供应商），锁定状态在内存、重启丢失；
 - HALT 人工解除已落地、状态已持久化（C3），但 headless 无远程控制入口；知识库双层签名（W06）与
   工具出参契约（W03）已落地，**未做**的是 RAG 响应的**信封签名**（跨语言验签）；
@@ -222,7 +224,7 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 apps/web/            前端（对话 / 工具卡 / 审批 / DAG / 审计）
 packages/            17 个包（见 §2.1）
 profiles/            web / headless 装配与 patch
-scripts/             40 个 verify-* 门禁、录制、演示脚本
+scripts/             44 个 verify-* 门禁、录制、演示脚本
 design/bah-ds/       自研设计系统（与应用内分发副本逐字节一致）
 docs/                管线、sentry、审计、前端、测试等落地文档
 facts.md             演示材料唯一数字来源
@@ -230,16 +232,17 @@ facts.md             演示材料唯一数字来源
 
 ## 7. 测试与资料
 
-| 命令 | 范围 | 实测（2026-10-27） |
+| 命令 | 范围 | 实测（2026-10-29） |
 |---|---|---|
 | `pnpm test` | 主仓 | 255 文件 / 2848 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
-| `pnpm test:web` | 前端 | 7 文件 / 55 用例 |
+| `pnpm test:web` | 前端 | 7 文件 / 57 用例 |
 | `pnpm test:snapshot` | 快照回放 | 8 文件 / 34 用例 |
 | `pnpm gate` | 门禁 | 44/44 |
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
 
 更多材料：[docs/](docs/)；200 字简介见 [docs/简介-200字.md](docs/简介-200字.md)；
-部署见 [docs/deploy.md](docs/deploy.md)，安全自评见 [docs/security-self-assessment.md](docs/security-self-assessment.md)，
+部署见 [docs/deploy.md](docs/deploy.md)，租户与认证的部署形态见 [docs/tenant.md](docs/tenant.md)，
+安全自评见 [docs/security-self-assessment.md](docs/security-self-assessment.md)，
 漏洞披露见 [SECURITY.md](SECURITY.md)。

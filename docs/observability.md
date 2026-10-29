@@ -30,7 +30,7 @@
 
 ## 2. `GET /api/metrics`
 
-与业务路由同闸（`Authorization: Bearer`，401 而不是公开）。全部数字**从会话事件现算**，
+与业务路由同闸（`static` 模式 Bearer / `password` 模式会话 cookie；未认证 401，而不是公开）。全部数字**从会话事件现算**，
 不另建计数器——重启、回放、fork 之后两个数必然对不上，而"哪个对"没人说得清。
 
 ```bash
@@ -42,6 +42,7 @@ curl -s -H "Authorization: Bearer <demo-token>" http://127.0.0.1:7331/api/metric
 
 | 键 | 含义 | 注意 |
 |---|---|---|
+| `tenant` | 本进程租户 | 只算本进程事件；不从请求头 / 查询参数取（01） |
 | `turns` | `turn/end` 条数 | 不是"用户发了几句" |
 | `tools.calls` / `tools.errors` | `tool/call` 数与 `tool/result.isError` 数 | `errors` 含审批拒绝、参数非法、沙箱不可用等所有失败 |
 | `tools.durationMs.p50` / `p95` | 工具耗时分位 | 样本为 0 时返回 **`null`**，不是 0 |

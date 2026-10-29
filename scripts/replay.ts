@@ -18,6 +18,7 @@ import { resolve } from 'node:path'
 import { buildSessionEvidencePack, verifySessionEvidencePack } from '../packages/eval/src/evidence/SessionEvidencePack.ts'
 import { leafHash, sampleProofs, verifyMerkleProof } from '../packages/eval/src/snapshot/merkle.ts'
 import { replaySession } from '../packages/persistence/src/replay/index.ts'
+import { isTenantId } from '../packages/util/src/index.ts'
 
 import { projectRoot } from './gate-lib.ts'
 
@@ -29,6 +30,11 @@ const session = readFlag('--session')
 // 04：与 `bah audit` 同口径——`--dir` 是部署根，真正的会话根是 `<dir>/<tenant>`。
 // 不拼租户会在 `<dir>/<session>` 找文件（session-missing），多租户时更可能读错租户。
 const tenant = readFlag('--tenant') ?? 'demo'
+// 租户是路径段：非法值必须在任何拼路径之前拒掉（与 `bah audit replay` 同判据）。
+if (!isTenantId(tenant)) {
+  process.stderr.write(`replay: --tenant 的值不是合法租户 ID：${tenant}\n`)
+  process.exit(2)
+}
 const dir = resolve(root, readFlag('--dir') ?? 'sessions', tenant)
 const key = readFlag('--key')
 const packDir = readFlag('--pack')

@@ -117,7 +117,7 @@
 - **策略生产签名密钥的分发/轮换未落地**：S4 提供 Ed25519 可选验签与 `policy:rules.signature`
   路径，密钥不进仓；演示 profile 仍 `requireSignature: false`，链上策略判决是 `unsigned`。
   生产强制签名需要密钥托管与轮换流程，登记到 S6；不能据此宣称"策略文件防篡改"。
-- **`security-self-assessment.md` 里的"14 个工具"是旧数**（现为 16）：本轮已顺手改正，
+- **`security-self-assessment.md` 里的工具数曾过期**（现为 16）：本轮已顺手改正，
   该文档的评分与状态不受影响。
 - **认证会话的两个诚实边界**（租户与鉴权 02）：① `lastSeenAt` 只在内存更新，
   进程重启后 idle 超时从**签发时刻**重新计时（最长可再用一个 `idleMs`，不是精确值）；

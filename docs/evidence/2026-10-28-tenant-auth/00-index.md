@@ -11,6 +11,7 @@
 | 02 鉴权平面（AuthN） | **DONE-WITH-DEVIATION** | `2285796` | `02-t2.md` / `02-review.md` |
 | 03 授权平面（AuthZ） | **DONE-WITH-DEVIATION** | `be9426b` | `03-t3.md` / `03-review.md` |
 | 04 隔离验证与交付 | **DONE-WITH-DEVIATION** | 本提交（`git log -1`） | `04-t4.md` / `04-review.md` |
+| 05 交付后回归审查 | **DONE-WITH-FOLLOWUP** | 工作树（未提交） | `05-regression-review.md` |
 
 分支：`tenant-01-core` → `tenant-02-authn` → `tenant-03-authz` → `tenant-04-delivery`（严格串行）。
 
@@ -23,6 +24,7 @@
 | `02-t2.md` / `02-review.md` | 02 的证据 / 复审（AR-15…AR-28） |
 | `03-t3.md` / `03-review.md` | 03 的证据 / 复审（AR-29…AR-44） |
 | `04-t4.md` / `04-review.md` | 04 的证据 / 复审（AR-45…AR-58） |
+| `05-regression-review.md` | 交付后回归审查（RG-01…RG-12；含 `main` 合流风险） |
 | `matrix-demo-acme.txt` | `tenant-matrix --keep` 的 8/8 原始输出 |
 | `coverage-auth.txt` | `web/auth/*` / `web/authz/*` 的逐文件行覆盖（≥90% 判据） |
 | `gates.txt` | 最终 `pnpm gate` 全量输出（44/44） |
@@ -61,6 +63,8 @@
 ```bash
 NODE_EXTRA_CA_CERTS= pnpm test          # 255 文件 / 2848 例
 NODE_EXTRA_CA_CERTS= pnpm test:snapshot # 8 文件 / 34 例
+NODE_EXTRA_CA_CERTS= pnpm test:web      # 7 文件 / 57 例
+NODE_EXTRA_CA_CERTS= pnpm eval:unit     # 22 文件 / 158 例
 NODE_EXTRA_CA_CERTS= pnpm gate          # 44/44
 NODE_EXTRA_CA_CERTS= npx tsx scripts/tenant-matrix.ts      # 8/8 PASS
 NODE_EXTRA_CA_CERTS= npx tsx scripts/verify-tenant-isolation.ts --self-test

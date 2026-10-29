@@ -15,6 +15,7 @@ import { boot, createCatalog , testRunContext } from '@bah/host'
 import { AGENTS_SERVICE, SESSION_SERVICE } from '@bah/runtime'
 import type { SessionId } from '@bah/core'
 import { replaySession } from '@bah/persistence'
+import { DEFAULT_TENANT_ID } from '@bah/util'
 import { describe, expect, it } from 'vitest'
 
 import { buildSessionEvidencePack, verifySessionEvidencePack } from '../../src/evidence/SessionEvidencePack.ts'
@@ -68,8 +69,14 @@ const ROWS: readonly PluginRow[] = [
   },
 ]
 
-async function makeSession(): Promise<{ root: string; sessionDir: string; cleanup: () => void }> {
+async function makeSession(): Promise<{
+  root: string
+  tenantRoot: string
+  sessionDir: string
+  cleanup: () => void
+}> {
   const root = mkdtempSync(join(tmpdir(), 'bah-replay-'))
+  const tenantRoot = join(root, DEFAULT_TENANT_ID)
   const bundle: Bundle = { name: 'fx', rows: ROWS }
   const options: BootOptions = {
     profile: PROFILE,
@@ -90,7 +97,8 @@ async function makeSession(): Promise<{ root: string; sessionDir: string; cleanu
   }
   return {
     root,
-    sessionDir: join(root, SESSION),
+    tenantRoot,
+    sessionDir: join(tenantRoot, SESSION),
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   }
 }
@@ -101,7 +109,7 @@ describe('W15 · 独立重放', () => {
     async () => {
       const session = await makeSession()
       try {
-        const result = replaySession({ root: session.root, sessionId: SESSION })
+        const result = replaySession({ root: session.tenantRoot, sessionId: SESSION })
         expect(result.diffs).toEqual([])
         expect(result.ok).toBe(true)
         expect(result.events.length).toBeGreaterThan(0)
@@ -134,14 +142,14 @@ describe('W15 · 独立重放', () => {
         second['d'] = '0'.repeat(64)
         lines[1] = JSON.stringify(second)
         writeFileSync(chainPath, `${lines.join('\n')}\n`, 'utf8')
-        const tampered = replaySession({ root: session.root, sessionId: SESSION })
+        const tampered = replaySession({ root: session.tenantRoot, sessionId: SESSION })
         expect(tampered.ok).toBe(false)
         expect(tampered.chain.brokenAt).toBe(2)
         expect(tampered.diffs.some((diff) => diff.startsWith('chain-broken:'))).toBe(true)
 
         // 删除第 2 条
         writeFileSync(chainPath, `${[lines[0], ...lines.slice(2)].join('\n')}\n`, 'utf8')
-        const deleted = replaySession({ root: session.root, sessionId: SESSION })
+        const deleted = replaySession({ root: session.tenantRoot, sessionId: SESSION })
         expect(deleted.ok).toBe(false)
         expect(deleted.chain.brokenAt).toBe(3)
 
@@ -158,7 +166,7 @@ describe('W15 · 独立重放', () => {
     'TC-W15-04 EvidencePack 三件套 + manifest；sha256 可离线复核',
     async () => {
       const session = await makeSession()
-      const replay = replaySession({ root: session.root, sessionId: SESSION })
+      const replay = replaySession({ root: session.tenantRoot, sessionId: SESSION })
       const packDir = join(session.root, 'evidence')
       try {
         const pack = buildSessionEvidencePack({ replay, outDir: packDir })

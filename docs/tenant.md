@@ -25,11 +25,11 @@
 
 ```
 <deploy-root>/
+  saga.sqlite                    saga 事务库（**不按租户分库**，部署根上）
+  saga.tenant                    创建者标记（04 新增；内容 = 租户 ID）
   demo/                          ← SessionFiles.root（租户根，由 --tenant 决定）
     auth/sessions.jsonl          认证会话（02；含 sid/csrf，按凭据面保护）
     memory.db                    记忆库（01；一租户一文件）
-    saga.sqlite                  saga 事务库（**不按租户分库**，见下）
-    saga.tenant                  创建者标记（04 新增；内容 = 租户 ID）
     <sessionId>/
       session.jsonl
       audit.jsonl
@@ -48,6 +48,17 @@
 **部署纪律**：每个租户使用**不同的 `--jsonl`（或不同工作目录）**。这是唯一被支持的形态；
 要让 `saga.sqlite` 按租户分库，需要与 saga 单合并立项。
 
+**旧平铺目录迁移**：租户化前会话直接平铺在部署根下一层（`<sessionId>/`），新代码不会读它。迁移用
+`npx tsx scripts/migrate-tenant-layout.ts`（默认 dry-run；`--apply` 才动，幂等，不覆盖）：
+
+```bash
+npx tsx scripts/migrate-tenant-layout.ts --root sessions --tenant demo           # 计划
+npx tsx scripts/migrate-tenant-layout.ts --root sessions --tenant demo --apply   # 执行
+```
+
+只搬"目录里直接有 `session.jsonl` 或 `audit.jsonl`"的会话目录；`saga.sqlite` / `memory.db` /
+`anchors.json` 是文件，不在迁移面内。
+
 ---
 
 ## 3 环境变量
@@ -56,7 +67,7 @@
 |---|---|---|---|
 | `BAH_TENANT` | 租户（`--tenant` 优先） | `demo` | 生产必写 |
 | `BAH_WEB_TOKEN` | `static` 模式的共享令牌 | 随机生成 | `static` 模式必写 |
-| `BAH_ADMIN_TOKEN` | 单操作员管理令牌 | 未配置 = 管理面 404 | 要管理面就必写 |
+| `BAH_ADMIN_TOKEN` | 单操作员管理令牌 | 未配置时回落到 `BAH_ADMIN_OPERATORS`；两者都不配 = 管理面 404 | 要管理面就至少配一个 |
 | `BAH_ADMIN_OPERATORS` | 多操作员 JSON `[{id,token}]` | 无 | 需要"谁操作"就必写 |
 | `BAH_KNOWLEDGE_TOKEN_<TENANT>` | 按租户知识库令牌 | 回退到 `BAH_KNOWLEDGE_TOKEN` | 非 `demo` 必写 |
 | `BAH_KNOWLEDGE_KEY` | 知识清单 HMAC 密钥 | 无（不配就起不来） | 装配 `bank:knowledge` 时必写 |
@@ -76,6 +87,43 @@ BAH_TENANT=acme  BAH_WEB_TOKEN=... \
 
 > `--tenant` 在 CLI 层就校验（`tenant-id-invalid`，退出码 2）；`../demo`、`Demo`、`demo_1`
 > 这类"路径安全但不是租户"的值会在启动前被拒——租户是**启动输入**，不是运行期参数。
+
+### 3.1 认证模式（02）
+
+`channel:web.auth.mode` 缺省 `static`（不写 auth 块 = 改动前行为）。对外演示或真实用户
+必须切 `password`：
+
+```yaml
+- id: channel:web
+  config:
+    auth:
+      mode: password
+      cookie: { name: bah_sid, secure: true }   # HTTPS 必须 true；本机 http 才设 false
+      session: { idleMs: 1800000, absoluteMs: 28800000 }
+      directory: { path: auth/users.yml }
+      login: { maxFailures: 5, lockMs: 900000, backoffBaseMs: 1000, backoffMaxMs: 60000 }
+```
+
+开启前必须做三件事（缺一步 boot 期 fail-loud，细节见 `profiles/web/patch.yml` 注释）：
+① 复制 `auth/users.example.yml` 为 `auth/users.yml` 并换口令（哈希用
+`npx tsx scripts/auth-hash.ts --stdin`；该文件被 `.gitignore` 挡住，**不要入库**）；
+② 去掉 `bank:tools` 的 `demoUserId`；③ 去掉 `core:agent` 的 `runtimeContext.user`。
+`auth/users.yml` 里的 `tenant` 必须等于本进程租户，否则启动报
+`auth-directory-tenant-mismatch`。`directory.path` 相对**进程 cwd**（不是租户根）：
+同机两租户要用两份目录文件（如 `auth/demo-users.yml` / `auth/acme-users.yml`），不要共用。
+
+- `static`：`BAH_WEB_TOKEN` 的 Bearer；SSE 可用 `?token=`；页面 meta 注入 token。**不是登录**。
+- `password`：HttpOnly `bah_sid` 会话 cookie；`/api/auth/me` 自查；登录 / 登出 / 撤销落
+  `auth/*` 审计；`?token=` 不再被接受；口令失败同形（不区分"用户不存在"）。
+- `none`：不验凭证，只用于内网测试装置。
+
+角色来自用户目录（customer / agent / auditor / admin），路由级判定在 `authorize()`；
+未认证 401、角色不足 403。管理面（`/api/admin/*`）**不**走这套角色，仍要求独立 admin token
++ 回环来源。
+
+> `bah sentry unfreeze` 只从 `BAH_ADMIN_TOKEN` 读 token；宿主用 `BAH_ADMIN_OPERATORS` 时，
+> 把 CLI 的 `BAH_ADMIN_TOKEN` 设为该操作员的 token（服务端按 operators 列表校验），
+> 不要试图传 `--by`（03 起 body 带 `by` 一律 400）。
 
 ---
 
