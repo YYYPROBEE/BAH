@@ -200,25 +200,18 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 
 **明确不做/未做**（回答追问时照实说）：
 
-- 不做一进程 N 租户：租户 = 部署边界（独立进程 / 目录 / 端口 / 令牌 / 密钥，ADR-0004）；
-  认证有三种模式（`none` / `static` 双凭证 / `password` 登录），`static` 的 Bearer 不是登录，
-  `password` 才是（scrypt + HttpOnly 会话 + 撤销）；限流是单机级，不是网关；
-- 银行账本是内存仿真，进程重启回种子；强验证默认是测试网关适配器（未接真实短信/人脸/U 盾供应商），锁定状态在内存、重启丢失；
-- HALT 人工解除已落地、状态已持久化（C3），但 headless 无远程控制入口；知识库双层签名（W06）与
-  工具出参契约（W03）已落地，**未做**的是 RAG 响应的**信封签名**（跨语言验签）；
-  记忆层的影子核验（用银行权威状态覆盖记忆值）**未接**，`bankQuery` 是占位端口；
-- 编排有两层：**plan:dag**（外部传入一张计划，引擎校验 + 拓扑执行 + 断点续跑）与 saga（"预检 → 执行"两段，
-  失败经窄端口冲正）。plan 编排 saga，但 plan 自身节点写操作的补偿未做（见 `docs/security-design.md` §4）；
-  **动态 args 跨不了 `resume`**（上游输出只在内存，重做已成功的转账 = 新 planId + 冲正原笔）；
-  `incident` 状态**没有真实触发源**（全内存 mock，Web DAG 视图按 `tool/call` 派生，不区分 incident 与 failed）；
-- 对抗集幻觉族 15 例中 **H-14 / H-15 共 2 条未降级**（期望 `degrade` 实际 `allowed`，
-  rule-gap：断言抽取未覆盖这两类表述，详见 `docs/security-design.md` §4 第 3 条；H-13 已由收益承诺禁词规则收口）；
-- 覆盖率有两个包未到 80%：`memory-store` 72.68%、`eval` 46.93%（eval 主体是评测 harness）。
-  行口径 **89.87%**（49571/55161，`pnpm test:coverage:all` 本机汇总口径），不是物理全仓口径，
-  引用时必须带包口径 **16/18** 一起说；
-- 卡片挂失已实现（`card_report_lost`，红档不可逆、必进审批 + 强验证）；**解挂与密码修改未实现**；
-- 注入 / 越权检测在演示与压测 profile 下**直接阻断**（对抗集注入族 14 例期望 `block` 全部通过）；
-  生产 profile 默认关掉跨场景规则（`rules.crossScenario`），需按真实语料开启；
+- **多租户**：租户 = 部署边界（独立进程 / 目录 / 端口 / 令牌 / 密钥，ADR-0004），不做一进程 N 租户。
+  认证三种模式（`none` / `static` 双凭证 / `password` 登录）；`static` 的 Bearer 不是登录，
+  `password` 才是（scrypt + HttpOnly 会话 + 撤销）；限流是单机级，不是网关。
+- **银行核心是仿真**：账本是内存 mock，进程重启回种子；强验证默认接测试网关适配器，
+  锁定状态在内存、重启丢失。演示证明的是治理与证据机制，不是"能接生产"。
+- **编排**：plan:dag 与 saga 两层已落地；plan 自身节点写操作没有自动补偿，
+  动态 args 跨不了 `resume`；`incident` 状态没有真实触发源。
+- **未接真实渠道**：定时调度、外部商户履约、RAG 响应信封签名、记忆层影子核验。
+  类别级边界见 [docs/security-design.md](docs/security-design.md) §4。
+- **卡片**：挂失已实现（`card_report_lost`，红档不可逆）；解挂与密码修改未实现。
+  注入 / 越权检测在演示与压测 profile 下直接阻断；生产 profile 默认关掉跨场景规则
+  （`rules.crossScenario`），需按真实语料开启。
 
 ---
 

@@ -1,6 +1,6 @@
 # 核心算法：权限分级、失败传播、检索与拒答
 
-> W19 交付件之二。三条算法各配**一条可执行命令与本次真实输出**（不是手写示意）。
+> 三条算法各配**一条可执行命令与本次真实输出**（不是手写示意）。
 > 事实口径见本文 §0 的表（与 [architecture.md](architecture.md)、[security-design.md](security-design.md) 共用同一块）。
 > 机制细节不在此重复：工具管线看 `docs/pipeline.md`，编排看 `docs/plan.md`，
 > 防护看 `docs/sentry.md`，知识看 `docs/knowledge.md`。
@@ -216,7 +216,7 @@ npx vitest run packages/safety/src/verify
 
 端到端的检索能力另有两处证据（不在这条命令里）：评测平面 **K 族 10/10**
 （`.ci-artifacts/eval/summary.md`），对抗集幻觉族 **12/15**（3 条未拦，见
-[security-design.md](security-design.md) §4 的未实现清单——不藏）。
+[security-design.md](security-design.md) §4 的已知边界——不藏）。
 
 ## 5. 三条算法的共同边界（讲清楚比讲漂亮重要）
 
