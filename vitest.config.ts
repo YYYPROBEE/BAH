@@ -25,6 +25,11 @@ const allowlistedSources = COVERAGE_ALLOWLIST.map(({ package: pkg, scope }) =>
 export default defineConfig({
   resolve: { alias: bahSourceAlias },
   test: {
+    // 并行策略：Windows 串行，Linux/CI 并行。
+    // WHY：Windows 上并行 worker 拆卸会挂住——用例全绿但**进程不退出**（基线树同样
+    // 复现，非本次合流引入），会让 `pnpm check` 的 spawnSync 步骤无限等待。
+    // 串行实测 161s 正常退出；Linux 保持并行（约 23s）。两者用例集与断言口径完全相同。
+    fileParallelism: process.platform !== 'win32',
     // `scripts/**/*.test.ts`：门禁与运维脚本的冒烟面（C2）。
     // 这类用例**不覆盖**源码，只钉"安全网自身"的形状（35 个 gate 可导入、步骤表不重复、
     // 用例地板是正整数），所以与 unit 面同跑、不单开 config。
@@ -103,7 +108,12 @@ export default defineConfig({
       },
       // text 给人看；lcov 给 CI / 答辩材料；json-summary 给脚本读
       reporter: ['text', 'lcov', 'json-summary'],
-      reportsDirectory: 'coverage',
+      reportsDirectory: '.ci-artifacts/coverage',
+      // 不清理报表目录：本机沙箱的 safe-delete 会拦 vitest 的 cleanAfterRun
+      // （删 350 个文件超阈值），让"测试全绿但退出码 1"这种假红出现。
+      // 目录在 .ci-artifacts 下、每次覆盖同名文件，残留不影响读数。
+      // 与 `vitest.coverage.config.ts` 同一口径（那边是 `.ci-artifacts/cov-all`）。
+      clean: false,
     },
   },
 })
