@@ -2,7 +2,7 @@
 
 - 状态：**已采纳**（2026-10-28）
 - 决策者：租户与鉴权施工单 01 的评审与执行
-- 关联：`docs/contracts/tenant-model.md`、`docs/evidence/2026-10-28-tenant-auth/01-t1.md`
+- 关联：`docs/contracts/tenant-model.md`（租户鉴权 01 单的证据件已撤下）
 
 ---
 

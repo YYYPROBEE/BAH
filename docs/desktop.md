@@ -56,7 +56,7 @@ pnpm desktop:dev        # 构建 main/preload 并启动窗口
 
 > 为什么幕 4 不是"重开看历史"：平台没有 session resume（`jsonl:create` 对已存在会话排他失败，
 > `provideSession` 也不回放磁盘）。详见 `apps/desktop/src/session-id.ts` 的模块注释与
-> `docs/evidence/2026-10-30-desktop/` 的偏差表 D-02-4。
+> 桌面端 03 单的偏差表 D-02-4（证据件已撤下）。
 
 ## 5. 关键设计（读代码前先读这段）
 
@@ -104,7 +104,7 @@ pnpm desktop:pack      # → dist-desktop/BAH-desktop-<version>-win-x64.zip
 | 体量 | 132 MB（Electron 运行时 130 MB + `resources/app` 约 2 MB） |
 | `resources/app` 文件数 | 601 |
 | 主进程产物 | `dist/main.mjs` 30 KB（接线层） |
-| sha256 | 见 `docs/evidence/2026-10-30-desktop/desktop-sha256.txt`（每次打包覆写） |
+| sha256 | 打包脚本输出到终端并打印（证据原件不再入库；`desktop-acceptance` 无记录时跳过比对） |
 
 脚本做的六件事（`scripts/pack-desktop.mjs`）：
 
@@ -136,9 +136,8 @@ pnpm desktop:accept                 # 全部 16 条
 node scripts/desktop-acceptance.mjs I-DT-02   # 只跑一条
 ```
 
-逐条判据、原始输出与自检见
-[04-逐项验收.md](evidence/2026-10-30-desktop/04-逐项验收.md)。
-它和 `pnpm gate`（51 项静态门禁）、`pnpm test`（303 文件 / 3389 例）**不重复**：
+逐条判据、原始输出与自检见桌面端 03/04 单（证据件已撤下，历史取 `git show b514496^:docs/evidence/`）。
+它和 `pnpm gate`（54 项静态门禁）、`pnpm test`（349 文件 / 4007 例）**不重复**：
 门禁看代码形态、用例看函数行为、这一条看"交付承诺凭什么成立"（产物 sha256、
 包内文件、git 差异、解压目录的写入面）。
 

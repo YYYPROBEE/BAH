@@ -55,7 +55,7 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 | 测试面 | `vitest.web.config.ts`（jsdom），`apps/web/src/mobile/**/*.test.js` |
 | 规模 | **前端 10 文件 / 194 用例**（含 `test:web` 全量 27 文件 / 375 用例） |
 | 覆盖率 | **不在覆盖率面**（`00 §6.1`：前端 jsdom 用例不计入 `packages/*/src` 分母），但计入 `test:web` 用例地板（`scripts/ci.ts` 的 `minCases`） |
-| 门禁 | `scripts/verify-mobile-shell.ts`（11 条不变量）；负控演练 27 条见 `docs/evidence/2026-10-28-mobile-h5/02-gate-negative-controls.txt` |
+| 门禁 | `scripts/verify-mobile-shell.ts`（11 条不变量）；负控演练 27 条由脚本内的负控用例承载（证据件已撤下） |
 
 **桩纪律（比别的面更严，因为 jsdom 缺失的能力多）**：
 
@@ -88,7 +88,7 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 | 口径 | 定义 | 目标 | 命令 |
 |---|---|---|---|
 | **行口径**（主指标） | `packages/*/src/**/*.ts` 全量分母下，被覆盖的可执行行占比 | **≥ 80%** | `pnpm test:coverage:all` |
-| **包口径**（副指标） | 包级行覆盖 ≥80% 的**包数** / 参与统计的包数 | **≥ 14/16（≈85%）** | 同上（同一份报表） |
+| **包口径**（副指标） | 包级行覆盖 ≥80% 的**包数** / 参与统计的包数 | **≥ 16/18（≈89%；未达 80% 的是 `memory-store`、`eval`）** | 同上（同一份报表） |
 
 - 两份配置分工：`vitest.config.ts` 只管**强制 100% 名单**（`scripts/coverage-allowlist.ts`，
   逐文件 100%/100%/100%、分支 80%）——它回答"确定性组件可不可信"；
