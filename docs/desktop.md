@@ -136,7 +136,7 @@ pnpm desktop:accept                 # 全部 16 条
 node scripts/desktop-acceptance.mjs I-DT-02   # 只跑一条
 ```
 
-逐条判据、原始输出与自检见桌面端 03/04 单（证据件已撤下，历史取 `git show b514496^:docs/evidence/`）。
+逐条判据由 `scripts/desktop-acceptance.mjs` 固化，原始输出以本地复跑为准。
 它和 `pnpm gate`（54 项静态门禁）、`pnpm test`（349 文件 / 4007 例）**不重复**：
 门禁看代码形态、用例看函数行为、这一条看"交付承诺凭什么成立"（产物 sha256、
 包内文件、git 差异、解压目录的写入面）。

@@ -16,8 +16,6 @@
  * host，test-support 若 `import type` 反向引 host，`tsc -b` 的 project references 会成环
  * （host → test-support 是 devDependencies 边，供 host 自己的测试用）。
  * 与造出来的类型放在同一个包，也避免 `RunContext` 出现第二份结构定义。
- *
- * 偏差登记见租户鉴权 01 单 §4（D-3）；证据件已撤下（历史取 `git show b514496^:docs/evidence/`）。
  */
 
 import type { SessionId } from '@bah/core'

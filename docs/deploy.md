@@ -15,7 +15,7 @@ git clone https://github.com/YYYPROBEE/bah-monorepo.git
 cd bah-monorepo
 ```
 
-仓库访问需授权。不要把 token 写进 clone URL 或任何文件；`.env.local` 不入库。
+仓库为公开仓；`main` 分支可直接 clone。不要把 token 写进 clone URL 或任何文件；`.env.local` 不入库。
 
 ---
 
@@ -34,7 +34,7 @@ pnpm install          # 同时把 core.hooksPath 指到 .githooks
 ```
 
 `pnpm install` 的 `prepare` 会执行 `git config core.hooksPath .githooks`；
-之后提交跑 `pnpm gate`（44 项），推送跑 `pnpm check`（14 步）。钩子挡疏忽，不挡 `--no-verify`。
+之后提交跑 `pnpm gate`（54 项），推送跑 `pnpm check`（14 步）。钩子只挡疏忽，不挡有意绕过。
 
 ---
 

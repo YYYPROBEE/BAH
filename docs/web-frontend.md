@@ -1,7 +1,6 @@
-﻿# Web 前端施工文档（施工单 13 落地版）
+﻿# Web 前端（施工单 13 落地版）
 
-> 版本：v1.2（施工后按实际代码回填；复审件 2026-10-30 已撤下，正文取 `git show b514496^:docs/web-frontend-review.md`）
-> 对应施工单：`BAH-施工文档集/13-Web前端.md`（仓库外材料包，不在本仓）
+> 版本：v1.2（按实际代码回填）
 > 视觉标准：`design/bah-ds/`（BAH DS 自研设计系统，Light-only）
 > 出口：`pnpm typecheck && pnpm test && pnpm test:web && pnpm gate` 全绿，`pnpm web` 可独立运行五视图
 

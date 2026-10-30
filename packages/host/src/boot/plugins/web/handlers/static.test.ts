@@ -3,7 +3,7 @@
  * + 坐席入口（人机接管 02 · B1）。
  *
  * 这里不启服务：直接调 `handleStatic` 并检查响应头 / 响应体，速度更快也更容易造
- * "白名单外的 HTML"。**真实 curl 矩阵**属证据原件，已随 2026-10-30 撤下（历史取 `git show b514496^:docs/evidence/`）。
+ * "白名单外的 HTML"。
  *
  * 坐席入口的三条安全性质：
  * 1. `seatEnabled=false`（未配 `BAH_OPERATOR_TOKEN` 或不是 web 渠道）⇒ `/operator` 与

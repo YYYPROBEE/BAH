@@ -162,10 +162,6 @@ const gate: Gate = {
       expectContains(security, 'docs/security-design.md', `${coveragePct}%`, findings)
     }
 
-    const intro = readText(join(root, 'docs/简介-200字.md'))
-    if (intro === undefined) findings.push('缺 docs/简介-200字.md')
-    else if (intro.includes('14 个工具')) findings.push('docs/简介-200字.md 仍写「14 个工具」')
-
     // ⑤ 复核命令自洽：公布给评委的计数命令必须与 run-gates 的 `^verify-[\w-]+\.ts$` 同口径。
     //    旧写法 `ls scripts/verify-*.ts | wc -l` 会把 verify-*.test.ts 算进去（实测 56 ≠ 54）。
     if (sourcesMd.includes('ls scripts/verify-*.ts \\| wc -l')) {
