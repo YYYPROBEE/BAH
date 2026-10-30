@@ -13,9 +13,9 @@ tools=21
 plan_lines=2260
 snapshot_files=11
 snapshot_cases=48
-coverage_covered=46778
-coverage_total=52001
-coverage_pct=89.96
+coverage_covered=49571
+coverage_total=55161
+coverage_pct=89.87
 coverage_package_ok=16
 coverage_package_total=18
 tests_main_files=349
@@ -34,7 +34,7 @@ tests_main_cases=4007
 | 工具数 | **19** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 19（与 `result-schemas.ts` 19 个出参键一一对应；场景 5 新增 3 个） |
 | plan 非测试行数 | **2,260** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,260（2026-10-30 合流后重算） |
 | 快照文件 / 用例 | **11 / 48** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 11 文件 / 48 例（`pnpm test:snapshot` 同值；新增 subscription 与 proactive 场景） |
-| 覆盖率（行） | **89.96%** | `pnpm test:coverage:all`（本机汇总口径） | 覆盖 46778 行 / 参与统计 52001 行（2026-10-30 场景 5 收口复跑） |
+| 覆盖率（行） | **89.87%** | `pnpm test:coverage:all`（本机汇总口径） | 覆盖 49571 行 / 参与统计 55161 行（2026-10-30 五线合流后复跑） |
 | 覆盖率（包） | **16/18** | 同上 | 只有 `memory-store` 72.68% 与 `eval` 46.93% 未达 80% |
 | 主仓测试 | **349 文件 / 4007 例** | `NODE_EXTRA_CA_CERTS= npx vitest run --pool=forks` | 349 passed / 4007 例（2026-10-30 五线合流后实测；含 `apps/desktop/src`、`apps/im-gateway`） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
