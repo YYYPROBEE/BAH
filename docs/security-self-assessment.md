@@ -249,7 +249,7 @@ saga/residual-recorded、saga/manually-closed、approval/decided
 
 | 面 | 事实 | 边界 |
 |---|---|---|
-| 进入 | `POST /api/handoff`（Web 凭证 + CSRF）→ 落 `handoff/requested`（`appendDomain`，不进事件表冻结键）→ 之后 `/api/turn` **202 落账但不驱动模型** | 不伪造拒绝：客户的输入仍进日志（可审计），只是不喂模型 |
+| 进入 | `POST /api/handoff`（Web 凭证 + CSRF）→ 落 `handoff/requested`（`appendDomain`，不进事件表冻结键）→ 之后 `/api/turn` **202 `accepted=queued-for-operator`**（落账但不驱动模型） | 不伪造拒绝：客户的输入仍进日志（可审计），只是不喂模型；`/api/session/fork` 仍 409 |
 | 人工侧读取 | `GET /api/handoff` 返回摘要：`turns` / `lastSeq` / 待应答票据数 / **最近 6 条原话**（逐条截断 200 字，排除 `runtime-context`） | 持已认证凭证即可读（`ROLES` 任一角色）；租户边界靠独立进程 / 目录 / 端口 / 令牌，一进程 N 租户不做（ADR-0004） |
 | 交回 | `POST /api/handoff/resume`（坐席/admin 角色；操作者从登录主体派生）→ 落 `handoff/resumed`，状态立刻清空，`/api/turn` 恢复驱动 | 未接管时交回 → **409**，不做"幂等成功"（交回必须是真的状态转移） |
 | 与审批的区别 | 审批是"放行一次动作"，接管是"把会话控制权交出去"：接管期间模型完全不被驱动 | 不要拿审批弹窗冒充接管 |

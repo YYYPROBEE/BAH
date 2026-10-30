@@ -91,7 +91,13 @@ export function backoffDelayMs(attempt, config = RECONNECT_DEFAULTS, random = Ma
  * `turn-rate-limited`），与 00 §4 的错误码规矩同源。
  */
 export function uiErrorOf(result) {
-  if (result?.ok === true) return { ok: true, code: 'ok', message: '' }
+  if (result?.ok === true) {
+    // 202 的 `accepted` 必须透传：接管期消息只落账不驱动模型，composer 要靠它说真话（P1-2）
+    const accepted = result?.data?.accepted
+    return typeof accepted === 'string'
+      ? { ok: true, code: 'ok', message: '', accepted }
+      : { ok: true, code: 'ok', message: '' }
+  }
   const status = Number(result?.status ?? 0)
   const raw = String(result?.code ?? (status === 0 ? 'network-error' : `http-${String(status)}`))
   const message = String(result?.reason ?? raw)
@@ -150,6 +156,13 @@ export function dispatchFrame(frame, ctx) {
       return ctx.planSteps.setTodos(frame)
     case 'effects':
       return ctx.effectsList.append(frame)
+    case 'handoff':
+      // 接管状态帧（`HandoffFrame`）：**不进会话流**（落进 default 会渲染成"未知帧：handoff"）。
+      // 横幅由 `onFrame` 的实时帧与启动的 `GET /api/handoff` 负责，快照重放不逐帧改横幅。
+      return undefined
+    case 'handoff-warn':
+      // 等待超时提醒（`HandoffWarnFrame`）：同样不进会话流；实时到达时由 `onFrame` 提示。
+      return undefined
     default:
       return ctx.feed.appendUnknown(frame)
   }
@@ -228,6 +241,10 @@ function createFeed(container) {
       }
       if (existing === null) container.append(renderEmptyState())
     },
+    /** 已渲染的会话条目数（**不含**空态卡自己：拿容器子节点数判空会把自己数进去）。 */
+    get size() {
+      return rendered.size
+    },
     node: container,
     dispose() {
       rendered.clear()
@@ -303,6 +320,33 @@ export function createMobileShell(deps) {
   let reconnectTimer = null
   let unsubscribe = null
 
+  /** 上一次应用到界面的接管状态（初值由启动的 `GET /api/handoff` 给出）：只在"接管 → 交回"的跃迁上说一次话。 */
+  let handoffActive = false
+  let handoffApplied = false
+
+  /** 等待超时提醒：只给一条可见文案，不重画横幅（横幅描述状态，提醒描述已等多久）。 */
+  function applyHandoffWarn(frame) {
+    const waitedMs = Number(frame?.waitedMs ?? 0)
+    const minutes = Math.max(1, Math.round(waitedMs / 60_000))
+    composer?.showError(`人工接管已等待 ${String(minutes)} 分钟，坐席尚未处理。`, true)
+  }
+
+  /** `handoff` 帧的落点：横幅跟着服务端事实走，不往会话流里放"未知帧"。 */
+  function applyHandoffFrame(frame) {
+    const active = frame?.active === true
+    controls?.setActive(active)
+    if (handoffApplied && handoffActive && !active) {
+      composer?.showError(
+        frame?.operator === undefined
+          ? '坐席已交回会话，智能体恢复响应。'
+          : `坐席 ${String(frame.operator)} 已交回会话，智能体恢复响应。`,
+        true,
+      )
+    }
+    handoffActive = active
+    handoffApplied = true
+  }
+
   const ctx = {
     feed,
     planSteps,
@@ -342,9 +386,9 @@ export function createMobileShell(deps) {
     for (const frame of state.frames) dispatchFrame(frame, ctx)
     feed.end()
     feed.setDraft(state.streamText)
-    // 空态看**实际落到会话流里的节点数**，不看帧数：tool 帧有 DAG 时挂在步骤里、
-    // 不进会话流，用帧数判空会留下一屏"还没有对话"叠在真实内容上面。
-    feed.setEmpty(conversationHost.childElementCount === 0 && state.streamText.length === 0 && echoes.size === 0)
+    // 空态看**会话流里已渲染的条目数**，不看帧数（tool 帧有 DAG 时挂在步骤里、不进会话流），
+    // 也不能数容器子节点：空态卡自己就在容器里，第二次 sync 会因为"它有孩子了"把卡删掉（P1-3）。
+    feed.setEmpty(feed.size === 0 && state.streamText.length === 0 && echoes.size === 0)
 
     // 回显去重：服务端把用户消息回流成 message 帧之后，本地那条 pending 回显就该消失
     const echoed = new Set()
@@ -382,6 +426,10 @@ export function createMobileShell(deps) {
     if (typeof seq === 'number' && Number.isFinite(seq) && seq > lastSeq) lastSeq = seq
     framesSinceConnect += 1
     store.apply(frame)
+    // 只认**实时**到达的 handoff 帧：历史里的 handoff/requested 不能把重启后的横幅点亮
+    // （接管状态是进程内的，启动真相来自 GET /api/handoff）。快照里的 handoff 帧不经过这里。
+    if (frame.kind === 'handoff') applyHandoffFrame(frame)
+    if (frame.kind === 'handoff-warn') applyHandoffWarn(frame)
   }
 
   function onStatus(status) {
@@ -537,7 +585,13 @@ export function createMobileShell(deps) {
       },
       onNotice: (text) => composer?.showError(text),
     })
-    void controls.refresh()
+    // 启动真相来自 GET /api/handoff（接管状态是进程内的，历史帧回放不代表现在仍接管）：
+    // 先拿服务端事实，再让实时 handoff 帧负责后续跃迁。
+    const handoffStatus = await controls.refresh()
+    if (handoffStatus.ok === true) {
+      handoffActive = handoffStatus.data?.active === true
+      handoffApplied = true
+    }
 
     composer = createComposer(dock, {
       submit: submitTurn,

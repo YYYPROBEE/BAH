@@ -381,3 +381,55 @@
   2. `verify-snapshot-fresh` 另报 `packages/saga/src/gates/index.ts` 无场景覆盖（属于并行线改动）。
   3. 推送与 tag 未动（本轮无提交）。
   4. 导出报表（沙箱落点）按方案 §1 登记为缺口，本期不做。
+
+## 96.44 2026-10-29 移动 H5 走查修复（P0/P1/P2）与复审
+
+> 编号说明：本节在 `mobile-ui-fix-01` 分支上原编号 96.40，与已合入的合流节撞号；合流时后置为 96.44，历史节不重排。
+
+- **范围**：按 `BAH-移动H5界面走查报告-2026-10-29.md` 修复移动壳，全部在 `BAH/MOBILE-UI-WT`
+  工作树（基线 `dd4aa75`），分支 `mobile-ui-fix-01`；主工作区 `BAH/MonoRepo` 仍在
+  `integration/handoff-tenant` 的并行合并（17 个 `UU`），本轮**一行未动**。
+- **三笔提交**（均走 pre-commit 的 `pnpm gate`，未用 `--no-verify`）：
+  - `fb23eb6` fix(mobile-ui)：P0/P1/P2 主体修复，17 文件；
+  - `d652bab` fix(mobile-ui)：复审补漏——`handoff-warn` 帧与三处 409 旧口径；
+  - `ad2a640` test(mobile-ui)：补证——快照里的历史 handoff 帧不点亮横幅。
+- **修复清单（对照走查报告）**：
+  - P0-1：`packages/host/src/boot/plugins/web-auth.ts` 改为**先剥注释、再剥离同名 meta、
+    按真实 head 结束标记注入**；`apps/web/m.html` 注释去掉 `</head>` 与凭证 meta 字面量；
+    断言从“响应体 contains”改为“注释外必须存在真 meta 元素”，并加注释陷阱/多旧 meta 回归用例。
+  - P0-2：`apps/web/styles/mobile.css` 增加 `[hidden] { display: none !important }` 兜底，
+    一并消掉遮罩吞点击、中断钮常驻、空清单常驻、折叠体占位；`scripts/verify-mobile-shell.ts`
+    增加 I12 防回归。
+  - P1-1：移动壳删除“恢复”按钮与 `createSessionControlClient.resume`，横幅改为
+    “消息会被记录；交回会话请在坐席工作台操作”。
+  - P1-2：接管期 202 的 `accepted=queued-for-operator` 透传，composer 明示
+    “消息已记录：人工接管期间不会驱动智能体”；`docs/mobile.md` 等同批改口径。
+  - P1-3：空态判据由“容器子节点数”改为“已渲染条目数”，重复 `sync` 不再把空态卡自己删掉。
+  - P1-4：补 `body { margin: 0 }`；整壳回到视口原点，`html.scrollHeight` 不再超一屏。
+  - P2-1/P2-2/P2-5：chips 溢出时右缘渐隐 + scroll-snap；输入框 16px（防 iOS 聚焦整页放大）；
+    `box-sizing: border-box` 修掉拒绝理由框右溢 5px 与抽屉超宽。
+  - 复审新增：`handoff` / `handoff-warn` 帧不再渲染成“未知帧”；启动接管真相改由
+    `GET /api/handoff` 给出、只认实时帧跃迁，交回时收起横幅并明说恢复；等待超时提示已等分钟数。
+- **验证（实跑）**：`pnpm test` **268 文件 / 3122 例**；`pnpm test:web` **27 文件 / 366 例**；
+  `pnpm typecheck` 0 error；`pnpm gate` **47/47**（三次提交各跑一遍）。真浏览器（Edge headless + CDP）：
+  移动 390×844 下 meta 成元素、遮罩 `display:none`、发送钮命中测试落回按钮、空态可见、
+  `body margin 0`、输入框 16px、chips 溢出渐隐；桌面 1440×900 注入正常、3 个标签页、0 条控制台错误；
+  审批抽屉 open 态 `display:flex` 且批准钮命中（disabled 是手势闸）；接管期无恢复钮、发言得到入队提示。
+- **仍未闭合 / 未在本轮修**（如实登记，按缺口不按结论收起）：
+  1. **P1-5 dock 矮视口/横屏折叠**：未修。属结构改动，报告也建议演示冻结后再做；横屏 844×390
+     实测 feed 可视高 **86px**（原 64px，仅因去掉 body margin 略增），仍放不下完整一条消息。
+  2. **P1-6 “新会话/清会话”入口**：未修。宿主没有对应端点，移动壳无法只靠前端清掉跨进程复用的会话；
+     需先在 host 侧提供能力并定下演示口径。
+  3. **P2-3 / P2-4 对比度与 10–11px 小字**：未修。需设计侧确认 DS 令牌取值；
+     `apps/web/styles/ds/` 两份副本受 sha256 门禁约束，不能单侧改。
+  4. **P2-6 运行时上下文整段灌进窄屏会话流**：未修。属产品呈现决策（是否对终端用户隐藏内部上下文），
+     不是前端能单方面决定的。
+  5. **真浏览器 CDP 冒烟门禁**：未入库。CI 无 Edge，当前只有 DOM 级单测 + 手工 CDP 证据
+     （探针与截图在仓库外、未入库）；报告建议的第 3 条因此只兑现了一半。
+  6. **CRLF 环境问题**：未提交 `.gitattributes`。新 worktree / 新 clone 仍会因
+     `packages/knowledge/fixtures/corpus.json`、`policies/` 下的 yml 等变成 CRLF，导致 boot 摘要校验
+     与部分 policy 用例失败；本轮是本地把这些文件规范回 LF 后才跑绿的，未产生任何行尾提交。
+  7. **合并风险**：`apps/web/src/transport.js` 在 `BAH/MonoRepo` 仍是 `UU`，本轮删除移动壳 `resume`
+     会在合并时冲突；须按“坐席台保留 resume、移动壳不提供”的口径人工解。
+- **口径**：本轮修复**只在 `mobile-ui-fix-01` 分支**，未合入 `integration/handoff-tenant`、
+  未推送、未动 `main`。在 P1-5 / P1-6 关闭前，**不能说“移动端已整体可用”**。
