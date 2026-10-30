@@ -9,12 +9,12 @@
  * I2  6 渠道穷尽（`ChannelKind` ↔ `CAPABILITIES_BY_CHANNEL` 键集合相等）
  * I3  10 字段（少字段即红，多字段记 notes）
  * I4  各 HTTP 渠道 profile 存在、清单合法、渠道行 id/use 一致且排在审批行之后
- * I5  profile ↔ adapter ↔ 提示词三方一致（mobile / desktop 各一条）
+ * I5  profile ↔ adapter ↔ 提示词三方一致（mobile / desktop / im 各一条）
  * I6  token 入口白名单（所有 profile 的**任何** `channel:*` 行）：非空、无通配、无分隔符、
  *     .html 结尾、无重复、entry ∈ entries；非 0 端口不重复（`port:0` = OS 分配，不参与冲突表）
  * I7  各渠道配置面不含表外键（键集 ⊆ `WEB_SETTING_KEYS`）
- * I8  mobile / desktop 与 web 的业务段规范化序列化相等（"两套账"的早期信号）
- * I9  薄壳纪律（plugins/{mobile,desktop}.ts ≤80 行、不含分发符号、不自建 HTTP 服务）+ 闸序关键词按序
+ * I8  mobile / desktop / im 与 web 的业务段规范化序列化相等（"两套账"的早期信号）
+ * I9  薄壳纪律（plugins/{mobile,desktop,im}.ts ≤80 行、不含分发符号、不自建 HTTP 服务）+ 闸序关键词按序
  * I10 安全头最小权限姿态逐字钉死（`permissions-policy` 等式比对，任何改动即红）
  * I11 桌面端 profile 三条硬值：`port:0`、`host:127.0.0.1`、`entries:['index.html']`
  */
@@ -62,13 +62,13 @@ const BUSINESS_ROWS = [
 /**
  * 本门禁覆盖的 HTTP 渠道（`channel:*` 里除 web 之外、在本仓库内有 profile 的那些）。
  *
- * WHAT 只列 mobile / desktop：web 自身是基准（I8 的被比对方），IM 渠道由 IM 网关线负责
- * （`profiles/im` 在本仓库内为空目录）。WHY 用表而不是逐个 `if`：新增渠道时漏改门禁
- * 不会报错，只会让新渠道悄悄逃出校验——表驱动让"少一行"变成一次可见的编辑。
+ * WHAT 列 mobile / desktop / im：web 自身是基准（I8 的被比对方）。三者都是在本仓库内有
+ * profile 的 `channel:*` 行，一律走 `createHttpChannel`。WHY 用表而不是逐个 `if`：新增渠道时
+ * 漏改门禁不会报错，只会让新渠道悄悄逃出校验——表驱动让"少一行"变成一次可见的编辑。
  */
 interface HttpChannelSpec {
   /** profile 目录名、`CAPABILITIES_BY_CHANNEL` 键、`core:agent.channel` 值三者同源。 */
-  readonly id: 'mobile' | 'desktop'
+  readonly id: 'mobile' | 'desktop' | 'im'
   /** 宿主薄壳（I9 判据的对象）。 */
   readonly shell: string
   /** 适配器实现（I5 渠道 id 唯一落点的对象）。 */
@@ -89,6 +89,12 @@ const HTTP_CHANNELS: readonly HttpChannelSpec[] = [
     shell: 'packages/host/src/boot/plugins/desktop.ts',
     adapter: 'packages/channels/src/desktop/adapter.ts',
     idConstant: 'DESKTOP_CHANNEL_ID',
+  },
+  {
+    id: 'im',
+    shell: 'packages/host/src/boot/plugins/im.ts',
+    adapter: 'packages/channels/src/im/adapter.ts',
+    idConstant: 'IM_CHANNEL_ID',
   },
 ]
 /** 入口白名单的默认值（与 `web/config.ts` 的 `DEFAULT_WEB` 同口径；profile 未写时套用）。 */

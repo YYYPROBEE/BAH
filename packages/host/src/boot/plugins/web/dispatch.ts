@@ -115,7 +115,7 @@ export function createDispatcher(
     // 坐席面未启用 ⇒ 路由不存在。放在身份解析之前：401 会告诉探测者"这里有东西"。
     // 作用面：5 条坐席 API（resume/message/claim/heartbeat/queue）与 `/operator` 页面
     // （后者在 handleStatic 里判，因为它是静态路由）。
-    if (match?.spec.seat === true && !deps.seatEnabled) {
+    if (match?.spec.seat === true && !deps.seatApiEnabled) {
       sendError(res, 404, 'web-not-found', `没有这个资源：${path}`)
       return
     }

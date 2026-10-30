@@ -169,6 +169,8 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       'channel:mobile',
       // 渠道（施工单 15 / 桌面端 01）：同样只登记不默认装配，由 profiles/desktop 的 patch 加行
       'channel:desktop',
+      // IM 网关 01：同样只登记不默认装配，由 profiles/im 的 patch 加行
+      'channel:im',
     ])
     for (const plugin of HOST_PLUGINS) {
       expect(catalog[plugin.id]?.plugin.name).toBe(plugin.id)

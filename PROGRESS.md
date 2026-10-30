@@ -433,3 +433,287 @@
      会在合并时冲突；须按“坐席台保留 resume、移动壳不提供”的口径人工解。
 - **口径**：本轮修复**只在 `mobile-ui-fix-01` 分支**，未合入 `integration/handoff-tenant`、
   未推送、未动 `main`。在 P1-5 / P1-6 关闭前，**不能说“移动端已整体可用”**。
+
+## 96.45 2026-10-29 IM 网关 01 对抗式复审（不改代码）
+
+审查对象：`78ad410`（IM 网关 01：渠道内核与会话映射）。审查在独立 worktree（`imgw-line`）内做，
+临时探针文件跑完即删，仓库只多出本条记录。
+
+### 96.45.1 方法
+
+1. **主动构造攻击**（不是重跑单测）：会话键撞库、指令解析绕过矩阵、无会话适配器投票、段重复注册、URL 文本出站；
+2. **负控注入**：把 `channel:im` 的 `use` 改成 `channel:web`、把能力位值就地写死、在 `plugins/im.ts` 加 `console.warn`；
+3. **零改动证据**：对既有渠道与提示词/快照做 diff；
+4. **回放证据**：快照套件（含 `web-channel`）全绿。
+
+### 96.45.2 对抗结果（01 相关不变量）
+
+| 不变量 / 纪律 | 攻击 | 结果 |
+|---|---|---|
+| 契约唯一（02 G13 的前置） | 全仓搜 `interface PlatformAdapter` | 仅 `packages/channels/src/im/platform.ts:96` 一处 |
+| I-IM-15 不复制审批语义 | 搜 `im/` 源码的 `decide(` / `attachApproval(` 实现 | 0 处（只有测试在调用）；六码文案只在 `http-adapter.ts` 定义 |
+| I-IM-05 标识不落日志/不进 ID | 搜 `im/` 的 `logJson` / `console.`；探针 P1 | 0 处日志调用；`('ab','c')` 与 `('a','bc')` 派生结果不同（NUL 分隔符有效）；ID 不含原文子串（单测） |
+| I-IM-16 不破坏既有渠道 | `git diff --stat HEAD^ HEAD -- packages/host/src/boot/plugins/web packages/channels/src/web packages/channels/src/mobile packages/runtime/src/system-prompt snapshots apps/web` | **空**；`pnpm test:snapshot` 9 文件 / 39 例全绿（含 `web-channel` 的 record→replay 逐条全等） |
+| I-IM-17 段只由 `channel:im` 注册 | 探针 P5：同 id 二次注册 | `prompt-section-duplicate`；dispose 后可再次注册（`T-CH-014` 用真插件生命周期验证）；默认六段 ids 逐字不变 |
+| I9 薄壳纪律 | 行数统计 + 负控 `console.warn` | 64 行（≤80）、无分发符号；注入 `console.*` 后 `verify-observability` 红（已还原） |
+| I-IM-02 密钥只在 env | 搜 `im/` 的 AppID/Secret/Token 字面量 | 0 处（01 不涉及平台密钥，02 才接线） |
+
+负控实跑（均已还原）：
+
+```text
+✘ channel-capabilities · I4 channel:im 行的 use 必须是 'channel:im'（实际 channel:web）
+✘ adapter.test.ts · T-CH-002 同一引用断言失败（能力位被就地写死成 10 字段字面量）
+✘ observability · packages/host/src/boot/plugins/im.ts: 仍有 1 处 console.*（白名单只 2 个文件）
+```
+
+> 修正上一轮复审对能力位负控的预期：门禁 I3 只校验 `capabilities: {…}` 的**键集**，
+> 拦不住"同值字面量复制"；真正拦它的是 T-CH-002 的**同一引用**断言。两者都要，别拿门禁替代测试。
+
+### 96.45.3 新发现（登记，不属 01 修复范围）
+
+| ID | 级别 | 发现 | 证据 | 处置 |
+|---|---|---|---|---|
+| F-01 | 中 | **无 `sessionId` 的适配器会接受任意票据**：`createImChannelAdapter()` 不传 sessionId 时归属校验整体跳过 | 探针 P4：`decide` 返回 `{"ok":true}`（票据属于 `s-victim`） | 继承自共用 `http-adapter`（web/mobile 同）；生产宿主必传（`web/channel.ts` 装配时传 `session.sessionId`），但**无门禁强制**。转为 02 开工前置：子进程侧必须绑定会话，建议 02 G8 增"IM 适配器必须绑定 `sessionId`"判据 |
+| F-02 | 低 | 平台 id **前导空白被归一**：`' wechat'` 与 `'wechat'` 得同一会话；尾随空白不归一（在 `\0` 前属内部） | 探针 P2：`lead=SAME trail=distinct` | 平台 id 是代码常量（`'wechat'`/`'mock'`），不可由用户输入；如实登记不改 |
+| F-03 | 低 | 单个 ASCII token 被当票据号：`2 no`（想拒绝、理由 "no"）不识别，落普通消息 | 探针 P3：`"2 no" -> undefined` | 取舍是"宁可不识别也不误拒"（§2.5 拒绝理由必填）；03 若要做英文理由，需先改票据号形态判据 |
+| F-04 | 信息 | 全角数字不识别：`１` → 普通消息 | 探针 P3 | 不会误批（非指令即普通消息）；03 可加全角归一 |
+| F-05 | 信息 | NBSP 可作分隔：`1\u00a0ticket:abc` 能解析（JS `\s` 含 NBSP） | 探针 P3 | 只对字面量指令生效，不扩大攻击面；不改 |
+| F-06 | 信息 | 审批摘要原样带出 `amountText` 中的 URL 文本 | 探针 P6：文本含 `http://evil.example/approve` | 这是**数据不是生成链接**（签名在 03）；02 出站层禁止自动 linkify、禁止把消息当链接发 |
+
+### 96.45.4 结论与证据
+
+- 01 出口五条 + 相关不变量全部经**实跑对抗**；两条负控红过并还原；快照与既有渠道零改动。
+- 01 判定：**复审通过**。唯一实质风险 F-01 不属 01（共用适配器语义），但成为 **02 开工前置**。
+- 证据命令：`pnpm exec vitest run packages/channels packages/host`（87 文件 / 1016 例）、
+  `pnpm gate`（50/50）、`pnpm test:snapshot`（9/39）、`pnpm exec tsx scripts/verify-observability.ts`（负控后红）。
+
+---
+
+## 96.46 IM 网关 02 · 通用网关与微信适配器（2026-10-30）
+
+### 96.46.1 出口标准（施工单 02 §0）
+
+| # | 标准 | 证据 |
+|---|---|---|
+| 1 | 通用路由可启动：`GET /healthz` 200；`/im/:platform/:accountKey` 由注册表分派；未知平台/账号 404 | `gateway-flow.test.ts` 的「HTTP 路由」7 例 |
+| 2 | `PlatformAdapter` 契约唯一实现点；微信与 Mock 跑同一套契约测试 | `platform-contract.test.ts` 16 例（`describe.each` 双实现）；门禁 G13 |
+| 3 | mock 端到端：入站 → 子进程 `/api/turn` → SSE 帧 → 出站回复 | `gateway-flow.test.ts` + `fake-child.ts` |
+| 4 | 一平台用户一子进程；跨平台不撞会话；重启可回放 | `supervisor.test.ts` 14 例（复用/并发单飞/跨平台/崩溃重启/回收） |
+| 5 | 验签常量时间、时间戳窗口、DTD 拒绝、报文上限、去重、限流、用户标识不落日志 | `channels/im/protocol/*.test.ts`（76 例）+ 门禁 G2/G3/G7 |
+| 6 | 推送降级：客服消息不可用 → 拉取式，用户发 `0` 取回 | `deliverTurn` 7 例 + `handleInbound` 的 fetch-latest 例 |
+| 7 | 真机 D0 有书面结论 | **未执行**（Q1 缺凭据）；`docs/wechat-setup.md` §D0.5 模板 + `docs/evidence/2026-11-im-gateway/` 已登记 |
+| 8 | 生产 registry 只注册 `wechat`；Mock 只在测试 harness | 门禁 G11/G12 |
+| 9 | `verify-im-gateway` 全绿且负控可红 | G1–G13 全绿；负控见 §96.46.4 |
+
+### 96.46.2 实跑数字
+
+- `pnpm test`：**309 文件 / 3542 例**全绿（02 新增 9 文件 / 162 例）。
+- `pnpm typecheck`：0 error（host + client + scripts 三套）。
+- `pnpm lint`：0 error。
+- `pnpm gate`：**51/51**（新增 `verify-im-gateway`）。
+- `channels/im/**` 覆盖率：行/语句/函数 **100%**，分支 ≥ 89.74%（阈值 80%）。
+- `pnpm test:coverage` 全仓仍有既有欠账（`host/web/{auth,handlers,csrf,config,router,handoff*}` 低于 100%），
+  与 01 单登记一致；本单未引入新的低于 100% 文件。
+
+### 96.46.3 与施工单的偏差（同批登记 `docs/im-gateway.md` §5）
+
+| # | 偏差 | 理由 |
+|---|---|---|
+| 1 | `createRegistry(adapters, accounts?)` 增加第二参数 | 契约无 `accountKey`；账号清单由装配注入 |
+| 2 | 02 只接线 `0`（拉取）；审批指令按普通文本转发 | 审批语义属 03，提前消费会形成第二套真相 |
+| 3 | D0 未执行 | Q1 凭据未提供；Mock + 假微信 API 已自动化验证 |
+| 4 | `apps/im-gateway` 不进覆盖率强制名单 | `COVERAGE_ALLOWLIST` 只认 `packages/*`；判决面在 `channels/im` |
+| 5 | 新增日志码 `im-gateway-start` | §2.15 表缺"网关启动"事件 |
+| 6 | 订阅 SSE 后最多等 500ms | 先 turn 后订阅会丢第一条回复 |
+| 7 | 重启上限按 `firstStartAt` 的 10 分钟窗口 | §2.11 原文，不随重启重置 |
+| 8 | 就绪探针文件改名 `ready.ts`（原本 `handshake.ts`） | `'./handshake.ts'` 含子串 `dsh`，被 `verify-no-upstream-imports` 正则误判；零语义规避 |
+
+### 96.46.4 负控（门禁可红）
+
+| # | 注入 | 结果 |
+|---|---|---|
+| G1 | `config.ts` 写入形如真实 AppID 的字面量 | `verify-im-gateway` 红（G1），已还原 |
+| G5 | overlay 的 `host` 改成 `0.0.0.0` | 红（G5），已还原 |
+| G7 | `turn.ts` 的 `log.warn` 带 `userId` | 红（G7），已还原 |
+| G10 | `server.ts` import `parseWechatXml` | 红（G10），已还原 |
+| G11 | `main.ts` 注册 mock | 红（G11），已还原 |
+| G13 | apps 里复制 `interface PlatformAdapter` | 红（G13），已还原 |
+
+### 96.46.5 结论
+
+02 出口九条中八条有实跑证据；第 7 条（真机 D0）因 Q1 凭据缺失**如实登记为未执行**，
+不以 Mock 结果冒充真机。03 开工前置：拿到凭据后补 D0，并把 `BAH_IM_PUSH_MODE` 的默认值按实测结论定稿。
+
+---
+
+## 96.47 IM 网关 02 · 对抗式复审记录（2026-10-30）
+
+> 对应提交：实现 `648ef73`、审查修复 `9ceb2b9`、本记录单独提交。
+> 方法：临时探针（跑完删除）+ 门禁负控（跑完还原）+ 对**修复项**补回归测试。
+
+### 96.47.1 对抗探针（9 条，全绿）
+
+| # | 攻击 | 结果 |
+|---|---|---|
+| A1 | 重放 601 秒前的签名 | `im-sig-stale`（401），不解析 XML |
+| A2 | 改 nonce 但保留原签名 | `im-sig-mismatch` |
+| A3 | 同名 `signature` 参数（正确在前、伪造在后） | 401（`URLSearchParams` 取最后一个，伪造覆盖正确） |
+| A4 | 20 KiB 报文 | 413；响应体不含原文 marker |
+| A5 | `<!DOCTYPE>` + 实体膨胀 | 400；`handleMessage` 未调用 |
+| A6 | `/im/feishu/default`（未注册平台） | 404；不 spawn、不跑 turn |
+| A7 | GET 无 `echostr` | 400（不是 200 空体） |
+| A8 | 日志字段带 `userId/openid` | 整条丢弃（只剩 `reason`） |
+| A9 | 把 mock 适配器挂到同一 HTTP 路由 | 正常分派（路由不认微信；契约可替换） |
+
+> 探针自身先修过两处错误（`nowMs` 未注入导致误报 stale；mock 重复注册导致 404）。
+> 结论：**对抗结论必须建立在正确的探针上**，探针红先查探针。
+
+### 96.47.2 门禁负控（6 条，全红并还原）
+
+| # | 注入 | 首轮结果 | 处置 |
+|---|---|---|---|
+| G1 | `config.ts` 写 `wx0123456789abcdef` | 红 | 还原 |
+| G5 | overlay `host: 0.0.0.0` | 红 | 还原 |
+| G7 | `log.warn` 参数加 `userId`（跨行写） | **未红** → 修门禁后红 | 还原；门禁改括号配对扫描 |
+| G10 | `server.ts` import `protocol/xml.ts` | 红 | 还原 |
+| G11 | `main.ts` import `createMockAdapter` | 红（两处） | 还原 |
+| G13 | apps 里复制 `interface PlatformAdapter` | 红 | 删除 |
+
+**G7 首轮未红是本次复审最重要的发现**：按行扫描会把跨行日志参数漏掉，
+等于"日志泄露 userId"这条判据在最常见的写法下失效。已改为 `logCalls()`（括号配对跨行）。
+
+### 96.47.3 修复项（5 个代码缺陷 + 1 个门禁缺陷）
+
+| ID | 级别 | 缺陷 | 证据（修复前红） | 修复 |
+|---|---|---|---|---|
+| R-01 | 高 | `passiveReply=false` 平台仍调 `reply.passive`（能力位与行为不一致） | 回归例 `passive-unavailable` 抛出 | `deliverTurn` 的 ack 按能力位给空体 |
+| R-02 | 高 | `server.ts` 的 `void outcome.done` 未 catch → unhandledRejection 可致进程退出 | 回归例 `unhandled=1` | server 层 `catch` + `im-turn-failed` |
+| R-03 | 中 | `prefixChunks` 固定预留 10 字节；1000 片时前缀 12 字节 → 2049 > 2048 | 回归例 2049 > 2048 | 按实际片数迭代预算 |
+| R-04 | 中 | `maxChildren` 未计 `starting` → 并发 ensure 突破上限（TOCTOU） | 回归例 2 个 fulfilled | `registry.size() + starting.size` |
+| R-05 | 中 | 入站 CDATA 未还原 `]]>` 拆分（与 `cdata()` 不对称，用户发 `]]>` 会看到乱码） | 回归例解析出转义串 | `decodeValue` 反向 split/join |
+| R-06 | 高 | G7 门禁按行扫描漏跨行日志调用 | 负控未红（见 §96.47.2） | `logCalls()` 括号配对 |
+
+修复后：`pnpm test` **309 文件 / 3547 例**、`pnpm typecheck` 0 error、`pnpm gate` **51/51**、
+`channels/im/**` 覆盖率行/语句/函数 100%。
+
+### 96.47.4 登记但不修
+
+| ID | 级别 | 事项 | 判断 |
+|---|---|---|---|
+| R-07 | 信息 | 01 的 F-01（无 `sessionId` 适配器接受任意票据）仍无门禁 | 生产路径 `channel.ts:92-95` **必传** `sessionId: String(session.sessionId)`；02 的子进程也经 `createHttpChannel` 装配 ⇒ 实际风险闭合，但缺机器判据 |
+| R-08 | 信息 | 子进程 env 清洗（`SCRUBBED_ENV`）无直接单测 | 注入 launcher 只能验证显式 env（只有 `BAH_WEB_TOKEN`）；默认 launcher 的 `scrubbedEnv()` 靠代码审阅。补测需导出该函数，属可做未做 |
+| R-09 | 信息 | 去重窗口进程内、重启即丢 | §2.10 已登记；微信只重试 3 次，不承诺跨重启幂等 |
+
+### 96.47.5 结论
+
+- 02 判定：**复审通过**。5 个代码缺陷均先有红灯回归、再有修复；1 个门禁缺陷（G7 跨行盲区）已修。
+- 遗留只在"真机 D0"与"无凭据的客服消息权限"上，且已如实登记，不以 Mock 冒充。
+- 03 开工前置：① Q1 凭据到位后补 D0 并定稿 `BAH_IM_PUSH_MODE`；② 03 落地时把 G6/G9 从"未落地断言"转强制。
+
+---
+
+## 96.48 02 真机部署（云服务器，2026-10-30）
+
+| 项 | 结果 |
+|---|---|
+| 代码 | `/opt/bah/IMGW`（bundle 传输，imgw-line @`6589f05`） |
+| 依赖/构建 | `pnpm install --frozen-lockfile` + `pnpm build` 通过 |
+| 服务 | `bah-im.service`（`/etc/bah/im.env` 600，`127.0.0.1:8081`） |
+| 公网入口 | nginx 80 → 8081；`http://124.71.73.29/im/wechat/default` |
+| 握手 | 模拟签名 GET `echostr` → 200 原样回显 |
+| 消息 | 模拟 POST「查余额」→ 200 + 余额被动回复（冷启动约 12 秒） |
+| 重启 | 网关重启后同用户仍 200 + 回复；归档后不再出现 `session-exists` |
+
+真机部署暴露并修复两项（施工单 02 §2.11 的 spawn 形状未写清）：
+
+- **R-10**：spawn 缺 `--serve` —— CLI 在 boot 期要求 `--prompt` 并退出；`argsFor` 已补，测试断言 `--serve`。
+- **R-11**：同一 sessionKey 重启时宿主 `core:persistence` 的 `create` 是排他写
+  （`jsonl: 会话已存在，拒绝覆写`，实测 11 条 error）；网关在 spawn 前归档旧会话目录
+  （`prepareJsonlRoot`，旧目录改名 `-prev-<ts>` 保留审计）。
+  **边界（如实登记）**：跨进程的对话上下文延续需要宿主持久化插件支持
+  `open(dir,{mode:'append'})`；本单未改宿主，重启后从空会话开始。
+
+> 服务器侧仍用占位微信三项（`pending-*`），`/healthz` 与握手可用；真机 D0 待 Q1 凭据。
+
+## 96.49 03 审批交互与坐席接管（mock 面，2026-10-30）
+
+| 项 | 结果 |
+|---|---|
+| 出口 1：文本指令闭环 | `1` 批准 / `2` 拒绝（理由必填）/ `3` 详情 / `4` 强验证；多票据强制带票号 |
+| 出口 2：H5 审批页 | `/a/:token` 签名 + 一次性 + TTL；CSP `default-src 'none'`；批准 / 拒绝 / 强验证可用 |
+| 出口 3：过期语义 | `approval-closed(unavailable)` → 推送「已过期」，绝不写成「已批准」 |
+| 出口 4：转人工 | `转人工` → 子进程 `POST /api/handoff`；进入 / 认领 / 交回三态推送 |
+| 出口 5：运营桥 | `/seat/*` 未配 token 一律 404；错 token 401；对 token 才转发白名单路径；列表不含平台用户标识 |
+| 出口 6：审计与日志 | 审批 / 运营面只记 sessionKey / ticketId / code / 理由长度；G15 钉死 |
+
+实现要点：
+
+- `channels/im/protocol/link-token.ts`：`base64url(JSON) + '.' + HMAC-SHA256`，`timingSafeEqual`，`now >= e` 即 `expired`；
+- `apps/im-gateway/src/approval/{pending,commands,texts,submit,page}.ts`：待审批表 / 票据选择 / 文案 / 六码翻译 / H5；
+- `apps/im-gateway/src/session/hub.ts`：**每条会话一条常驻 SSE**（快照重建 + 增量推送），与 02 的 per-turn 订阅并行；
+  `beginTurn/endTurn` 闸门避免同一条助手消息被推两次；断线后下一次 attach 重新订阅；
+- `apps/im-gateway/src/handoff/{bridge,operator}.ts`：接管三态归约 + 公网运营桥（子进程独立 operator token + CSRF）；
+- `assets/approve.{html,css,js}`：零框架、零远程、无内联脚本。
+
+实跑数字（2026-10-30）：
+
+| 命令 | 结果 |
+|---|---|
+| `pnpm typecheck` | 0 error |
+| `pnpm test` | **315 文件 / 3607 例**全绿（03 新增 6 文件 / 57 例） |
+| `pnpm gate` | **51/51**（`verify-im-gateway` G1–G15） |
+| `pnpm test:snapshot` | 9 文件 / 39 例 |
+| 覆盖率 | `channels/im/**` 逐文件 100% 行/语句/函数；`link-token.ts` 分支 93.33% |
+
+门禁负控（4 条，实跑判红并还原）：
+
+- G6：去掉 `server.ts` 的 `deps.seatEnabled !== true` → 红；
+- G9：`approve.html` 加内联 `<script>` → 红；
+- G14：`link-token.ts` 用 `===` 比签名 → 红；
+- G15：`approval/page.ts` 日志加 `reason:` → 红。
+
+偏差与边界（同 `docs/im-gateway.md` §5）：
+
+1. 宿主 `WebDeps` 拆出 `seatApiEnabled`：原 `seatEnabled` 只对 `channel:web` 为真，IM 子进程没有 `/operator` 页面但运营桥必须转发坐席 API；
+2. 03 新增 `session/hub.ts` / `handoff/bridge.ts` / `approval/texts.ts`（施工单文件清单未列），用于常驻 SSE 与跨轮状态；
+3. 03 §6 的两条门禁编号顺延为 **G14 / G15**（02 已占用 G10–G13）；
+4. 新增 `BAH_OPERATOR_NAME`（缺省 `坐席`），随网关注入子进程；
+5. H5 一次性在"解析成功且通过红级前置"后才 claim，避免空理由 / 红级拦截烧掉链接；
+6. 01 的解析口径下 `2` 只给票号不给理由**不识别为指令**；H5 的空理由仍回 400 `reason-required`。
+
+已知边界：
+
+- 待审批 / 接管状态在网关内存；子进程被回收即清空，网关重启不补发历史；
+- 常驻 SSE 断开后不自动重连，下一次入站重新 attach 并按快照重建；
+- H5 需要公网 HTTPS（本地允许 `http://127.0.0.1`）；无 `BAH_IM_PUBLIC_BASE_URL` 时省略 H5 行，文本指令仍可用；
+- D0 真机（审批 / H5 / 运营桥）仍未执行，阻塞同 Q1。
+
+结论：03 的 mock 面已闭环，门禁与测试全绿；真机 D0 待 Q1 凭据。
+
+## 96.50 D0 真机探针（2026-10-30）
+
+Q1 凭据到位（测试号 AppID / AppSecret / Token），公网入口沿用 `http://124.71.73.29/im/wechat/default`（nginx 80 → 8081）。
+
+| 项 | 结论 |
+|---|---|
+| 部署 | `/opt/bah/IMGW` 从 `6589f05` 快进到 `b8d8543`；`pnpm install --frozen-lockfile` + `pnpm build` 通过 |
+| 凭据 | 写入 `/etc/bah/im.env`（600）；三项长度 18 / 32 / 25；另生成 `BAH_IM_LINK_SECRET`（48）与 `BAH_IM_OPERATOR_TOKEN`（32） |
+| 握手 | 服务器内 + 公网 GET `echostr` 均 200 原样回显 |
+| 被动回复 | 真机发「查余额」收到余额；公网 POST 也 200（模型回复） |
+| 03 路由 | `/a/abc.def`→403、`/seat/sessions` 无 token→401、`/assets/approve.css`→200 |
+| 客服消息 | 待测（未触发 >4s 回合） |
+| H5 真机 | 阻塞：公网 http IP，H5 只允许 https 或 127.0.0.1 |
+
+真机暴露的三个问题（已修，均为 01/02 的口径缺口）：
+
+- **D0-1 children-full**：`BAH_IM_MAX_CHILDREN=2` 被两条探针会话占满，真机第二条消息起回「当前咨询人数较多」。
+  部署值调到 6（配置项，不改代码）。
+- **D0-2 choice 不显示**：`prompt_ask` 的选择题帧被 `render.ts` 当表外帧丢弃，用户只看到「请选择一下」，
+  看不到候选（王建国 / 张伟）。已把 `choice` 投影为「问题 + ·候选 + 回复提示」，不编号（回填走 label）。
+- **D0-3 裸 `1` 被拦截**：模型问「要转给谁」后用户回 `1`，网关按审批指令回「当前没有待审批」。
+  已改为：**无待审批时不拦截**，交还对话题；有票时审批优先（T-IM-004 仍走审批）。
+
+复跑：`pnpm typecheck` 0 error；`pnpm test` **315 文件 / 3607 例**；`pnpm gate` 51/51。
+
+> 演示夹具的转账话术要带收款人姓名（候选：王建国 / 张伟）；"转账 100 元给张三"里的张三与当前用户同名，
+> 抽取为空，模型会追问收款人。真机复测用「给王建国转 100 元」。

@@ -61,6 +61,18 @@ importers:
         specifier: 39.8.10
         version: 39.8.10
 
+  apps/im-gateway:
+    dependencies:
+      '@bah/channels':
+        specifier: workspace:*
+        version: link:../../packages/channels
+      '@bah/safety':
+        specifier: workspace:*
+        version: link:../../packages/safety
+      '@bah/util':
+        specifier: workspace:*
+        version: link:../../packages/util
+
   apps/web: {}
 
   packages/bank:
@@ -93,6 +105,9 @@ importers:
       '@bah/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@bah/safety':
+        specifier: workspace:*
+        version: link:../safety
       '@bah/util':
         specifier: workspace:*
         version: link:../util

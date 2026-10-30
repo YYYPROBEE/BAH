@@ -204,4 +204,9 @@ export const COVERAGE_ALLOWLIST: readonly CoverageAllowlistEntry[] = [
     scope: 'desktop/',
     why: '桌面渠道薄工厂：能力位与 id 的唯一落点（施工单 15 / 桌面端 01）',
   },
+  {
+    package: 'channels',
+    scope: 'im/',
+    why: 'IM 渠道内核：平台契约 / 会话键 / 帧投影 / 指令解析——每一条都是网关与审批的前置判决，错一个就是越权或误批（IM 网关 01）',
+  },
 ]
