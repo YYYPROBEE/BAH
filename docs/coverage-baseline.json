@@ -2,13 +2,13 @@
   "measuredAt": "2026-10-30",
   "command": "NODE_EXTRA_CA_CERTS= pnpm test:coverage:all",
   "line": {
-    "covered": 46778,
-    "total": 52001,
-    "pct": 89.96
+    "covered": 49571,
+    "total": 55161,
+    "pct": 89.87
   },
   "packages": {
     "atLeast80": 16,
     "total": 18
   },
-  "note": "2026-10-30 场景 5 收口跑批（`pnpm test:coverage:all`，数字取 `.ci-artifacts/cov-all/coverage-summary.json`）：行 46778/52001 = 89.96%，包 16/18。分母包含本轮新增的 `packages/bank/src/detect/`、订阅工具面与离线路由订阅意图；唯一未达 80% 的两个包：memory-store 72.68%、eval 46.93%。历史值（46761/52005=89.92%、41749/46877=89.06%、CI 31233/34270=91.14%）只作历史记录。"
+  "note": "2026-10-30 五线合流后跑批（`pnpm test:coverage:all`，数字取 `.ci-artifacts/cov-all/coverage-summary.json`）：行 49571/55161 = 89.87%，包 16/18。分母包含五条支线并入的桌面端、IM 网关、主动能力与卡片状态面；唯一未达 80% 的两个包：memory-store 72.68%、eval 46.93%。历史值（46778/52001=89.96%、46761/52005=89.92%、41749/46877=89.06%、CI 31233/34270=91.14%）只作历史记录。"
 }

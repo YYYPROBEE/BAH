@@ -66,6 +66,9 @@ export default defineConfig({
       // 让"测试全绿但退出码 1"这种假红出现。目录在 .ci-artifacts 下、每次覆盖同名文件，
       // 残留不影响读数（summary 脚本只读 coverage-summary.json）。
       clean: false,
+      // 连 v8 的 .tmp 目录也不清：本机沙箱 safe-delete 会拦批量删除（350 个文件超阈值），
+      // 表现为"覆盖率已算出来但退出码 1"的假红。残留 .tmp 不影响读数。
+      cleanOnRerun: false,
       // 阈值刻意**不写在这里**：包口径（≥14/16）vitest 表达不了，
       // 两处判会造成"一处过一处不过、到底听谁的"。统一由 coverage-summary.ts 判。
     },

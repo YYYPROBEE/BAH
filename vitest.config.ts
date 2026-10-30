@@ -114,6 +114,9 @@ export default defineConfig({
       // 目录在 .ci-artifacts 下、每次覆盖同名文件，残留不影响读数。
       // 与 `vitest.coverage.config.ts` 同一口径（那边是 `.ci-artifacts/cov-all`）。
       clean: false,
+      // 连 v8 的 .tmp 目录也不清：本机沙箱 safe-delete 会拦批量删除（350 个文件超阈值），
+      // 表现为"覆盖率已算出来但退出码 1"的假红。残留 .tmp 不影响读数。
+      cleanOnRerun: false,
     },
   },
 })
