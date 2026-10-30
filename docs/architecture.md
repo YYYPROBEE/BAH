@@ -44,7 +44,8 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **19 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **26 项 / 50 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
+| 注册表条目（项） | **27** | `HOST_PLUGINS` 计数 |
+| 门禁（项） | **51** | `scripts/verify-*.ts` 计数 |
 | 覆盖率 | **89.96%（行口径，46778/52001 行，实测 2026-10-30）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
@@ -65,9 +66,9 @@
 | ④ 交互与审批（interaction） | `interaction:approval` | 1 |
 | ⑤ 安全防护（safety） | `safety:sentry`、`safety:verify`、`safety:sandbox` | 3 |
 | ⑥ 编排原语（plan） | `plan:dag` | 1 |
-| ⑦ 渠道（channel） | `channel:web`、`channel:mobile` | 2 |
+| ⑦ 渠道（channel） | `channel:web`、`channel:mobile`、`channel:desktop` | 3 |
 | ⑧ 演示件（demo） | `demo:echo` | 1 |
-| **合计** | — | **26** |
+| **合计** | — | **27** |
 <!-- END GENERATED:layers -->
 
 ### 3.1 依赖图（谁向谁要服务）
@@ -101,6 +102,7 @@ graph LR
   p23["prompt:ask"]
   p24["channel:web"]
   p25["channel:mobile"]
+  p26["channel:desktop"]
   p0 --> host["宿主运行时 boot()"]
   p1 --> host["宿主运行时 boot()"]
   p1 --> p0
@@ -137,6 +139,10 @@ graph LR
   p25 --> p0
   p25 --> p12
   p25 --> p5
+  p26 --> host["宿主运行时 boot()"]
+  p26 --> p0
+  p26 --> p12
+  p26 --> p5
   p5 --> host["宿主运行时 boot()"]
   p5 --> p0
   p5 --> p4
@@ -187,6 +193,7 @@ graph LR
 | prompt:ask | —（无依赖） | — |
 | channel:web | `bah:run`、`runtime:session`、`runtime:agents`、`interaction:approval` | 宿主运行时 boot()、`core:session`、`core:agent`、`interaction:approval` |
 | channel:mobile | `bah:run`、`runtime:session`、`runtime:agents`、`interaction:approval` | 宿主运行时 boot()、`core:session`、`core:agent`、`interaction:approval` |
+| channel:desktop | `bah:run`、`runtime:session`、`runtime:agents`、`interaction:approval` | 宿主运行时 boot()、`core:session`、`core:agent`、`interaction:approval` |
 <!-- END GENERATED:dependencies -->
 
 ## 4. 装配图与矩阵（五个可运行 profile）
@@ -285,6 +292,7 @@ graph TB
 | prompt:ask | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | channel:web | · 未装配 | · 未装配 | ● 生效 | ● 生效 | · 未装配 |
 | channel:mobile | · 未装配 | · 未装配 | · 未装配 | · 未装配 | ● 生效 |
+| channel:desktop | · 未装配 | · 未装配 | · 未装配 | · 未装配 | · 未装配 |
 <!-- END GENERATED:matrix -->
 
 ### 4.1 六处差异的**理由**（不是随手配的）

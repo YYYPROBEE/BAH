@@ -8,7 +8,7 @@
 ## 1. 机器可读块（门禁只读这一段）
 
 <!-- facts:sources:start -->
-gates=50
+gates=51
 tools=19
 plan_lines=2246
 snapshot_files=10
@@ -30,13 +30,13 @@ tests_main_cases=3494
 
 | 事实 | 值 | 命令 | 实测输出 |
 |---|---|---|---|
-| 门禁数 | **50** | `ls scripts/verify-*.ts \| wc -l` | 34 → `verify-facts.ts` 后 35 → … → 移动 H5 03 后 46；租户与鉴权 01–04 新增 `verify-tenant-scope.ts` / `verify-tenant-isolation.ts` / `verify-authz-coverage.ts` 后 49；人机接管 01 新增 `verify-handoff-wiring.ts` 后 50；合流后 `run-gates` 输出 `50/50` |
+| 门禁数 | **51** | `ls scripts/verify-*.ts \| wc -l` | 34 → `verify-facts.ts` 后 35 → … → 移动 H5 03 后 46；租户与鉴权 01–04 新增 `verify-tenant-scope.ts` / `verify-tenant-isolation.ts` / `verify-authz-coverage.ts` 后 49；人机接管 01 新增 `verify-handoff-wiring.ts` 后 50；桌面端 02 新增 `verify-desktop-shell.ts` 后 51 |
 | 工具数 | **19** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 19（与 `result-schemas.ts` 19 个出参键一一对应；场景 5 新增 3 个） |
 | plan 非测试行数 | **2,246** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,246（2026-10-27 复核） |
 | 快照文件 / 用例 | **10 / 43** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 10 文件 / 43 例（`pnpm test:snapshot` 同值；新增 subscription 场景） |
 | 覆盖率（行） | **89.96%** | `pnpm test:coverage:all`（本机汇总口径） | 覆盖 46778 行 / 参与统计 52001 行（2026-10-30 场景 5 收口复跑） |
 | 覆盖率（包） | **16/18** | 同上 | 只有 `memory-store` 72.68% 与 `eval` 46.93% 未达 80% |
-| 主仓测试 | **302 文件 / 3494 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 302 passed / 3494 例（2026-10-30 场景 5 收口复跑） |
+| 主仓测试 | **302 文件 / 3494 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 302 passed / 3494 例（2026-10-30 场景 5 收口复跑；合流后含 `apps/desktop/src`） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
 | web 测试 | **27 文件 / 375 例** | `pnpm test:web` | 27 passed / 375 passed（2026-10-30 复跑） |
 | 快照跑批 | **10 文件 / 43 例** | `pnpm test:snapshot` | 10 passed / 43 passed（2026-10-30 新增 subscription 场景后重跑） |
