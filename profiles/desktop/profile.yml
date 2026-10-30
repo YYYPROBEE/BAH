@@ -1,0 +1,15 @@
+# desktop（施工单 15 §2 / 桌面端 01）：Electron 桌面壳内嵌私有宿主用的 profile。
+#
+# 与 web 的差别只有四处（00 §5 / 01 §2.3）：
+#   ① `core:agent.config.channel = desktop`（系统提示词按 CHANNEL_HINTS.desktop 裁剪）；
+#   ② 渠道行 id/use = `channel:desktop`，且 `port: 0`（OS 分配，主进程从 DESKTOP_SERVER 读实际值）；
+#   ③ 随渠道名走的两处文案：`bank:knowledge.channel` 与 `demo:echo.prefix`。
+# 其余各行与 profiles/web/patch.yml **逐字一致**——它们是业务与治理口径，桌面端没有任何
+# 理由不同；一旦不同就是两套账（门禁 I8 比对规范化序列化）。
+#
+# HMR 关：与 web 同理。桌面端更甚——主进程正在跑一份已验证的装配，
+# 现场改 patch 触发重载会让人误以为"界面自己刷新了"。
+name: desktop
+bundles: [base]
+patch: ./patch.yml
+hmr: false

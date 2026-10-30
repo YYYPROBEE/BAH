@@ -17,6 +17,20 @@ Harness 项目（包括 DeepSeek Harness / dsh）的源代码；架构与机制�
 若后续引入第三方 MIT/Apache 组件，在此逐项标注：
 （暂无）
 
+## 桌面端分发（Electron / Chromium，2026-10-30）
+
+`apps/desktop` 与便携 zip（`dist-desktop/BAH-desktop-<version>-win-x64.zip`）**分发**
+Electron 运行时的未修改二进制，因此随包附带其原始许可文本：
+
+| 组件 | 版本 | 许可 | 许可文本位置 |
+|---|---|---|---|
+| Electron | 39.8.10 | MIT | zip 内 `LICENSE` |
+| Chromium（Electron 内置） | 142.0.7444.265 | BSD-3-Clause 等（含第三方组件） | zip 内 `LICENSES.chromium.html` |
+| Node.js（Electron 内置） | 22.22.1 | MIT | 同上 |
+
+边界：本工程**不修改** Electron/Chromium 二进制，只在其上加载自有代码；
+`resources/app` 全部为本仓库源码的构建产物。桌面端不含任何远程遥测、自动更新或崩溃上报。
+
 ## 机制借鉴登记（`plan:dag` 编排原语，2026-10-24）
 
 `packages/runtime/src/plan/` 的编排引擎**没有复制任何第三方代码**：下列九项只借"机制名与

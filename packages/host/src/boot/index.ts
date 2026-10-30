@@ -38,6 +38,8 @@ export {
 } from './plugins/index.ts'
 // 编排原语的服务键：消费方（快照场景 / 上层插件）按键取 `PlanApi`，不碰插件实现
 export { PLAN_SERVICE, SAGA_BRIDGE_RECIPES } from './plugins/index.ts'
+// 桌面渠道的服务键：桌面主进程按键取实际端口（`port:0` ⇒ 端口随启动变化）
+export { DESKTOP_SERVER } from './plugins/index.ts'
 export { DEFAULT_ROOT, SESSION_FILES, tenantRootOf, type SessionFiles } from './plugins/persistence.ts'
 // 测试夹具：`RunContext` 工厂（租户与鉴权 01 TA-11）。与 `RunContext` 类型同包，
 // 避免 @bah/test-support 反向依赖 host 造成 project references 成环。
