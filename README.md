@@ -1,7 +1,7 @@
 ﻿# BAH · 银行智能体
 
-> 仓库：https://github.com/YYYPROBEE/bah-monorepo（访问需授权）
-> 许可：仅授权赛事评审查看与运行，见 [LICENSE](LICENSE)
+> 仓库：https://github.com/YYYPROBEE/bah-monorepo
+> 许可：源码公开可见，但不是开源许可；授权范围见 [LICENSE](LICENSE)
 
 **一个把"模型能做什么"关进可审计边界里的银行智能体演示系统。**
 
@@ -253,10 +253,9 @@ docs/                管线、sentry、审计、前端、测试等落地文档
 facts.md             演示材料唯一数字来源
 ```
 
-> **过程件不在默认分支上**：施工台账、施工单、演练单、对抗复审记录与证据原件已于 2026-10-30/31 从 tip 撤下
-> （只删 tip，历史保留）。正文取 `git show b514496^:docs/<路径>`（施工台账为 `git show b514496^:PROGRESS.md`）；
-> 代码注释里的「施工单 NN §x」「PROGRESS R*」按同一坐标回溯。留在树上的只有可读的落地文档与 `facts.md`，
-> 数字只从 [facts.md](facts.md) 取。
+> **过程件不随仓库分发**：施工台账、施工单、演练单、对抗复审记录与证据原件不在默认分支上。
+> 代码注释里的「施工单 NN §x」「PROGRESS R*」只是当时的线索，正文不在此仓库。
+> 留在树上的只有可读的落地文档与 `facts.md`，数字只从 [facts.md](facts.md) 取。
 
 ## 7. 测试与资料
 
@@ -270,6 +269,5 @@ facts.md             演示材料唯一数字来源
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
 
-更多材料：[docs/](docs/)；200 字简介见 [docs/简介-200字.md](docs/简介-200字.md)；
-部署见 [docs/deploy.md](docs/deploy.md)，安全自评见 [docs/security-self-assessment.md](docs/security-self-assessment.md)，
-漏洞披露见 [SECURITY.md](SECURITY.md)。
+更多材料：[docs/](docs/)；部署见 [docs/deploy.md](docs/deploy.md)，
+安全设计见 [docs/security-design.md](docs/security-design.md)，漏洞披露见 [SECURITY.md](SECURITY.md)。

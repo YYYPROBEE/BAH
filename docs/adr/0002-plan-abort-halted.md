@@ -3,9 +3,7 @@
 - **状态**：已接受（Accepted）
 - **日期**：2026-10-26
 - **版本**：`v1.0.0-frozen-2026-10-26`（与 ADR-0001 同批）
-- **决策者**：L1-A（主）/ L1-B（备）
-- **会签**：W07 owner（HALT 闭环的消费方）
-- **相关**：`docs/contracts/event-table.md` §3、`文档归档/BAH施工文档集-2026-10-25-v2/W07-HALT闭环.md`
+- **相关**：`docs/contracts/event-table.md` §3
 
 ## 1. 背景
 

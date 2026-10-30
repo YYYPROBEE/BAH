@@ -1,10 +1,8 @@
 /**
- * `verify-docs-paths` 的例外名单（门禁扩容 07 §2-4）。
+ * `verify-docs-paths` 的例外名单。
  *
- * 只收两类：
- * 1. **登记在案的"暂不存在"**：按 `.git/info/exclude` 不入库的内部件，以及已记录为待补的历史路径。
- *    每条都指向偏差编号 `R*`——它出自已整删的施工台账 `PROGRESS.md`，
- *    正文取 `git show b514496^:PROGRESS.md`（该提交是施工台账最后一次存在的版本）。
+ * 只收**运行期目录与构建产物**：干净 clone 上本来就不存在，文档里以路径形式
+ * 提到它们是排障线索，不是声称仓库里有这些文件。
  *
  * 纪律：
  * - 已实装包里的失效引用是**真 bug**：改文档，不许进名单。
@@ -18,34 +16,7 @@ export interface DocsPathExclusion {
   readonly why: string
 }
 
-/**
- * 本仓**不发布**的内部件：按 `.git/info/exclude` 不入库，只在作者工作区存在。
- *
- * 为什么要单列一类：施工台账 / 交接单 / 事实台账当初确实是按这些路径引用的，
- * 而它们**永远不会**进仓库。两种修法里，改历史记录等于篡改当时的输入（`docs-consistency`
- * 也是这个口径），所以只能把它们登记成"不是本仓资产"。
- *
- * 代价写在这里，不假装它们存在：读者在 clone 里打不开这些路径。
- */
-const PRIVATE_PLANNING_PATHS: readonly string[] = [
-  'docs/preflight-2026-10-25.md',
-  'docs/owners-2026-10-25.md',
-  'docs/capacity-plan-b-2026-10-25.md',
-  'docs/staffing-plan-2026-10-25.md',
-  'docs/one-person-plan-2026-10-25.md',
-  'docs/task-w10-2026-10-25.md',
-  'docs/next-three-w11-w12-w05-2026-10-26.md',
-  'docs/handoff-2026-10-25-w07-done.md',
-  'docs/handoff-2026-10-25-w08-done.md',
-  'docs/handoff-2026-10-25-w16-done.md',
-  'docs/handoff-2026-10-26-w20-next.md',
-]
-
-const PRIVATE_PLANNING_WHY =
-  '内部规划/交接件：按 .git/info/exclude 不入库，只在作者工作区存在（历史记录按当时路径引用，改文档等于篡改当时输入）'
-
 export const DOCS_PATH_EXCLUSIONS: readonly DocsPathExclusion[] = [
-  ...PRIVATE_PLANNING_PATHS.map((path) => ({ path, why: PRIVATE_PLANNING_WHY })),
   // 运行期目录：内容一律不入库（`*.sqlite` 知识库、fastembed 模型缓存），
   // 干净 clone 上本就不该有 —— `store.py:202` 自建父目录，容器按 `-v` 挂载宿主目录。
   {
@@ -65,17 +36,5 @@ export const DOCS_PATH_EXCLUSIONS: readonly DocsPathExclusion[] = [
   {
     path: 'packages/cli/dist',
     why: 'CLI 构建产物目录：`pnpm build` 从 packages/cli/bundles/base/index.ts 转译生成，dist/ 已忽略，干净 clone 上不该有',
-  },
-  {
-    path: 'snapshots/tsconfig.json',
-    why: '施工台账偏差 R25 登记的待补配置：快照面目前只经 vitest 转译，阶段 7 扩 harness 时才补',
-  },
-  {
-    path: 'packages/runtime/src/tier/decide.ts',
-    why: '施工台账偏差 R89 记录的"施工单 09 原路径"：已拍板三级判决落在 bank/src/tools/tier.ts',
-  },
-  {
-    path: 'packages/xxx/src/yyy.ts',
-    why: '施工单 07 §2-4 里的示意写法（xxx/yyy 占位），不是真实文件',
   },
 ]

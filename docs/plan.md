@@ -263,7 +263,7 @@ api.snapshot(plan.planId)                      // 运行中或已完成的快照
 | 快照 3 场景 | 1 个录音场景（链式 3 节点）+ 单测/集成覆盖失败与 dry-run 分支 | 快照的职责是"整条链路可复现"，不是把每条分支再录一遍；录得越多重录越贵。**不录 cancel**（依赖事件循环时序，会 flaky） |
 | `plan/` 未进 100% 覆盖率强制名单 | 未加 | 方案未要求；引擎里有一条不可达的防御分支（`depsSatisfied` 兜底），进名单会逼人给死代码写测试 |
 | W11「动态 args 取上游 output」 | `ToolExecution` 增两个**只读**字段：`value`（结构化原值）、`approvalWaitedMs`（审批等待） | `result.content` 是 `projectContent` 之后的**渲染投影**，按字段取不到东西；审批等待只有管线知道。两者都只在内存、不进事件，且默认缺省 ⇒ 对既有消费方零影响 |
-| W11「`incident` 落 `failed` + `code`」 | 不改冻结的三值 `node-result.status`，也不新增 `plan/node-incident` | `status` 与 `code` 同时承载"是不是外部故障"会造成两个判定者；新增事件会让"终态计数"认两个事件族。见 `PROGRESS.md` §70.1 |
+| W11「`incident` 落 `failed` + `code`」 | 不改冻结的三值 `node-result.status`，也不新增 `plan/node-incident` | `status` 与 `code` 同时承载"是不是外部故障"会造成两个判定者；新增事件会让"终态计数"认两个事件族。取舍记录见本表 |
 
 ## 12. 续跑（P1 已做）与仍未做的部分
 

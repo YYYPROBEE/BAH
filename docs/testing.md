@@ -316,8 +316,8 @@ snapshots/<case>/
 ## 11. 常见坑
 
 1. **`pnpm.ps1` 被执行策略拦**：在 PowerShell 里用 `cmd /c "pnpm ..."`，或改用 `pnpm.cmd`。
-2. **`engines` 告警**：本机 Node v22.17 < `^22.19`，pnpm 只 warn；CI 需统一版本（PROGRESS R1）。
-3. **Windows 下 `--filter='./packages/*'`（单引号）匹配不到任何包**：一律双引号（PROGRESS R6）。
+2. **`engines` 告警**：本机 Node v22.17 < `^22.19`，pnpm 只 warn；CI 需统一版本。
+3. **Windows 下 `--filter='./packages/*'`（单引号）匹配不到任何包**：一律双引号。
 4. **jsdom 用例必须 `vi.resetModules()`**：模块级副作用（写 DOM）不可重复触发，否则第二个用例拿到上一次的模块实例。
 5. **临时目录用例必须在 `afterEach` 清干净**：Windows 上残留句柄会导致目录删不掉，进而污染后续用例。
 

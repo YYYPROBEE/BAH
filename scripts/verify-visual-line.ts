@@ -64,7 +64,7 @@ const SCAN_DIRS = [
   'tests',
 ]
 
-/** 根级单文件（施工记录 `PROGRESS.md` 已整删，不在面内）。 */
+/** 根级单文件（施工台账不随仓库分发，不在面内）。 */
 const ROOT_FILES = ['NOTICE.md', 'README.md', 'AGENTS.md', 'package.json']
 
 /**

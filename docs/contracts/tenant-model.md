@@ -3,11 +3,10 @@
 > 本文件是**租户这一维度**的契约。与 `event-table.md` / `tool-contract.md` / `scenario-dsl.md`
 > 同级：入库、参与 `verify-docs-consistency`，改动要走本文 §8 的流程。
 >
-> 权威序（`00-全局约定.md` §0）：代码现状 > 本契约 > 施工单。施工台账已撤下（历史取 `git show b514496^:PROGRESS.md`），不占序。
+> 权威序：代码现状 > 本契约 > 规划稿。
 > 也就是说：**本契约与代码不一致时，以代码为准，然后回来改本契约**。
 >
-> 生效：2026-10-28（租户与鉴权施工单 01 落地）。当时点事实：租户鉴权 01 单的证据件（已撤下，
-> 历史取 `git show b514496^:docs/evidence/`）。
+> 生效：2026-10-28（租户与鉴权能力落地）。
 
 ---
 
@@ -207,7 +206,7 @@ HTTP 路由级 `authorize()` 只判"身份有无 + 角色"，不判租户——�
 2. 改 `TenantId` 字符集 / `ROLES` 顺序 / 六个注入点之一 / 链行 `tenant` 语义，
    必须同时：升 `v1.x.y`（语义变更升 minor，破坏兼容升 major）、跑
    `pnpm typecheck` + `pnpm test` + `pnpm gate` + `pnpm test:snapshot`、
-   并在 `PROGRESS.md` 记一条"为什么改"；
+   并在 ADR 或提交说明里记一条"为什么改"；
 3. 新增第七个注入点 = 契约变更：先在本表加一行，再加门禁判据
    （`scripts/verify-tenant-scope.ts`），最后才写代码；
 4. **不许**为本契约加 `BAH_ALLOW_*` 逃生口（`00` §5）。
