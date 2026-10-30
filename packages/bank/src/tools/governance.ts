@@ -71,7 +71,7 @@ interface ApprovalLike {
   }
   readonly callId: string
   readonly name: string
-  /** 授权来源（ADR-0006；缺省 = 人工点击）。 */
+  /** 授权来源（ADR-0008；缺省 = 人工点击）。 */
   readonly authorization?: TicketAuthorization
   readonly decision: {
     readonly decision: 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
@@ -107,7 +107,7 @@ export interface TicketLifecycleIssueInput {
     readonly leaseId: string
     readonly expiresAt: number
   }
-  /** 授权来源（ADR-0006；缺省 = 人工点击）。 */
+  /** 授权来源（ADR-0008；缺省 = 人工点击）。 */
   readonly authorization?: TicketAuthorization
   readonly at: number
 }

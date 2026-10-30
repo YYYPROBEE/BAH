@@ -97,7 +97,7 @@ export interface ApprovalInput {
     readonly tier: string
   }
   readonly challenge?: ApprovalChallenge
-  /** 授权来源（ADR-0006；缺省 = 人工点击）。由 `tools/pre-execute` 的 ask 判决透传。 */
+  /** 授权来源（ADR-0008；缺省 = 人工点击）。由 `tools/pre-execute` 的 ask 判决透传。 */
   readonly authorization?: TicketAuthorization
   readonly decision: ApprovalResponse
 }

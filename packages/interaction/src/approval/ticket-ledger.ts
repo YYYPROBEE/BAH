@@ -71,7 +71,7 @@ export interface TicketIssueInput {
     readonly leaseId: string
     readonly expiresAt: number
   }
-  /** 授权来源（ADR-0006；缺省 = 人工点击）。 */
+  /** 授权来源（ADR-0008；缺省 = 人工点击）。 */
   readonly authorization?: AuthorizationRef
   /** 签发时刻。 */
   readonly at: number
@@ -218,7 +218,7 @@ export class TicketLedger {
   /**
    * 批准（`issued → approved`）。
    *
-   * `authorization` 缺省 = 人工签署（ADR-0006：老调用方零改动）。
+   * `authorization` 缺省 = 人工签署（ADR-0008：老调用方零改动）。
    *
    * @throws `BahError('ticket-unknown')` / `BahError('ticket-closed')`
    */

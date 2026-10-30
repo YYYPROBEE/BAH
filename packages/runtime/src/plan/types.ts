@@ -278,7 +278,7 @@ export interface PlanRunSnapshot {
 /** `PlanApi.run()` 的公开选项。 */
 export interface PlanApiRunOptions {
   readonly dryRun?: boolean
-  /** 授权来源（ADR-0006）：由 `plan_wake` 注入，逐节点落进 `ticket/*`。 */
+  /** 授权来源（ADR-0008）：由 `plan_wake` 注入，逐节点落进 `ticket/*`。 */
   readonly authorization?: TicketAuthorization
 }
 
@@ -308,7 +308,7 @@ export interface PlanApi {
    * 执行一张计划。`initiator` 不接受参数——一律由宿主从会话取。
    *
    * `authorization` 只由受控执行器（`plan_wake`）注入：它随每次节点审批落进
-   * `ticket/*`（ADR-0006），让"谁批的"在凭证上可见。
+   * `ticket/*`（ADR-0008），让"谁批的"在凭证上可见。
    */
   run(plan: Plan, options?: PlanApiRunOptions): Promise<PlanRunSummary>
   /**

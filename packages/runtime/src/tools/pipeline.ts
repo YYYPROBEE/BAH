@@ -77,7 +77,7 @@ export interface ToolPipelineOptions {
    */
   readonly mintTicketId?: (callId: string) => TicketId
   /**
-   * 授权来源（ADR-0006）：唤醒执行器为整次 run 注入，逐节点落到 `ticket/*`。
+   * 授权来源（ADR-0008）：唤醒执行器为整次 run 注入，逐节点落到 `ticket/*`。
    *
    * 只由受控执行器（`plan_wake`）设置；页面端永远不会走到这里。
    * ask 判决自带 `authorization` 时以判决为准（更内层、更具体）。
@@ -438,7 +438,7 @@ export class ToolPipeline {
       name: call.name,
       summary: { title: `执行 ${call.name}`, amount: ticket.amount, tier: definition.tier.level },
       challenge,
-      // 授权来源（ADR-0006）：ask 判决自带的优先；否则用执行器为整次 run 注入的那一份
+      // 授权来源（ADR-0008）：ask 判决自带的优先；否则用执行器为整次 run 注入的那一份
       ...(ask.authorization === undefined && this.authorization === undefined
         ? {}
         : { authorization: ask.authorization ?? this.authorization }),
