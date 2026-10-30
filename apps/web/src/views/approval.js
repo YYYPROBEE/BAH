@@ -83,6 +83,19 @@ export function createApprovalController(root, handlers) {
       'aria-label': '拒绝理由',
     })
     const hint = el('p', { class: 'approval__hint', role: 'status' })
+    // 打字确认（删除 / 撤销类操作）：前端只做提示与提前拦截，**判定在服务端**。
+    // 注入文本可以推动用户点"确认"，推不动用户打出一个指定的词。
+    const confirmText = frame.confirmText
+    const confirmInput =
+      confirmText === undefined
+        ? null
+        : el('input', {
+            class: 'ds-input approval__confirm',
+            type: 'text',
+            autocomplete: 'off',
+            placeholder: `逐字输入「${confirmText}」以确认`,
+            'aria-label': `确认词：${confirmText}`,
+          })
     const waited = el('span', { class: 'approval__waited', text: '已等待 00:00' })
     // 红级挑战是否已通过；提交是否在飞。两者决定"批准"入口与 Esc 是否可用。
     let verified = false
@@ -97,6 +110,11 @@ export function createApprovalController(root, handlers) {
         onclick: async () => {
           if (needsChallenge && !verified) {
             hint.textContent = '红级操作必须先完成强验证'
+            return
+          }
+          if (confirmInput !== null && confirmInput.value.trim() !== confirmText) {
+            hint.textContent = `请逐字输入「${confirmText}」`
+            confirmInput.focus()
             return
           }
           await submit('allowed-once')
@@ -198,6 +216,7 @@ export function createApprovalController(root, handlers) {
           reasonInput,
           hint,
           ...(challengeBox === null ? [] : [challengeBox]),
+          ...(confirmInput === null ? [] : [confirmInput]),
           el('p', {
             class: 'approval__note',
             text: '票据时效由服务端裁决；界面不计时判决，超时会显示「未执行」。',
@@ -239,7 +258,11 @@ export function createApprovalController(root, handlers) {
       approve.disabled = true
       reject.disabled = true
       hint.textContent = '提交中…'
-      const result = await handlers.onDecision(frame.ticketId, decision, reason)
+      // 没有确认词就保持三参调用：既有渠道/测试的签名不受影响
+      const result =
+        confirmInput === null
+          ? await handlers.onDecision(frame.ticketId, decision, reason)
+          : await handlers.onDecision(frame.ticketId, decision, reason, confirmInput.value.trim())
       // 成功：保持禁用，等 `approval-closed` 帧来收尾（`close()` 会替换按钮区）。
       if (result.ok) return
       submitting = false

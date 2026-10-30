@@ -9,6 +9,7 @@
  * 归约而不是"视图各自推导"：五个视图共享同一份事实，防止某条事件只在一个视图里出错。
  */
 
+import { occurrenceOf } from '@bah/runtime'
 import { assertNever } from '@bah/util'
 
 import type { AnySessionEvent, ApprovalDecision, TurnEndReason } from '@bah/runtime'
@@ -28,6 +29,8 @@ import type {
   MessageBlock,
   MessageFrame,
   NoticeFrame,
+  PlanCardCondition,
+  PlanCardFrame,
   SnapshotFrame,
   TodoFrame,
   TodoItem,
@@ -40,6 +43,7 @@ import type {
 import { frameKey } from './frames.ts'
 import { auditOf } from './audit.ts'
 import { buildCard, toolTitle } from './cards.ts'
+import { requiredConfirmText } from './confirm.ts'
 import { amountFromArgs, maskedPayeePhoneFromArgs, payeeFromArgs } from './amount.ts'
 import { DagBuilder } from './dag.ts'
 import { formatCents } from './format.ts'
@@ -570,6 +574,9 @@ export class WebProjector {
             })
           }
         }
+        // G7：计划卡（plan_arm / plan_disarm / plan_wake 的结构化出参 → plan-card 帧）。
+        // 投影源是 tool/result 而不是 plan/created：后者保持"不产帧"的既有约定。
+        frames.push(...this.projectPlanCard(data.name, data.isError, data.content, event.seq, event.at))
         return frames
       }
       case 'approval/asked': {
@@ -594,6 +601,7 @@ export class WebProjector {
         const cents =
           amountFromArgs(record?.args) ??
           (typeof data.amount === 'number' ? Math.round(data.amount * 100) : undefined)
+        const confirmText = requiredConfirmText(data.name)
         return [
           {
             kind: 'approval',
@@ -611,6 +619,7 @@ export class WebProjector {
             tier,
             ...(data.challenge === undefined ? {} : { challenge: data.challenge }),
             rejectReasonRequired: true,
+            ...(confirmText === undefined ? {} : { confirmText }),
           } satisfies ApprovalFrame,
         ]
       }
@@ -911,6 +920,82 @@ export class WebProjector {
     }
   }
 
+  /** 计划卡（G7）：窗口 → 卡片；撤销与唤醒都是替换语义。 */
+  private planCards = new Map<string, PlanCardFrame>()
+
+  /**
+   * `plan_arm` / `plan_disarm` / `plan_wake` 的 `tool/result` → 计划卡。
+   *
+   * 只认结构化出参（与事件里的 JSON 同源）：失败调用不投影；找不到对应窗口的
+   * 唤醒条目也不凭空造卡（宁可少一张，不造一张假的）。
+   */
+  private projectPlanCard(
+    name: string,
+    isError: boolean,
+    content: readonly { readonly type: string; readonly text?: string }[],
+    seq: number,
+    at: number,
+  ): WebFrame[] {
+    if (isError) return []
+    if (name !== 'plan_arm' && name !== 'plan_disarm' && name !== 'plan_wake') return []
+    const payload = jsonObjectOf(content)
+    if (payload === undefined) return []
+
+    if (name === 'plan_arm') {
+      const card = planCardOf(payload, seq, at)
+      if (card === undefined) return []
+      this.planCards.set(card.windowId, card)
+      return [card]
+    }
+
+    if (name === 'plan_disarm') {
+      const windowId = typeof payload['windowId'] === 'string' ? payload['windowId'] : undefined
+      const existing = windowId === undefined ? undefined : this.planCards.get(windowId)
+      if (existing === undefined) return []
+      const updated: PlanCardFrame = { ...existing, seq, at, state: 'cancelled' }
+      this.planCards.set(updated.windowId, updated)
+      return [updated]
+    }
+
+    const entries = Array.isArray(payload['entries']) ? payload['entries'] : []
+    const frames: PlanCardFrame[] = []
+    for (const raw of entries) {
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) continue
+      const entry = raw as Readonly<Record<string, unknown>>
+      const windowId = typeof entry['windowId'] === 'string' ? entry['windowId'] : undefined
+      const existing = windowId === undefined ? undefined : this.planCards.get(windowId)
+      if (existing === undefined) continue
+      const status = typeof entry['status'] === 'string' ? entry['status'] : ''
+      const summary =
+        typeof entry['summary'] === 'object' && entry['summary'] !== null
+          ? (entry['summary'] as Readonly<Record<string, unknown>>)
+          : undefined
+      const failedCount = summary !== undefined && typeof summary['failed'] === 'number' ? summary['failed'] : 0
+      const blockedCount =
+        summary !== undefined && typeof summary['blocked'] === 'number' ? summary['blocked'] : 0
+      const nextState: PlanCardFrame['state'] =
+        status === 'executed'
+          ? failedCount > 0 || blockedCount > 0
+            ? 'failed'
+            : 'done'
+          : status === 'downgraded' || status === 'failed'
+            ? 'failed'
+            : existing.state
+      const code = typeof entry['code'] === 'string' ? entry['code'] : undefined
+      const updated: PlanCardFrame = {
+        ...existing,
+        seq,
+        at,
+        state: nextState,
+        conditions: markFailedConditions(existing.conditions, entry['failed']),
+        ...(code === undefined ? {} : { lastVerdict: { code, at } }),
+      }
+      this.planCards.set(updated.windowId, updated)
+      frames.push(updated)
+    }
+    return frames
+  }
+
   /** 按稳定键替换或追加（三态更新与 DAG 更新的基础）。 */
   private upsert(frame: WebFrame): void {
     if (frame.kind === 'delta' || frame.kind === 'snapshot') return
@@ -923,6 +1008,129 @@ export class WebProjector {
     }
     this.list[at] = frame
   }
+}
+
+/** 工具结果正文 → JSON 对象（计划卡的投影源；坏 JSON 一律不投影）。 */
+function jsonObjectOf(
+  content: readonly { readonly type: string; readonly text?: string }[],
+): Readonly<Record<string, unknown>> | undefined {
+  const text = content.find((block) => block.type === 'text')
+  if (text === undefined || text.text === undefined) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text.text)
+  } catch {
+    return undefined
+  }
+  return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+    ? (parsed as Readonly<Record<string, unknown>>)
+    : undefined
+}
+
+/** 条件 → 可读期望值（与 runtime `checkWindow` 的失败文案同口径）。 */
+function conditionExpected(condition: Readonly<Record<string, unknown>>): string {
+  const kind = typeof condition['kind'] === 'string' ? condition['kind'] : 'unknown'
+  switch (kind) {
+    case 'balance-at-least':
+      return `>= ${String(condition['cents'])}`
+    case 'amount-within':
+      return `<= ${String(condition['cents'])}`
+    case 'fact-unchanged':
+      return `${String(condition['factId'])}@${String(condition['version'])}`
+    case 'address-unchanged':
+      return `${String(condition['addressId'])}@${String(condition['version'])}`
+    case 'plan-not-cancelled':
+      return '未被撤销'
+    default:
+      return kind
+  }
+}
+
+/** 出参里的 `recurrence` 是否像一条合法周期规则（投影层的最后一道形状检查）。 */
+function isRecurrence(value: unknown): value is Parameters<typeof occurrenceOf>[0] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const every = (value as Readonly<Record<string, unknown>>)['every']
+  return every === 'once' || every === 'daily' || every === 'monthly' || every === 'yearly'
+}
+
+/** `plan_arm` 出参（ArmedPlan JSON）→ 计划卡。 */
+function planCardOf(
+  payload: Readonly<Record<string, unknown>>,
+  seq: number,
+  at: number,
+): PlanCardFrame | undefined {
+  const windowId = typeof payload['windowId'] === 'string' ? payload['windowId'] : undefined
+  const planId = typeof payload['planId'] === 'string' ? payload['planId'] : undefined
+  const dueAt = typeof payload['dueAt'] === 'number' ? payload['dueAt'] : undefined
+  const budgetCents = typeof payload['budgetCents'] === 'number' ? payload['budgetCents'] : undefined
+  const digest = typeof payload['planDigest'] === 'string' ? payload['planDigest'] : undefined
+  if (windowId === undefined || planId === undefined || dueAt === undefined || digest === undefined) {
+    return undefined
+  }
+  const tier =
+    payload['tier'] === 'strict' || payload['tier'] === 'standard' || payload['tier'] === 'wide'
+      ? payload['tier']
+      : 'standard'
+  const plan = typeof payload['plan'] === 'object' && payload['plan'] !== null
+    ? (payload['plan'] as Readonly<Record<string, unknown>>)
+    : undefined
+  const nodes = plan !== undefined && Array.isArray(plan['nodes']) ? plan['nodes'] : []
+  const conditions = Array.isArray(payload['conditions']) ? payload['conditions'] : []
+  const cardConditions: PlanCardCondition[] = []
+  for (const raw of conditions) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) continue
+    const condition = raw as Readonly<Record<string, unknown>>
+    cardConditions.push({
+      kind: String(condition['kind'] ?? 'unknown'),
+      expected: conditionExpected(condition),
+      state: 'unknown',
+    })
+  }
+  return {
+    kind: 'plan-card',
+    seq,
+    at,
+    windowId,
+    planId,
+    title: typeof payload['title'] === 'string' ? payload['title'] : planId,
+    tier,
+    budgetText: formatCents(budgetCents ?? 0),
+    dueAt,
+    // 实例键是 (recurrence, dueAt) 的纯函数：投影层自己算，不依赖工具出参里的冗余字段
+    occurrence:
+      typeof payload['occurrence'] === 'string'
+        ? payload['occurrence']
+        : occurrenceOf(
+            isRecurrence(payload['recurrence']) ? payload['recurrence'] : { every: 'once', dueAt },
+            dueAt,
+          ),
+    state: 'armed',
+    conditions: cardConditions,
+    nodeCount: nodes.length,
+    digest,
+  }
+}
+
+/** 唤醒失守明细 → 把对应条件标成 `failed`（带实际值）。 */
+function markFailedConditions(
+  conditions: readonly PlanCardCondition[],
+  raw: unknown,
+): readonly PlanCardCondition[] {
+  if (!Array.isArray(raw)) return conditions
+  const failures = new Map<string, string>()
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) continue
+    const record = item as Readonly<Record<string, unknown>>
+    const kind = typeof record['kind'] === 'string' ? record['kind'] : undefined
+    if (kind === undefined) continue
+    failures.set(kind, typeof record['actual'] === 'string' ? record['actual'] : '')
+  }
+  if (failures.size === 0) return conditions
+  return conditions.map((condition) =>
+    failures.has(condition.kind)
+      ? { ...condition, state: 'failed' as const, actual: failures.get(condition.kind) ?? '' }
+      : condition,
+  )
 }
 
 /** 审批结论 → 中文文案。 */

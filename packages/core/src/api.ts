@@ -470,6 +470,14 @@ export interface ToolDefinition<A = unknown, R = unknown> {
   sideEffect?: 'none' | 'read' | 'write'
   /** 工具体。抛错由管线归一化为 `isError` 结果，不冒泡到主循环（T-TOOL-007）。 */
   execute(args: A, ctx: ToolExecContext): Promise<R>
+  /**
+   * 模型可见面（ADR-0006 配套，D-F）。
+   *
+   * 缺省 `'model'`（与既有行为逐字节一致）；`'internal'` = 只由宿主/CLI 调用，
+   * **不进模型可见 schema**。为什么缺省不是 `internal`：那会让所有既有工具静默消失，
+   * 测试会立刻红，但迁移面太大；新工具必须**显式**声明 `internal` 才隐藏。
+   */
+  exposure?: 'model' | 'internal'
   /** 执行预置内容（文本 / 图片）。 */
   projectContent?(result: R): ContentBlock[]
   /** 内容不变量：同步、纯函数，不得访问 ctx。 */
@@ -478,6 +486,19 @@ export interface ToolDefinition<A = unknown, R = unknown> {
   presentCall?(args: A): UiCard
   /** 完成卡片（纯函数）。 */
   presentResult?(args: A, result: R): UiCard
+}
+
+/**
+ * 票据的授权来源（ADR-0006）。
+ *
+ * - `human` = 用户点击批准（缺省路径，与 ADR-0006 之前的行为等价）；
+ * - `window` = 授权窗口代签：`ref` 是窗口 id，`digest` 是判决输入的规范化摘要，
+ *   回放时据此重算 `checkWindow()`（门禁 I13）。
+ */
+export interface TicketAuthorization {
+  readonly kind: 'human' | 'window'
+  readonly ref: string
+  readonly digest: string
 }
 
 /**
@@ -493,6 +514,8 @@ export type PreExecuteVerdict =
       ticket: TicketDraft
       /** 强验证挑战渠道：人脸 / 短信 / U 盾（红级工具）。 */
       challenge?: 'face' | 'sms' | 'ushield'
+      /** 授权来源（缺省 = 人工点击）。窗口代签只由受控执行器注入。 */
+      authorization?: TicketAuthorization
     }
 
 /**

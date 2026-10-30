@@ -18,9 +18,9 @@
 
 | 命令 | 结果 | 说明 |
 |---|---|---|
-| `pnpm gate` | **52/52** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
+| `pnpm gate` | **54/54** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
-| `pnpm test:snapshot` | 10 文件 / 43 用例（43/43 绿） | 录制回放；`pnpm snapshot:record` 重录 |
+| `pnpm test:snapshot` | 11 文件 / 48 用例（48/48 绿） | 录制回放；`pnpm snapshot:record` 重录（新增 `snapshots/proactive` 场景） |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
 | `pnpm test:coverage:all` | **行口径 89.96%**（46778/52001）/ **包口径 16/18** | 两个口径必须一起说；未达 80% 的是 `memory-store` 72.68% 与 `eval` 46.93%（均为评测/记忆 harness 面，见台账注记） |
 评测平面（`pnpm eval`）：

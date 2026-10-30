@@ -14,6 +14,7 @@
 import { BahError } from '@bah/util'
 
 import type { InteractionRecord, InteractionRecordSink } from './events.ts'
+import type { AuthorizationRef } from './types.ts'
 
 /** 票据生命周期状态（比 bank-core 的票据状态多一个 `consumed` 终态）。 */
 export type TicketLifecycleStatus = 'issued' | 'approved' | 'redeemed' | 'consumed' | 'blocked'
@@ -70,6 +71,8 @@ export interface TicketIssueInput {
     readonly leaseId: string
     readonly expiresAt: number
   }
+  /** 授权来源（ADR-0006；缺省 = 人工点击）。 */
+  readonly authorization?: AuthorizationRef
   /** 签发时刻。 */
   readonly at: number
 }
@@ -148,6 +151,7 @@ export class TicketLedger {
         fingerprint: entry.fingerprint,
         ...(entry.amountCents === undefined ? {} : { amountCents: entry.amountCents }),
         expiresAt: entry.expiresAt,
+        ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
         at: input.at,
       },
     })
@@ -214,15 +218,23 @@ export class TicketLedger {
   /**
    * 批准（`issued → approved`）。
    *
+   * `authorization` 缺省 = 人工签署（ADR-0006：老调用方零改动）。
+   *
    * @throws `BahError('ticket-unknown')` / `BahError('ticket-closed')`
    */
-  approve(ticketId: string, at: number): TicketLedgerEntry {
+  approve(ticketId: string, at: number, authorization?: AuthorizationRef): TicketLedgerEntry {
     const entry = this.require(ticketId)
     if (entry.status === 'approved') return entry
     if (entry.status !== 'issued') throw this.closed(entry, 'approve')
     return this.transition(entry, { status: 'approved', approvedAt: at }, (next) => ({
       type: 'ticket/approved',
-      data: { ticketId: next.ticketId, callId: next.callId, name: next.name, at },
+      data: {
+        ticketId: next.ticketId,
+        callId: next.callId,
+        name: next.name,
+        ...(authorization === undefined ? {} : { authorization }),
+        at,
+      },
     }))
   }
 

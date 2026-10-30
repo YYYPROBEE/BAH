@@ -1025,3 +1025,64 @@ body {
   font-size: var(--body-sm-font-size);
   line-height: var(--body-sm-line-height);
 }
+
+.session-controls__banner[hidden] { display: none; }
+
+
+/* ── 移动端计划卡（G7）── */
+.m-plan-card {
+  margin: 8px 0;
+  padding: 12px;
+  border: 1px solid var(--border-neutral-l1);
+  border-radius: var(--radius-10);
+  background: var(--bg-base-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.m-plan-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.m-plan-card__title {
+  font-size: 14px;
+  color: var(--text-default);
+}
+
+.m-plan-card__meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.m-plan-card__conditions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.m-plan-card__condition {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-default);
+  flex-wrap: wrap;
+}
+
+.m-plan-card__condition-kind {
+  color: var(--text-secondary);
+}
+
+.m-plan-card__verdict {
+  margin: 0;
+  font-size: 12px;
+  color: var(--status-error-default);
+}

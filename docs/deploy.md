@@ -304,7 +304,7 @@ pnpm desktop:pack      # → dist-desktop/BAH-desktop-0.1.0-win-x64.zip（约 13
 
 ```bash
 pnpm gate                 # 44/44（不需要 BAH_ALLOW_NO_SNAPSHOT）
-pnpm test:snapshot        # 10 文件 / 43 例（录制↔回放逐条全等）
+pnpm test:snapshot        # 11 文件 / 48 例（录制↔回放逐条全等）
 pnpm demo:verifier-fail   # 退出码 0
 pnpm demo:web             # 另开终端；记下打印的“本次会话目录”
 curl -s http://127.0.0.1:7331/api/health   # 返回 JSON，且不含票据 ID

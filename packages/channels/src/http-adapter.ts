@@ -18,6 +18,7 @@ import type { AnySessionEvent, ApprovalDecision, ChannelKind } from '@bah/runtim
 import { BahError } from '@bah/util'
 
 import type { ChannelCapabilities } from './capabilities.ts'
+import { requiredConfirmText } from './web/confirm.ts'
 import type { WebFrame } from './web/frames.ts'
 import { projectSession } from './web/project.ts'
 
@@ -88,6 +89,7 @@ export type DecideResult =
         | 'reason-required'
         | 'already-decided'
         | 'expired'
+        | 'approval-confirm-mismatch'
       readonly reason: string
     }
 
@@ -130,7 +132,7 @@ export interface HttpChannelAdapter extends ChannelAdapter {
   /** 提交人的结论；返回判定（HTTP 层只翻译，不做业务判断）。 */
   decide(
     ticketId: string,
-    body: { readonly decision?: unknown; readonly reason?: unknown },
+    body: { readonly decision?: unknown; readonly reason?: unknown; readonly confirmText?: unknown },
     actor?: TicketOwner,
   ): DecideResult
   /** 执行一次强验证（红级）；无挑战的票据返回 `no-challenge`。 */
@@ -227,6 +229,17 @@ export function createHttpChannelAdapter(options: HttpChannelAdapterOptions): Ht
       }
       if (reason.length > MAX_REASON) {
         return { ok: false, code: 'reason-required', reason: `拒绝理由不得超过 ${String(MAX_REASON)} 字` }
+      }
+
+      // 打字确认（删除 / 撤销类操作）：**判定只在服务端**，前端输入框只是提示。
+      // 放在 decision 校验之后、answer() 之前：不是有效结论就不该消费票据。
+      const required = requiredConfirmText(view.name)
+      if (required !== undefined && body.confirmText !== required) {
+        return {
+          ok: false,
+          code: 'approval-confirm-mismatch',
+          reason: `该操作需要逐字输入确认词「${required}」`,
+        }
       }
 
       const receipt = view.answer({

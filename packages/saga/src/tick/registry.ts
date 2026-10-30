@@ -9,7 +9,7 @@
 import type { Context, Disposer } from '@bah/core'
 
 /** 允许登记的 job 名（与 `saga/tick` 载荷的 `dueJobs` 同一封闭联合）。 */
-export type TickJobName = 'janitor' | 'recon' | 'anchor'
+export type TickJobName = 'janitor' | 'recon' | 'anchor' | 'plan-wake'
 
 const jobs = new Map<TickJobName, () => void>()
 

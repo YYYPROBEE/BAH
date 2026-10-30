@@ -31,6 +31,7 @@ import { parseCommand } from './command.ts'
 import { runCost } from './cost.ts'
 import { runHalt, runUnfreeze } from './halt.ts'
 import { runMetrics } from './metrics.ts'
+import { runPlan } from './plan.ts'
 import { runSentryUnfreeze } from './sentry.ts'
 import { runTrace } from './trace.ts'
 
@@ -151,6 +152,9 @@ export async function runCli(
     case 'cost':
       // 纯离线：只读 session.jsonl
       return runCost(argv.slice(1), io, options)
+    case 'plan':
+      // 计划域：boot 宿主后调服务（wake / list）或走工具管线（arm / disarm）
+      return runPlan(argv.slice(1), io, options)
     case 'run':
       break
     default:

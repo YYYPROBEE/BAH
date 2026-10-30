@@ -180,8 +180,16 @@ describe('对话流 · 帧分发', () => {
     expect(node.dataset.state).toBe('picked')
   })
 
-  it('对话流收六类帧（审计 / DAG 各归各的面板；goal/todo 桌面不产生）', () => {
-    expect([...CONVERSATION_KINDS].sort()).toEqual(['choice', 'effects', 'message', 'notice', 'tool', 'turn'])
+  it('对话流收七类帧（审计 / DAG 各归各的面板；goal/todo 桌面不产生；G7 计划卡进对话流）', () => {
+    expect([...CONVERSATION_KINDS].sort()).toEqual([
+      'choice',
+      'effects',
+      'message',
+      'notice',
+      'plan-card',
+      'tool',
+      'turn',
+    ])
   })
 })
 

@@ -10,13 +10,20 @@
  * HMR 的重载也把"重新读出来的层"传进来。这样 boot 的每条分支都能在内存里测。
  */
 
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { createContext, defineService, describeThrown } from '@bah/core'
+import { JsonlPersistence } from '@bah/persistence'
 import { BahError, configureLogging } from '@bah/util'
 
 import type { BahContext, SessionId, TicketId } from '@bah/core'
+import type { AnySessionEvent } from '@bah/runtime'
 import type { TenantId } from '@bah/util'
 
 import { PluginManager } from '../plugin-manager/index.ts'
+// 同包 helper：租户根的拼法只有一份（persistence 用它落盘，boot 用它找回放路径）
+import { tenantRootOf } from './tenant-root.ts'
 import type { PluginCatalog, ValidatedRow } from '../plugin-manager/index.ts'
 
 import { assertAuthCompatibility } from './auth-compat.ts'
@@ -81,6 +88,20 @@ export interface RunContext {
    * 行为与改前一致。
    */
   readonly probe?: boolean
+  /**
+   * 启动时恢复既有会话（缺省 `false`）。
+   *
+   * 只给"续写既有会话"的命令用（`bah plan wake`）：读磁盘上的 `session.jsonl`，
+   * 把事件灌回日志，seq 从尾部继续。普通 boot 不开——打开它等于改变所有 profile 的启动语义。
+   */
+  readonly restoreSession?: boolean
+  /**
+   * 由 boot 在**插件装配前**读出的历史事件（`restoreSession:true` 时由 boot 填充）。
+   *
+   * 为什么不让插件自己读：`core:session` 是第一个插件，它没有持久化依赖；
+   * 恢复必须在任何插件 replay（如 `plan:dag` 的 armed store）之前完成。
+   */
+  readonly restoreEvents?: readonly AnySessionEvent[]
 }
 
 /** 服务键：`bah:run`（插件以 `inject: ['bah:run']` 声明依赖）。 */
@@ -159,7 +180,12 @@ export async function boot(options: BootOptions): Promise<BootedApp> {
   // 调用方（CLI）传的是 BootOptions.warn（→ io.err），插件侧不必再认识 CLI。
   const notify = options.warn ?? options.run.warn
   try {
-    ctx.provide(RUN_SERVICE, notify === undefined ? options.run : { ...options.run, warn: notify })
+    // 续写既有会话：必须在任何插件 apply 之前把历史事件准备好
+    // （`plan:dag` 会在自己的 apply 里 replay armed store）
+    const restored = options.run.restoreSession === true ? readPersistedEvents(options.run, rows) : []
+    const runContext =
+      restored.length === 0 ? options.run : { ...options.run, restoreEvents: restored }
+    ctx.provide(RUN_SERVICE, notify === undefined ? runContext : { ...runContext, warn: notify })
     for (const row of rows) await ctx.useErased(row.plugin, row.settings)
     await ctx.start()
   } catch (error) {
@@ -189,6 +215,25 @@ export async function boot(options: BootOptions): Promise<BootedApp> {
       await ctx.dispose(reason)
     },
   }
+}
+
+/**
+ * 读既有会话的事件（仅在 `restoreSession:true` 时调用）。
+ *
+ * 目录不存在 = 新会话（返回空）；目录存在但读坏了 → 抛错（不允许静默从空日志开始，
+ * 那会把"审计断代"伪装成"全新会话"）。
+ */
+function readPersistedEvents(run: RunContext, rows: readonly ValidatedRow[]): readonly AnySessionEvent[] {
+  const row = rows.find((item) => item.id === 'core:persistence')
+  if (row === undefined) return []
+  const settings = row.settings as { readonly root?: unknown } | undefined
+  // 部署根 → 租户根：与 `core:persistence` 用**同一个** helper（tenant 合法性只校验一次）
+  const deploymentRoot =
+    run.jsonlDir ?? (typeof settings?.root === 'string' ? settings.root : 'sessions')
+  const dir = join(tenantRootOf(deploymentRoot, run.tenantId), String(run.sessionId))
+  if (!existsSync(dir)) return []
+  const handle = new JsonlPersistence({ fsync: false }).open(dir, { mode: 'read' })
+  return handle.events() as readonly AnySessionEvent[]
 }
 
 /** 把启动期错误统一成 `bah-boot: `（已带前缀的原样上抛，保留精确理由码）。 */

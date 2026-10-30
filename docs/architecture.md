@@ -44,8 +44,8 @@
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **19 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表条目（项） | **28** | `HOST_PLUGINS` 计数 |
-| 门禁（项） | **52** | `scripts/verify-*.ts` 计数 |
+| 注册表条目（项） | **31** | `HOST_PLUGINS` 计数 |
+| 门禁（项） | **54** | `scripts/verify-*.ts` 计数 |
 | 覆盖率 | **89.96%（行口径，46778/52001 行，实测 2026-10-30）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
@@ -62,13 +62,13 @@
 |---|---|---|
 | ① 内核与主循环（core） | `core:session`、`core:tools`、`core:prompt`、`core:model`、`core:agent`、`core:persistence` | 6 |
 | ② 证据链（audit） | `audit:decisions` | 1 |
-| ③ 银行域（bank） | `bank:tools`、`bank:knowledge`、`bank:saga-store`、`bank:saga`、`bank:saga-audit`、`bank:saga-bridge` | 6 |
+| ③ 银行域（bank） | `bank:tools`、`bank:knowledge`、`bank:saga-store`、`bank:saga`、`bank:saga-audit`、`bank:saga-bridge`、`bank:merchant` | 7 |
 | ④ 交互与审批（interaction） | `interaction:approval` | 1 |
 | ⑤ 安全防护（safety） | `safety:sentry`、`safety:verify`、`safety:sandbox` | 3 |
-| ⑥ 编排原语（plan） | `plan:dag` | 1 |
+| ⑥ 编排原语（plan） | `plan:dag`、`plan:scheduler` | 2 |
 | ⑦ 渠道（channel） | `channel:web`、`channel:mobile`、`channel:desktop`、`channel:im` | 4 |
 | ⑧ 演示件（demo） | `demo:echo` | 1 |
-| **合计** | — | **28** |
+| **合计** | — | **31** |
 <!-- END GENERATED:layers -->
 
 ### 3.1 依赖图（谁向谁要服务）
@@ -97,13 +97,16 @@ graph LR
   p18["bank:saga-audit"]
   p19["bank:saga-bridge"]
   p20["plan:dag"]
-  p21["bah:memory-store"]
-  p22["intent:plane"]
-  p23["prompt:ask"]
-  p24["channel:web"]
-  p25["channel:mobile"]
-  p26["channel:desktop"]
-  p27["channel:im"]
+  p21["plan:scheduler"]
+  p22["fact:store"]
+  p23["bank:merchant"]
+  p24["bah:memory-store"]
+  p25["intent:plane"]
+  p26["prompt:ask"]
+  p27["channel:web"]
+  p28["channel:mobile"]
+  p29["channel:desktop"]
+  p30["channel:im"]
   p0 --> host["宿主运行时 boot()"]
   p1 --> host["宿主运行时 boot()"]
   p1 --> p0
@@ -129,26 +132,30 @@ graph LR
   p18 --> p17
   p18 --> p6
   p21 --> host["宿主运行时 boot()"]
-  p21 --> p0
-  p21 --> p3
-  p21 --> p6
+  p22 --> host["宿主运行时 boot()"]
+  p22 --> p0
+  p23 --> host["宿主运行时 boot()"]
   p24 --> host["宿主运行时 boot()"]
   p24 --> p0
-  p24 --> p12
-  p24 --> p5
-  p25 --> host["宿主运行时 boot()"]
-  p25 --> p0
-  p25 --> p12
-  p25 --> p5
-  p26 --> host["宿主运行时 boot()"]
-  p26 --> p0
-  p26 --> p12
-  p26 --> p5
+  p24 --> p3
+  p24 --> p6
   p27 --> host["宿主运行时 boot()"]
   p27 --> p0
   p27 --> p12
-  p27 --> p3
   p27 --> p5
+  p28 --> host["宿主运行时 boot()"]
+  p28 --> p0
+  p28 --> p12
+  p28 --> p5
+  p29 --> host["宿主运行时 boot()"]
+  p29 --> p0
+  p29 --> p12
+  p29 --> p5
+  p30 --> host["宿主运行时 boot()"]
+  p30 --> p0
+  p30 --> p12
+  p30 --> p3
+  p30 --> p5
   p5 --> host["宿主运行时 boot()"]
   p5 --> p0
   p5 --> p4
@@ -194,6 +201,9 @@ graph LR
 | bank:saga-audit | `bah:saga-clock`、`bah:session-files` | `bank:saga`、`core:persistence` |
 | bank:saga-bridge | —（无依赖） | — |
 | plan:dag | —（无依赖） | — |
+| plan:scheduler | `bah:run` | 宿主运行时 boot() |
+| fact:store | `bah:run`、`runtime:session` | 宿主运行时 boot()、`core:session` |
+| bank:merchant | `bah:run` | 宿主运行时 boot() |
 | bah:memory-store | `bah:run`、`runtime:session`、`runtime:system-prompt`、`bah:session-files` | 宿主运行时 boot()、`core:session`、`core:prompt`、`core:persistence` |
 | intent:plane | —（无依赖） | — |
 | prompt:ask | —（无依赖） | — |
@@ -216,64 +226,82 @@ graph TB
     p11_headless["bank:knowledge（未装配）"]
     p19_headless["bank:saga-bridge"]
     p20_headless["plan:dag（未装配）"]
-    p21_headless["bah:memory-store（未装配）"]
-    p24_headless["channel:web（未装配）"]
-    p25_headless["channel:mobile（未装配）"]
-    p27_headless["channel:im（未装配）"]
+    p21_headless["plan:scheduler（未装配）"]
+    p22_headless["fact:store（未装配）"]
+    p23_headless["bank:merchant（未装配）"]
+    p24_headless["bah:memory-store（未装配）"]
+    p27_headless["channel:web（未装配）"]
+    p28_headless["channel:mobile（未装配）"]
+    p30_headless["channel:im（未装配）"]
   end
   subgraph P_plan["profiles/plan"]
     p8_plan["demo:echo（未装配）"]
     p11_plan["bank:knowledge（未装配）"]
     p19_plan["bank:saga-bridge（enabled: false）"]
     p20_plan["plan:dag"]
-    p21_plan["bah:memory-store（未装配）"]
-    p24_plan["channel:web（未装配）"]
-    p25_plan["channel:mobile（未装配）"]
-    p27_plan["channel:im（未装配）"]
+    p21_plan["plan:scheduler"]
+    p22_plan["fact:store"]
+    p23_plan["bank:merchant"]
+    p24_plan["bah:memory-store（未装配）"]
+    p27_plan["channel:web（未装配）"]
+    p28_plan["channel:mobile（未装配）"]
+    p30_plan["channel:im（未装配）"]
   end
   subgraph P_web["profiles/web"]
     p8_web["demo:echo"]
     p11_web["bank:knowledge"]
     p19_web["bank:saga-bridge"]
     p20_web["plan:dag（未装配）"]
-    p21_web["bah:memory-store"]
-    p24_web["channel:web"]
-    p25_web["channel:mobile（未装配）"]
-    p27_web["channel:im（未装配）"]
+    p21_web["plan:scheduler（未装配）"]
+    p22_web["fact:store（未装配）"]
+    p23_web["bank:merchant（未装配）"]
+    p24_web["bah:memory-store"]
+    p27_web["channel:web"]
+    p28_web["channel:mobile（未装配）"]
+    p30_web["channel:im（未装配）"]
   end
   subgraph P_web-plan["profiles/web-plan"]
     p8_web-plan["demo:echo"]
     p11_web-plan["bank:knowledge"]
     p19_web-plan["bank:saga-bridge（enabled: false）"]
     p20_web-plan["plan:dag"]
-    p21_web-plan["bah:memory-store（未装配）"]
-    p24_web-plan["channel:web"]
-    p25_web-plan["channel:mobile（未装配）"]
-    p27_web-plan["channel:im（未装配）"]
+    p21_web-plan["plan:scheduler"]
+    p22_web-plan["fact:store"]
+    p23_web-plan["bank:merchant"]
+    p24_web-plan["bah:memory-store（未装配）"]
+    p27_web-plan["channel:web"]
+    p28_web-plan["channel:mobile（未装配）"]
+    p30_web-plan["channel:im（未装配）"]
   end
   subgraph P_mobile["profiles/mobile"]
     p8_mobile["demo:echo"]
     p11_mobile["bank:knowledge"]
     p19_mobile["bank:saga-bridge（enabled: false）"]
     p20_mobile["plan:dag"]
-    p21_mobile["bah:memory-store"]
-    p24_mobile["channel:web（未装配）"]
-    p25_mobile["channel:mobile"]
-    p27_mobile["channel:im（未装配）"]
+    p21_mobile["plan:scheduler"]
+    p22_mobile["fact:store"]
+    p23_mobile["bank:merchant"]
+    p24_mobile["bah:memory-store"]
+    p27_mobile["channel:web（未装配）"]
+    p28_mobile["channel:mobile"]
+    p30_mobile["channel:im（未装配）"]
   end
   subgraph P_im["profiles/im"]
     p8_im["demo:echo"]
     p11_im["bank:knowledge"]
     p19_im["bank:saga-bridge"]
     p20_im["plan:dag（未装配）"]
-    p21_im["bah:memory-store"]
-    p24_im["channel:web（未装配）"]
-    p25_im["channel:mobile（未装配）"]
-    p27_im["channel:im"]
+    p21_im["plan:scheduler（未装配）"]
+    p22_im["fact:store（未装配）"]
+    p23_im["bank:merchant（未装配）"]
+    p24_im["bah:memory-store"]
+    p27_im["channel:web（未装配）"]
+    p28_im["channel:mobile（未装配）"]
+    p30_im["channel:im"]
   end
   classDef ghost stroke-dasharray: 5 5,stroke:#9aa4b2,color:#9aa4b2
   classDef off stroke-dasharray: 3 3,stroke:#c9822f,color:#c9822f
-  class p11_headless,p20_headless,p21_headless,p24_headless,p25_headless,p27_headless,p8_plan,p11_plan,p21_plan,p24_plan,p25_plan,p27_plan,p20_web,p25_web,p27_web,p21_web-plan,p25_web-plan,p27_web-plan,p24_mobile,p27_mobile,p20_im,p24_im,p25_im ghost
+  class p11_headless,p20_headless,p21_headless,p22_headless,p23_headless,p24_headless,p27_headless,p28_headless,p30_headless,p8_plan,p11_plan,p24_plan,p27_plan,p28_plan,p30_plan,p20_web,p21_web,p22_web,p23_web,p28_web,p30_web,p24_web-plan,p28_web-plan,p30_web-plan,p27_mobile,p30_mobile,p20_im,p21_im,p22_im,p23_im,p27_im,p28_im ghost
   class p19_plan,p19_web-plan,p19_mobile off
 ```
 <!-- END GENERATED:assembly -->
@@ -309,6 +337,9 @@ graph TB
 | bank:saga-audit | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | bank:saga-bridge | ● 生效 | ○ 关闭 | ● 生效 | ○ 关闭 | ○ 关闭 | ● 生效 |
 | plan:dag | · 未装配 | ● 生效 | · 未装配 | ● 生效 | ● 生效 | · 未装配 |
+| plan:scheduler | · 未装配 | ● 生效 | · 未装配 | ● 生效 | ● 生效 | · 未装配 |
+| fact:store | · 未装配 | ● 生效 | · 未装配 | ● 生效 | ● 生效 | · 未装配 |
+| bank:merchant | · 未装配 | ● 生效 | · 未装配 | ● 生效 | ● 生效 | · 未装配 |
 | bah:memory-store | · 未装配 | · 未装配 | ● 生效 | · 未装配 | ● 生效 | ● 生效 |
 | intent:plane | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | prompt:ask | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |

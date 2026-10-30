@@ -25,7 +25,11 @@ export const sessionPlugin: HostPlugin<SessionSettings> = {
     inject: [RUN_SERVICE.id],
     apply(ctx) {
       const run = ctx.get(RUN_SERVICE)
-      provideSession(ctx, { sessionId: run.sessionId, now: run.now })
+      provideSession(ctx, {
+        sessionId: run.sessionId,
+        now: run.now,
+        ...(run.restoreEvents === undefined ? {} : { restore: run.restoreEvents }),
+      })
     },
   },
 

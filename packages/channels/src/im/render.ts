@@ -182,6 +182,8 @@ function projectFrame(frame: WebFrame): ImOutbound | undefined {
     case 'effects':
     case 'handoff-warn':
     case 'snapshot':
+    // 计划卡（G7）：IM 无卡片呈现面，按表外帧丢弃（同 dag / goal / todo / effects）
+    case 'plan-card':
       return undefined
     default:
       return assertNever(frame, 'web-frame')
