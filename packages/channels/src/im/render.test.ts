@@ -265,4 +265,27 @@ describe('projectImOutbound：收尾 / 提示 / 拦截 / 接管（T-CH-006）', 
     ]
     expect(projectImOutbound(frames)).toEqual([])
   })
+
+  it('choice 帧投影出问题与候选文字（不编号：回填走 label 而非序号）', () => {
+    const frames: readonly WebFrame[] = [
+      {
+        kind: 'choice',
+        seq: 1,
+        at: AT,
+        callId: 'call-ask',
+        prompt: '要转给谁？请给出收款人姓名。',
+        options: [
+          { id: 'a', label: '王建国' },
+          { id: 'b', label: '张伟', hint: '最近转账' },
+        ],
+        allowFreeText: true,
+      },
+    ]
+    expect(projectImOutbound(frames)).toEqual([
+      {
+        kind: 'text',
+        text: '【请选择】要转给谁？请给出收款人姓名。\n· 王建国\n· 张伟（最近转账）\n回复候选文字，或直接输入。',
+      },
+    ])
+  })
 })
