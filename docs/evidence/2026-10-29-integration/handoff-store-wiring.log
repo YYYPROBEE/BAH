@@ -1,9 +1,0 @@
-PASS 构造后不落盘（构造期不写盘）
-PASS enter() 成功（ok）
-PASS 接管中：handoff.json 落在 fileOf 同目录
-PASS 接管中：active=true
-PASS resume() 成功（ok）
-PASS 交回后：handoff.json 已清除
-PASS 交回后：active=false
-
-handoff 落盘接线 6/6 通过
