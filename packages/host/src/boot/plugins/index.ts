@@ -41,6 +41,8 @@ import { memoryPlugin } from './memory.ts'
 import { mobilePlugin } from './mobile.ts'
 // 施工单 15 / 桌面端 01：桌面渠道（`channel:desktop`）。同样与 web 共用 `createHttpChannel`。
 import { desktopPlugin } from './desktop.ts'
+// IM 网关 01：IM 渠道（`channel:im`）。同样薄壳，只多注册一段降权提示词。
+import { imPlugin } from './im.ts'
 import { webPlugin } from './web.ts'
 
 /** base bundle 的插件集（施工单 06 §3：内核 + 主循环 + 模型层 + 工具管线 + 持久化）。 */
@@ -89,6 +91,8 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   // 渠道（施工单 15 / 桌面端 01）：桌面端；只由 profiles/desktop 的 patch 显式装配。
   // 登记 ≠ 装配：base bundle 不含此行，否则每个 profile 都会多绑一个端口。
   desktopPlugin,
+  // IM 网关 01：IM 渠道；只由 profiles/im 的 patch 显式装配（不进 base bundle）
+  imPlugin,
 ].map(toAnyHostPlugin)
 
 export {
@@ -98,6 +102,7 @@ export {
   bankToolsPlugin,
   desktopPlugin,
   echoPlugin,
+  imPlugin,
   intentPlanePlugin,
   knowledgePlugin,
   memoryPlugin,

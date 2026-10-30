@@ -77,6 +77,17 @@ describe('transfer_preview', () => {
       'tool-args-invalid',
     )
   })
+
+  it('金额超出可精确表示范围：归一为 tool-args-invalid（不把账本 money-invalid 漏给模型）', async () => {
+    const h = createBankHarness()
+    const error = await captureRejection(() =>
+      h.call('transfer_preview', {
+        amount: Number.MAX_SAFE_INTEGER,
+        payee: { name: '王建国', phone: '13900002222' },
+      }),
+    )
+    expect(error.code).toBe('tool-args-invalid')
+  })
 })
 
 describe('transfer_create（票据桥接）', () => {

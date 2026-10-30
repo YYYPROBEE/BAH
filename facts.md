@@ -1,6 +1,6 @@
-# BAH 事实表（演示材料的唯一数字来源）
+﻿# BAH 事实表（演示材料的唯一数字来源）
 
-> 更新：2026-10-30（桌面端 01+02+03 收口：`channel:desktop` + `profiles/desktop`（`port:0`）+ `apps/desktop`（Electron 私有 host）；门禁 51（新增 `verify-desktop-shell`），用例 303 文件 / 3389 例）。任何 PPT / 视频 / 自评里的数字先查这里；
+> 更新：2026-10-30（桌面端 01+02+03 收口：`channel:desktop` + `profiles/desktop`（`port:0`）+ `apps/desktop`（Electron 私有 host）；IM 网关 02 收口：通用网关 + 微信适配器 + 门禁 `verify-im-gateway`。门禁 52、注册表 28；用例数在全部支线合流后重测，见 `docs/facts-sources.md`）。任何 PPT / 视频 / 自评里的数字先查这里；
 > 改代码后重跑对应命令再改本表。**不要把三行测试数相加成一个"总用例数"**。
 > 数字的取值命令与原始输出见 `docs/facts-sources.md`；门禁 `verify-facts` 逐项比对，不一致即红。
 > ⚠ 本表上一版停在 2026-10-24，被 W03–W17 甩在后面（门禁还写 27/27、工具还写 14 个、
@@ -10,7 +10,7 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **302 文件 / 3494 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **302 文件 / 3494 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **27 文件 / 375 用例** |
 
@@ -18,7 +18,7 @@
 
 | 命令 | 结果 | 说明 |
 |---|---|---|
-| `pnpm gate` | **51/51** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
+| `pnpm gate` | **52/52** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
 | `pnpm test:snapshot` | 10 文件 / 43 用例（43/43 绿） | 录制回放；`pnpm snapshot:record` 重录 |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
@@ -73,6 +73,8 @@
 | **7801** | RAG sidecar | `127.0.0.1` | `bank:knowledge mode:http`；`required: false`，不起也能跑主场景 |
 | **7551** | 移动 H5 UI / HTTP / SSE | `127.0.0.1` | `pnpm bah --profile mobile`；与 7331 同族，端口占用**不自动换端口** |
 | **0（OS 分配）** | 桌面壳私有 host | `127.0.0.1` | `profiles/desktop` 写 `port: 0`；每次启动端口都不同，主进程从 `DESKTOP_SERVER` 读实际值（**无固定端口**） |
+| **7552** | IM 子进程 HTTP / SSE（仅本机） | `127.0.0.1` | `pnpm bah --profile im`；IM 网关（02 单）逐用户拉起的最小宿主页，**公网不可达** |
+| **8080** | IM 网关公网入口（HTTP 回调） | `0.0.0.0` | `pnpm im:gateway`（`apps/im-gateway`）；反代后可改 `127.0.0.1`；端口占用**不自动换端口** |
 
 静态根 `apps/web`：原生 ES 模块，无构建步骤。
 
@@ -81,6 +83,8 @@
 | `/` → `index.html` | `channel:web`（7331） | 桌面壳，`entries: [index.html]` |
 | `/` → `m.html` | `channel:mobile`（7551） | 移动壳，`entries: [m.html, index.html]`；`m.html` 也是 token 入口（注入 Bearer + CSRF cookie + `no-store`），其它 HTML 一律不注入 |
 | `/` → `index.html` | `channel:desktop`（0，OS 分配） | Electron 窗加载同一份桌面壳，`entries: [index.html]`；不认 `m.html`（名单外不注入 token） |
+| `/` → `m.html` | `channel:im`（7552） | IM 子进程**不提供 Web UI**：该入口只在本机 loopback 可达，仅供排障与 CSRF cookie 握手；`entries: [m.html]` |
+| `/im/:platform/:accountKey` | `apps/im-gateway`（8080） | 公网回调入口（02 单）：`GET` 握手 / `POST` 消息；未知平台/账号 404；网关不反代子进程 `/api/*` |
 
 「前端不需要先 build」对两个壳同等成立：`m.html` 只引三份外链 css 与一个原生 ESM 入口。
 `pnpm demo:web` 每次新建 `sessions/demo-<stamp>-<随机>/`，日志、Saga 库与审计链都在该目录；
