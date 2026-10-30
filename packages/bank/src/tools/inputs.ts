@@ -7,7 +7,7 @@
 
 import { BahError } from '@bah/util'
 
-import type { ProductId, RiskGrade, TransferReq, WealthFilter } from '../core/index.ts'
+import type { CardId, ProductId, RiskGrade, TransferReq, WealthFilter } from '../core/index.ts'
 import { bankIds, yuanToCents } from '../core/index.ts'
 import { readNumber, readObject, readOptionalString, readRequiredEnum, readString } from './args.ts'
 import { parseInstant } from './time.ts'
@@ -18,6 +18,8 @@ export interface TransferInput {
   readonly payee: TransferReq['payee']
   readonly when?: string
   readonly idempotencyKey?: string
+  /** 以哪张卡支付（可选；仅当用户点名用哪张卡时填）。 */
+  readonly viaCardId?: CardId
 }
 
 /**
@@ -68,11 +70,13 @@ export function parseTransferInput(args: Readonly<Record<string, unknown>>): Tra
   }
   const when = readOptionalString(args, 'when', 'transfer')
   const idempotencyKey = readOptionalString(args, 'idempotencyKey', 'transfer')
+  const viaCardId = readOptionalString(args, 'viaCardId', 'transfer')
   return {
     amountCents: amountToCents(amount),
     payee: parsePayee(args),
     ...(when === undefined ? {} : { when }),
     ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+    ...(viaCardId === undefined ? {} : { viaCardId: bankIds.card(viaCardId) }),
   }
 }
 

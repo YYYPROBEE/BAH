@@ -9,7 +9,7 @@
 
 <!-- facts:sources:start -->
 gates=54
-tools=19
+tools=21
 plan_lines=2260
 snapshot_files=11
 snapshot_cases=48

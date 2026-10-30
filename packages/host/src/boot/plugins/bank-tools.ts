@@ -147,8 +147,17 @@ export const DEFAULT_BANK_TOOLS: Omit<BankToolsSettings, 'demoUserId'> = {
    *
    * 场景 5 把 `sub_cancel` / `sub_authorize` 纳入：连续多次退订/关协议本身就是需要
    * 解释的高风险组合（第 4 次起理由从 `declared` 变 `risky-calls`，不是升级档位）。
+   *
+   * 场景 4 把 `card_freeze` / `card_unfreeze` 纳入：冻结与解冻是资金通道上的越权高发面。
    */
-  riskyOps: ['transfer_create', 'wealth_purchase', 'sub_cancel', 'sub_authorize'],
+  riskyOps: [
+    'transfer_create',
+    'wealth_purchase',
+    'sub_cancel',
+    'sub_authorize',
+    'card_freeze',
+    'card_unfreeze',
+  ],
   riskyCallThreshold: 3,
   // W09：默认走测试网关适配器；`mock` 只是回滚开关（两者行为在演示档等价）。
   verify: { provider: 'gateway', successAfter: 1, maxAttempts: 3, lockMinutes: 30 },

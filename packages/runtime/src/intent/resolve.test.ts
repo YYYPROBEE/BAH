@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { EMPTY_SLOT_TABLE, type FilledSlot, type SlotTable } from './types.ts'
 import { buildProposals, resolveIntent, type ResolveContext, type ResolveInput } from './resolve.ts'
 import { SCENE_HINTS } from './lexicon.ts'
+import { normalizeUtteranceSlots } from './slots.ts'
 import type { IntentMemoryItem, RecallSnapshot } from './recall.ts'
 
 const TODAY = '2026-10-28'
@@ -365,5 +366,30 @@ describe('边界与兜底', () => {
   it('金额单位是分（500 元 = 50000）', () => {
     const resolution = resolveIntent(input('给张三转500元'), ctx())
     expect(resolution.filled.find((item) => item.name === 'amountCents')?.value).toBe(50000)
+  })
+})
+
+describe('卡片场景（场景 4）', () => {
+  it('C5 卡场景不再追问账户：冻结判 explicit 且不缺槽', () => {
+    const resolution = resolveIntent(input('把这张卡冻结一下'), ctx('card'))
+    expect(resolution.kind).toBe('explicit')
+    expect(resolution.askHint).toBeNull()
+    expect(resolution.missing).toEqual([])
+  })
+
+  it('C6 「我卡丢了」判 explicit 且命中 R-EXP-1', () => {
+    const resolution = resolveIntent(input('我卡丢了，赶紧挂失'), ctx('card'))
+    expect(resolution.kind).toBe('explicit')
+    expect(resolution.evidence.some((item) => item.ruleId === 'R-EXP-1')).toBe(true)
+  })
+
+  it('C7 「钱包被偷了」无动作动词 → 不冒充 explicit', () => {
+    const resolution = resolveIntent(input('钱包被偷了'), ctx('card'))
+    expect(resolution.kind).not.toBe('explicit')
+  })
+
+  it('C8 金额槽位在卡场景仍可抽取', () => {
+    const normalized = normalizeUtteranceSlots('把额度降到 5000', TODAY, 'card')
+    expect(normalized.slots.some((slot) => slot.name === 'amountCents')).toBe(true)
   })
 })

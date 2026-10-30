@@ -6,7 +6,7 @@
 **一个把"模型能做什么"关进可审计边界里的银行智能体演示系统。**
 
 模型只负责理解和表达；能不能执行、执行到什么程度、出事后怎么解释，全部由确定性代码决定。
-19 个银行工具、七段工具管线、三级权限、一次性票据、四接缝安全平面、append-only 会话日志与
+21 个银行工具、七段工具管线、三级权限、一次性票据、四接缝安全平面、append-only 会话日志与
 SHA-256 审计链，构成一条可回放、可核验、可解释的业务链。
 
 > 演示材料里的数字统一取自 [facts.md](facts.md)；架构细节见 [docs/pipeline.md](docs/pipeline.md)、
@@ -78,7 +78,7 @@ flowchart LR
   A --> P[七段工具管线]
   P --> G[治理判决<br/>规则 / 预算 / 断路器 / 三级权限]
   G --> T[票据 + 审批<br/>一次性核销]
-  T --> B[银行核心 + 16 工具<br/>内存账本]
+  T --> B[银行核心 + 18 工具<br/>内存账本]
   P --> SG[Saga 补偿 / 幂等]
   P --> SB[沙箱执行<br/>三档 + worker]
   A --> J[(append-only 会话日志)]
@@ -97,7 +97,7 @@ flowchart LR
 | 组合根 | `packages/host` | profile 解析、boot、插件行（渠道、模型、工具、sentry 的接线） |
 | 主循环 | `packages/runtime` | turn/step、提示词装配、七段工具管线、会话存储、压缩、恢复 |
 | 模型 | `packages/llm` | DeepSeek（OpenAI 兼容协议）、离线意图路由、固定脚本 mock |
-| 银行 | `packages/bank` | 内存账本、19 个工具、三级权限升级、票据桥接、强验证状态机 |
+| 银行 | `packages/bank` | 内存账本、21 个工具、三级权限升级、票据桥接、强验证状态机 |
 | 策略 | `packages/policy` | 决策表 DSL + 编译器 + 内容寻址；规则在 `policies/**`，`tier.ts` 保留为 legacy oracle |
 | 交互 | `packages/interaction` | 审批仲裁器 + 票据账本（五绑定、一次性核销、过期） |
 | 安全 | `packages/safety` | sentry（检测 / 控制 / 票据观测 / 审计 / 幻觉防护 / 断路器）+ 沙箱 |
@@ -221,7 +221,7 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 
 ---
 
-## 5. 19 个工具与权限
+## 5. 21 个工具与权限
 
 | 级别 | 工具 | 说明 |
 |---|---|---|
@@ -231,6 +231,8 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 | green | `wealth_list` `wealth_compare` | 理财查询与对比（必带风险提示） |
 | **red** | `wealth_purchase` | 购买理财：强验证 + 审批 |
 | **red** | `card_report_lost` | 挂失银行卡：不可逆，必进审批 + 强验证 |
+| **yellow** | `card_freeze` | 冻结银行卡：可逆止损，一次确认 |
+| **red** | `card_unfreeze` | 解冻银行卡：恢复支付能力，强验证 + 审批 |
 | **yellow** | `sub_cancel` | 取消自动扣款订阅：可逆 |
 | green | `verify_face` `verify_sms` `verify_ushield` | 强验证挑战（`sideEffect: write`，不参与并行读批） |
 
@@ -244,7 +246,7 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 apps/web/            前端（对话 / 工具卡 / 审批 / DAG / 审计）
 packages/            18 个包（见 §2.1）
 profiles/            web / mobile / headless / plan / web-plan 装配与 patch
-scripts/             51 个 verify-* 门禁、录制、演示脚本
+scripts/             54 个 verify-* 门禁、录制、演示脚本
 design/bah-ds/       自研设计系统（与应用内分发副本逐字节一致）
 docs/                管线、sentry、审计、前端、测试等落地文档
 facts.md             演示材料唯一数字来源

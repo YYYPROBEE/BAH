@@ -24,7 +24,7 @@ Plan（外部构造的 JSON）
 | 不是 | 依据 |
 |---|---|
 | **不是 `@bah/saga` 的替代** | saga 是"一笔业务的前向步骤 + 补偿"，节点由配方硬编码；plan 是"外部传入的整张图"。saga 回答"失败了怎么退"，plan 回答"先做什么后做什么" |
-| **默认不是模型的规划能力** | 银行工具锁 16 个，**不含** `plan_propose` / `plan_execute`；这两件只在显式打开 `plan:dag.modelTools: true` 的 profile（`profiles/plan`、`profiles/web-plan`）暴露给模型（默认关闭）。默认装配下 plan 由宿主 / 脚本 / 上层插件构造 |
+| **默认不是模型的规划能力** | 银行工具锁 18 个，**不含** `plan_propose` / `plan_execute`；这两件只在显式打开 `plan:dag.modelTools: true` 的 profile（`profiles/plan`、`profiles/web-plan`）暴露给模型（默认关闭）。默认装配下 plan 由宿主 / 脚本 / 上层插件构造 |
 | **不是工作流服务器** | 无独立进程、无 DB、无队列。状态全在会话日志与进程内快照里 |
 | **不是并行执行器** | 串行。并行会让"审批一次 = 扣款一次"的对应关系失效 |
 

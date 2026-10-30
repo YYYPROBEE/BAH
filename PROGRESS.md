@@ -32,7 +32,7 @@
 | 05 | 模型层与提示词装配 | 阶段 4 | [x] | 词汇表 + Adapter seam + 六段装配 + reconcile + 压缩；出口清单见 §11，偏差见 §12 |
 | 06 | 组合系统 profile | 阶段 6 | [x] | 三层概念（profile/bundle/patch）+ 四层层序 + config-only HMR + CLI 出口；出口清单见 §17，偏差见 §18 |
 | 07 | 仿真银行 bank | 插件线 | [x] | bank-core / bank-forge 实装：九实体、票据状态机与原子核销、四档造数（含场景 5 的 recurring）、风控预检五规则；出口清单见 §26，偏差见 §27，待确认见 §28 |
-| 08 | 银行工具族 | 插件线 | [x] | 19 个银行工具（W03 增 2、场景 5 增 3，现 19 个）/ 三级判决与票据桥接 / presenter 契约 / 目录门禁 / headless 实跑；出口清单见 §29，偏差见 §30，待确认见 §31 |
+| 08 | 银行工具族 | 插件线 | [x] | 21 个银行工具（W03 增 2、场景 5 增 3、场景 4 卡片状态增 2，现 21 个）/ 三级判决与票据桥接 / presenter 契约 / 目录门禁 / headless 实跑；出口清单见 §29，偏差见 §30，待确认见 §31 |
 | 09 | 三级权限审批票据 | 插件线 | [x] | 判定矩阵 + 五条附加规则 / `@bah/interaction` 审批服务与票据账本 / 身份绑定渠道 / 红级挑战链 / headless 幕 3；出口清单见 §32，偏差见 §33，待确认见 §34 |
 | 10 | 安全防护层 sentry | 插件线 | [x] | **批次 A+B 已交付**：内核七件 + 89 用例（§38，偏差 R119–R126）；四接缝接线 / 注入矩阵五攻击面 / 幻觉防护四机制 / 熔断锁存与显式解冻 / 宿主行 `safety:sentry`（§40，偏差 R127–R135） |
 | 11 | 沙箱运行时 | 插件线 | [x] | `sandbox-policy` + `sandbox-runtime` 已落地（档位/硬杀/三态失败/门禁，见 §36）；宿主行 `safety:sandbox` 已接 `analysis_calc`（`BANK_COMPUTE` seam，2026-10-20） |
@@ -301,7 +301,7 @@
 ### 96.40.4 验证与证据
 
 - `pnpm typecheck` / `pnpm lint` / `pnpm build` 绿。
-- `pnpm test` **294 文件 / 3333 例**；`pnpm test:web` **27 文件 / 365 例**；`pnpm test:snapshot` **9 文件 / 39 例**；`pnpm eval:unit` **22 文件 / 158 例**。
+- `pnpm test` **294 文件 / 3360 例**；`pnpm test:web` **27 文件 / 375 例**；`pnpm test:snapshot` **9 文件 / 39 例**；`pnpm eval:unit` **22 文件 / 158 例**。
 - `pnpm gate` **50/50**；`tenant-matrix` **8/8**；`verify-tenant-scope` 6 坏样本全抓 / 4 合法不误报；`verify-tenant-isolation` 4 坏样本全抓 / 3 合法不误报；`pnpm handoff:demo` 闭环通过。
 - 证据目录 `docs/evidence/2026-10-29-integration/`（本单新增 02–09 与 `SHA256SUMS`）。
 

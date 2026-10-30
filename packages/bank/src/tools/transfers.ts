@@ -47,6 +47,9 @@ export function createTransferPreviewTool(
           `试算：向 ${result.payeeName}（${bindingLabel(result.payeeBinding)}）转账 ${formatYuan(result.amountCents)}，` +
           `手续费 ${formatYuan(result.feeCents)}。当日已用 ${formatYuan(result.dailyUsedCents)}，` +
           `剩余 ${formatYuan(result.remainingCents)}。风控结论 ${result.verdict}，执行级别「${result.effectiveTier}」。` +
+          (result.viaCardTail === undefined
+            ? ''
+            : `\n本笔使用卡尾号 ${result.viaCardTail}（${result.viaCardStatus === 'normal' ? '正常' : result.viaCardStatus === 'frozen' ? '已冻结' : '已挂失'}）。`) +
           (result.risks.length === 0 ? '' : `\n提示：${result.risks.map((risk) => risk.message).join('；')}`),
       },
     ],
@@ -78,6 +81,7 @@ export function createTransferCreateTool(
           amountCents: input.amountCents,
           channel: 'app',
           ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+          ...(input.viaCardId === undefined ? {} : { viaCardId: input.viaCardId }),
         },
         ticket,
       )
@@ -128,6 +132,7 @@ export async function previewTransfer(
     payee: input.payee,
     amountCents: input.amountCents,
     channel: 'app',
+    ...(input.viaCardId === undefined ? {} : { viaCardId: input.viaCardId }),
   })
   return toTransferPreview(preview, clockOf(deps)(), yuanToCents(deps.config.dailyTransferLimit))
 }
@@ -175,6 +180,9 @@ export function toTransferPreview(
     })),
     verdict: preview.verdict,
     effectiveTier: tier.level,
+    ...(preview.viaCard === undefined
+      ? {}
+      : { viaCardTail: preview.viaCard.tail, viaCardStatus: preview.viaCard.status }),
     at,
   }
 }

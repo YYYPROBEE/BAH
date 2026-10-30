@@ -25,7 +25,7 @@ M0 的安全面不是"让模型自觉"，而是**确定性判定 + 默认拒绝 
 | 供应链 | Dependabot + npm audit（官方源）+ pip-audit 基线（暂不阻断） | `.github/dependabot.yml`、`.github/workflows/security.yml` |
 
 **未实装**：HP-2（知识响应签名与验签门）。
-**HP-4（工具出参契约）已实现**（2026-10-26 复核，W03：19 个工具的出参在运行时按 `resultSchema`
+**HP-4（工具出参契约）已实现**（2026-10-26 复核，W03：21 个工具的出参在运行时按 `resultSchema`
 校验，畸形返回报 `tool-result-invalid` 并落 `isError`，见 §8.1 R-03）；
 HP-1 只保留 S-1 形态（行动断言对账）。**HP-3（HALT 状态机与人工解除）已于 2026-10-25
 由 W07 施工**，逐条见 §6.1 与 §8.1。
@@ -288,7 +288,7 @@ plan 由宿主在进入引擎前拦截；解除只凭会话内 U 盾 MFA 票据�
 `packages/host/src/boot/plugins/halt-store.ts`、TC-W07-01…09 + C3 重启组。
 **已知限制**：headless 无远程控制入口。
 
-**R-03 / HP-4 已闭合（2026-10-26 复核，W03）**：19 个工具的出参在 `ToolPipeline` 每次调用后
+**R-03 / HP-4 已闭合（2026-10-26 复核，W03）**：21 个工具的出参在 `ToolPipeline` 每次调用后
 按 `resultSchema` 运行时校验，不符合报 `tool-result-invalid`，落账的 `tool/result` 带
 `isError: true`。证据：`packages/runtime/src/tools/pipeline.ts:285-292`、
 `packages/bank/src/tools/result-schemas.ts`（19 个键）、
@@ -304,7 +304,7 @@ HP-1 不列为未施工：已退化为 **S-1**（行动断言与本 turn 工具�
 
 - **HP-2**：RAG 响应带可验证签名，且 TS 侧对**每次**响应验签（含跨语言黄金向量）。
 
-HP-4 已于 2026-10-26 满足原先写死的门槛（"19 个工具的出参在运行时按 schema 校验，畸形返回被拒
+HP-4 已于 2026-10-26 满足原先写死的门槛（"21 个工具的出参在运行时按 schema 校验，畸形返回被拒
 并落审计"），口径改为"**已实现**"，不再列入缺口。HP-2 仍不满足；被追问时按上表回答，
 不补充"其实做了一半"——那会把缺口讲成缺陷。
 

@@ -1,0 +1,41 @@
+ WARN  Unsupported engine: wanted: {"node":"^22.19 || >=24"} (current: {"node":"v22.17.0","pnpm":"10.34.7"})
+
+> bah-monorepo@ test:web D:\项目集\微众杯银行ai智能体\BAH\CARD-01-WT
+> vitest run --config vitest.web.config.ts
+
+
+ RUN  v3.2.7 D:/项目集/微众杯银行ai智能体/BAH/CARD-01-WT
+
+ ✓ apps/web/src/store.test.js (14 tests) 10ms
+ ✓ apps/web/src/observability.test.js (11 tests) 20ms
+ ✓ apps/web/src/mobile/layout.test.js (10 tests) 30ms
+ ✓ apps/web/src/views/audit.test.js (11 tests) 36ms
+ ✓ apps/web/src/views/conversation.test.js (19 tests) 35ms
+ ✓ apps/web/src/mobile/gesture-confirm.test.js (24 tests) 58ms
+ ✓ apps/web/src/mobile/choice-card.test.js (9 tests) 61ms
+ ✓ apps/web/src/transport.test.js (12 tests) 48ms
+ ✓ apps/web/src/views/tool-card.test.js (12 tests) 56ms
+ ✓ apps/web/src/views/approval.test.js (20 tests) 112ms
+ ✓ apps/web/src/mobile/composer.test.js (15 tests) 78ms
+ ✓ apps/web/src/mobile/plan-steps.test.js (22 tests) 156ms
+ ✓ apps/web/src/mobile/ime-input.test.js (19 tests) 122ms
+ ✓ apps/web/src/main.observe.test.js (6 tests) 110ms
+ ✓ apps/web/src/seat/main.test.js (3 tests) 98ms
+ ✓ apps/web/src/views/observe.test.js (23 tests) 348ms
+ ✓ apps/web/src/mobile/approval-sheet.test.js (36 tests) 369ms
+ ✓ apps/web/src/main.test.js (20 tests) 339ms
+ ✓ apps/web/src/mobile/shell.test.js (44 tests) 331ms
+ ✓ apps/web/src/mobile/effects-list.test.js (7 tests) 34ms
+ ✓ apps/web/src/views/dag.test.js (8 tests) 29ms
+ ✓ apps/web/src/seat/api.test.js (6 tests) 5ms
+ ✓ apps/web/src/format.test.js (3 tests) 4ms
+ ✓ apps/web/src/seat/gate.test.js (4 tests) 3ms
+ ✓ apps/web/src/mobile/quick-phrases.test.js (8 tests) 23ms
+ ✓ apps/web/src/transport.observe.test.js (4 tests) 12ms
+ ✓ apps/web/src/mobile/session-controls.test.js (5 tests) 261ms
+
+ Test Files  27 passed (27)
+      Tests  375 passed (375)
+   Start at  01:07:49
+   Duration  17.72s (transform 1.70s, setup 0ms, collect 4.80s, tests 2.79s, environment 280.86s, prepare 8.86s)
+

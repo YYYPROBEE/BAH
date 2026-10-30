@@ -846,6 +846,7 @@ async function transferPreview(
       payee: input.payee,
       amountCents: input.amountCents,
       channel: 'app',
+      ...(input.viaCardId === undefined ? {} : { viaCardId: input.viaCardId }),
     })
     const blocked = preview.risks.find((risk) => risk.severity === 'block')
     if (blocked !== undefined) {
