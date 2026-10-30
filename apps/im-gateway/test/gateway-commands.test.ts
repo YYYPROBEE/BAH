@@ -185,6 +185,13 @@ describe('T-H5-004 多票据歧义', () => {
     expect(outcome.response.body).toContain('请带票据号')
     expect(child.calls.decisions).toEqual([])
   })
+
+  it('无待审批时裸 `1` 不拦截，按普通消息送模型（否则无法回答选择题）', async () => {
+    const { deps, child, reply } = setup([])
+    const outcome = await handleInbound(deps, inbound('1', 'm-1'), reply)
+    expect(child.calls.turns).toEqual(['1'])
+    expect(outcome.response.body).not.toContain('当前没有待审批')
+  })
 })
 
 describe('T-IM-007 转人工与接管', () => {

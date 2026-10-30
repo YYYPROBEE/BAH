@@ -37,7 +37,7 @@
   "packages/channels/src/im/protocol/signature.test.ts": 18,
   "packages/channels/src/im/protocol/wechat-adapter.test.ts": 34,
   "packages/channels/src/im/protocol/xml.test.ts": 37,
-  "packages/channels/src/im/render.test.ts": 29,
+  "packages/channels/src/im/render.test.ts": 30,
   "packages/channels/src/im/session.test.ts": 15,
   "packages/channels/src/im/untrusted.test.ts": 11,
   "packages/channels/src/mobile/adapter.test.ts": 4,

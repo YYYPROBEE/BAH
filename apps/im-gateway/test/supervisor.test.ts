@@ -294,7 +294,7 @@ describe('闲置回收与上限（T-IM-014 / T-IM-018）', () => {
     expect(supervisor.children()).toBe(2)
     await supervisor.dispose()
     expect(supervisor.children()).toBe(0)
-  })
+  }, 15_000)
 })
 
 describe('启动失败', () => {

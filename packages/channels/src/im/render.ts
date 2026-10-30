@@ -16,6 +16,7 @@ import { assertNever } from '@bah/util'
 import type {
   ApprovalClosedFrame,
   ApprovalFrame,
+  ChoiceFrame,
   FrameTier,
   HandoffFrame,
   MessageBlock,
@@ -113,6 +114,28 @@ function handoffText(frame: HandoffFrame): string {
   return `【转人工】已进入人工服务${operator}${reason}`
 }
 
+/**
+ * 选择题（`prompt_ask`）。
+ *
+ * WHY 必须投影：IM 没有卡片面，若丢弃 `choice`，用户只会看到模型另发的一句
+ * 「请选择一下」，**看不到候选**，也就无法回答——真机 D0 已实测踩到。
+ *
+ * 只列**候选文字**、不编号：宿主回填走的是 label（不是序号），给序号会制造
+ * "回复 1 就能选中"的假承诺（网关的 `1` 是审批指令，二者语义不同）。
+ */
+function choiceText(frame: ChoiceFrame): string {
+  const lines = [`【请选择】${frame.prompt}`]
+  for (const option of frame.options) {
+    lines.push(
+      option.hint === undefined || option.hint.length === 0
+        ? `· ${option.label}`
+        : `· ${option.label}（${option.hint}）`,
+    )
+  }
+  if (frame.allowFreeText) lines.push('回复候选文字，或直接输入。')
+  return lines.join('\n')
+}
+
 /** 单帧投影；`undefined` = 这一帧不进 IM。 */
 function projectFrame(frame: WebFrame): ImOutbound | undefined {
   switch (frame.kind) {
@@ -147,12 +170,13 @@ function projectFrame(frame: WebFrame): ImOutbound | undefined {
       return { kind: 'text', text: deniedText(frame) }
     case 'handoff':
       return { kind: 'handoff', text: handoffText(frame) }
+    case 'choice':
+      return { kind: 'text', text: choiceText(frame) }
     // 表外帧：公众号没有对应呈现面（流式 / 图形 / 时间线 / 快照），一律丢弃
     case 'delta':
     case 'turn':
     case 'audit':
     case 'dag':
-    case 'choice':
     case 'goal':
     case 'todo':
     case 'effects':

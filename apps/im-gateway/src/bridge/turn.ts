@@ -129,10 +129,11 @@ export async function handleInbound(
     return immediate(plainReply(reply, OFFLINE_TEXT))
   }
 
-  // 文本指令：`0` / 审批 / 转人工先于普通消息（命中才走指令面，否则照常送模型）
+  // 文本指令：`0` / 审批 / 转人工先于普通消息；指令面判为"不该拦截"时照常送模型
   const command = parseImCommand(inbound.text)
   if (command !== undefined) {
-    return handleCommand(deps, inbound, reply, command, capabilities)
+    const handled = await handleCommand(deps, inbound, reply, command, capabilities)
+    if (handled !== undefined) return handled
   }
 
   const prepared = prepareImInbound({
@@ -242,8 +243,12 @@ async function runApprovalPlan(
 /**
  * 文本指令面（`0` / 审批 / 转人工）。
  *
- * 审批指令**不**为了一张不存在的票拉起子进程：没有就绪会话就直接回"当前没有待审批"。
- * 转人工必须拉起子进程（`POST /api/handoff` 需要会话状态）。
+ * `undefined` = "这不是给网关的指令"，调用方按普通消息送模型。
+ *
+ * WHY 要有这个出口：`1`/`2` 既是审批指令，也可能是模型选择题的答案（`prompt_ask`
+ * 的候选）。**没有待审批时拦截 `1`** 会让用户无法回答模型的问题——真机 D0 实测踩到
+ * （转账缺收款人 → 模型问"要转给谁" → 用户回 `1` → 网关回"当前没有待审批"）。
+ * 有票时审批优先；无票时一律交还给对话。
  */
 async function handleCommand(
   deps: InboundDeps,
@@ -251,7 +256,7 @@ async function handleCommand(
   reply: PlatformReply,
   command: ImCommand,
   capabilities: PlatformCapabilities,
-): Promise<InboundOutcome> {
+): Promise<InboundOutcome | undefined> {
   const sessionKey = deriveImSessionId(inbound.platform, inbound.userId, deps.config.sessionSalt)
 
   if (command.kind === 'fetch-latest') {
@@ -275,6 +280,11 @@ async function handleCommand(
     // 200 即子进程已进入接管：先本地置位，避免下一条消息抢在 handoff 帧前被当普通 turn
     if (result.status === 200) deps.hub.noteHandoffRequested(handle.sessionKey)
     return immediate(plainReply(reply, mapHandoffResult(result).text))
+  }
+
+  // 没有待审批、也没点名票号 → 不是审批指令：交还给对话（可能是选择题答案）
+  if (command.ticketId === undefined && deps.hub.pendingCount(sessionKey) === 0) {
+    return undefined
   }
 
   // 审批类：只复用已就绪的会话，不为空票拉起子进程
