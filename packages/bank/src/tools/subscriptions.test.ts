@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { bankIds, type SubscriptionId, type UserId } from '../core/index.ts'
+import { DAY_MS, bankIds, type SubscriptionId, type UserId } from '../core/index.ts'
 import type { SubscriptionListResult } from './dto.ts'
 import { createBankHarness, createPipelineHarness } from './testing.ts'
 import type { SubscriptionCancelledResult } from './account-ops.ts'
@@ -248,6 +248,66 @@ describe('sub_cancel（改造：合约硬拦 + 两模式）', () => {
     expect(result.verifyBy).toBeGreaterThan(result.cancelledAt)
     const subscriptions = await h.core.listSubscriptions(USER)
     expect(subscriptions.find((item) => item.id === 's-music')?.status).toBe('cancelled')
+  })
+
+  it('未知订阅 → subscription-unknown（不落任何取消事件）', async () => {
+    const h = createBankHarness({ tier: 'recurring' })
+    expect(
+      (
+        await captureThrown(() =>
+          h.call('sub_cancel', { subscriptionId: bankIds.subscription('s-404') }),
+        )
+      ).code,
+    ).toBe('subscription-unknown')
+    expect(h.auditsOf('sub/cancelled')).toHaveLength(0)
+  })
+
+  it('协议已关且商户支持自助取消 → path=merchant，预计 5 天生效', async () => {
+    const h = createBankHarness({ tier: 'recurring' })
+    // 先关掉网盘协议：退订时银行侧已无生效授权，落回商户自助路径
+    await h.core.revokeAuthorization(USER, bankIds.authorization('auth-netdisk'))
+    const result = (await h.call('sub_cancel', {
+      subscriptionId: bankIds.subscription('s-netdisk'),
+    })) as SubscriptionCancelledResult
+    expect(result.path).toBe('merchant')
+    expect(result.expectedEffectiveAt - result.cancelledAt).toBe(5 * DAY_MS)
+    const content = h.tools.get('sub_cancel')?.projectContent?.(result) as
+      | readonly { readonly text?: string }[]
+      | undefined
+    expect(content?.[0]?.text).toContain('商户侧取消')
+  })
+
+  it('协议已关且商户未接入自助 → path=manual，预计 10 天并提示人工协助', async () => {
+    const h = createBankHarness({ tier: 'recurring' })
+    // 健身房协议本已 revoked，且商户不在自助名单 → 人工路径
+    const result = (await h.call('sub_cancel', {
+      subscriptionId: bankIds.subscription('s-gym'),
+      confirmContract: true,
+    })) as SubscriptionCancelledResult
+    expect(result.path).toBe('manual')
+    expect(result.expectedEffectiveAt - result.cancelledAt).toBe(10 * DAY_MS)
+    const content = h.tools.get('sub_cancel')?.projectContent?.(result) as
+      | readonly { readonly text?: string }[]
+      | undefined
+    expect(content?.[0]?.text).toContain('人工协助')
+  })
+
+  it('到期即断的回复文案带暂停日期与状态', async () => {
+    const h = createBankHarness({ tier: 'recurring' })
+    const result = (await h.call('sub_cancel', {
+      subscriptionId: bankIds.subscription('s-video'),
+      confirmContract: true,
+      mode: 'at-next-cycle',
+    })) as SubscriptionCancelledResult
+    const content = h.tools.get('sub_cancel')?.projectContent?.(result) as
+      | readonly { readonly text?: string }[]
+      | undefined
+    const text = content?.[0]?.text ?? ''
+    expect(text).toContain('到期即断')
+    expect(text).toContain('已暂停')
+    expect(text).toContain(
+      new Date(result.pauseUntil ?? result.expectedEffectiveAt).toISOString().slice(0, 10),
+    )
   })
 
   it('已取消是终态：再次退订 → subscription-already-cancelled（不伪造 paused）', async () => {

@@ -55,6 +55,12 @@ describe('W05 · 归一化（防绕过）', () => {
     expect(rateToBasisPoints('三', 'permille')).toBe(30)
   })
 
+  it('“人民币 800”无「元」字的前缀写法也要归一化（否则漏抽金额）', () => {
+    const [assertion] = extractAssertions('人民币 800')
+    expect(assertion?.kind).toBe('amount')
+    expect(assertion?.value).toBe('80000')
+  })
+
   it('口语省略写法拒绝解析（一百五 ≠ 105：宁可漏判也不误判）', () => {
     expect(chineseToDecimal('一百五')).toBeUndefined()
     expect(chineseToDecimal('两千五')).toBeUndefined()
@@ -135,6 +141,16 @@ describe('W05 · 三态路由', () => {
     })
     expect(tail.decision).toBe('pass')
     expect(extractAssertions('尾号 1234')[0]?.kind).toBe('account-tail')
+  })
+
+  it('证据里没有的日期 → needs-evidence（日期不能靠“省略年份”蒙混）', () => {
+    const outcome = verifyReply({
+      text: '账单截至 10月26日。',
+      evidence: ['账单周期：2026-11-25 至 2026-12-24。'],
+    })
+    expect(outcome.needsEvidence).toBe(1)
+    expect(outcome.verified).toBe(0)
+    expect(outcome.decision).toBe('annotate')
   })
 
   it('无高影响断言 → 零计数直通（不拦闲聊）', () => {
