@@ -6,7 +6,7 @@
  * 大量证据是 `packages/xxx/src/yyy.ts:123`）——路径一旦失效，评审就会基于不存在的文件做决策。
  *
  * 规则：
- * 1. 抽取 `docs/*.md`、`AGENTS.md`、`PROGRESS.md` 里反引号包裹的仓库路径引用；
+ * 1. 抽取 `docs/*.md`、`AGENTS.md` 里反引号包裹的仓库路径引用；
  * 2. 剥掉 `:行号` 后缀（`foo.ts:123` 与 `foo.ts:12-34` 都算同一个文件）；
  * 3. 跳过省略写法（含 `...`）与通配（含 `*`）、占位（含 `<`）——它们无法静态判定；
  * 4. 存在性检查；不在例外名单里的失效引用 → 违规。
@@ -23,7 +23,7 @@ import { DOCS_PATH_EXCLUSIONS } from './docs-path-excludes.ts'
 import { isMainModule, runStandalone, type Gate } from './gate-lib.ts'
 
 /** 受保护的文档面。 */
-const DOC_FILES = ['AGENTS.md', 'PROGRESS.md']
+const DOC_FILES = ['AGENTS.md']
 
 /** 引用必须落在这些顶层目录之一（其余如 `node_modules/...` 不是仓库自己的资产）。 */
 const ROOTS = ['packages/', 'scripts/', 'services/', 'apps/', 'snapshots/', 'design/', 'docs/']

@@ -64,8 +64,8 @@ const SCAN_DIRS = [
   'tests',
 ]
 
-/** 根级单文件（PROGRESS.md 等施工记录也在口径范围内）。 */
-const ROOT_FILES = ['NOTICE.md', 'PROGRESS.md', 'README.md', 'AGENTS.md', 'package.json']
+/** 根级单文件（施工记录 `PROGRESS.md` 已整删，不在面内）。 */
+const ROOT_FILES = ['NOTICE.md', 'README.md', 'AGENTS.md', 'package.json']
 
 /**
  * 「有资格给视觉系统命名」的文件面。R3 只在这里生效——
@@ -74,9 +74,7 @@ const ROOT_FILES = ['NOTICE.md', 'PROGRESS.md', 'README.md', 'AGENTS.md', 'packa
  */
 const NAMING_SURFACE = [
   'NOTICE.md',
-  'PROGRESS.md',
   'docs/web-frontend.md',
-  'docs/web-frontend-review.md',
   'apps/web/index.html',
   'apps/web/styles/app.css',
   'design/bah-ds/README.md',

@@ -3,7 +3,8 @@
 > 读者：拿到仓库、要在自己机器上把演示跑起来的人。
 > 本文只写**能照着做**的步骤；所有默认值都回源码核过（`profiles/web/patch.yml`、
 > `packages/host/src/boot/`、`scripts/demo-web.mjs`）。
-> 最后核实：2026-10-24（Node 22 / pnpm 10.34.7，Windows 与 Linux 同一套命令）。
+> 最后核实：2026-10-24（默认值回源码核过）；数字口径 2026-10-31 对齐 `docs/facts-sources.md` 机器块。
+> Node 22 / pnpm 10.34.7，Windows 与 Linux 同一套命令。
 
 ---
 
@@ -189,8 +190,8 @@ headless 走 `provider: router`（读消息现规划，不是固定磁带），�
 
 ```bash
 pnpm test              # 349 文件 / 4007 用例（2026-10-30 五线合流后实测；前端另有 409 例）
-pnpm test:snapshot     # 9 文件 39 例，录制↔回放逐条全等
-pnpm gate              # 51/51
+pnpm test:snapshot     # 11 文件 / 48 例，录制↔回放逐条全等
+pnpm gate              # 54/54
 pnpm demo:verifier-fail # 判决件异常 → 结果被挡在模型之外（20 条断言）
 ```
 
@@ -303,7 +304,7 @@ pnpm desktop:pack      # → dist-desktop/BAH-desktop-0.1.0-win-x64.zip（约 13
 ## 6. 演示前 60 秒检查
 
 ```bash
-pnpm gate                 # 44/44（不需要 BAH_ALLOW_NO_SNAPSHOT）
+pnpm gate                 # 54/54（不需要 BAH_ALLOW_NO_SNAPSHOT）
 pnpm test:snapshot        # 11 文件 / 48 例（录制↔回放逐条全等）
 pnpm demo:verifier-fail   # 退出码 0
 pnpm demo:web             # 另开终端；记下打印的“本次会话目录”

@@ -21,7 +21,7 @@
 一条命令跑全链（本地等价 CI，fail-fast）：
 
 ```powershell
-cd D:\项目集\微众杯银行ai智能体\BAH\MonoRepo
+cd <仓库根>
 pnpm check
 ```
 
@@ -291,8 +291,7 @@ snapshots/<case>/
 
 - **入用例**（`snapshots/entity-slots/snapshot.test.ts` 第 4、5 条）：改一条 `assistant/message`
   → 必须红；把 `context/slots` 的 `accounts` 从 3 改 2 → 必须红（差异里点名 `context/slots`）。
-- **人工三条**（不入用例，2026-10-28 实测，记录在
-  `docs/evidence/2026-10-28-entity-slots/06-s4-adversarial-review.md`）：
+- **人工三条**（不入用例，2026-10-28 实测，记录在 entity-slots 的 S4 对抗复审件，该件已撤下）：
   删掉全部 `context/slots`（36 行 → 34 行）→ 比对红；`scenario.json.clock.start` +1 →
   回放 `at` 整体 +1、比对红；把生效行的 `slots.source` 改成 `none` 后回放 →
   `context/slots` 0 条、`request/context` 退回静态画像（只剩 `【当前用户】` + `【补充说明】`）、比对红。

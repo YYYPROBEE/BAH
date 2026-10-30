@@ -5,7 +5,8 @@
  * 1. **上游坐标**（`UPSTREAM_PATHS`）：`docs/dsh-comparison.md` 的左列是 DeepSeek Harness
  *    的包路径，用来标"该机制在上游的落位"。它们本来就不在本仓，不该被本仓门禁判红。
  * 2. **登记在案的"暂不存在"**：施工单/评审里引用的、已明确记录为待补或历史路径。
- *    每条都指向 `PROGRESS.md` 的偏差编号，便于回溯。
+ *    每条都指向偏差编号 `R*`——它出自已整删的施工台账 `PROGRESS.md`，
+ *    正文取 `git show b514496^:PROGRESS.md`（该提交是施工台账最后一次存在的版本）。
  *
  * 纪律：
  * - 已实装包里的失效引用是**真 bug**：改文档，不许进名单。
@@ -49,7 +50,7 @@ const UPSTREAM_WHY = 'dsh 上游路径（对照表左列 / 落位坐标），不
 /**
  * 本仓**不发布**的内部件：按 `.git/info/exclude` 不入库，只在作者工作区存在。
  *
- * 为什么要单列一类：`PROGRESS.md` / 交接单 / 事实台账当初确实是按这些路径引用的，
+ * 为什么要单列一类：施工台账 / 交接单 / 事实台账当初确实是按这些路径引用的，
  * 而它们**永远不会**进仓库。两种修法里，改历史记录等于篡改当时的输入（`docs-consistency`
  * 也是这个口径），所以只能把它们登记成"不是本仓资产"——和 `UPSTREAM_PATHS` 同类，
  * 区别只是那些是别人仓库的坐标，这些是本仓自己的、但按提交纪律不入库。
@@ -90,13 +91,19 @@ export const DOCS_PATH_EXCLUSIONS: readonly DocsPathExclusion[] = [
     path: 'services/rag/models/',
     why: '同上；门禁按精确串匹配，文档里带尾斜杠的写法需单列',
   },
+  // 构建产物：`.gitignore` 忽略 `dist/`，只有 `pnpm build` 之后才存在。
+  // 文档里写它是"旧 dist 会造成 .js 回退"排障线索，不是声称仓库里有这个目录。
+  {
+    path: 'packages/cli/dist',
+    why: 'CLI 构建产物目录：`pnpm build` 从 packages/cli/bundles/base/index.ts 转译生成，dist/ 已忽略，干净 clone 上不该有',
+  },
   {
     path: 'snapshots/tsconfig.json',
-    why: 'PROGRESS R25 登记的待补配置：快照面目前只经 vitest 转译，阶段 7 扩 harness 时才补',
+    why: '施工台账偏差 R25 登记的待补配置：快照面目前只经 vitest 转译，阶段 7 扩 harness 时才补',
   },
   {
     path: 'packages/runtime/src/tier/decide.ts',
-    why: 'PROGRESS R89 记录的"施工单 09 原路径"：已拍板三级判决落在 bank/src/tools/tier.ts',
+    why: '施工台账偏差 R89 记录的"施工单 09 原路径"：已拍板三级判决落在 bank/src/tools/tier.ts',
   },
   {
     path: 'packages/xxx/src/yyy.ts',
