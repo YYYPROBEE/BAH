@@ -73,7 +73,7 @@ export function formatRate(rate: Rate): string {
 export function countsByFamily(
   outcomes: readonly ScenarioOutcome[],
 ): Readonly<Record<ScenarioFamily, Rate>> {
-  const families: ScenarioFamily[] = ['Q', 'T', 'P', 'S', 'D', 'K']
+  const families: ScenarioFamily[] = ['Q', 'T', 'P', 'S', 'D', 'K', 'U']
   const result = {} as Record<ScenarioFamily, Rate>
   for (const family of families) {
     const items = outcomes.filter((item) => item.family === family)

@@ -76,7 +76,9 @@ describe('txn_query', () => {
     })) as TxnQueryResult
     expect(page1.items).toHaveLength(1)
     expect(page1.items[0]?.counterpartyName).toBe('王建国')
-    expect(page1.hasMore).toBe(false)
+    // T-05 历史里 8 月还有一笔房租转账（房东），所以"下一页还有"
+    expect(page1.hasMore).toBe(true)
+    expect(page1.nextCursor).toBe('1')
 
     const all = (await h.call('txn_query', {
       range: { from: '2026-08-01', to: '2026-10-31' },
@@ -154,6 +156,67 @@ describe('bill_analyze / bill_report', () => {
     expect(result.anomalies.length).toBeGreaterThan(0)
   })
 
+  it('品类维度：groupBy = merchant 输出商户品类（咖啡 68 元、转账单列）', async () => {
+    const h = createBankHarness()
+    const month = (await h.call('bill_analyze', {
+      period: 'month',
+      groupBy: 'merchant',
+    })) as BillAnalysisResult
+
+    expect(month.byMerchantCategory?.length).toBeGreaterThan(0)
+    const coffee = month.byMerchantCategory?.find((line) => line.category === 'coffee')
+    expect(coffee?.amountCents).toBe(6_800)
+    const total = (month.byMerchantCategory ?? []).reduce((sum, line) => sum + line.amountCents, 0)
+    expect(total).toBe(month.totalOutCents)
+
+    // 转账由账务分类覆盖，不靠名字猜：若按名字（王建国/房东）会落进 other，
+    // 于是"transfer 行存在 + 品类合计等于总支出"本身就证明了覆盖规则在生效。
+    const quarter = (await h.call('bill_analyze', {
+      period: 'quarter',
+      groupBy: 'merchant',
+    })) as BillAnalysisResult
+    expect(quarter.byMerchantCategory?.some((line) => line.category === 'transfer')).toBe(true)
+    const quarterTotal = (quarter.byMerchantCategory ?? []).reduce(
+      (sum, line) => sum + line.amountCents,
+      0,
+    )
+    expect(quarterTotal).toBe(quarter.totalOutCents)
+  })
+
+  it('品类维度：卡片带品类文案，模型摘要用品类中文名', async () => {
+    const h = createBankHarness()
+    const result = (await h.call('bill_analyze', {
+      period: 'month',
+      groupBy: 'merchant',
+    })) as BillAnalysisResult
+    const tool = h.tools.get('bill_analyze')!
+    const card = tool.presentResult?.({}, result)
+    const data = card?.data as {
+      merchantCategories?: readonly { category: string; categoryLabel: string }[]
+    }
+    expect(data.merchantCategories?.find((line) => line.category === 'coffee')?.categoryLabel).toBe(
+      '咖啡',
+    )
+    const content = tool.projectContent?.(result) ?? []
+    expect((content[0] as { text: string }).text).toContain('咖啡')
+  })
+
+  it('年度口径：近 12 个账期、不做同比、覆盖声明随数据', async () => {
+    const h = createBankHarness()
+    const result = (await h.call('bill_analyze', { period: 'year' })) as BillAnalysisResult
+
+    expect(result.months).toHaveLength(12)
+    expect(result.months[0]).toBe('2025-11')
+    expect(result.months[11]).toBe('2026-10')
+    expect(result.momChangePct).toBeUndefined()
+    expect(result.comparedPeriod).toBeUndefined()
+    // T-05 的 12 个月历史让每个账期都有流水
+    expect(result.coveredMonths).toBe(12)
+
+    const card = h.tools.get('bill_analyze')!.presentResult?.({}, result)
+    expect((card?.data as { periodLabel: string }).periodLabel).toBe('近十二个月')
+  })
+
   it('报告 summary / detail 都是确定性文本', async () => {
     const h = createBankHarness()
     const summary = (await h.call('bill_report', { period: 'month' })) as BillReportResult
@@ -166,6 +229,15 @@ describe('bill_analyze / bill_report', () => {
     expect(detail.text).toContain('收款人（前 5）')
     expect(detail.text).toContain('异常：')
     expect(h.auditsOf('read/bill-report')).toHaveLength(2)
+  })
+
+  it('年度报告：文案含"覆盖 N/12 个账期"，不做同比', async () => {
+    const h = createBankHarness()
+    const report = (await h.call('bill_report', { period: 'year' })) as BillReportResult
+    expect(report.text).toContain('年度')
+    expect(report.text).toContain('覆盖 12/12 个账期')
+    expect(report.text).not.toContain('环比')
+    expect(report.analysis.momChangePct).toBeUndefined()
   })
 })
 

@@ -3,7 +3,7 @@
 > 口径：只写本仓能回源码、回命令复核的事实。**未实装的逐条列在 §8，不用"设计中"充数**；
 > 每条结论后给落点，答辩时可按落点当场翻代码。
 > 对应赛题：§3.1 权限分级、§3.2 安全设计、§五.5 安全自评材料。
-> 最后核实：2026-10-29（门禁与测试面：`pnpm gate` 50/50、`pnpm test` 294 文件 / 3333 用例 + 前端 365 例、快照 9 文件 39 例；安全面结论沿用 2026-10-27，合流后补记 17 行角色矩阵与 static 双凭证）。
+> 最后核实：2026-10-29（门禁与测试面：`pnpm gate` 50/50、`pnpm test` 302 文件 / 3494 用例 + 前端 375 例、快照 10 文件 43 例；安全面结论沿用 2026-10-27，合流后补记 17 行角色矩阵与 static 双凭证）。
 
 ---
 
@@ -24,7 +24,7 @@ M0 的安全面不是"让模型自觉"，而是**确定性判定 + 默认拒绝 
 | 供应链 | Dependabot + npm audit（官方源）+ pip-audit 基线（暂不阻断） | `.github/dependabot.yml`、`.github/workflows/security.yml` |
 
 **未实装**：HP-2（知识响应签名与验签门）。
-**HP-4（工具出参契约）已实现**（2026-10-26 复核，W03：16 个工具的出参在运行时按 `resultSchema`
+**HP-4（工具出参契约）已实现**（2026-10-26 复核，W03：19 个工具的出参在运行时按 `resultSchema`
 校验，畸形返回报 `tool-result-invalid` 并落 `isError`，见 §8.1 R-03）；
 HP-1 只保留 S-1 形态（行动断言对账）。**HP-3（HALT 状态机与人工解除）已于 2026-10-25
 由 W07 施工**，逐条见 §6.1 与 §8.1。
@@ -212,15 +212,16 @@ saga/residual-recorded、saga/manually-closed、approval/decided
 |---|---|---|
 | 注入 | **14/14** | 工具面规则（PRV/CMD/SQL/NET）+ 风险升级（`sentry-risk-score`）；1 例外部样本标 `[unverified]`，不进分母 |
 | 越权 | **15/15** | 全部断言"拒绝且无资金动作"：`isError`/deny + 无 `transfer/created` + 拒绝后重读余额仍为 1,234,567 分 |
-| 幻觉 | **12/15** | 12 例由 W05 拒答/加【未核实】前缀；3 例为已知规则缺口（无数字断言 / 条款号 / 流水号），归因 `rule-gap` |
-| **总体** | **41/44（93.2%）** | 排除 1 条 `[unverified]` 外部样本 |
+| 幻觉 | **13/15** | 13 例由 W05 拒答/加【未核实】前缀（含 H-13 收益承诺禁词）；2 例为已知规则缺口（条款号 / 流水号），归因 `rule-gap` |
+| **总体** | **42/44（95.5%）** | 排除 1 条 `[unverified]` 外部样本 |
 
 - 复现：`npx tsx scripts/eval.ts --adversarial` → `.ci-artifacts/eval/adversarial-report.json` +
   `adversarial-summary.md`；`--smoke` 每族 3 例，实测 4.3s。
 - 来源：`packages/eval/src/adversarial/expected.ts` 逐例给 URL / arXiv / CWE / ATLAS 编号；
   不可核验的外部样本标 `[unverified]` 且不进分母。
-- **未拦归因**：H-13「保本保息/风险为零」、H-14「条款号 + 延期年限」、H-15「流水号已入账」
+- **未拦归因**：H-14「条款号 + 延期年限」、H-15「流水号已入账」
   都是无数字断言或不在 W05 白名单 → `rule-gap`，不是"已解决"。
+  H-13（保本保息/风险为零）已由第六类断言（收益承诺禁词）收口，不再列入缺口。
 - **诚实边界**：注入集的"拦截"发生在工具面（规则命中或风险升级），入口检测本身只审计不阻断；
   间接注入（I-11）需要模型真的照做才会在工具面被拦，模型层是否服从不在确定性评测范围内。
 - **P0 熔断**：注入集累计命中 destructive/exfil 规则 3 次会触发 HALT；I-15 被排到最前执行，
@@ -286,10 +287,10 @@ plan 由宿主在进入引擎前拦截；解除只凭会话内 U 盾 MFA 票据�
 `packages/host/src/boot/plugins/halt-store.ts`、TC-W07-01…09 + C3 重启组。
 **已知限制**：headless 无远程控制入口。
 
-**R-03 / HP-4 已闭合（2026-10-26 复核，W03）**：16 个工具的出参在 `ToolPipeline` 每次调用后
+**R-03 / HP-4 已闭合（2026-10-26 复核，W03）**：19 个工具的出参在 `ToolPipeline` 每次调用后
 按 `resultSchema` 运行时校验，不符合报 `tool-result-invalid`，落账的 `tool/result` 带
 `isError: true`。证据：`packages/runtime/src/tools/pipeline.ts:285-292`、
-`packages/bank/src/tools/result-schemas.ts`（16 个键）、
+`packages/bank/src/tools/result-schemas.ts`（19 个键）、
 `packages/host/src/boot/plugins/bank-tools.ts:283-295`；直测
 `packages/runtime/src/tools/contracts.test.ts:172-197`（含"缺字段"与"金额非整数分"两例）。
 **边界**：校验的是返回值的结构与类型，不校验业务语义（卡号真伪、金额合理性仍靠下游规则）。
@@ -302,7 +303,7 @@ HP-1 不列为未施工：已退化为 **S-1**（行动断言与本 turn 工具�
 
 - **HP-2**：RAG 响应带可验证签名，且 TS 侧对**每次**响应验签（含跨语言黄金向量）。
 
-HP-4 已于 2026-10-26 满足原先写死的门槛（"16 个工具的出参在运行时按 schema 校验，畸形返回被拒
+HP-4 已于 2026-10-26 满足原先写死的门槛（"19 个工具的出参在运行时按 schema 校验，畸形返回被拒
 并落审计"），口径改为"**已实现**"，不再列入缺口。HP-2 仍不满足；被追问时按上表回答，
 不补充"其实做了一半"——那会把缺口讲成缺陷。
 
@@ -322,8 +323,11 @@ HP-4 已于 2026-10-26 满足原先写死的门槛（"16 个工具的出参在�
 | R-13 | 门禁写库已隔离 | `pnpm gate` 用 `.tmp-saga-wiring/saga.sqlite`，不写 `sessions/` | 回归判据：跑 gate 前后 `sessions/` 的库与链不变化 |
 | R-14 | PII 令牌化不是匿名 | 令牌可还原（`detokenize` 保留为库能力） | 审计链看不到完整姓名，但业务侧能还原；不是脱敏存储 |
 | R-15 | 制裁名单检查无载体 | eval 的 checkpoint 有 `sanctions` 类型，工具集无对应实现 | 自评按"未实现"讲，不讲"已覆盖" |
-| R-16 | DAG **执行器已实装**，自主规划器未实装 | 执行器（拓扑排序 / 状态机 / `resume`）已实装约 **2.2k 行**（`packages/runtime/src/plan/` 非测试 **2,208 行**）；`goal` / `todo` / `scope` 仍是各 7 行占位 | 赛题 §3.3 的"有序子任务"由外部给定计划驱动；**模型自主拆解任务未实现**，演示与答辩都不要暗示"模型自己拆任务" |
+| R-16 | DAG **执行器已实装**，目标/待办平面已落地，自主规划器未实装 | 执行器（拓扑排序 / 状态机 / `resume`）已实装约 **2.2k 行**（`packages/runtime/src/plan/` 非测试 **2,208 行**）；`goal` / `todo` 已落地（10 个文件、约 **875 行**，含单测），`scope` 仍是 7 行占位 | 赛题 §3.3 的"有序子任务"由外部给定计划驱动；**模型自主拆解任务未实现**，演示与答辩都不要暗示"模型自己拆任务" |
 | R-17 | 管理 token 对同机进程不设防 | 回环 + token 只挡跨源与远程 | 单机运维面；多用户部署要加进程隔离/OS 权限 |
+| R-18 | **场景 1 两项子能力未实装**：定时转账、拆分 AA 收款 | `transfer_create` 的 `when` 仅支持 `now`，未来时间抛 `unsupported-schedule`（`packages/bank/src/tools/inputs.ts`，单测 `transfers.test.ts`）。根因是四条架构真空：票据 TTL 120 秒从批准时刻起算、调度器无会话身份致 `decide()` 判 `no-identity`、无任务持久化表、幂等表为内存态 | 已登记 `docs/roadmap.md`、`docs/bank-tools.md`、`docs/security-design.md`、`docs/review/judge-walkthrough.md`；答辩口径"这两项在路线图"，自评 4 分 |
+| R-19 | **日累计按 UTC 自然日切账，跨零点存在额度绕过窗口** | `core/time.ts` 的 `dayKey` 以 `toISOString().slice(0,10)` 切日；冲正可当日回补额度。0 点前后各转一笔可使单日实际出账达 2× 限额。部分兜底：`recentOutCount` 速度窗口覆盖短时连续异常，但只作风险提示、不计额度 | 改为滚动 24h 需持久化窗口缓存，赛前不动账务口径；答辩按"已知缺口 + 速度窗口兜底"讲 |
+| R-20 | **人机接管链路无专属门禁** | 接管已合流（`bdb0f99`），`POST /api/handoff` → `/api/turn` 409 → `POST /api/handoff/resume` 可用；但 `docs/facts-sources.md` 记载的 `verify-handoff-wiring.ts` **在 `scripts/` 下不存在**（`verify-*.ts` 实为 50 个，其中无此项，只有 `scripts/demo-handoff.ts`） | 答辩口径限定为「有最小接管平面且可演示」，**不得**声称"接管链路有门禁保障"。若要补：新增 `verify-handoff-wiring.ts` 并把 `gates` 同步为 51 |
 
 ---
 
@@ -362,7 +366,7 @@ pnpm demo:verifier-fail
 ## 10. 复现命令
 
 ```bash
-pnpm test                                   # 294 文件 / 3333 用例（前端另有 365 例）
+pnpm test                                   # 302 文件 / 3494 用例（前端另有 375 例）
 pnpm vitest run packages/safety/src/sentry/halt.test.ts \
   packages/host/src/boot/plugins/halt.test.ts \
   packages/cli/src/cli/halt.test.ts         # HP-3 / W07 的 46 条（TC-W07-01…07）
@@ -370,7 +374,7 @@ pnpm vitest run packages/safety/src/sentry/pipeline/fail-closed.test.ts \
   packages/host/src/boot/plugins/web-admin.test.ts \
   packages/host/src/boot/plugins/web.test.ts \
   packages/cli/src/cli/sentry.test.ts       # HP-0 的 79 条
-pnpm gate                                   # 35 项
+pnpm gate                                   # 50 项
 pnpm demo:web                               # 打印本次独立会话目录
 pnpm demo:verifier-fail                     # fail-injection 演示
 pnpm bah audit --dir "<本次会话目录>" --no-signature  # 链连续/投影对账（非完整验签）

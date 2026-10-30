@@ -1,0 +1,1781 @@
+{
+  "name": "clean-24",
+  "now": 1793325600000,
+  "windowDays": 180,
+  "transactions": [
+    {
+      "id": "t-129",
+      "at": 1777773600000,
+      "amountCents": 4500,
+      "name": "季付商户A",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-132",
+      "at": 1777773600000,
+      "amountCents": 4500,
+      "name": "季付商户B",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-135",
+      "at": 1777773600000,
+      "amountCents": 4500,
+      "name": "季付商户C",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-138",
+      "at": 1777773600000,
+      "amountCents": 4500,
+      "name": "季付商户D",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-91",
+      "at": 1780278240000,
+      "amountCents": 6000,
+      "name": "订阅商户p",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-85",
+      "at": 1780278300000,
+      "amountCents": 5700,
+      "name": "订阅商户o",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-79",
+      "at": 1780278360000,
+      "amountCents": 5400,
+      "name": "订阅商户n",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-73",
+      "at": 1780278420000,
+      "amountCents": 5100,
+      "name": "订阅商户m",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-67",
+      "at": 1780278480000,
+      "amountCents": 4800,
+      "name": "订阅商户l",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-61",
+      "at": 1780278540000,
+      "amountCents": 4500,
+      "name": "订阅商户k",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-55",
+      "at": 1780278600000,
+      "amountCents": 4200,
+      "name": "订阅商户j",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-49",
+      "at": 1780278660000,
+      "amountCents": 3900,
+      "name": "订阅商户i",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-43",
+      "at": 1780278720000,
+      "amountCents": 3600,
+      "name": "订阅商户h",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-37",
+      "at": 1780278780000,
+      "amountCents": 3300,
+      "name": "订阅商户g",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-31",
+      "at": 1780278840000,
+      "amountCents": 3000,
+      "name": "订阅商户f",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-25",
+      "at": 1780278900000,
+      "amountCents": 2700,
+      "name": "订阅商户e",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-19",
+      "at": 1780278960000,
+      "amountCents": 2400,
+      "name": "订阅商户d",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-13",
+      "at": 1780279020000,
+      "amountCents": 2100,
+      "name": "订阅商户c",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-7",
+      "at": 1780279080000,
+      "amountCents": 3000,
+      "name": "订阅商户b",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-1",
+      "at": 1780279140000,
+      "amountCents": 3000,
+      "name": "订阅商户a",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-160",
+      "at": 1780970400000,
+      "amountCents": 27220,
+      "name": "单次商户T",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-159",
+      "at": 1781575200000,
+      "amountCents": 26109,
+      "name": "单次商户S",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-158",
+      "at": 1782180000000,
+      "amountCents": 24998,
+      "name": "单次商户R",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-157",
+      "at": 1782784800000,
+      "amountCents": 23887,
+      "name": "单次商户Q",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-92",
+      "at": 1782870240000,
+      "amountCents": 6000,
+      "name": "订阅商户p",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-86",
+      "at": 1782870300000,
+      "amountCents": 5700,
+      "name": "订阅商户o",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-80",
+      "at": 1782870360000,
+      "amountCents": 5400,
+      "name": "订阅商户n",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-74",
+      "at": 1782870420000,
+      "amountCents": 5100,
+      "name": "订阅商户m",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-68",
+      "at": 1782870480000,
+      "amountCents": 4800,
+      "name": "订阅商户l",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-62",
+      "at": 1782870540000,
+      "amountCents": 4500,
+      "name": "订阅商户k",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-56",
+      "at": 1782870600000,
+      "amountCents": 4200,
+      "name": "订阅商户j",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-50",
+      "at": 1782870660000,
+      "amountCents": 3900,
+      "name": "订阅商户i",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-44",
+      "at": 1782870720000,
+      "amountCents": 3600,
+      "name": "订阅商户h",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-38",
+      "at": 1782870780000,
+      "amountCents": 3300,
+      "name": "订阅商户g",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-32",
+      "at": 1782870840000,
+      "amountCents": 3000,
+      "name": "订阅商户f",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-26",
+      "at": 1782870900000,
+      "amountCents": 2700,
+      "name": "订阅商户e",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-20",
+      "at": 1782870960000,
+      "amountCents": 2400,
+      "name": "订阅商户d",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-14",
+      "at": 1782871020000,
+      "amountCents": 2100,
+      "name": "订阅商户c",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-8",
+      "at": 1782871080000,
+      "amountCents": 3000,
+      "name": "订阅商户b",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-2",
+      "at": 1782871140000,
+      "amountCents": 3000,
+      "name": "订阅商户a",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-156",
+      "at": 1783389600000,
+      "amountCents": 22776,
+      "name": "单次商户P",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-155",
+      "at": 1783994400000,
+      "amountCents": 21665,
+      "name": "单次商户O",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-154",
+      "at": 1784599200000,
+      "amountCents": 20554,
+      "name": "单次商户N",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-153",
+      "at": 1785204000000,
+      "amountCents": 19443,
+      "name": "单次商户M",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-93",
+      "at": 1785462240000,
+      "amountCents": 6000,
+      "name": "订阅商户p",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-87",
+      "at": 1785462300000,
+      "amountCents": 5700,
+      "name": "订阅商户o",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-81",
+      "at": 1785462360000,
+      "amountCents": 5400,
+      "name": "订阅商户n",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-75",
+      "at": 1785462420000,
+      "amountCents": 5100,
+      "name": "订阅商户m",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-69",
+      "at": 1785462480000,
+      "amountCents": 4800,
+      "name": "订阅商户l",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-63",
+      "at": 1785462540000,
+      "amountCents": 4500,
+      "name": "订阅商户k",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-57",
+      "at": 1785462600000,
+      "amountCents": 4200,
+      "name": "订阅商户j",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-51",
+      "at": 1785462660000,
+      "amountCents": 3900,
+      "name": "订阅商户i",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-45",
+      "at": 1785462720000,
+      "amountCents": 3600,
+      "name": "订阅商户h",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-39",
+      "at": 1785462780000,
+      "amountCents": 3300,
+      "name": "订阅商户g",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-33",
+      "at": 1785462840000,
+      "amountCents": 3000,
+      "name": "订阅商户f",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-27",
+      "at": 1785462900000,
+      "amountCents": 2700,
+      "name": "订阅商户e",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-21",
+      "at": 1785462960000,
+      "amountCents": 2400,
+      "name": "订阅商户d",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-15",
+      "at": 1785463020000,
+      "amountCents": 2100,
+      "name": "订阅商户c",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-9",
+      "at": 1785463080000,
+      "amountCents": 3000,
+      "name": "订阅商户b",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-3",
+      "at": 1785463140000,
+      "amountCents": 3000,
+      "name": "订阅商户a",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-130",
+      "at": 1785549600000,
+      "amountCents": 4500,
+      "name": "季付商户A",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-133",
+      "at": 1785549600000,
+      "amountCents": 4500,
+      "name": "季付商户B",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-136",
+      "at": 1785549600000,
+      "amountCents": 4500,
+      "name": "季付商户C",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-139",
+      "at": 1785549600000,
+      "amountCents": 4500,
+      "name": "季付商户D",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-152",
+      "at": 1785808800000,
+      "amountCents": 18332,
+      "name": "单次商户L",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-151",
+      "at": 1786413600000,
+      "amountCents": 17221,
+      "name": "单次商户K",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-150",
+      "at": 1787018400000,
+      "amountCents": 16110,
+      "name": "单次商户J",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-149",
+      "at": 1787623200000,
+      "amountCents": 14999,
+      "name": "单次商户I",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-94",
+      "at": 1788054240000,
+      "amountCents": 6000,
+      "name": "订阅商户p",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-88",
+      "at": 1788054300000,
+      "amountCents": 5700,
+      "name": "订阅商户o",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-82",
+      "at": 1788054360000,
+      "amountCents": 5400,
+      "name": "订阅商户n",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-76",
+      "at": 1788054420000,
+      "amountCents": 5100,
+      "name": "订阅商户m",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-70",
+      "at": 1788054480000,
+      "amountCents": 4800,
+      "name": "订阅商户l",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-64",
+      "at": 1788054540000,
+      "amountCents": 4500,
+      "name": "订阅商户k",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-58",
+      "at": 1788054600000,
+      "amountCents": 4200,
+      "name": "订阅商户j",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-52",
+      "at": 1788054660000,
+      "amountCents": 3900,
+      "name": "订阅商户i",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-46",
+      "at": 1788054720000,
+      "amountCents": 3600,
+      "name": "订阅商户h",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-40",
+      "at": 1788054780000,
+      "amountCents": 3300,
+      "name": "订阅商户g",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-34",
+      "at": 1788054840000,
+      "amountCents": 3000,
+      "name": "订阅商户f",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-28",
+      "at": 1788054900000,
+      "amountCents": 2700,
+      "name": "订阅商户e",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-22",
+      "at": 1788054960000,
+      "amountCents": 2400,
+      "name": "订阅商户d",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-16",
+      "at": 1788055020000,
+      "amountCents": 2100,
+      "name": "订阅商户c",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-10",
+      "at": 1788055080000,
+      "amountCents": 3500,
+      "name": "订阅商户b",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-4",
+      "at": 1788055140000,
+      "amountCents": 3500,
+      "name": "订阅商户a",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-148",
+      "at": 1788228000000,
+      "amountCents": 13888,
+      "name": "单次商户H",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-147",
+      "at": 1788832800000,
+      "amountCents": 12777,
+      "name": "单次商户G",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-121",
+      "at": 1789005360000,
+      "amountCents": 600,
+      "name": "周付商户D",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-113",
+      "at": 1789005420000,
+      "amountCents": 600,
+      "name": "周付商户C",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-105",
+      "at": 1789005480000,
+      "amountCents": 600,
+      "name": "周付商户B",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-97",
+      "at": 1789005540000,
+      "amountCents": 600,
+      "name": "周付商户A",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-146",
+      "at": 1789437600000,
+      "amountCents": 11666,
+      "name": "单次商户F",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-122",
+      "at": 1789610160000,
+      "amountCents": 600,
+      "name": "周付商户D",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-114",
+      "at": 1789610220000,
+      "amountCents": 600,
+      "name": "周付商户C",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-106",
+      "at": 1789610280000,
+      "amountCents": 600,
+      "name": "周付商户B",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-98",
+      "at": 1789610340000,
+      "amountCents": 600,
+      "name": "周付商户A",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-145",
+      "at": 1790042400000,
+      "amountCents": 10555,
+      "name": "单次商户E",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-123",
+      "at": 1790214960000,
+      "amountCents": 600,
+      "name": "周付商户D",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-115",
+      "at": 1790215020000,
+      "amountCents": 600,
+      "name": "周付商户C",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-107",
+      "at": 1790215080000,
+      "amountCents": 600,
+      "name": "周付商户B",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-99",
+      "at": 1790215140000,
+      "amountCents": 600,
+      "name": "周付商户A",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-95",
+      "at": 1790646240000,
+      "amountCents": 6000,
+      "name": "订阅商户p",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-89",
+      "at": 1790646300000,
+      "amountCents": 5700,
+      "name": "订阅商户o",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-83",
+      "at": 1790646360000,
+      "amountCents": 5400,
+      "name": "订阅商户n",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-77",
+      "at": 1790646420000,
+      "amountCents": 5100,
+      "name": "订阅商户m",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-71",
+      "at": 1790646480000,
+      "amountCents": 4800,
+      "name": "订阅商户l",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-65",
+      "at": 1790646540000,
+      "amountCents": 4500,
+      "name": "订阅商户k",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-59",
+      "at": 1790646600000,
+      "amountCents": 4200,
+      "name": "订阅商户j",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-53",
+      "at": 1790646660000,
+      "amountCents": 3900,
+      "name": "订阅商户i",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-47",
+      "at": 1790646720000,
+      "amountCents": 3600,
+      "name": "订阅商户h",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-41",
+      "at": 1790646780000,
+      "amountCents": 3300,
+      "name": "订阅商户g",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-35",
+      "at": 1790646840000,
+      "amountCents": 3000,
+      "name": "订阅商户f",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-29",
+      "at": 1790646900000,
+      "amountCents": 2700,
+      "name": "订阅商户e",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-23",
+      "at": 1790646960000,
+      "amountCents": 2400,
+      "name": "订阅商户d",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-17",
+      "at": 1790647020000,
+      "amountCents": 2100,
+      "name": "订阅商户c",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-11",
+      "at": 1790647080000,
+      "amountCents": 3500,
+      "name": "订阅商户b",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-5",
+      "at": 1790647140000,
+      "amountCents": 3500,
+      "name": "订阅商户a",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-144",
+      "at": 1790647200000,
+      "amountCents": 9444,
+      "name": "单次商户D",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-124",
+      "at": 1790819760000,
+      "amountCents": 600,
+      "name": "周付商户D",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-116",
+      "at": 1790819820000,
+      "amountCents": 600,
+      "name": "周付商户C",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-108",
+      "at": 1790819880000,
+      "amountCents": 600,
+      "name": "周付商户B",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-100",
+      "at": 1790819940000,
+      "amountCents": 600,
+      "name": "周付商户A",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-143",
+      "at": 1791252000000,
+      "amountCents": 8333,
+      "name": "单次商户C",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-125",
+      "at": 1791424560000,
+      "amountCents": 600,
+      "name": "周付商户D",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-117",
+      "at": 1791424620000,
+      "amountCents": 600,
+      "name": "周付商户C",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-109",
+      "at": 1791424680000,
+      "amountCents": 600,
+      "name": "周付商户B",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-101",
+      "at": 1791424740000,
+      "amountCents": 600,
+      "name": "周付商户A",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-142",
+      "at": 1791856800000,
+      "amountCents": 7222,
+      "name": "单次商户B",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-126",
+      "at": 1792029360000,
+      "amountCents": 600,
+      "name": "周付商户D",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-118",
+      "at": 1792029420000,
+      "amountCents": 600,
+      "name": "周付商户C",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-110",
+      "at": 1792029480000,
+      "amountCents": 600,
+      "name": "周付商户B",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-102",
+      "at": 1792029540000,
+      "amountCents": 600,
+      "name": "周付商户A",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-141",
+      "at": 1792461600000,
+      "amountCents": 6111,
+      "name": "单次商户A",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-127",
+      "at": 1792634160000,
+      "amountCents": 600,
+      "name": "周付商户D",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-119",
+      "at": 1792634220000,
+      "amountCents": 600,
+      "name": "周付商户C",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-111",
+      "at": 1792634280000,
+      "amountCents": 600,
+      "name": "周付商户B",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-103",
+      "at": 1792634340000,
+      "amountCents": 600,
+      "name": "周付商户A",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-96",
+      "at": 1793238240000,
+      "amountCents": 6000,
+      "name": "订阅商户p",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-90",
+      "at": 1793238300000,
+      "amountCents": 5700,
+      "name": "订阅商户o",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-84",
+      "at": 1793238360000,
+      "amountCents": 5400,
+      "name": "订阅商户n",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-78",
+      "at": 1793238420000,
+      "amountCents": 5100,
+      "name": "订阅商户m",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-72",
+      "at": 1793238480000,
+      "amountCents": 4800,
+      "name": "订阅商户l",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-66",
+      "at": 1793238540000,
+      "amountCents": 4500,
+      "name": "订阅商户k",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-60",
+      "at": 1793238600000,
+      "amountCents": 4200,
+      "name": "订阅商户j",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-54",
+      "at": 1793238660000,
+      "amountCents": 3900,
+      "name": "订阅商户i",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-48",
+      "at": 1793238720000,
+      "amountCents": 3600,
+      "name": "订阅商户h",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-42",
+      "at": 1793238780000,
+      "amountCents": 3300,
+      "name": "订阅商户g",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-36",
+      "at": 1793238840000,
+      "amountCents": 3000,
+      "name": "订阅商户f",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-30",
+      "at": 1793238900000,
+      "amountCents": 2700,
+      "name": "订阅商户e",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-128",
+      "at": 1793238960000,
+      "amountCents": 600,
+      "name": "周付商户D",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-24",
+      "at": 1793238960000,
+      "amountCents": 2400,
+      "name": "订阅商户d",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-120",
+      "at": 1793239020000,
+      "amountCents": 600,
+      "name": "周付商户C",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-18",
+      "at": 1793239020000,
+      "amountCents": 2100,
+      "name": "订阅商户c",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-112",
+      "at": 1793239080000,
+      "amountCents": 600,
+      "name": "周付商户B",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-12",
+      "at": 1793239080000,
+      "amountCents": 3500,
+      "name": "订阅商户b",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-104",
+      "at": 1793239140000,
+      "amountCents": 600,
+      "name": "周付商户A",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-6",
+      "at": 1793239140000,
+      "amountCents": 3500,
+      "name": "订阅商户a",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-131",
+      "at": 1793325600000,
+      "amountCents": 4500,
+      "name": "季付商户A",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-134",
+      "at": 1793325600000,
+      "amountCents": 4500,
+      "name": "季付商户B",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-137",
+      "at": 1793325600000,
+      "amountCents": 4500,
+      "name": "季付商户C",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-140",
+      "at": 1793325600000,
+      "amountCents": 4500,
+      "name": "季付商户D",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    }
+  ],
+  "series": [
+    {
+      "merchantKey": "订阅商户a",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-1",
+        "t-2",
+        "t-3",
+        "t-4",
+        "t-5",
+        "t-6"
+      ],
+      "nextChargeAt": 1795831140000
+    },
+    {
+      "merchantKey": "订阅商户b",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-7",
+        "t-8",
+        "t-9",
+        "t-10",
+        "t-11",
+        "t-12"
+      ],
+      "nextChargeAt": 1795831080000
+    },
+    {
+      "merchantKey": "订阅商户c",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-13",
+        "t-14",
+        "t-15",
+        "t-16",
+        "t-17",
+        "t-18"
+      ],
+      "nextChargeAt": 1795831020000
+    },
+    {
+      "merchantKey": "订阅商户d",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-19",
+        "t-20",
+        "t-21",
+        "t-22",
+        "t-23",
+        "t-24"
+      ],
+      "nextChargeAt": 1795830960000
+    },
+    {
+      "merchantKey": "订阅商户e",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-25",
+        "t-26",
+        "t-27",
+        "t-28",
+        "t-29",
+        "t-30"
+      ],
+      "nextChargeAt": 1795830900000
+    },
+    {
+      "merchantKey": "订阅商户f",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-31",
+        "t-32",
+        "t-33",
+        "t-34",
+        "t-35",
+        "t-36"
+      ],
+      "nextChargeAt": 1795830840000
+    },
+    {
+      "merchantKey": "订阅商户g",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-37",
+        "t-38",
+        "t-39",
+        "t-40",
+        "t-41",
+        "t-42"
+      ],
+      "nextChargeAt": 1795830780000
+    },
+    {
+      "merchantKey": "订阅商户h",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-43",
+        "t-44",
+        "t-45",
+        "t-46",
+        "t-47",
+        "t-48"
+      ],
+      "nextChargeAt": 1795830720000
+    },
+    {
+      "merchantKey": "订阅商户i",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-49",
+        "t-50",
+        "t-51",
+        "t-52",
+        "t-53",
+        "t-54"
+      ],
+      "nextChargeAt": 1795830660000
+    },
+    {
+      "merchantKey": "订阅商户j",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-55",
+        "t-56",
+        "t-57",
+        "t-58",
+        "t-59",
+        "t-60"
+      ],
+      "nextChargeAt": 1795830600000
+    },
+    {
+      "merchantKey": "订阅商户k",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-61",
+        "t-62",
+        "t-63",
+        "t-64",
+        "t-65",
+        "t-66"
+      ],
+      "nextChargeAt": 1795830540000
+    },
+    {
+      "merchantKey": "订阅商户l",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-67",
+        "t-68",
+        "t-69",
+        "t-70",
+        "t-71",
+        "t-72"
+      ],
+      "nextChargeAt": 1795830480000
+    },
+    {
+      "merchantKey": "订阅商户m",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-73",
+        "t-74",
+        "t-75",
+        "t-76",
+        "t-77",
+        "t-78"
+      ],
+      "nextChargeAt": 1795830420000
+    },
+    {
+      "merchantKey": "订阅商户n",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-79",
+        "t-80",
+        "t-81",
+        "t-82",
+        "t-83",
+        "t-84"
+      ],
+      "nextChargeAt": 1795830360000
+    },
+    {
+      "merchantKey": "订阅商户o",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-85",
+        "t-86",
+        "t-87",
+        "t-88",
+        "t-89",
+        "t-90"
+      ],
+      "nextChargeAt": 1795830300000
+    },
+    {
+      "merchantKey": "订阅商户p",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-91",
+        "t-92",
+        "t-93",
+        "t-94",
+        "t-95",
+        "t-96"
+      ],
+      "nextChargeAt": 1795830240000
+    },
+    {
+      "merchantKey": "周付商户a",
+      "cycle": "weekly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-97",
+        "t-98",
+        "t-99",
+        "t-100",
+        "t-101",
+        "t-102",
+        "t-103",
+        "t-104"
+      ],
+      "nextChargeAt": 1793843940000
+    },
+    {
+      "merchantKey": "周付商户b",
+      "cycle": "weekly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-105",
+        "t-106",
+        "t-107",
+        "t-108",
+        "t-109",
+        "t-110",
+        "t-111",
+        "t-112"
+      ],
+      "nextChargeAt": 1793843880000
+    },
+    {
+      "merchantKey": "周付商户c",
+      "cycle": "weekly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-113",
+        "t-114",
+        "t-115",
+        "t-116",
+        "t-117",
+        "t-118",
+        "t-119",
+        "t-120"
+      ],
+      "nextChargeAt": 1793843820000
+    },
+    {
+      "merchantKey": "周付商户d",
+      "cycle": "weekly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-121",
+        "t-122",
+        "t-123",
+        "t-124",
+        "t-125",
+        "t-126",
+        "t-127",
+        "t-128"
+      ],
+      "nextChargeAt": 1793843760000
+    },
+    {
+      "merchantKey": "季付商户a",
+      "cycle": "quarterly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-129",
+        "t-130",
+        "t-131"
+      ],
+      "nextChargeAt": 1801101600000
+    },
+    {
+      "merchantKey": "季付商户b",
+      "cycle": "quarterly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-132",
+        "t-133",
+        "t-134"
+      ],
+      "nextChargeAt": 1801101600000
+    },
+    {
+      "merchantKey": "季付商户c",
+      "cycle": "quarterly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-135",
+        "t-136",
+        "t-137"
+      ],
+      "nextChargeAt": 1801101600000
+    },
+    {
+      "merchantKey": "季付商户d",
+      "cycle": "quarterly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-138",
+        "t-139",
+        "t-140"
+      ],
+      "nextChargeAt": 1801101600000
+    }
+  ]
+}

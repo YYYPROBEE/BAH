@@ -13,6 +13,11 @@ import { BANK_TOOL_SPECS, type BankToolName } from './specs.ts'
 import { createTransferCreateTool, createTransferPreviewTool } from './transfers.ts'
 import type { BankToolDeps } from './types.ts'
 import { createCardReportLostTool, createSubCancelTool } from './account-ops.ts'
+import {
+  createSubAuthorizeTool,
+  createSubListTool,
+  createSubWatchTool,
+} from './subscriptions.ts'
 import { createVerifyTool } from './verification.ts'
 import { createWealthCompareTool, createWealthListTool, createWealthPurchaseTool } from './wealth.ts'
 
@@ -34,6 +39,9 @@ const FACTORIES: Readonly<Record<BankToolName, (deps: BankToolDeps) => ToolDefin
   'verify_ushield': (deps) => createVerifyTool(deps, 'ushield'),
   'card_report_lost': createCardReportLostTool,
   'sub_cancel': createSubCancelTool,
+  'sub_list': createSubListTool,
+  'sub_watch': createSubWatchTool,
+  'sub_authorize': createSubAuthorizeTool,
 }
 
 /**
@@ -59,6 +67,9 @@ const SIDE_EFFECTS: Readonly<Record<BankToolName, NonNullable<ToolDefinition['si
   verify_ushield: 'write',
   card_report_lost: 'write',
   sub_cancel: 'write',
+  sub_list: 'read',
+  sub_watch: 'write',
+  sub_authorize: 'write',
 }
 
 /** 工厂表里的名字（门禁核对目录完整性用）。 */
@@ -67,7 +78,7 @@ export const BANK_TOOL_FACTORY_NAMES: readonly BankToolName[] = Object.keys(
 ) as BankToolName[]
 
 /**
- * 造出全部 P0 工具（14 个，顺序 = 目录顺序）。
+ * 造出全部工具（19 个，顺序 = 目录顺序）。
  *
  * 工具定义是闭包：依赖在创建时注入，`execute` 不再读取全局单例。
  */

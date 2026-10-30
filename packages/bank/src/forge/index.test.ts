@@ -4,6 +4,10 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { sha256Hex } from '@bah/util'
+
+import { detectRecurring } from '../detect/recurring.ts'
+import { normalizeMerchant } from '../detect/merchant.ts'
 import { buildBankDataset, DEFAULT_LIMITS, DEMO_NOW } from './index.ts'
 
 describe('T-BANK-001 seeded 复现', () => {
@@ -86,5 +90,59 @@ describe('T-BANK-010 adversarial 档', () => {
     for (const tier of ['demo', 'stress', 'adversarial'] as const) {
       expect(buildBankDataset({ seed: 1, tier }).limits).toEqual(DEFAULT_LIMITS)
     }
+  })
+})
+
+describe('场景 5：recurring 档（订阅 / 代扣）', () => {
+  it('demo 档字节不变（sha256 守卫）', () => {
+    const demo = buildBankDataset({ seed: 7, tier: 'demo' })
+    // 2026-10-30 账单场景 T-05：demo 追加近 12 个月的纯算术历史（60 笔），
+    // 当前月/上月的 8 笔固定脚本一字未改。哈希随数据更新——它钉的是
+    // "同 seed 逐字节确定"，不是"永远不许改数据"。
+    expect(sha256Hex(JSON.stringify(demo))).toBe(
+      '0aec207cae534fa310a77302206514913ce3f68e1bb7ccec49fcc1604c45904a',
+    )
+  })
+
+  it('11 条 series、9 high / 1 medium / 1 low；重复扣款 1 组', () => {
+    const data = buildBankDataset({ seed: 7, tier: 'recurring' })
+    expect(data.accounts).toHaveLength(2)
+    expect(data.subscriptions).toHaveLength(8)
+    expect(data.authorizations).toHaveLength(8)
+    const output = detectRecurring(data.transactions, {
+      now: data.now,
+      subscriptions: data.subscriptions,
+    })
+    expect(output.series).toHaveLength(11)
+    const counts = { high: 0, medium: 0, low: 0 }
+    for (const item of output.series) counts[item.confidence] += 1
+    expect(counts).toEqual({ high: 9, medium: 1, low: 1 })
+    expect(output.duplicates).toHaveLength(1)
+    const video = output.series.find((item) => item.merchantKey === '视频会员')
+    expect(video?.priceHike).toMatchObject({ fromCents: 3000, toCents: 3500 })
+    expect(output.series.find((item) => item.merchantKey === '国网电力')?.kind).toBe('bill')
+  })
+
+  it('固定脚本：换 seed / 租户盐不影响 recurring 数据（与 demo 同构）', () => {
+    const first = buildBankDataset({ seed: 1, tier: 'recurring' })
+    const second = buildBankDataset({ seed: 99, tier: 'recurring', tenantSalt: 12345 })
+    expect(second.transactions).toEqual(first.transactions)
+    expect(second.subscriptions).toEqual(first.subscriptions)
+    expect(second.authorizations).toEqual(first.authorizations)
+  })
+
+  it('断供失败样本：健身房协议已关，之后仍有一笔扣款', () => {
+    const data = buildBankDataset({ seed: 7, tier: 'recurring' })
+    const auth = data.authorizations?.find((item) => item.merchantKey === '某某健身')
+    expect(auth?.status).toBe('revoked')
+    expect(auth?.revokedAt).toBeDefined()
+    const later = data.transactions.some(
+      (txn) =>
+        txn.status === 'success' &&
+        txn.direction === 'out' &&
+        txn.at > (auth?.revokedAt ?? 0) &&
+        normalizeMerchant(txn.counterparty.name) === '某某健身',
+    )
+    expect(later).toBe(true)
   })
 })

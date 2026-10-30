@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   ASSERTION_REJECT_CODE,
+  PROHIBITED_CLAIM_CODE,
   UNVERIFIED_PREFIX,
   chineseToDecimal,
   collectEvidence,
@@ -146,6 +147,15 @@ describe('W05 · 三态路由', () => {
   it('证据里“消费 800 元”不会把“已转出 800 元”算成已发生', () => {
     const evidence = collectEvidence(['今日消费 ¥800.00，余额 ¥7,200.00。'])
     expect(evidence.actionValues.has('80000')).toBe(false)
+  })
+
+  it('保本类定性表述 → 拒答（第六类断言，total=rejected=1）', () => {
+    const outcome = verifyReply({ text: '该产品保本保息，风险为零。', evidence: [] })
+    expect(outcome.decision).toBe('reject')
+    expect(outcome.total).toBe(1)
+    expect(outcome.rejected).toBe(1)
+    expect(outcome.text).toBe(refusalText(PROHIBITED_CLAIM_CODE))
+    expect(outcome.assertions[0]?.assertion.kind).toBe('guarantee')
   })
 
   it('否定语境不按资金动作拒答（转账失败的诚实说明 → 仅未核实）', () => {

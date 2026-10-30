@@ -40,7 +40,7 @@ describe('wealth_list / wealth_compare（T-TOOLS-005）', () => {
   it('列表带 disclaimerId；筛选 R1 / 期限生效', async () => {
     const h = createBankHarness()
     const all = (await h.call('wealth_list')) as WealthListResult
-    expect(all.products).toHaveLength(3)
+    expect(all.products).toHaveLength(5)
     expect(all.disclaimerId).toBe('wealth-risk-v1')
     expect(h.auditsOf('read/wealth')[0]).toMatchObject({ op: 'list' })
 
@@ -57,6 +57,35 @@ describe('wealth_list / wealth_compare（T-TOOLS-005）', () => {
     expect(result.products.map((product) => product.productId)).toEqual(['w-3', 'w-1'])
     expect(result.disclaimerId).toBe('wealth-risk-v1')
     expect(h.auditsOf('read/wealth')[0]).toMatchObject({ op: 'compare' })
+  })
+
+  it('适当性：列表标注 R4 不可购买，R1 可购买（客户 R2）', async () => {
+    const h = createBankHarness()
+    const all = (await h.call('wealth_list')) as WealthListResult
+    expect(all.customerRisk).toBe('R2')
+    const w4 = all.products.find((product) => product.productId === 'w-4')
+    expect(w4?.eligible).toBe(false)
+    expect(w4?.suitabilityNote).toContain('超出您的风险承受能力 R2')
+    expect(all.products.find((product) => product.productId === 'w-1')?.eligible).toBe(true)
+  })
+
+  it('适当性：对比同样标注（避免列表能看、对比看不出）', async () => {
+    const h = createBankHarness()
+    const result = (await h.call('wealth_compare', { ids: ['w-4', 'w-1'] })) as WealthCompareResult
+    expect(result.customerRisk).toBe('R2')
+    expect(result.products[0]?.eligible).toBe(false)
+    expect(result.products[1]?.eligible).toBe(true)
+  })
+
+  it('适当性：列表正文带客户等级与「不可购买」标注（渠道卡片从正文派生）', async () => {
+    const h = createBankHarness()
+    const tool = h.tools.get('wealth_list')!
+    const result = (await h.call('wealth_list')) as WealthListResult
+    const text = (tool.projectContent?.(result) ?? [])
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('\n')
+    expect(text).toContain('您的风险承受能力：R2')
+    expect(text).toContain('【产品风险等级 R4 超出您的风险承受能力 R2，不可购买】')
   })
 
   it('对比数量 / 未知产品 / 非法筛选：fail-loud', async () => {
@@ -112,6 +141,25 @@ describe('wealth_purchase（红级写）', () => {
     )
     expect(error.code).toBe('below-minimum')
     expect(h.core.tickets.status('ticket:c-min' as TicketId)).toBe('approved')
+  })
+
+  it('适当性：买 w-4（R4）被拒，票据不被消耗、无成交落账', async () => {
+    const h = createBankHarness()
+    const args = { productId: 'w-4', amount: 1000 }
+    approvePurchaseTicket(h, 'c-suit', args, 100_000)
+    const error = await captureRejection(() => h.call('wealth_purchase', args, 'c-suit'))
+    // 直接调 execute 绕过了治理面：这里拦得住，说明 `core` 的第二道闸是真的。
+    expect(error.code).toBe('suitability-mismatch')
+    expect(h.core.tickets.status('ticket:c-suit' as TicketId)).toBe('approved')
+    expect(h.auditsOf('wealth/purchased')).toHaveLength(0)
+  })
+
+  it('适当性：成交结果带匹配快照 riskMatch（客户 R2 ≥ 产品 R1）', async () => {
+    const h = createBankHarness()
+    approvePurchaseTicket(h, 'c-match', ARGS, 10_000)
+    const result = (await h.call('wealth_purchase', ARGS, 'c-match')) as WealthPurchaseResult
+    expect(result.riskMatch).toMatchObject({ customerRisk: 'R2', productRisk: 'R1' })
+    expect(result.riskMatch.at).toBe(result.at)
   })
 
   it('presentCall 是纯函数（黄/红确认卡片契约）', () => {

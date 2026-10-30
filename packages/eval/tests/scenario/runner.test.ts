@@ -1,7 +1,7 @@
 /**
- * W13 端到端：71 场景全量、确定性（同 shard / 跨 shard）、filter、boot 次数。
+ * W13 端到端：全量场景、确定性（同 shard / 跨 shard）、filter、boot 次数。
  *
- * 这一组**不在主 vitest 面**（`vitest.eval.config.ts` 才收），因为它会真 boot 8 个应用。
+ * 这一组**不在主 vitest 面**（`vitest.eval.config.ts` 才收），因为它会真 boot 9 个应用。
  */
 
 import { readdirSync } from 'node:fs'
@@ -23,16 +23,16 @@ function sessionsSnapshot(): readonly string[] {
   }
 }
 
-describe('W13 · 71 场景端到端', () => {
+describe('W13 · 全量场景端到端', () => {
   it(
-    '全量 71：全部通过、boot=8、报告按族→ID 排序、仓库 sessions/ 无新增',
+    '全量：全部通过、boot=9、报告按族→ID 排序、仓库 sessions/ 无新增',
     async () => {
       const before = sessionsSnapshot()
       const report = await runEvalReport({ repoRoot: ROOT, scenarios: ALL_SCENARIOS })
       const after = sessionsSnapshot()
 
-      expect(report.bootCount).toBe(8)
-      expect(report.scenarios).toHaveLength(71)
+      expect(report.bootCount).toBe(9)
+      expect(report.scenarios).toHaveLength(ALL_SCENARIOS.length)
       expect(report.scenarios.filter((scenario) => scenario.status === 'fail')).toEqual([])
       expect(report.metrics.taskSuccess.total).toBeGreaterThan(0)
       expect(report.metrics.taskSuccess.passed).toBe(report.metrics.taskSuccess.total)
@@ -40,7 +40,7 @@ describe('W13 · 71 场景端到端', () => {
       expect(report.metrics.refusalAccuracy.passed).toBe(report.metrics.refusalAccuracy.total)
       expect(after).toEqual(before)
 
-      const order = ['Q', 'T', 'P', 'S', 'D', 'K']
+      const order = ['Q', 'T', 'P', 'S', 'D', 'K', 'U']
       const sorted = [...report.scenarios].sort((left, right) => {
         const family = order.indexOf(left.family) - order.indexOf(right.family)
         return family !== 0 ? family : left.id.localeCompare(right.id)

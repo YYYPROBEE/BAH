@@ -12,22 +12,23 @@ W13 要写 **60 个场景**（9 人日）。若每个场景都要顺手改一次
 
 ⇒ 判据：W13 开工后若需要改动本文件的任何字段，说明冻结失败，属本单缺陷。
 
-## 2. 六族（W13 §1 的口径，本单照抄不重定义）
+## 2. 七族（W13 §1 的口径 + U 族增补，本单照抄不重定义）
 
 | 族 | 例数 | 覆盖 | 主力断言 kind |
 |---|---|---|---|
-| **Q** 查询 | 12 | 16 工具里的读类，断言"返回值与场景数据一致"（+03 单的跨场景拒借 / 追问不死循环） | `tool-result`、`tool-sequence` |
+| **Q** 查询 | 14 | 16 工具里的读类，断言"返回值与场景数据一致"（+03 单的跨场景拒借 / 追问不死循环 + 账单 01 单两条） | `tool-result`、`tool-sequence` |
 | **T** 转账主链 | 16 | 试算→审批→扣款；含金额边界（999/1000/1001）与 03 单的四类意图 | `tool-sequence`、`tool-result` |
-| **P** 权限分级 | 10 | 绿/黄/红三档 × 批/拒/超时 | `tool-denied` |
+| **P** 权限分级 | 11 | 绿/黄/红三档 × 批/拒/超时（含理财适当性拦截 P-11） | `tool-denied` |
 | **S** 补偿 | 8 | 转账失败→冲正；补偿失败→`COMPENSATION_DLQ`（**不是 INCIDENT**） | `event` |
 | **D** 编排（plan） | 15 | 串行/菱形/optional/dry-run/resume | `event`、`tool-sequence` |
 | **K** 知识与拒答 | 10 | 命中/未命中/需拒答/签名失效 | `refused`、`event` |
-| | **71** | | |
+| **U** 意图语料 | 17 | 30 条实战语料中当前有承载的 17 条：直白/缺槽追问/指代复现/实体歧义；零资金动作 | `tool-result`、`no-event` |
+| | **91** | | |
 
 ## 3. 结构
 
 ```ts
-export type ScenarioFamily = 'Q' | 'T' | 'P' | 'S' | 'D' | 'K'
+export type ScenarioFamily = 'Q' | 'T' | 'P' | 'S' | 'D' | 'K' | 'U'
 export type ScenarioMetric = 'task-success' | 'privilege-block' | 'refusal-accuracy'
 export type ScenarioApproval = 'allow' | 'reject' | 'unavailable'
 

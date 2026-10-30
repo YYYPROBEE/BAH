@@ -22,8 +22,11 @@ export {
   parseDecimalText,
   rateToBasisPoints,
 } from './normalize.ts'
+export { detectProhibitedClaims } from './claims.ts'
+export type { ProhibitedClaim, ProhibitedClaimRule } from './claims.ts'
 export {
   ASSERTION_REJECT_CODE,
+  PROHIBITED_CLAIM_CODE,
   UNVERIFIED_PREFIX,
   refusalText,
   verifyReply,

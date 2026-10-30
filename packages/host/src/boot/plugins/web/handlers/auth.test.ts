@@ -431,6 +431,36 @@ describe('TA-26 · 登录 / 登出 / 自查', () => {
     expect(probe.status).toBe(409)
     expect(JSON.parse(probe.body).error.code).toBe('web-auth-disabled')
   })
+
+  it('TA-26-12 登录体不是 JSON 对象 → 400（不是 500）', async () => {
+    const { call } = makeHarness()
+    const probe = await call('POST', '/api/auth/login', { ...ORIGIN, 'content-type': 'application/json' }, 'oops')
+    expect(probe.status).toBe(400)
+    expect(JSON.parse(probe.body).error.code).toBe('web-invalid-body')
+  })
+
+  it('TA-26-13 缺 userId / password / 空串 → 400 web-login-invalid（不把空字段交给校验器）', async () => {
+    const { call } = makeHarness()
+    for (const body of [{ userId: 'u-1' }, { password: 'demo1234' }, { userId: '  ' }]) {
+      const probe = await call('POST', '/api/auth/login', { ...ORIGIN, 'content-type': 'application/json' }, body)
+      expect(probe.status).toBe(400)
+      expect(JSON.parse(probe.body).error.code).toBe('web-login-invalid')
+    }
+  })
+
+  it('TA-26-11 static 模式 GET /api/auth/me → 200 合成服务主体（expiresAt: null）', async () => {
+    const { call } = makeHarness({ mode: 'static' })
+    const probe = await call('GET', '/api/auth/me', { authorization: `Bearer ${WEB_TOKEN}` })
+    expect(probe.status).toBe(200)
+    // 合成主体没有会话，`expiresAt` 只能是 null（前端据此显示"服务凭证"）
+    expect(JSON.parse(probe.body)).toMatchObject({
+      tenant: TENANT,
+      userId: 'svc:web',
+      roles: ['customer'],
+      expiresAt: null,
+      mode: 'static',
+    })
+  })
 })
 
 describe('TA-28 · 缺口 3：password 模式不接受 ?token=', () => {
@@ -524,5 +554,57 @@ describe('TA-27 · 登录把认证身份绑到银行身份', () => {
     const failed = await runtime.login({ userId: 'u-1', password: 'wrong', ip: '10.0.0.2' })
     expect(failed.ok).toBe(false)
     expect(calls).toHaveLength(1)
+  })
+
+  it('TA-27-1 绑定银行身份抛错 → 登录仍成功，只留一条 warn（认证不被业务旁路阻断）', async () => {
+    const warnings: string[] = []
+    const ctx = createContext()
+    ctx.provide(CREDENTIALS, {
+      bindSession: () => {
+        throw new Error('bank identity store unavailable')
+      },
+    } as never)
+    const runtime = createWebAuthRuntime({
+      ctx,
+      run: { sessionId: 's-auth-bind-fail', tenantId: parseTenantId(TENANT), now: () => NOW },
+      config: {
+        ...DEFAULT_WEB,
+        auth: { ...DEFAULT_WEB.auth, mode: 'password', directory: { path: 'auth/users.example.yml' } },
+      },
+      webToken: WEB_TOKEN,
+      serverCsrf: SERVER_CSRF,
+      warn: (message: string) => warnings.push(message),
+    } as never)
+
+    const ok = await runtime.login({ userId: 'u-1', password: 'demo1234', ip: '10.0.0.3' })
+    expect(ok.ok).toBe(true)
+    expect(warnings.join('\n')).toContain('绑定银行身份失败')
+    // 登录本身仍然成立：会话可解析成主体（不是只"返回 200"）
+    const identity = ok.ok
+      ? runtime.identify(makeReq('GET', '/api/session', { cookie: `bah_sid=${ok.session.sid}` }), NOW)
+      : undefined
+    expect(identity?.kind).toBe('principal')
+  })
+
+  it('TA-27-2 没有 core:persistence → 会话只存内存并 warn，登录仍可用（不阻断无持久化的 profile）', async () => {
+    const warnings: string[] = []
+    const ctx = createContext()
+    // 只给银行身份绑定，不给 SESSION_FILES：模拟没有 core:persistence 的 profile
+    ctx.provide(CREDENTIALS, { bindSession: () => undefined } as never)
+    const runtime = createWebAuthRuntime({
+      ctx,
+      run: { sessionId: 's-auth-memory', tenantId: parseTenantId(TENANT), now: () => NOW },
+      config: {
+        ...DEFAULT_WEB,
+        auth: { ...DEFAULT_WEB.auth, mode: 'password', directory: { path: 'auth/users.example.yml' } },
+      },
+      webToken: WEB_TOKEN,
+      serverCsrf: SERVER_CSRF,
+      warn: (message: string) => warnings.push(message),
+    } as never)
+
+    const ok = await runtime.login({ userId: 'u-1', password: 'demo1234', ip: '10.0.0.4' })
+    expect(ok.ok).toBe(true)
+    expect(warnings.join('\n')).toContain('认证会话只存内存')
   })
 })

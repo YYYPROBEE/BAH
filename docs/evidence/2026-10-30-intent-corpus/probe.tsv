@@ -1,0 +1,20 @@
+﻿编号	原话	scene	kind	decision	missing	filled（摘要）	颜色	处置
+U-01	给妈转 500	transfer	explicit	proceed	—	payee=妈 utterance；amountCents=50000 utterance	🟢	进 U 族
+U-02	转 500 给妈	transfer	explicit	ask	payee	amountCents=50000 utterance	🟡	进 U 族，偏差写进 title（语序不在词表）
+U-03	给妈转五百块钱生活费	transfer	explicit	ask	amountCents	payee=妈 utterance	🟡	进 U 族，偏差写进 title（中文数字未归一）
+U-04	给 13800005678 转 2000	transfer	explicit	ask	payee, amountCents	（空）	🟡	进 U 族，偏差写进 title（手机号未识别且吞掉金额）
+U-05	转 1w 给自己另一张卡	transfer	explicit	ask	payee	amountCents=100 utterance	🟡	进 U 族，偏差写进 title（1w 按 1 元归一）
+U-06	帮我把工资卡里的闲钱转 2000 到理财卡	transfer	explicit	ask	payee	amountCents=200000 utterance	🟡	进 U 族，偏差写进 title（双账户表述未抽账户）
+U-07	转五百，不，八百	transfer	explicit	ask	payee, amountCents	（空）	🟡	进 U 族，偏差写进 title（中文数字未归一）
+U-08	给我看看我这个月转出去多少	bills	explicit	ask	timeRange	payee=我看看我这个月（误抽）	🟡	进 U 族，偏差写进 title（查询句被「给…转」误配）
+U-09	帮我给房东转房租	transfer	explicit	ask	amountCents	payee=房东 utterance	🟢	进 U 族
+U-10	转 800	transfer	explicit	ask	payee	amountCents=80000 utterance	🟢	进 U 族
+U-11	把明天的转账改成后天	transfer	elliptical	proceed	—	第 2 轮继承第 1 轮 payee=房东、amountCents=350000	🟢	进 U 族（两轮用例）
+U-12	给我妈转点钱	transfer	explicit	ask	amountCents	payee=我妈 utterance	🟢	进 U 族
+U-13	给张伟转 300	transfer	ambiguous	ask	—	conflicts.payee=张伟（同事）/张伟（房东）；filled amountCents=30000	🟢	进 U 族（依赖 demoMemory 夹具）
+U-14	转 300 块给我对象	transfer	explicit	ask	payee	amountCents=30000 utterance	🟡	进 U 族，偏差写进 title（「对象」不在词表）
+U-15	把上周借老王的钱还了	transfer	explicit	ask	payee, amountCents	（空）	🟡	进 U 族，偏差写进 title（期望 vague，实测 explicit）
+U-16	还老王钱	transfer	explicit	ask	payee, amountCents	（空）	🟡	进 U 族，偏差写进 title（期望 vague，实测 explicit）
+U-17	刚才那个转账取消掉	transfer	vague	ask	payee, amountCents	requiresPreview=true	🟢	进 U 族
+E-09	明天早上九点给房东转 3500 房租	transfer	explicit	proceed	—	payee=房东；amountCents=350000；timeRange 缺	🟡	不进 eval：无调度器；探针证明「明天九点」未被 timeRange 承载
+E-10	每月 1 号给房东转 3500	transfer	explicit	proceed	—	payee=房东；amountCents=100（「每月 1 号」的 1 被当金额）	🔴	不进 eval：已进缺陷清单——周期句的日期数字被金额抽取当首个数字，且 decision=proceed

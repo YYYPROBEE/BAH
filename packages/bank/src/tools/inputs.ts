@@ -141,9 +141,14 @@ export function parsePurchaseAmount(args: Readonly<Record<string, unknown>>): nu
   return amountToCents(amount)
 }
 
-/** 解析账期口径。 */
+/**
+ * 解析账期口径。
+ *
+ * 白名单是**闭合**的：非白名单值直接抛 `tool-args-invalid`，不是静默降级——
+ * 模型传 `year` 而工具不认时，让它立刻看到可修正的参数，比编一份错的年度报告安全。
+ */
 export function parsePeriod(
   args: Readonly<Record<string, unknown>>,
-): 'month' | 'quarter' {
-  return readRequiredEnum(args, 'period', 'bill', ['month', 'quarter'] as const)
+): 'month' | 'quarter' | 'year' {
+  return readRequiredEnum(args, 'period', 'bill', ['month', 'quarter', 'year'] as const)
 }

@@ -281,3 +281,143 @@ describe('生日案例两幕（04 单）', () => {
     expect(classifyIntent('我爱人生日快到了')).toMatchObject({ kind: 'intent', route: 'implicit' })
   })
 })
+
+describe('理财演示路由（04 单：只认两句；缺参追问，不猜）', () => {
+  it('理财：列表意图', () => {
+    expect(classifyIntent('有什么理财产品')).toMatchObject({ kind: 'wealth', action: 'list' })
+  })
+
+  it('理财：买 4 号 1000 元', () => {
+    expect(classifyIntent('买 4 号，1000 元')).toMatchObject({
+      kind: 'wealth',
+      action: 'purchase',
+      productNo: 4,
+      amount: 1000,
+    })
+  })
+
+  it('理财：买 4 号 1 万元 → 10000', () => {
+    expect(classifyIntent('买 4 号 1 万元')).toMatchObject({ amount: 10_000 })
+  })
+
+  it('理财：缺编号 → 追问，不猜', () => {
+    expect(classifyIntent('我想买理财')).toMatchObject({ kind: 'clarify' })
+  })
+
+  it('理财：编号超出 1–5 → 追问，不猜产品', () => {
+    expect(classifyIntent('买 9 号，1000 元')).toMatchObject({ kind: 'clarify' })
+  })
+
+  it('不误判：给王建国转 800 元仍是转账', () => {
+    expect(classifyIntent('给王建国转 800 元')).toMatchObject({ kind: 'transfer' })
+  })
+
+  it('理财先于转账：「转 1 万买理财」不当转账（宾语是产品，不是收款人）', () => {
+    expect(classifyIntent('转 1 万买理财').kind).toBe('clarify')
+  })
+
+  it('规划：列表 = wealth_list + 复述（不自己编产品）', () => {
+    const steps = planFor(classifyIntent('有什么理财产品'))
+    expect(steps[0]?.content?.[0]).toMatchObject({ kind: 'tool-call', name: 'wealth_list' })
+    expect(steps[1]?.reflect?.tool).toBe('wealth_list')
+  })
+
+  it('规划：购买 = wealth_purchase，productId 由编号推导', () => {
+    const plan = planFor(classifyIntent('买 4 号，1000 元'))
+    const call = plan[0]?.content?.[0] as { kind: string; name?: string; args?: unknown }
+    expect(call).toMatchObject({ kind: 'tool-call', name: 'wealth_purchase' })
+    expect(call.args).toMatchObject({ productId: 'w-4', amount: 1000 })
+    expect(plan[1]?.outcome?.tool).toBe('wealth_purchase')
+  })
+})
+
+describe('场景 5：订阅 / 代扣路由', () => {
+  it('列表话语形态 → sub_list', () => {
+    expect(classifyIntent('我有哪些订阅')).toEqual({ kind: 'subscription', action: 'list' })
+    expect(classifyIntent('每月固定扣多少钱')).toEqual({ kind: 'subscription', action: 'list' })
+    expect(classifyIntent('有没有扣了很久忘了的')).toEqual({ kind: 'subscription', action: 'list' })
+  })
+
+  it('退订：识别演示商户 → sub_cancel（默认立即，不确认合约）', () => {
+    expect(classifyIntent('视频会员退订')).toEqual({
+      kind: 'subscription',
+      action: 'cancel',
+      subscriptionId: 's-video',
+      mode: 'now',
+      confirmContract: false,
+    })
+  })
+
+  it('「确认，到期即断」= 第二幕：视频会员 + 到期即断 + 确认合约', () => {
+    expect(classifyIntent('确认，到期即断')).toEqual({
+      kind: 'subscription',
+      action: 'cancel',
+      subscriptionId: 's-video',
+      mode: 'at-next-cycle',
+      confirmContract: true,
+    })
+  })
+
+  it('关协议：彻底停掉某商户 → sub_authorize（不是 sub_cancel）', () => {
+    expect(classifyIntent('彻底停掉视频会员的扣款')).toEqual({
+      kind: 'subscription',
+      action: 'authorize',
+      merchant: '视频会员',
+    })
+  })
+
+  it('提醒：抽提前量；「不用了」写 idle 标注', () => {
+    expect(classifyIntent('提前三天提醒我续费云音乐')).toEqual({
+      kind: 'subscription',
+      action: 'watch',
+      subscriptionId: 's-music',
+      watch: 'remind',
+      aheadDays: 3,
+    })
+    expect(classifyIntent('云存储我不用了')).toEqual({
+      kind: 'subscription',
+      action: 'watch',
+      subscriptionId: 's-storage',
+      watch: 'idle',
+    })
+  })
+
+  it('认不出商户 → 追问，不猜', () => {
+    expect(classifyIntent('退订那个会员').kind).toBe('clarify')
+    expect(classifyIntent('彻底停掉这家扣款').kind).toBe('clarify')
+    expect(classifyIntent('提醒我订阅续费').kind).toBe('clarify')
+  })
+
+  it('理财的两个兜底分支仍可达：买 N 号缺金额 / 只提基金按列表', () => {
+    expect(classifyIntent('买 4 号')).toMatchObject({ kind: 'clarify' })
+    expect(classifyIntent('基金')).toEqual({ kind: 'wealth', action: 'list' })
+  })
+
+  it('规划：退订带 confirmContract 只在需要确认时出现', () => {
+    const plain = planFor(classifyIntent('视频会员退订'))
+    const plainCall = plain[0]?.content?.[0] as { args?: Record<string, unknown> }
+    expect(plainCall.args).toEqual({ subscriptionId: 's-video', mode: 'now' })
+
+    const confirmed = planFor(classifyIntent('确认，到期即断'))
+    const confirmedCall = confirmed[0]?.content?.[0] as { args?: Record<string, unknown> }
+    expect(confirmedCall.args).toEqual({
+      subscriptionId: 's-video',
+      mode: 'at-next-cycle',
+      confirmContract: true,
+    })
+  })
+
+  it('规划：列表只读；关协议走 sub_authorize', () => {
+    const list = planFor(classifyIntent('我有哪些订阅'))
+    expect(list[0]?.content?.[0]).toMatchObject({ kind: 'tool-call', name: 'sub_list' })
+    const authorize = planFor(classifyIntent('彻底停掉视频会员的扣款'))
+    expect(authorize[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'sub_authorize',
+      args: { merchant: '视频会员' },
+    })
+    const watch = planFor(classifyIntent('提醒我续费云音乐'))
+    expect(watch[0]?.content?.[0]).toMatchObject({ kind: 'tool-call', name: 'sub_watch' })
+    expect(watch[1]?.outcome?.tool).toBe('sub_watch')
+  })
+})

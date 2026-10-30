@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 
 import { captureThrown } from '@bah/test-support'
 
-import { HandoffRegistry, type HandoffSummary } from './handoff.ts'
+import { HandoffRegistry, createHandoff, type HandoffSummary } from './handoff.ts'
 import type { HandoffSnapshot } from './handoff-store.ts'
 
 import type { AnySessionEvent, SessionApi } from '@bah/runtime'
@@ -231,6 +231,32 @@ describe('人机接管 01：认领 / 发言 / 心跳 / 恢复', () => {
     expect(h.handoff.active).toBe(false)
   })
 
+  it('T-07b resume 清盘失败 → handoff-state-unwritable，且仍在接管中（不假装交回成功）', () => {
+    const appended: string[] = []
+    const registry = new HandoffRegistry({
+      session: { sessionId: 's-clear-fail', lastSeq: () => 0, events: () => [] } as unknown as SessionApi,
+      now: () => 1_000,
+      append: (type) => {
+        appended.push(type)
+      },
+      pendingTickets: () => 0,
+      store: {
+        load: () => undefined,
+        save: () => undefined,
+        clear: () => {
+          throw new Error('EACCES')
+        },
+      },
+    })
+    expect(registry.enter('客户要求人工').ok).toBe(true)
+
+    const error = captureThrown(() => registry.resume('u-ops-a'))
+    expect((error as { code?: string }).code).toBe('handoff-state-unwritable')
+    // 状态没变：仍在接管中，`/api/turn` 不能因为"清盘失败"悄悄恢复自动回复
+    expect(registry.active).toBe(true)
+    expect(appended).toEqual(['handoff/requested'])
+  })
+
   it('T-09/T-10/T-11 claim：同一人幂等、换人 409、认领事件带 enteredAt', () => {
     let clock = 1_000
     const h = harness({ now: () => clock })
@@ -416,5 +442,19 @@ describe('人机接管 01：认领 / 发言 / 心跳 / 恢复', () => {
     })
     // 等待时长按新进程的 now 与旧 at 算
     expect(restarted.summary().waitedMs).toBe(10_000)
+  })
+})
+
+describe('createHandoff · 生产装配', () => {
+  it('T-08b 缺会话根（无 core:persistence）→ handoff-store-unavailable，不静默退化成内存态', () => {
+    const error = captureThrown(() =>
+      createHandoff({
+        session: { sessionId: 's-1', lastSeq: () => 0, events: () => [] } as unknown as SessionApi,
+        now: () => 1,
+        pendingTickets: () => 0,
+        files: undefined,
+      }),
+    )
+    expect((error as { code?: string }).code).toBe('handoff-store-unavailable')
   })
 })

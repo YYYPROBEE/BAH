@@ -54,6 +54,44 @@ export type IntentRoute = 'implicit' | 'recall' | 'crossScene' | 'slotGap'
 export type DemoIntent =
   | { readonly kind: 'balance' }
   | { readonly kind: 'transfer'; readonly request: TransferIntent }
+  | {
+      /**
+       * 理财意图（04 单）：只覆盖演示语法（「有什么理财产品」/「买 4 号，1000 元」）。
+       * 产品 ID 用编号规则 `w-<n>` 推导——路由里没有产品名、风险等级、价格。
+       */
+      readonly kind: 'wealth'
+      readonly action: 'list'
+    }
+  | {
+      readonly kind: 'wealth'
+      readonly action: 'purchase'
+      readonly productNo: number
+      readonly amount: number
+    }
+  | {
+      /** 场景 5：订阅 / 代扣（离线演示只认演示语料，不做 NLU）。 */
+      readonly kind: 'subscription'
+      readonly action: 'list'
+    }
+  | {
+      readonly kind: 'subscription'
+      readonly action: 'cancel'
+      readonly subscriptionId: string
+      readonly mode: 'now' | 'at-next-cycle'
+      readonly confirmContract: boolean
+    }
+  | {
+      readonly kind: 'subscription'
+      readonly action: 'authorize'
+      readonly merchant: string
+    }
+  | {
+      readonly kind: 'subscription'
+      readonly action: 'watch'
+      readonly subscriptionId: string
+      readonly watch: 'remind' | 'idle'
+      readonly aheadDays?: number
+    }
   | { readonly kind: 'clarify'; readonly question: string }
   | {
       /**
@@ -82,6 +120,71 @@ const BALANCE_PATTERNS: readonly RegExp[] = [
   /(账户|卡里|卡上).{0,6}(有|剩)/,
   /可用额度/,
   /我有多少钱/,
+]
+
+/** 理财意图的粗筛（04 单）：只认「理财 / 基金 / 产品收益风险 / 买 N 号」。 */
+const WEALTH_PATTERNS: readonly RegExp[] = [/理财/, /基金/, /产品.{0,6}(收益|风险)/, /买\s*\d+\s*号/]
+
+/** 「看看有哪些」的话语形态：命中且没有购买动作时规划 `wealth_list`。 */
+const WEALTH_LIST_PATTERNS: readonly RegExp[] = [/有什么|看看|推荐|哪些|在售/]
+
+/** 当前演示产品数（编号 `w-1`–`w-5`）；超出不猜，走追问。 */
+const WEALTH_PRODUCT_MAX = 5
+
+/** 订阅/代扣的粗筛（场景 5）。 */
+const SUBSCRIPTION_PATTERNS: readonly RegExp[] = [
+  /订阅/,
+  /代扣/,
+  /自动续费/,
+  /会员/,
+  /续费/,
+  /月费/,
+  /扣款/,
+  /扣了/,
+  /每月.{0,4}扣/,
+  /合约/,
+  /不用了/,
+  /到期.{0,4}提醒/,
+  /到期即断/,
+]
+
+/** 关协议（硬断供）：影响该商户全部订阅。 */
+const SUB_AUTHORIZE_PATTERNS: readonly RegExp[] = [
+  /关闭.*(代扣|协议)/,
+  /关掉.*(代扣|协议)/,
+  /彻底.*(停|关)/,
+  /停掉.*(这家|代扣|协议)/,
+]
+
+/** 退订某个订阅。 */
+const SUB_CANCEL_PATTERNS: readonly RegExp[] = [
+  /退订/,
+  /取消.*(订阅|会员|续费)/,
+  /停止.*(订阅|会员)/,
+]
+
+/** 提醒 / 标注。 */
+const SUB_WATCH_PATTERNS: readonly RegExp[] = [/提醒/, /不用了/, /标注/]
+
+/** 到期即断 / 合约确认话语。 */
+const AT_NEXT_CYCLE_PATTERNS: readonly RegExp[] = [/到期即断/, /下期.*停/, /到期.*停/, /下个?月.*停/]
+const CONFIRM_PATTERNS: readonly RegExp[] = [/确认/, /同意/]
+
+/**
+ * 演示数据里的订阅商户 → ID（与 `forge` 的 recurring 档同源）。
+ *
+ * 路由不是 NLU：它只认这几家演示商户；认不出就追问，不猜。
+ */
+const DEMO_SUBSCRIPTIONS: readonly (readonly [string, string, string])[] = [
+  ['视频会员', 's-video', '视频会员'],
+  ['云音乐', 's-music', '云音乐'],
+  ['云存储', 's-storage', '云存储'],
+  ['某某健身', 's-gym', '某某健身'],
+  ['健身房', 's-gym', '某某健身'],
+  ['新闻会员', 's-news', '新闻会员'],
+  ['网盘', 's-netdisk', '网盘超级会员'],
+  ['阅读', 's-reading', '阅读包月'],
+  ['软件', 's-software', 'xx软件订阅'],
 ]
 
 /** 转账意图的粗筛（真正的判定在 `parseTransfer`：抽不出金额/收款人就转追问）。 */
@@ -139,6 +242,16 @@ export function classifyIntent(text: string): DemoIntent {
     return { kind: 'balance' }
   }
 
+  // 理财（04 单）：先于转账——「转 1 万买理财」的宾语是产品，不是收款人。
+  if (WEALTH_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return parseWealth(normalized)
+  }
+
+  // 订阅/代扣（场景 5）：先于转账——「退订视频会员」没有收款人。
+  if (SUBSCRIPTION_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return parseSubscription(normalized)
+  }
+
   // 生日案例（04 单）：确认话术先判，再判场景陈述。两条都比转账更窄，先判窄的。
   if (BIRTHDAY_CONFIRM_PATTERNS.some((pattern) => pattern.test(normalized))) {
     return { kind: 'birthday', phase: 'execute', utterance: normalized }
@@ -192,9 +305,83 @@ export function classifyIntent(text: string): DemoIntent {
   return {
     kind: 'clarify',
     question:
-      '我现在只会两件事：① 查账户余额；② 给指定收款人转账（金额 + 姓名）。' +
-      '你要办哪一件？',
+      '我现在只会三件事：① 查账户余额；② 给指定收款人转账（金额 + 姓名）；' +
+      '③ 查/退订订阅与关闭代扣。你要办哪一件？',
   }
+}
+
+/** 命中的演示订阅商户（返回展示名与订阅 ID）；认不出返回 undefined。 */
+export function findSubscription(text: string): { readonly merchant: string; readonly id: string } | undefined {
+  for (const [keyword, id, merchant] of DEMO_SUBSCRIPTIONS) {
+    if (text.includes(keyword)) return { merchant, id }
+  }
+  return undefined
+}
+
+/** 从「提前三天」「提前 5 天」抽提醒提前量（1..7；抽不出用 3）。 */
+export function extractAheadDays(text: string): number | undefined {
+  const match = /提前\s*(\d+|[一二三四五六七])\s*天/.exec(text)
+  const raw = match?.[1]
+  if (raw === undefined) return undefined
+  const value = Number(raw) || CN_DIGITS[raw]
+  return value !== undefined && value >= 1 && value <= 7 ? value : undefined
+}
+
+/**
+ * 订阅意图（场景 5）。
+ *
+ * 顺序：关协议（影响面最大）→ 退订 → 提醒/标注 → 其余按「查订阅」处理。
+ * 认不出商户就追问；「确认到期即断」是演示脚本的第二幕，按视频会员处理（与 P9 台词同源）。
+ */
+export function parseSubscription(text: string): DemoIntent {
+  const found = findSubscription(text)
+
+  if (SUB_AUTHORIZE_PATTERNS.some((pattern) => pattern.test(text))) {
+    if (found === undefined) {
+      return {
+        kind: 'clarify',
+        question: '要关闭哪家商户的代扣协议？（演示商户：视频会员 / 云音乐 / 云存储 / 某某健身 / 新闻会员 / 网盘 / 阅读 / 软件）',
+      }
+    }
+    return { kind: 'subscription', action: 'authorize', merchant: found.merchant }
+  }
+
+  const atNextCycle = AT_NEXT_CYCLE_PATTERNS.some((pattern) => pattern.test(text))
+  if (SUB_CANCEL_PATTERNS.some((pattern) => pattern.test(text)) || atNextCycle) {
+    const target = found ?? (atNextCycle ? findSubscription('视频会员') : undefined)
+    if (target === undefined) {
+      return {
+        kind: 'clarify',
+        question: '要退订哪一个订阅？（演示商户：视频会员 / 云音乐 / 云存储 / 某某健身 / 新闻会员 / 网盘 / 阅读 / 软件）',
+      }
+    }
+    return {
+      kind: 'subscription',
+      action: 'cancel',
+      subscriptionId: target.id,
+      mode: atNextCycle ? 'at-next-cycle' : 'now',
+      confirmContract: atNextCycle || CONFIRM_PATTERNS.some((pattern) => pattern.test(text)),
+    }
+  }
+
+  if (SUB_WATCH_PATTERNS.some((pattern) => pattern.test(text))) {
+    if (found === undefined) {
+      return { kind: 'clarify', question: '要给哪个订阅设提醒或做标注？' }
+    }
+    if (/不用了|标注/.test(text)) {
+      return { kind: 'subscription', action: 'watch', subscriptionId: found.id, watch: 'idle' }
+    }
+    const aheadDays = extractAheadDays(text)
+    return {
+      kind: 'subscription',
+      action: 'watch',
+      subscriptionId: found.id,
+      watch: 'remind',
+      ...(aheadDays === undefined ? {} : { aheadDays }),
+    }
+  }
+
+  return { kind: 'subscription', action: 'list' }
 }
 
 /**
@@ -216,6 +403,55 @@ export function parseTransfer(text: string): DemoIntent {
     return { kind: 'clarify', question: `给${payeeName}转多少？请给出金额。` }
   }
   return { kind: 'transfer', request: { amount, payeeName } }
+}
+
+/**
+ * 理财要素（04 单）：编号 + 金额。
+ *
+ * 缺一件就追问缺的那件；编号只接受 1–`WEALTH_PRODUCT_MAX`，超出不猜。
+ * 「买 4 号」没有金额时**不默认一个金额**——金额猜错，扣的是真钱。
+ */
+export function parseWealth(text: string): DemoIntent {
+  const productNo = extractProductNo(text)
+  const amount = extractWealthAmount(text)
+  const buying = /买|购|申购/.test(text)
+
+  if (!buying && WEALTH_LIST_PATTERNS.some((pattern) => pattern.test(text))) {
+    return { kind: 'wealth', action: 'list' }
+  }
+  if (buying) {
+    if (productNo === undefined) {
+      return { kind: 'clarify', question: '要买几号产品、多少钱？（例如：买 4 号，1000 元）' }
+    }
+    if (amount === undefined) {
+      return {
+        kind: 'clarify',
+        question: `买 ${String(productNo)} 号多少元？（例如：买 4 号，1000 元）`,
+      }
+    }
+    return { kind: 'wealth', action: 'purchase', productNo, amount }
+  }
+  // 只提到理财 / 基金，既没有买也没有列表词：按「看看」处理（列表是安全的只读动作）。
+  return { kind: 'wealth', action: 'list' }
+}
+
+/** 产品编号：`4 号` → 4；只接受 1–5（当前演示产品数），其余当"没给"。 */
+export function extractProductNo(text: string): number | undefined {
+  const match = /(\d+)\s*号/.exec(text)
+  if (match?.[1] === undefined) return undefined
+  const value = Number(match[1])
+  return Number.isInteger(value) && value >= 1 && value <= WEALTH_PRODUCT_MAX ? value : undefined
+}
+
+/** 理财金额：先认「万」（`买 4 号 1 万元` → 10000），再退回 `extractAmount`。 */
+export function extractWealthAmount(text: string): number | undefined {
+  const wan = /(\d+(?:\.\d+)?)\s*万/.exec(text)
+  if (wan?.[1] !== undefined) {
+    const value = Number(wan[1]) * 10_000
+    return Number.isFinite(value) && value > 0 ? value : undefined
+  }
+  // 先把产品编号剥掉：`买 4 号 1000`（没有「元」）不能把 4 号当金额。
+  return extractAmount(text.replace(/(\d+)\s*号/, ' '))
 }
 
 /**
@@ -290,6 +526,72 @@ export function planFor(intent: DemoIntent): readonly MockStep[] {
         outcomeStep({
           tool: 'transfer_create',
           ok: `已为你在模拟环境完成 ${String(intent.request.amount)} 元转账，审批与核销记录见上方工具卡。`,
+          failed: '未执行：{reason}',
+        }),
+      ]
+    }
+    case 'wealth': {
+      if (intent.action === 'list') {
+        return [
+          toolCallStep('call-wealth-list', 'wealth_list', {}),
+          reflectStep({
+            tool: 'wealth_list',
+            fallback: '理财产品暂时取不到，请稍后再试。',
+          }),
+        ]
+      }
+      return [
+        toolCallStep('call-wealth-buy', 'wealth_purchase', {
+          productId: `w-${String(intent.productNo)}`,
+          amount: intent.amount,
+        }),
+        outcomeStep({
+          tool: 'wealth_purchase',
+          ok: '已受理，审批与核验记录见上方工具卡。',
+          failed: '未执行：{reason}',
+        }),
+      ]
+    }
+    case 'subscription': {
+      if (intent.action === 'list') {
+        return [
+          toolCallStep('call-sub-list', 'sub_list', {}),
+          reflectStep({ tool: 'sub_list', fallback: '订阅清单暂时取不到，请稍后再试。' }),
+        ]
+      }
+      if (intent.action === 'cancel') {
+        return [
+          toolCallStep('call-sub-cancel', 'sub_cancel', {
+            subscriptionId: intent.subscriptionId,
+            mode: intent.mode,
+            ...(intent.confirmContract ? { confirmContract: true } : {}),
+          }),
+          outcomeStep({
+            tool: 'sub_cancel',
+            ok: '退订已受理，审批与核验记录见上方工具卡。',
+            failed: '未执行：{reason}',
+          }),
+        ]
+      }
+      if (intent.action === 'authorize') {
+        return [
+          toolCallStep('call-sub-authorize', 'sub_authorize', { merchant: intent.merchant }),
+          outcomeStep({
+            tool: 'sub_authorize',
+            ok: '代扣协议已关闭，受影响订阅见上方工具卡。',
+            failed: '未执行：{reason}',
+          }),
+        ]
+      }
+      return [
+        toolCallStep('call-sub-watch', 'sub_watch', {
+          subscriptionId: intent.subscriptionId,
+          watch: intent.watch,
+          ...(intent.aheadDays === undefined ? {} : { aheadDays: intent.aheadDays }),
+        }),
+        outcomeStep({
+          tool: 'sub_watch',
+          ok: '提醒/标注已更新。',
           failed: '未执行：{reason}',
         }),
       ]

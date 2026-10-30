@@ -31,8 +31,8 @@
 | 04 | 主循环 agent-loop | 阶段 5 | [x] | turn/step 状态机 + 四接缝 + 回退分叉；出口清单见 §14，偏差见 §15 |
 | 05 | 模型层与提示词装配 | 阶段 4 | [x] | 词汇表 + Adapter seam + 六段装配 + reconcile + 压缩；出口清单见 §11，偏差见 §12 |
 | 06 | 组合系统 profile | 阶段 6 | [x] | 三层概念（profile/bundle/patch）+ 四层层序 + config-only HMR + CLI 出口；出口清单见 §17，偏差见 §18 |
-| 07 | 仿真银行 bank | 插件线 | [x] | bank-core / bank-forge 实装：九实体、票据状态机与原子核销、三档造数、风控预检五规则；出口清单见 §26，偏差见 §27，待确认见 §28 |
-| 08 | 银行工具族 | 插件线 | [x] | 14 个 P0 工具（W03 增 2，现 16 个）/ 三级判决与票据桥接 / presenter 契约 / 目录门禁 / headless 实跑；出口清单见 §29，偏差见 §30，待确认见 §31 |
+| 07 | 仿真银行 bank | 插件线 | [x] | bank-core / bank-forge 实装：九实体、票据状态机与原子核销、四档造数（含场景 5 的 recurring）、风控预检五规则；出口清单见 §26，偏差见 §27，待确认见 §28 |
+| 08 | 银行工具族 | 插件线 | [x] | 19 个银行工具（W03 增 2、场景 5 增 3，现 19 个）/ 三级判决与票据桥接 / presenter 契约 / 目录门禁 / headless 实跑；出口清单见 §29，偏差见 §30，待确认见 §31 |
 | 09 | 三级权限审批票据 | 插件线 | [x] | 判定矩阵 + 五条附加规则 / `@bah/interaction` 审批服务与票据账本 / 身份绑定渠道 / 红级挑战链 / headless 幕 3；出口清单见 §32，偏差见 §33，待确认见 §34 |
 | 10 | 安全防护层 sentry | 插件线 | [x] | **批次 A+B 已交付**：内核七件 + 89 用例（§38，偏差 R119–R126）；四接缝接线 / 注入矩阵五攻击面 / 幻觉防护四机制 / 熔断锁存与显式解冻 / 宿主行 `safety:sentry`（§40，偏差 R127–R135） |
 | 11 | 沙箱运行时 | 插件线 | [x] | `sandbox-policy` + `sandbox-runtime` 已落地（档位/硬杀/三态失败/门禁，见 §36）；宿主行 `safety:sandbox` 已接 `analysis_calc`（`BANK_COMPUTE` seam，2026-10-20） |
@@ -350,3 +350,34 @@
 - 接手口径改由 `docs/handoff-2026-10-29-progress-protocol.md` 承载（旧接手件的"补两节"已标废）。
 
 
+
+
+## 96.43 2026-10-30 场景 5（订阅/代扣）P0–P9 施工收口
+
+> 依据 `BAH-订阅代扣场景施工方案-2026-10-30/施工方案-订阅代扣全量.md`（v2）。
+> 审查：主线程对抗式自审（**审查者与被审者未分离**），逐阶段报告在
+> `docs/evidence/2026-10-30-sub-review/{P1-P3,P4,P5,P6,P7}.md`。
+
+- **交付面**：工具 16→19（13 绿/4 黄/2 红）；事件 19→22（ADR-0007，已批准）；
+  新增 `bank/src/detect/`（归一化 + 周期检测 + 断供核验，纯函数）；
+  `recurring` 造数档（11 series / 9 high / 1 medium / 1 low / 1 duplicate）；
+  `sub_cancel` 合约硬拦前移到 pre-execute（审批前拒绝）＋ 到期即断；
+  【即将扣款】槽位（`contextSlots.subscriptions`，0 = 关闭）；
+  离线路由补订阅意图；新增第 8 个快照场景 `snapshots/subscription`（10 文件 / 43 例）。
+- **实测**：`pnpm test` 302 文件 / 3494 例；`pnpm test:web` 27 / 375；
+  `pnpm eval:unit` 22 / 158；`pnpm test:snapshot` 10 / 43；`pnpm typecheck` / `pnpm lint` 绿；
+  `verify-facts` / `verify-docs-consistency` / `verify-tool-catalog` / `verify-tiers` /
+  `verify-session-events` / `verify-index-barrels` / `verify-intent-determinism` 绿。
+- **检测指标**：`benchmarks/subscription-detection/`（合成标注集）＋
+  `docs/evidence/2026-10-30-sub-detect/metrics.md`：high precision 100%、all recall 97.5%、
+  kind 100%、下次扣款 ≤3 天 97.4%；2 条 FN 是只有 2 笔的系列（低于 3 笔下限）。
+- **Web 实测（无可见浏览器，走 HTTP）**：`pnpm bah --profile web --serve --patch profiles/web/patch-subscription.yml`
+  → `sub_list` 8/2/1、`sub_authorize` 审批后 affected=1、`sub_cancel` 合约硬拦**不弹审批**、
+  `确认，到期即断` 审批后 `paused`。命令与话术见 `docs/evidence/2026-10-30-sub-review/P9-demo-script.md`。
+- **未决策 / 待办**：
+  1. **git 入库**：工作树含并行会话未提交文件（suitability / claims / eval U 场景 / host 鉴权等），
+     本轮新增文件亦未跟踪。`verify-tracked-sources` 与 `verify-snapshot-fresh` 因未跟踪文件红，
+     本轮未替他人 `git add`；需主会话统一分配提交面后再跑 `pnpm gate`。
+  2. `verify-snapshot-fresh` 另报 `packages/saga/src/gates/index.ts` 无场景覆盖（属于并行线改动）。
+  3. 推送与 tag 未动（本轮无提交）。
+  4. 导出报表（沙箱落点）按方案 §1 登记为缺口，本期不做。

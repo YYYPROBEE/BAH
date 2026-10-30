@@ -17,8 +17,14 @@ import {
   rateToBasisPoints,
 } from './normalize.ts'
 
-/** 断言类别（白名单）。 */
-export type AssertionKind = 'amount' | 'balance' | 'rate' | 'date' | 'account-tail'
+/**
+ * 断言类别（白名单）。
+ *
+ * `guarantee` 是第六类，不在 `extractAssertions` 的数字白名单里——它由
+ * `claims.ts` 的禁词检测产出（保本 / 收益承诺 / 走势断言 / 零风险），
+ * 定义上不可核验，`statusOf` 恒判 `rejected`。
+ */
+export type AssertionKind = 'amount' | 'balance' | 'rate' | 'date' | 'account-tail' | 'guarantee'
 
 /** 一条被抽出的高影响断言。 */
 export interface Assertion {

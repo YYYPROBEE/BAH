@@ -8,21 +8,22 @@
 import type { ScenarioFamily } from './spec.ts'
 import type { EvalScenario } from './types.ts'
 
-/** 六族的固定例数（W13 §1；少一条或多一条都算本单失败）。 */
+/** 七族的固定例数（W13 §1；少一条或多一条都算本单失败）。 */
 export const FAMILY_COUNTS: Readonly<Record<ScenarioFamily, number>> = {
-  Q: 12,
+  Q: 14,
   T: 16,
-  P: 10,
+  P: 11,
   S: 8,
   D: 15,
   K: 10,
+  U: 17,
 }
 
 /** 总场景数。 */
-export const TOTAL_SCENARIOS = 71
+export const TOTAL_SCENARIOS = 91
 
-const ID_PATTERN = /^[QTPSDK]-\d{2}$/
-const FAMILIES = ['Q', 'T', 'P', 'S', 'D', 'K'] as const
+const ID_PATTERN = /^[QTPSDKU]-\d{2}$/
+const FAMILIES = ['Q', 'T', 'P', 'S', 'D', 'K', 'U'] as const
 const APPROVALS = new Set(['allow', 'reject', 'unavailable'])
 const METRICS = new Set(['task-success', 'privilege-block', 'refusal-accuracy'])
 const EXPECT_KINDS = new Set([

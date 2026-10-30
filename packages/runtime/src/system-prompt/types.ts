@@ -54,6 +54,8 @@ export interface RuntimeContextView {
   readonly accounts?: readonly RuntimeContextAccountView[]
   /** 受控模板生成的单行；**禁止**自由文本（收款人/商户名/备注） */
   readonly recentTransactions?: readonly string[]
+  /** 即将扣款（单行；商户名已由数据边界净化） */
+  readonly upcomingCharges?: readonly string[]
   readonly notes?: readonly string[]
   /**
    * 只有运行时 provider 才会写；静态 profile 不写（保证旧输出逐字不变）。

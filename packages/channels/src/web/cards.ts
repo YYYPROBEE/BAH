@@ -39,6 +39,9 @@ const TOOL_TITLE: Readonly<Record<string, string>> = {
   verify_ushield: 'U 盾强验证',
   knowledge_answer: '知识问答',
   knowledge_query: '知识检索',
+  sub_list: '订阅与自动扣款',
+  sub_watch: '订阅提醒',
+  sub_authorize: '关闭代扣协议',
 }
 
 /** 工具名 → 模板。 */
