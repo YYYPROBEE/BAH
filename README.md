@@ -213,8 +213,9 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
   `incident` 状态**没有真实触发源**（全内存 mock，Web DAG 视图按 `tool/call` 派生，不区分 incident 与 failed）；
 - 对抗集幻觉族 15 例中 **H-14 / H-15 共 2 条未降级**（期望 `degrade` 实际 `allowed`，
   rule-gap：断言抽取未覆盖这两类表述，详见 `docs/security-design.md` §4 第 3 条；H-13 已由收益承诺禁词规则收口）；
-- 覆盖率有两个包未到 80%：`memory-store` 72.71%、`eval` 40.73%（eval 主体是评测 harness）。
-  行口径 86.06% **仅覆盖 `packages/*/src`**，不是物理全仓口径，引用时必须带包口径 14/16 一起说；
+- 覆盖率有两个包未到 80%：`memory-store` 72.68%、`eval` 46.93%（eval 主体是评测 harness）。
+  行口径 **89.87%**（49571/55161，`pnpm test:coverage:all` 本机汇总口径），不是物理全仓口径，
+  引用时必须带包口径 **16/18** 一起说；
 - 卡片挂失已实现（`card_report_lost`，红档不可逆、必进审批 + 强验证）；**解挂与密码修改未实现**；
 - 注入 / 越权检测在演示与压测 profile 下**直接阻断**（对抗集注入族 14 例期望 `block` 全部通过）；
   生产 profile 默认关掉跨场景规则（`rules.crossScenario`），需按真实语料开启；
@@ -252,6 +253,10 @@ docs/                管线、sentry、审计、前端、测试等落地文档
 facts.md             演示材料唯一数字来源
 ```
 
+> **过程件不在默认分支上**：施工单、对抗复审、演练单与施工台账已于 2026-10-30/31 从 tip 撤下（只删 tip，
+> 历史保留）。正文取 `git show b514496^:docs/<路径>`；台账里的 `§编号` 与偏差编号 `R*` 不变，按该坐标回溯。
+> 新的收口记录一律落 `docs/evidence/<YYYY-MM-DD>-<slug>/`，数字只从 [facts.md](facts.md) 取。
+
 ## 7. 测试与资料
 
 | 命令 | 范围 | 实测（2026-10-30） |
@@ -259,7 +264,7 @@ facts.md             演示材料唯一数字来源
 | `pnpm test` | 主仓 | 349 文件 / 4007 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
 | `pnpm test:web` | 前端 | 30 文件 / 409 用例 |
-| `pnpm test:snapshot` | 快照回放 | 9 文件 / 39 用例 |
+| `pnpm test:snapshot` | 快照回放 | 11 文件 / 48 用例 |
 | `pnpm gate` | 门禁 | 54/54 |
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。

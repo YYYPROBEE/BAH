@@ -55,7 +55,8 @@ const PUBLIC_DOCS: readonly string[] = [
   'docs/mobile.md',
   // 02 单：IM 网关的对外口径页（新建即必须进清单）
   'docs/im-gateway.md',
-  'docs/review/judge-walkthrough.md',
+  // `docs/review/judge-walkthrough.md` 随 2026-10-30 撤下移出扫描面：留空条目会让
+  // 数字黑名单静默落空（门禁不红，但保护面缩了），所以直接从清单里删掉。
   'docs/observability.md',
   'docs/performance.md',
   'docs/roadmap.md',

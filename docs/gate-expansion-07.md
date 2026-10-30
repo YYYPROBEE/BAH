@@ -4,7 +4,7 @@
 > 起草日期：2026-10-21
 > 基线：`pnpm gate` 现有 16 项全绿
 > 适用范围：`scripts/verify-*.ts`（门禁面）+ 少量 `packages/**/src` 修正
-> 依据：`AGENTS.md` 编码纪律、`docs/tech-debt-review-2026-10-20.md`、`PROGRESS.md` 偏差登记
+> 依据：`AGENTS.md` 编码纪律、技术债复审（2026-10-20，已撤下）、施工台账偏差登记
 
 ---
 
@@ -24,7 +24,7 @@
 
 ### 复审发现的两处既有文档错误
 
-**R-1：`docs/tech-debt-review-2026-10-20.md` 风险提示 2 的前提不成立。**
+**R-1：技术债复审（2026-10-20，已撤下）风险提示 2 的前提不成立。**
 
 评审原文称"`saga` 当前依赖 `persistence`（13 文件），若反向让 `persistence` 依赖 `saga` 会成环"。实测：
 
@@ -170,8 +170,8 @@ packages/runtime/src/tier/decide.ts
 |------|--------|
 | `packages/bank/src/tools/governance.ts:467` `errorCodeOf` | `tool-failed` |
 | `packages/bank/src/tools/governance.ts:472` `reasonOf` | — |
-| `packages/bank/src/verify/port.ts:134` `errorCodeOf` | `verify-failed` |
-| `packages/llm/src/llm/route.ts:138` `reasonOf` | — |
+| `packages/bank/src/verify/port.ts:98` `errorCodeOf` | `verify-failed` |
+| `packages/llm/src/llm/route.ts:88` `reasonOf` | — |
 | `packages/runtime/src/tools/pipeline.ts:467` `errorCodeOf` | — |
 
 **规则**：

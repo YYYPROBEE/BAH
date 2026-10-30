@@ -179,7 +179,7 @@ V9 为什么是**闭包**而不是直接 `deps`：串行执行下只有"拓扑�
 W12 之后 saga 自身已具备真冲正（`MockBankCore.reverse(txnId)`，两条流水 + 幂等），但那是 saga 层的能力：
 要让"第 3 步失败、第 2 步已扣款要退"发生在 plan 里，正确做法仍是让 **plan 编排 saga**
 （节点 = 一整笔 saga），而不是让 saga 藏在某个节点里。这条留给 P2。
-`docs/next-three-w12-w05-w06-2026-10-26.md` 的 TC-W12-06 是**配置断言**（profile 里 `enabled: false`），
+W12/W05/W06 待办单（2026-10-26，已撤下）的 TC-W12-06 是**配置断言**（profile 里 `enabled: false`），
 不是代码级承诺——有人改了 patch，plan 节点就会重新进入 saga 桥接。
 
 判断口诀：**plan 决定"做哪几件事"，saga 决定"一件事做坏了怎么退"。两者是嵌套，不是并列。**

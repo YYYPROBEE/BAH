@@ -7,7 +7,7 @@
 
 | 阶段 | 交付 | 证据 |
 |---|---|---|
-| R0 | ADR-0006（票据携带授权来源）、`DECISIONS.md` 六条签认 | `docs/adr/0006-ticket-authorization.md` |
+| R0 | ADR-0008（票据携带授权来源）、`DECISIONS.md` 六条签认 | `docs/adr/0008-ticket-authorization.md` |
 | R1 | `ticket/*` 可选 `authorization`、`ApprovalFrame.confirmText` + 服务端校验 | `interaction/src/approval/authorization.test.ts`、`channels/src/web/adapter.test.ts` |
 | R2 | `runtime/src/authorization`（窗口/到期/周期/armed 回放）、`fact`、`notify` | 6 个单测文件（50 例） |
 | R3 | `plan_arm/disarm/wake`、`plan:scheduler`（boot 补跑 + `saga/tick`）、`fact:store`、CLI `bah plan` | `host/src/boot/plugins/authorization.test.ts`（10 例，含"重启补跑"） |

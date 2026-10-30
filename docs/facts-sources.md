@@ -54,9 +54,6 @@ tests_main_cases=4007
 
 | 文件 | 原因 |
 |---|---|
-| `docs/next-actions-2026-10-23.md` | 2026-10-23 的决策记录，`14 个工具` 是当时事实 |
 | `docs/preflight-2026-10-25.md` | 2026-10-25 的开工前体检记录 |
 | `docs/audit-command-16.md`、`docs/next-three-*` | 历史交接件 |
 | `文档归档/**` | 归档稿，改数会让复核者失去时间线 |
-| `docs/progress-archive-2026-10-18_28.md` | 2026-10-29 从 `PROGRESS.md` 逐字迁出的历史正文（§2–§96.36），编号原样保留，不改历史数字 |
-| `PROGRESS.md` 的当前面 | 只放 §1 状态表、每单一行索引与未决策项；逐单正文写 `docs/evidence/<日期>-<slug>/`，不改历史数字 |
