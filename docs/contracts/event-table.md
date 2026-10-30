@@ -3,8 +3,8 @@
 > **冻结版本号**：`v1.0.2-frozen-2026-10-30`
 > （v1.0.0 → v1.0.1：按 ADR-0003 追加 `card/reported-lost` / `sub/cancelled` 两个银行领域键；
 > v1.0.1 → v1.0.2：按 ADR-0007 追加 `read/subscriptions` / `sub/authorization-revoked` /
-> `sub/watch-updated` 三个订阅领域键；两次改签均留有 ADR 与签字位）
-> **冻结单**：W02 · **消费单**：W05 / W07 / W10 / W11；**改签单**：W03（ADR-0003）
+> `sub/watch-updated` 三个订阅领域键；按 ADR-0006 追加 `card/state-changed` 一个键；19 → 23）
+> **冻结单**：W02 · **消费单**：W05 / W07 / W10 / W11；**改签单**：W03（ADR-0003）/ 场景 4（ADR-0006）/ 场景 5（ADR-0007）
 > **代码真相源**：既有 7 个 `plan/*` 在 `packages/runtime/src/plan/events.ts`（第 7 个 `plan/resumed` 由 W10 通电）；
 > 7 个新键由各消费单在自己的声明面落表（含 W03 已通电的两个 bank 键）。
 > **变更流程**：见 §4。
@@ -47,6 +47,7 @@
 | 9 | `read/subscriptions` | 场景 5（ADR-0007） | `{ result: SubscriptionListResult; detectedAt: number; basis: { from: number; to: number; txnCount: number }; detectorVersion: string }` | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)` |
 | 10 | `sub/authorization-revoked` | 场景 5（ADR-0007） | `{ authorizationId: string; merchant: string; affected: number; at: number }` | 同上 |
 | 11 | `sub/watch-updated` | 场景 5（ADR-0007） | `{ subscriptionId: string; watch: 'remind' \| 'idle' \| 'none'; aheadDays?: number; at: number }` | 同上 |
+| 12 | `card/state-changed` | 场景 4（ADR-0006） | `{ cardId: string; tail: string; from: 'normal' | 'frozen'; to: 'normal' | 'frozen'; reason: 'freeze' | 'unfreeze'; note?: string; at: number }` | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)` |
 
 ### 3.1 `append` vs `appendDomain` 不是风格问题，是门禁盲区
 
@@ -71,7 +72,8 @@
 **例外已通电**：第 6、7 两行由 W03 实现并验收（`packages/bank/src/tools/account-ops.ts`
 的 `deps.audit.append('card/reported-lost' | 'sub/cancelled', …)`，字面量发射）；
 第 9–11 三行由场景 5（ADR-0007）在 `packages/bank/src/tools/{subscriptions,account-ops}.ts`
-通电；`packages/bank/src/tools/events.ts` 的 map 与 `BANK_SESSION_EVENT_TYPES` 已同步到 22 键。
+通电；第 12 行由场景 4（ADR-0006）在 `packages/bank/src/tools/account-ops.ts` 通电；
+`packages/bank/src/tools/events.ts` 的 map 与 `BANK_SESSION_EVENT_TYPES` 已同步到 23 键。
 
 ## 4. 变更流程
 
@@ -86,9 +88,10 @@
 需要第 8 个新键就在该单的"偏差"里申请。**W02 之后（D2 起）不再受理新键申请**
 ——事件表一松，`verify-*-events` 的三个门禁全部失去意义。
 
-> **唯一已用的例外**：ADR-0003 的 `card/reported-lost` / `sub/cancelled`（W03，2026-10-25）。
-> 它用掉了"领域新键"的**一次性**改签名额；此后即便银行侧再加工具，也不得再顺手加事件，
-> 必须复用既有 19 键或走 ADR + L1-A 重新申请。
+> **已用的两个例外**：ADR-0003 的 `card/reported-lost` / `sub/cancelled`（W03，2026-10-25）；
+> ADR-0006 的 `card/state-changed`（场景 4，2026-10-30，19 → 20）。
+> **ADR-0006 为最后一次领域改签**：此后即便银行侧再加工具，也不得再顺手加事件，
+> 必须复用既有 20 键或走 ADR + L1-A 重新申请。
 
 ## 6. 自检（TC-W02-04 / 06）
 

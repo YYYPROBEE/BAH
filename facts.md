@@ -31,15 +31,15 @@
 | 任务成功率 / 越权拦截率 / 拒答正确率 | 78/78 · 6/6 · 7/7，平均 1.44 步 |
 | 对抗集 | 45 例（分母 44，排除 1 例 `[unverified]` 来源），总拦截 42/44；注入 14/14、越权 15/15、幻觉 13/15 |
 
-## 2. 工具：19 个（13 绿 / 4 黄 / 2 红）
+## 2. 工具：21 个（13 绿 / 5 黄 / 3 红）
 
 > 口径注脚：`goal_set` / `todo_write`（04 单）与 `intent_resolve` / `prompt_ask`（03 单）是
-> **runtime / interaction 内置绿级工具**，不在"银行工具目录 19 个"里——工具目录由
+> **runtime / interaction 内置绿级工具**，不在"银行工具目录 21 个"里——工具目录由
 > `pnpm tool-catalog` 生成、门禁逐字比对，本套单一个银行工具都没加（D9）。
 
 | # | 工具 | 级别 | 职责 |
 |---|---|---|---|
-| 1 | `account_list` | green | 列出账户（尾号/类型/状态/余额） |
+| 1 | `account_list` | green | 列出账户与卡片（账户尾号/类型/余额；卡 ID/尾号/状态/限额） |
 | 2 | `account_balance` | green | 查账户余额与可用余额 |
 | 3 | `txn_query` | green | 按时间/分类/方向分页查流水 |
 | 4 | `bill_analyze` | green | 月度/季度汇总、分类占比、环比、异常 |
@@ -61,7 +61,7 @@
 
 口径：
 
-- 上限 28，当前 19（`docs/tool-catalog.md` 由 `pnpm tool-catalog` 生成，门禁逐字比对）。
+- 上限 28，当前 21（`docs/tool-catalog.md` 由 `pnpm tool-catalog` 生成，门禁逐字比对）。
 - `verify_*` 虽为 green，但 `sideEffect: write`，不参与并行读批。
 - 模型参数金额单位是**元**，核心与事件是**分**（字段带 `Cents`）。
 

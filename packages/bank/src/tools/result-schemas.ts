@@ -37,12 +37,49 @@ const ACCOUNT_VIEW: ToolSchema = {
   },
 }
 
+/** 卡片视图（`CardView`）。 */
+const CARD_VIEW: ToolSchema = {
+  type: 'object',
+  required: [
+    'cardId',
+    'accountId',
+    'tail',
+    'type',
+    'status',
+    'dailyLimitCents',
+    'monthlyLimitCents',
+  ],
+  properties: {
+    cardId: { type: 'string' },
+    accountId: { type: 'string' },
+    tail: { type: 'string' },
+    type: { type: 'string' },
+    status: { type: 'string' },
+    dailyLimitCents: { type: 'integer' },
+    monthlyLimitCents: { type: 'integer' },
+  },
+}
+
+/** 卡片状态迁移结果（`CardStateResult`）。 */
+const CARD_STATE: ToolSchema = {
+  type: 'object',
+  required: ['cardId', 'tail', 'status', 'changed', 'at'],
+  properties: {
+    cardId: { type: 'string' },
+    tail: { type: 'string' },
+    status: { type: 'string', enum: ['frozen', 'normal'] },
+    changed: { type: 'boolean' },
+    at: { type: 'integer' },
+  },
+}
+
 export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSchema>>> = {
   account_list: {
     type: 'object',
-    required: ['accounts', 'availableTotalCents'],
+    required: ['accounts', 'cards', 'availableTotalCents'],
     properties: {
       accounts: { type: 'array', items: ACCOUNT_VIEW },
+      cards: { type: 'array', items: CARD_VIEW },
       availableTotalCents: { type: 'integer' },
     },
   },
@@ -182,6 +219,9 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
       risks: { type: 'array' },
       verdict: { type: 'string' },
       effectiveTier: { type: 'string', enum: ['green', 'yellow', 'red'] },
+      // 仅当传了 viaCardId 时出现（可选字段不进 required）
+      viaCardTail: { type: 'string' },
+      viaCardStatus: { type: 'string', enum: ['normal', 'frozen', 'lost'] },
       at: { type: 'integer' },
     },
   },
@@ -500,4 +540,7 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
       lockedUntil: { type: 'integer' },
     },
   },
+
+  card_freeze: CARD_STATE,
+  card_unfreeze: CARD_STATE,
 }

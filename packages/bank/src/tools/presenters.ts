@@ -17,6 +17,7 @@ import type {
   BillAnalysisResult,
   BillReportResult,
   SubscriptionListResult,
+  CardView,
   TransferCreatedResult,
   TransferPreviewResult,
   TxnQueryResult,
@@ -24,7 +25,14 @@ import type {
   WealthCatalogResult,
   WealthPurchaseResult,
 } from './dto.ts'
-import type { AccountStatus, ChargeCycle, RecurringKind, SubscriptionStatus, TxnCategory } from '../core/model.ts'
+import type {
+  AccountStatus,
+  ChargeCycle,
+  RecurringKind,
+  SubscriptionStatus,
+  TxnCategory,
+} from '../core/model.ts'
+import type { CardStateResult } from './account-ops.ts'
 import { ACCOUNT_TYPE_LABEL, formatYuan, yuanToCents } from '../core/model.ts'
 import { MERCHANT_LABEL } from '../core/merchant.ts'
 
@@ -52,6 +60,19 @@ const PERIOD_LABEL: Readonly<Record<'month' | 'quarter' | 'year', string>> = {
 
 /** 商户品类文案（真源在 `core/merchant.ts`；这里再导出以保持工具族的导入面）。 */
 export { MERCHANT_LABEL }
+
+/** 卡片类型文案。 */
+export const CARD_TYPE_LABEL: Readonly<Record<CardView['type'], string>> = {
+  physical: '实体',
+  virtual: '虚拟',
+}
+
+/** 卡片状态文案。 */
+export const CARD_STATUS_LABEL: Readonly<Record<CardView['status'], string>> = {
+  normal: '正常',
+  frozen: '已冻结',
+  lost: '已挂失',
+}
 
 /** 交易分类文案。 */
 export const CATEGORY_LABEL: Readonly<Record<TxnCategory, string>> = {
@@ -301,6 +322,21 @@ export function wealthPurchasedCard(result: WealthPurchaseResult): UiCard {
       customerRisk: result.riskMatch.customerRisk,
       productRisk: result.riskMatch.productRisk,
       atText: when(result.at),
+    },
+  }
+}
+
+/** 卡片状态迁移卡片（冻结/解冻）。 */
+export function cardStateCard(result: CardStateResult): UiCard {
+  return {
+    kind: 'bank.card-state',
+    data: {
+      title: result.status === 'frozen' ? '卡片已冻结' : '卡片已解冻',
+      cardId: result.cardId,
+      tail: result.tail,
+      status: result.status,
+      statusLabel: CARD_STATUS_LABEL[result.status],
+      changed: result.changed,
     },
   }
 }

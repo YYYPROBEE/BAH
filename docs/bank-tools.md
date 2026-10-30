@@ -9,7 +9,7 @@
 ```text
 packages/bank/src/
 ├─ tools/
-│  ├─ specs.ts        19 个银行工具的元数据唯一来源（name / description / schema / tier / 事件）
+│  ├─ specs.ts        21 个银行工具的元数据唯一来源（name / description / schema / tier / 事件）
 │  ├─ catalog.ts      createBankTools(deps)：穷尽工厂表 + 目录顺序
 │  ├─ render.ts       docs/tool-catalog.md 的渲染（生成器与门禁共用）
 │  ├─ dto.ts          结果视图（工具 / 事件 / 卡片三方共用）
@@ -31,15 +31,16 @@ packages/bank/src/
 `pnpm tool-catalog` 由 `specs.ts` 生成 [tool-catalog.md](tool-catalog.md)；
 门禁 `verify-tool-catalog` 逐字比对（数量上限 28、工厂表与目录穷尽一致、事件已声明）。
 
-## 2. 19 个银行工具
+## 2. 21 个银行工具
 
 | 场景 | 工具 | 级别 | 落账事件 |
 |---|---|---|---|
-| 账户/账单 | `account_list` `account_balance` `txn_query` `bill_analyze` `bill_report` `analysis_calc` | 绿 | `read/*` |
+| 账户/账单 | `account_list`（含卡片清单） `account_balance` `txn_query` `bill_analyze` `bill_report` `analysis_calc` | 绿 | `read/*` |
 | 转账 | `transfer_preview`（绿，只读试算） `transfer_create`（黄，`amountPath: 'amount'`） | 绿 / 黄 | `transfer/preview` `transfer/created` |
 | 理财 | `wealth_list` `wealth_compare`（绿，结果带 `customerRisk`/`eligible`） `wealth_purchase`（红，申购前经适当性闸门） | 绿 / 绿 / 红 | `read/wealth` `wealth/purchased` |
 | 强验证 | `verify_face` `verify_sms` `verify_ushield` | 绿（渠道，须由红级挑战链调用） | `verify/*` |
 | 资产处置 | `card_report_lost`（红，挂失不可逆） | 红 | `card/reported-lost` |
+| 卡片状态 | `card_freeze`（黄，可逆） `card_unfreeze`（红，强验证 + 审批） | 黄 / 红 | `card/state-changed` |
 | 订阅/代扣 | `sub_list`（绿，检测只读） `sub_cancel`（黄，合约期硬拦/到期即断） `sub_watch`（黄，提醒与标注） `sub_authorize`（黄，只关不开） | 绿 / 黄 | `read/subscriptions` `sub/cancelled` `sub/watch-updated` `sub/authorization-revoked` |
 
 完整参数 schema 与「何时用 / 何时不用」见 [tool-catalog.md](tool-catalog.md)。
@@ -47,6 +48,12 @@ packages/bank/src/
 
 **金额口径**：模型参数是「元」，核心与事件是「分」（字段名带 `Cents`）。
 工具边界用 `yuanToCents()` 转一次；展示统一 `formatYuan()`（不依赖 locale）。
+
+**`viaCardId` 语义**（`transfer_preview` / `transfer_create` 的可选参数）：Mock 没有独立的卡消费通道，
+该参数是"以该卡为支付工具"的显式声明——仅当用户点名用哪张卡时填；不传 = 账户转账，行为与改动前逐字相同。
+传了则卡必须属于付款账户且状态为 `normal`，否则 `card-unavailable`。这不是真实产品语义，是我们为让卡状态可验证补的最小通道。
+
+卡片状态机图：[docs/diagrams/card-state-machine.png](diagrams/card-state-machine.png)（`normal ⇄ frozen` 黄/红，`→ lost` 红）。
 
 ## 3. 三级权限与票据链（08 落地、09 收口）
 
@@ -194,6 +201,7 @@ presenter 是**纯函数**：同输入同输出；不访问 ctx / 时间 / 随�
 | `bank.wealth-confirm` | `wealth_purchase.presentCall` | `tier: red/requiresApproval` |
 | `bank.wealth-purchased` | `wealth_purchase` 成功 | `holdingId/disclaimerId`；`riskMatch`（`customerRisk/productRisk`） |
 | `bank.verify` | `verify_face` / `verify_sms` / `verify_ushield` | `channelLabel/success/remainingAttempts/lockedUntilText` |
+| `bank.card-state` | `card_freeze` / `card_unfreeze` | `cardId/tail/status/statusLabel/changed` |
 
 三态：待执行 = `presentCall`；完成 = `presentResult`；被拒 = `tool/result` 的 `code`（不伪造卡片）。
 审批卡片必含的六项都在 `bank.transfer-confirm` / `bank.wealth-confirm` 里：操作类型、金额、收款人/产品、
@@ -211,6 +219,9 @@ presenter 是**纯函数**：同输入同输出；不访问 ctx / 时间 / 随�
 | `transfer/preview` `transfer/created` `wealth/purchased` | `{ result }` | 写操作只在成功时落 |
 | `verify/face` `verify/sms` `verify/ushield` | `{ result }` | 每次尝试都落 |
 | `verify/locked` | `{ sessionId, channel, until, attempts }` | 连续失败触发的会话级锁定 |
+| `card/reported-lost` | `{ cardId, tail, status: 'lost', at }` | 挂失（ADR-0003，不可逆） |
+| `card/state-changed` | `{ cardId, tail, from, to, reason, note?, at }` | 冻结/解冻（ADR-0006；幂等调用不发射） |
+| `sub/cancelled` | `{ subscriptionId, merchant, at }` | 取消订阅 |
 
 审批与票据生命周期事件（`ticket/*`、`approval/duplicate|timeout|challenge-*`）由
 `@bah/interaction` 声明，见 [interaction.md](interaction.md) §5。
@@ -293,7 +304,7 @@ pnpm bah --profile headless --prompt "给王建国转800元" --session s-tier09 
 |---|---|---|
 | 红级强验证串联 | 已由 09 串联：`ask+challenge` → `bank:challenge` 签发 → 验证通过才批准 | — |
 | 日限额与执行 | 升红后经批准仍会执行（bank-core 不拦日限额；规格把日限额放在权限升级） | 若产品要"拒绝"，改判定 `deny` 并同步 T-TIER-004 |
-| card / subscription | 九实体与造数已落，Provider 方法未加（P1 工具才需要） | P1 工具时补齐 |
+| card / subscription | `card` 的 list / reportLost / freeze / unfreeze 已接（`account_list` 带出卡片清单）；申请/提额/限额未加；`subscription` 只有 cancel | P1 工具时补齐 |
 | 定时转账 / AA 拆分 | `transfer_create` 的 `when` 只支持 `now`，未来时间返回 `unsupported-schedule` | P1 `transfer_schedule` / `transfer_split` |
 | 单应用单会话 | 票据五绑定里的 `sessionId` 来自 `bah:run`（一应用一会话） | 与 R52 一并评估多会话 |
 | 审批应答者 | headless 有显式自动应答者；Web / IM 渠道属 13/15 | 渠道只需 `attach(responder)` |

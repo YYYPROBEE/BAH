@@ -19,6 +19,7 @@ import {
   CROSS_SCENE_ASK,
   DOMAIN_KEYWORDS,
   HISTORY_DEICTIC,
+  IMPLICIT_BARE_STATEMENT_SCENES,
   NUMERIC_ONLY,
   PRONOUNS,
   QUERY_VERBS,
@@ -285,7 +286,19 @@ function classify(
     return { kind: 'elliptical', evidence }
   }
 
-  // R-EXP-1：直白动作 + 槽位齐备（基线）
+  // R-EXP-1：直白动作 + 槽位齐备（基线）。
+  // 无动作动词、也无任何可执行实体的句子，在**白名单场景**（当前：卡片）不判 explicit：
+  // 那些场景的 required 是空集，不看动词的话"钱包被偷了"这类陈述会直接 proceed。
+  // 纯数值句（"500"）保留 explicit 基线：它有实体，只是缺上下文（TC-INT-08）。
+  // WHY 不做成全局规则：订阅场景的合法请求本来就没有动词（见 lexicon 的白名单说明）。
+  if (
+    IMPLICIT_BARE_STATEMENT_SCENES.includes(ctx.scene) &&
+    !hasVerb &&
+    !hasNamedAmount &&
+    !hasNamedPayee
+  ) {
+    return { kind: 'implicit', evidence }
+  }
   if (hasVerb && required.length === 0) add('R-EXP-1', utterance)
   return { kind: 'explicit', evidence }
 }

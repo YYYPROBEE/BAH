@@ -28,13 +28,13 @@ import { createBankHarness } from './testing.ts'
 const CATALOG_DOC = new URL('../../../../docs/tool-catalog.md', import.meta.url)
 
 describe('工具目录（施工单 08 §2）', () => {
-  it('19 个工具、数量不超上限、名字唯一', () => {
-    expect(BANK_TOOL_SPECS).toHaveLength(19)
+  it('21 个工具、数量不超上限、名字唯一', () => {
+    expect(BANK_TOOL_SPECS).toHaveLength(21)
     expect(BANK_TOOL_SPECS.length).toBeLessThanOrEqual(BANK_TOOL_LIMIT)
     expect(new Set(BANK_TOOL_NAMES).size).toBe(BANK_TOOL_NAMES.length)
   })
 
-  it('6 查询 + 2 转账 + 3 理财 + 3 强验证 + 2 资产处置 + 3 订阅，顺序稳定', () => {
+  it('6 查询 + 2 转账 + 3 理财 + 3 强验证 + 2 资产处置 + 3 订阅 + 2 卡片状态，顺序稳定', () => {
     expect(BANK_TOOL_NAMES).toEqual([
       'account_list',
       'account_balance',
@@ -57,6 +57,9 @@ describe('工具目录（施工单 08 §2）', () => {
       'sub_list',
       'sub_watch',
       'sub_authorize',
+      // 场景 4 新增（ADR-0006）：冻结（黄）与解冻（红）
+      'card_freeze',
+      'card_unfreeze',
     ])
     expect(specOf('transfer_create').tier).toEqual({ level: 'yellow', amountPath: 'amount' })
     expect(specOf('wealth_purchase').tier.level).toBe('red')
@@ -80,7 +83,7 @@ describe('工具目录（施工单 08 §2）', () => {
     }
   })
 
-  it('TC-W03-05 19 个工具的档位 + amountPath 逐条钉死', () => {
+  it('TC-W03-05 21 个工具的档位 + amountPath 逐条钉死', () => {
     // 与 `scripts/verify-tiers.ts` 同源：门禁管提交前，这条管测试面（两边任何一边漏都红）
     const expected: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
       account_list: { level: 'green' },
@@ -102,6 +105,8 @@ describe('工具目录（施工单 08 §2）', () => {
       sub_list: { level: 'green' },
       sub_watch: { level: 'yellow' },
       sub_authorize: { level: 'yellow' },
+      card_freeze: { level: 'yellow' },
+      card_unfreeze: { level: 'red' },
     }
     expect(Object.fromEntries(BANK_TOOL_NAMES.map((name) => [name, specOf(name).tier]))).toEqual(
       expected,
@@ -152,6 +157,7 @@ describe('T-TOOLS-009 presenter 纯度', () => {
           availableCents: 1_234_567,
         },
       ],
+      cards: [],
       availableTotalCents: 1_234_567,
     }
     const balance: BalanceResult = {

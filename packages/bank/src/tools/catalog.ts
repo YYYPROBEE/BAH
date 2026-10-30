@@ -12,7 +12,12 @@ import { createAccountBalanceTool, createAccountListTool, createAnalysisTool, cr
 import { BANK_TOOL_SPECS, type BankToolName } from './specs.ts'
 import { createTransferCreateTool, createTransferPreviewTool } from './transfers.ts'
 import type { BankToolDeps } from './types.ts'
-import { createCardReportLostTool, createSubCancelTool } from './account-ops.ts'
+import {
+  createCardFreezeTool,
+  createCardReportLostTool,
+  createCardUnfreezeTool,
+  createSubCancelTool,
+} from './account-ops.ts'
 import {
   createSubAuthorizeTool,
   createSubListTool,
@@ -42,6 +47,8 @@ const FACTORIES: Readonly<Record<BankToolName, (deps: BankToolDeps) => ToolDefin
   'sub_list': createSubListTool,
   'sub_watch': createSubWatchTool,
   'sub_authorize': createSubAuthorizeTool,
+  'card_freeze': createCardFreezeTool,
+  'card_unfreeze': createCardUnfreezeTool,
 }
 
 /**
@@ -70,6 +77,8 @@ const SIDE_EFFECTS: Readonly<Record<BankToolName, NonNullable<ToolDefinition['si
   sub_list: 'read',
   sub_watch: 'write',
   sub_authorize: 'write',
+  card_freeze: 'write',
+  card_unfreeze: 'write',
 }
 
 /** 工厂表里的名字（门禁核对目录完整性用）。 */

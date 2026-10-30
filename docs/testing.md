@@ -5,7 +5,7 @@
 
 ## 1. 四个测试面（一个都不能省）
 
-| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-29 实测） |
+| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-30 实测） |
 |---|---|---|---|---|
 | unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 302 文件 / 3494 用例（含 `apps/desktop/src`、`apps/im-gateway`） |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |

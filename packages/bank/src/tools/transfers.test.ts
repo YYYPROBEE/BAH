@@ -39,6 +39,32 @@ function approveTicket(
 }
 
 describe('transfer_preview', () => {
+  it('指定 viaCardId：预检带回卡尾号与状态，正文出现「本笔使用卡尾号」', async () => {
+    const h = createBankHarness()
+    const args = {
+      amount: 800,
+      payee: { name: '王建国', phone: '13900002222' },
+      viaCardId: 'c-1',
+    }
+    const result = (await h.call('transfer_preview', args)) as TransferPreviewResult
+    expect(result.viaCardTail).toBe('1234')
+    expect(result.viaCardStatus).toBe('normal')
+
+    const tool = h.tools.get('transfer_preview')!
+    const text = ((tool.projectContent?.(result) ?? [])[0] as { text: string }).text
+    expect(text).toContain('本笔使用卡尾号 1234（正常）')
+  })
+
+  it('不传 viaCardId：结果不含卡字段（零回归）', async () => {
+    const h = createBankHarness()
+    const result = (await h.call('transfer_preview', {
+      amount: 800,
+      payee: { name: '王建国', phone: '13900002222' },
+    })) as TransferPreviewResult
+    expect(result.viaCardTail).toBeUndefined()
+    expect(result.viaCardStatus).toBeUndefined()
+  })
+
   it('800 元白名单收款人：verdict allow、生效级别黄（T-TOOLS-002 的试算面）', async () => {
     const h = createBankHarness()
     const result = (await h.call('transfer_preview', {
@@ -113,6 +139,16 @@ describe('transfer_create（票据桥接）', () => {
     expect(h.tools.get('transfer_create')?.presentResult?.({}, result)).toMatchObject({
       kind: 'bank.transfer-created',
     })
+  })
+
+  it('T9 指定正常卡：卡支付通道成功', async () => {
+    const h = createBankHarness()
+    const args = { ...ARGS, viaCardId: 'c-1' }
+    approveTicket(h, 'c-card', args, 80_000)
+
+    const result = (await h.call('transfer_create', args, 'c-card')) as TransferCreatedResult
+    expect(result.amountCents).toBe(80_000)
+    expect((await h.core.listCards(bankIds.user('u-1')))[0]?.status).toBe('normal')
   })
 
   it('审批后改金额：票据绑定不一致，拒绝执行且不扣款', async () => {

@@ -278,12 +278,12 @@ describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
     }
   })
 
-  it('T-IDN-001 19 个工具全部注册；不写 demoUserId 时业务工具 deny no-identity', async () => {
+  it('T-IDN-001 21 个工具全部注册；不写 demoUserId 时业务工具 deny no-identity', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bah-bank-noid-'))
     const app = await bootWith({}, 's-bank-noid', dir)
     try {
       const registry = app.ctx.get(TOOLS_SERVICE)
-      expect(registry.list()).toHaveLength(19)
+      expect(registry.list()).toHaveLength(21)
       expect(registry.has('account_balance')).toBe(true)
       expect(registry.has('transfer_create')).toBe(true)
       expect(registry.has('verify_face')).toBe(true)

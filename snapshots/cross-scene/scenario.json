@@ -155,6 +155,29 @@
         "modelTools": true,
         "modelMaxNodes": 8
       }
+    },
+    {
+      "id": "fact:store",
+      "use": "fact:store",
+      "config": {
+        "enabled": true
+      }
+    },
+    {
+      "id": "plan:scheduler",
+      "use": "plan:scheduler",
+      "config": {
+        "enabled": true,
+        "catchUpOnBoot": true
+      }
+    },
+    {
+      "id": "bank:merchant",
+      "use": "bank:merchant",
+      "config": {
+        "enabled": true,
+        "fault": "none"
+      }
     }
   ],
   "model": {

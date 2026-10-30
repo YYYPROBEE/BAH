@@ -15,7 +15,7 @@
 | plan 节点态 | **9 态**（pending、ready、running、succeeded、failed、skipped、blocked、cancelled、incident） | packages/runtime/src/plan/types.ts 的 `PLAN_NODE_STATES` |
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
-| 工具数 | **19 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
+| 工具数 | **21 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
 | 注册表条目（项） | **31** | `HOST_PLUGINS` 计数 |
 | 门禁（项） | **54** | `scripts/verify-*.ts` 计数 |
 | 覆盖率 | **89.96%（行口径，46778/52001 行，实测 2026-10-30）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
@@ -91,7 +91,7 @@
 >
 > **HP-4（工具出参运行时契约校验）已实现，不在本表**：`ToolPipeline` 在每次工具调用后按
 > `resultSchema` 运行时校验，畸形返回报 `tool-result-invalid` 并落 `isError`
-> （`packages/runtime/src/tools/pipeline.ts:285-292`）；19 个银行工具全覆盖
+> （`packages/runtime/src/tools/pipeline.ts:285-292`）；21 个银行工具全覆盖
 > （`packages/bank/src/tools/result-schemas.ts` 19 个键，装配在
 > `packages/host/src/boot/plugins/bank-tools.ts:283-295`），直测
 > `packages/runtime/src/tools/contracts.test.ts:172-197`。
