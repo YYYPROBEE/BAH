@@ -19,10 +19,19 @@ import { clear, el, icon } from '../dom.js'
  * @param {object} opts
  * @param {{ items: ReadonlyArray<{ text: string, intent?: string }> }} opts.phrases 配置来源
  * @param {(text: string) => void} opts.onPick 点击即作为一条 `user/message` 发送
+ * @param {Window} [opts.win] 测试注入；缺省 `globalThis.window`（溢出提示要监听 resize）
  */
 export function createQuickPhrases(host, opts) {
   const row = el('div', { class: 'm-chips', dataset: { role: 'quick-phrases' } })
   host.append(row)
+
+  /**
+   * 溢出提示（P2-1）：滚动条被 `scrollbar-width: none` 藏掉之后，屏外有没有内容完全看不出来。
+   * 只在 `scrollWidth > clientWidth` 时给容器挂渐隐类——没溢出时最后一颗 chip 不该被无故淡掉。
+   */
+  function syncOverflow() {
+    row.classList.toggle('m-chips--overflow', row.scrollWidth > row.clientWidth + 1)
+  }
 
   function render() {
     clear(row)
@@ -35,14 +44,21 @@ export function createQuickPhrases(host, opts) {
       chip.addEventListener('click', () => opts.onPick(item.text))
       row.append(chip)
     }
+    syncOverflow()
   }
 
   render()
 
+  // 视口旋转/键盘弹起都会改变可用宽度；resize 只在窗口尺寸变化时触发，够用且无需 rAF 轮询。
+  const win = opts.win ?? globalThis.window
+  win?.addEventListener('resize', syncOverflow)
+
   return {
     render,
     node: row,
+    syncOverflow,
     dispose() {
+      win?.removeEventListener('resize', syncOverflow)
       row.remove()
     },
   }

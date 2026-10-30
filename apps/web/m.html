@@ -22,12 +22,13 @@
     <link rel="icon" href="./assets/icons/ai.svg" type="image/svg+xml" />
     <title>BAH · 移动</title>
     <!--
-      访问凭证由 host 静态处理器注入：m.html 在 channel:mobile 的 token 入口白名单
-      （profiles/mobile/patch.yml 的 entries）里，响应时会在 </head> 前插入
-      <meta name="bah-web-token" content="…">，并同时下发 CSRF cookie 与 cache-control: no-store。
-      注入器（packages/host/src/boot/plugins/web-auth.ts）是"先剥离同名 meta 再插入"，
-      所以这里**不写占位 meta**——与 index.html 逐字同构；写了占位反而会在
-      "未进白名单却被静态返回"时把假 token 字面量交给前端（施工单 02 §9.7 待核回填）。
+      访问凭证由 host 静态处理器注入：m.html 在 channel:mobile 的凭证入口白名单
+      （profiles/mobile/patch.yml 的 entries）里，响应时会在 head 结束标记前插入一条
+      与 index.html 同形的凭证 meta，并同时下发 CSRF cookie 与 cache-control: no-store。
+      注入器（packages/host/src/boot/plugins/web-auth.ts）先剥除注释、再剥离同名 meta，
+      所以本文件的注释里**不得出现** head 结束标记或凭证 meta 的字面量——注释里的示意文本
+      曾把注入点带进注释，送达的 DOM 里没有真 meta，移动壳永远 401（2026-10-29 走查 P0-1）。
+      这里也**不写占位 meta**：写了占位反而会在"未进白名单却被静态返回"时把假凭证交给前端。
       前端只读不回写（apps/web/src/transport.js:19）。
     -->
     <!--

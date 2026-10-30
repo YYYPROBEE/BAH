@@ -40,17 +40,30 @@ export function generateWebToken(): string {
   return randomBytes(24).toString('base64url')
 }
 
+/** HTML 注释（跨行、惰性匹配）。 */
+const HTML_COMMENT = /<!--[\s\S]*?-->/g
+
 /**
- * 把 token 注入 `index.html`。
+ * 把 token 注入 `index.html` / `m.html`。
  *
- * 先移除同名 meta 再插入：进程重启换 token 时，磁盘上的旧标签不能留在响应里。
+ * 三条约束：
+ * 1. **只在注释之外动手**：页面注释里可能出现 head 结束标记或同名 meta 的示意文本，
+ *    按字面量直接定位会把注入点带进注释——送达的 DOM 里根本没有 meta，前端永远 401
+ *    （2026-10-29 移动壳走查 P0-1 的真因）。这里先剥除注释，送达的页面不需要开发注释，
+ *    顺带让"响应体里出现凭证串 ⇒ 一定是真标签"成为可断言的形态。
+ * 2. **同名旧标签全部移除**：进程重启换 token 时，磁盘上的旧标签不能留在响应里；
+ *    原实现只移除第一个，多写一个就漏一个。
+ * 3. **注入点在真的 head 结束标记前**：剥除注释后第一个 `</head>` 就是它（合法 HTML
+ *    不会有两个 head）；没有 head 时放在最前，浏览器仍能解析。
  */
 export function injectWebToken(html: string, token: string): string {
   const escaped = token.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
   const tag = `<meta name="${WEB_TOKEN_META}" content="${escaped}" />`
-  const without = html.replace(new RegExp(`<meta name="${WEB_TOKEN_META}"[^>]*>\\s*`, 'i'), '')
-  if (!/<\/head>/i.test(without)) return `${tag}\n${without}`
-  return without.replace(/<\/head>/i, `    ${tag}\n  </head>`)
+  const bare = html.replace(HTML_COMMENT, '')
+  const without = bare.replace(new RegExp(`<meta name="${WEB_TOKEN_META}"[^>]*>\\s*`, 'gi'), '')
+  const at = without.toLowerCase().indexOf('</head>')
+  if (at === -1) return `${tag}\n${without}`
+  return `${without.slice(0, at)}    ${tag}\n  ${without.slice(at)}`
 }
 
 /** 页面里承载认证模式 的 meta 名（前端据此决定启动路径）。 */

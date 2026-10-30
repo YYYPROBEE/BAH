@@ -1,10 +1,15 @@
 /**
- * 会话控制条（04 单 §5）：人工接管入口/横幅/恢复，以及"回到上一步"分叉入口。
+ * 会话控制条（04 单 §5）：人工接管入口/横幅，以及"回到上一步"分叉入口。
  *
  * 语义三条（与 docs/mobile.md 的诚实口径同文）：
- * 1. 接管期 `/api/turn` 一律 409——本文件只负责**呈现**，闸在服务端；
+ * 1. 接管期 `/api/turn` 202 落账但不驱动模型——本文件只负责**呈现**，闸在服务端；
  * 2. "回到上一步"= 在 turn 边界**分叉新会话**，旧会话原样封存；
  * 3. 接管状态在**进程内**，重启回 `active`（未接管）——横幅不宣称持久化。
+ *
+ * **不渲染"恢复"按钮**（2026-10-29 移动走查 P1-1）：`POST /api/handoff/resume` 是坐席凭证，
+ * 移动渠道按部署纪律不配 `BAH_OPERATOR_TOKEN` ⇒ 该端点恒 404。把一个注定失败的按钮放在
+ * 最显眼的位置，等于让用户点一次就得到"恢复失败：没有这个资源"。交回只能由坐席工作台完成，
+ * 横幅只陈述这个事实。
  *
  * 端点走 `transport.js` 的 `createSessionControlClient`：token 与 CSRF 的读取面只许一处，
  * 移动壳里不出现第二份 fetch（门禁 I5/I10）。
@@ -44,17 +49,15 @@ export function createSessionControls(host, options) {
     dataset: { role: 'handoff-banner' },
     hidden: true,
   })
-  const resumeButton = el('button', {
-    type: 'button',
-    class: 'ds-btn ds-btn--md ds-btn--primary',
-    dataset: { role: 'handoff-resume' },
-    text: '恢复',
-  })
 
   bar.append(handoffButton, forkButton)
   banner.append(
     el('span', { class: 'ds-alert__title', text: '人工接管中，智能体暂停响应' }),
-    resumeButton,
+    el('span', {
+      class: 'session-controls__hint',
+      dataset: { role: 'handoff-hint' },
+      text: '消息会被记录；交回会话请在坐席工作台操作。',
+    }),
   )
   host.append(bar, banner)
 
@@ -73,17 +76,7 @@ export function createSessionControls(host, options) {
       return
     }
     setActive(true)
-    notify('已请求人工接管：智能体暂停响应，恢复前发送的消息会被拒绝（409）')
-  })
-
-  resumeButton.addEventListener('click', async () => {
-    const result = await client.resume()
-    if (!result.ok) {
-      notify(`恢复失败：${result.reason}`, 'warning')
-      return
-    }
-    setActive(false)
-    notify('已交回会话：智能体恢复响应')
+    notify('已请求人工接管：智能体暂停响应；你的消息会被记录，人工处理期间不会驱动智能体')
   })
 
   forkButton.addEventListener('click', async () => {
