@@ -39,6 +39,8 @@ export type PayeeId = Branded<'payee-id'>
 export type ProductId = Branded<'product-id'>
 export type HoldingId = Branded<'holding-id'>
 export type SubscriptionId = Branded<'subscription-id'>
+export type AuthorizationId = Branded<'authorization-id'>
+export type CancelRequestId = Branded<'cancel-request-id'>
 
 /**
  * 品牌 ID 的铸造点。
@@ -55,6 +57,8 @@ export const bankIds = {
   product: (raw: string): ProductId => raw as ProductId,
   holding: (raw: string): HoldingId => raw as HoldingId,
   subscription: (raw: string): SubscriptionId => raw as SubscriptionId,
+  authorization: (raw: string): AuthorizationId => raw as AuthorizationId,
+  cancelRequest: (raw: string): CancelRequestId => raw as CancelRequestId,
 }
 
 /** 本包会用到但由 `@bah/core` 铸造的两个 ID（这里只做类型转出口，便于使用方少 import 一行）。 */
@@ -243,8 +247,11 @@ export interface Holding {
   readonly profitCents: number
 }
 
-export type ChargeCycle = 'weekly' | 'monthly'
+export type ChargeCycle = 'weekly' | 'monthly' | 'quarterly'
 export type SubscriptionStatus = 'active' | 'paused' | 'cancelled'
+
+/** 订阅的用户标注（替代不存在的"使用频次"数据）。 */
+export type SubscriptionNote = 'idle' | 'hesitating'
 
 export interface Subscription {
   readonly id: SubscriptionId
@@ -254,6 +261,95 @@ export interface Subscription {
   readonly nextChargeAt: number
   readonly amountCents: number
   readonly status: SubscriptionStatus
+  /** 与 `MerchantAuthorization` / `RecurringSeries` 同一套归一化键；缺省时按 `merchant` 现算。 */
+  readonly merchantKey?: string
+  /** 合约期；有值且 > now 即「不可快刀」（只给「到期即断」）。 */
+  readonly contractEndAt?: number
+  readonly authorizationId?: AuthorizationId
+  /** 用户标注：`idle` = 我不用了；`hesitating` = 还在犹豫。 */
+  readonly note?: SubscriptionNote
+  /** 续费提醒提前量（1..7 天）；`remind` 标记的实际载荷。 */
+  readonly reminderAheadDays?: number
+  /** 「到期即断」的截止时刻：`status = 'paused'` 时置位。 */
+  readonly pauseUntil?: number
+}
+
+/** 周期扣款三分法（只影响展示与取消路径建议，不影响是否检出）。 */
+export type RecurringKind = 'subscription' | 'bill' | 'installment'
+/** 检测置信度分层。 */
+export type Confidence = 'high' | 'medium' | 'low'
+/** 代扣协议状态（**只关不开**：恢复扣款要商户侧重新签约）。 */
+export type AuthorizationStatus = 'active' | 'revoked'
+/** 取消路径：银行侧关协议 / 商户侧自助 / 只能人工。 */
+export type CancelPath = 'authorize' | 'merchant' | 'manual'
+/**
+ * 取消核验结论（**推导值**，不落库）：
+ * - `pending`：还没到核验窗口；
+ * - `effective`：过了核验窗口且没有新扣款；
+ * - `failed`：取消后仍有扣款（升级争议工单）；
+ * - `breached`：协议已关仍扣款（critical）。
+ */
+export type CancelVerdict = 'pending' | 'effective' | 'failed' | 'breached'
+
+/**
+ * 代扣协议（硬断供的实体）。
+ *
+ * `merchant` 只用于展示（可含脏名）；`merchantKey` 才是关联/统计的唯一键——
+ * 否则「关协议影响几个订阅」会按脏名精确匹配算出 0，硬断供的证据链当场断。
+ */
+export interface MerchantAuthorization {
+  readonly id: AuthorizationId
+  readonly userId: UserId
+  readonly merchant: string
+  readonly merchantKey: string
+  /** 协议号（展示时可脱敏到后 4 位）。 */
+  readonly agreementNo: string
+  readonly accountId: AccountId
+  readonly status: AuthorizationStatus
+  readonly signedAt: number
+  readonly revokedAt?: number
+}
+
+/**
+ * 取消请求（状态机；「已提交 ≠ 已生效」）。
+ *
+ * 只持久化「用户提交过取消」这一事实；生效与否由流水现算（`deriveCutoffFindings`），
+ * 不回写——查询是绿档，不能在读路径上做状态迁移。
+ */
+export interface CancelRequest {
+  readonly id: CancelRequestId
+  readonly userId: UserId
+  readonly subscriptionId: SubscriptionId
+  readonly path: CancelPath
+  /** `at-next-cycle` = 到期即断：置 `Subscription.status='paused'` + `pauseUntil`。 */
+  readonly mode: 'now' | 'at-next-cycle'
+  readonly requestedAt: number
+  /** A 档即时；B/C 档 +2~10 天（诚实口径）。 */
+  readonly expectedEffectiveAt: number
+  /** 下期扣款 +3 天：过了还没扣 = 生效。 */
+  readonly verifyBy: number
+}
+
+/** 检测产出（推断，不落账，每次重算）。 */
+export interface RecurringSeries {
+  readonly merchantKey: string
+  /** 展示名（原始商户名里最干净的那个）。 */
+  readonly displayName: string
+  readonly kind: RecurringKind
+  readonly cycle: ChargeCycle
+  /** 最近一期金额（分）。 */
+  readonly amountCents: number
+  readonly instances: readonly { txnId: TxnId; at: number; amountCents: number }[]
+  readonly confidence: Confidence
+  readonly nextChargeAt: number
+  readonly priceHike?: { fromCents: number; toCents: number; at: number }
+  readonly priceDrop?: { fromCents: number; toCents: number; at: number }
+  /** 弱信号：等额 6/12/24 期但无分期强特征（展示「疑似分期，确认一下」）。 */
+  readonly suspectedInstallment?: boolean
+  /** 首期 0 元试用 → 次期转正收费。 */
+  readonly trialConverted?: boolean
+  /** 与事实库对上才有。 */
+  readonly matchedSubscriptionId?: SubscriptionId
 }
 
 /** 收款人绑定关系：白名单（老熟人）/ 新收款人（演示"升红"规则的素材）。 */

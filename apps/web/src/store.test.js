@@ -106,6 +106,36 @@ describe('store · 帧键', () => {
     // 仓库键保留 phase（审计要区分）
     expect(frameKey(start)).not.toBe(frameKey(end))
   })
+
+  it('choice/goal/todo/effects 的仓库键与 @bah/channels/web 的 frameKey 一致', () => {
+    expect(frameKey({ kind: 'choice', seq: 1, callId: 'call-ask' })).toBe('choice:call-ask')
+    expect(frameKey({ kind: 'goal', seq: 2 })).toBe('goal')
+    expect(frameKey({ kind: 'todo', seq: 3, turn: 2, planId: 'p1' })).toBe('todo:2:p1')
+    expect(frameKey({ kind: 'effects', seq: 4, turn: 6 })).toBe('effects:6')
+  })
+
+  it('choice 视图键按 seq 分键：硬编码 callId 不会吞掉下一次追问', () => {
+    const first = { kind: 'choice', seq: 107, callId: 'call-ask', prompt: '要转给谁？' }
+    const second = { kind: 'choice', seq: 200, callId: 'call-ask', prompt: '再确认一次？' }
+    // 仓库层仍按 callId 合并（同一追问一张卡）
+    expect(frameKey(first)).toBe(frameKey(second))
+    // 视图层分键：第二次追问是新节点（否则会替换第一次的节点并留在历史位置）
+    expect(viewKey(first)).not.toBe(viewKey(second))
+    // 同一帧重放（快照 / 重连）键必须稳定
+    expect(viewKey(first)).toBe(viewKey({ ...first }))
+  })
+
+  it('effects 同轮替换、跨轮共存', () => {
+    const store = createStore()
+    store.apply({ kind: 'effects', seq: 1, at: 1, turn: 1, items: [] })
+    store.apply({ kind: 'effects', seq: 2, at: 2, turn: 1, items: [{ callId: 'c1' }] })
+    store.apply({ kind: 'effects', seq: 3, at: 3, turn: 2, items: [] })
+
+    const frames = store.state().frames.filter((frame) => frame.kind === 'effects')
+    expect(frames).toHaveLength(2)
+    expect(frames[0].seq).toBe(2)
+    expect(frames[1].turn).toBe(2)
+  })
 })
 
 describe('store · 审批查询', () => {

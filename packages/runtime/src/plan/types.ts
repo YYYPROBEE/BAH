@@ -9,6 +9,8 @@
  * 把依赖方向钉死，`verify-package-graph` 也不会被破。
  */
 
+import type { TicketAuthorization } from '@bah/core'
+
 /** 节点 id 的字符集与长度（`[A-Za-z0-9_-]{1,64}`）：要能进 `callId`，不能带分隔符。 */
 export const PLAN_NODE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
 
@@ -273,6 +275,13 @@ export interface PlanRunSnapshot {
   readonly abortReason?: PlanAbortReason
 }
 
+/** `PlanApi.run()` 的公开选项。 */
+export interface PlanApiRunOptions {
+  readonly dryRun?: boolean
+  /** 授权来源（ADR-0006）：由 `plan_wake` 注入，逐节点落进 `ticket/*`。 */
+  readonly authorization?: TicketAuthorization
+}
+
 /** `run()` 的返回值（与 `plan/completed` 的载荷同源）。 */
 export interface PlanRunSummary {
   readonly planId: string
@@ -295,8 +304,13 @@ export interface PlanRunSummary {
  * `resume` 是唯一的"再来一次"入口，且**只从会话事件重放**——没有跨进程持久化。
  */
 export interface PlanApi {
-  /** 执行一张计划。`initiator` 不接受参数——一律由宿主从会话取。 */
-  run(plan: Plan, options?: { readonly dryRun?: boolean }): Promise<PlanRunSummary>
+  /**
+   * 执行一张计划。`initiator` 不接受参数——一律由宿主从会话取。
+   *
+   * `authorization` 只由受控执行器（`plan_wake`）注入：它随每次节点审批落进
+   * `ticket/*`（ADR-0006），让"谁批的"在凭证上可见。
+   */
+  run(plan: Plan, options?: PlanApiRunOptions): Promise<PlanRunSummary>
   /**
    * 从上次运行结果接着跑：已 `succeeded` 的节点不重跑，`blocked` 的节点重置后重新调度，
    * `failed` 的节点只在 `options.from` 点名时重试。

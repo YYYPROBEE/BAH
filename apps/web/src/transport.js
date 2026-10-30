@@ -93,10 +93,13 @@ export function createHttpApi(options = {}) {
     health: () => request('GET', '/api/health'),
     turn: (text) => request('POST', '/api/turn', { text }),
     interrupt: (reason) => request('POST', '/api/interrupt', { reason }),
-    decide: (ticketId, decision, reason) =>
-      request('POST', `/api/approval/${encodeURIComponent(ticketId)}`, reason === undefined
-        ? { decision }
-        : { decision, reason }),
+    decide: (ticketId, decision, reason, confirmText) =>
+      request('POST', `/api/approval/${encodeURIComponent(ticketId)}`, {
+        decision,
+        ...(reason === undefined ? {} : { reason }),
+        // 打字确认（删除/撤销类操作）：服务端校验，缺省不带就过不了
+        ...(confirmText === undefined ? {} : { confirmText }),
+      }),
     verify: (ticketId) => request('POST', `/api/verify/${encodeURIComponent(ticketId)}`),
     // 观测面板（03）：GET 只读，不参与 CSRF；`?format=chrome` 留给 CLI/curl，UI 不用。
     metrics: () => request('GET', '/api/metrics'),
@@ -146,6 +149,12 @@ export function createSessionControlClient(options = {}) {
     if (!response.ok) {
       const code = data?.error?.code ?? `http-${response.status}`
       const reason = data?.error?.reason ?? `请求失败（${response.status}）`
+      // 与 `createHttpApi` 同一条纪律：401 是**会话失效**，不是"这一次转人工失败"。
+      // 桌面壳的「转人工」也走这里；不派发事件的话，password 模式下只会弹一个 toast，
+      // 用户永远回不到登录卡片（其余 API 都派发，只有这条漏掉）。
+      if (response.status === 401 && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bah:unauthorized'))
+      }
       return { ok: false, status: response.status, code, reason }
     }
     return { ok: true, status: response.status, data }
@@ -154,7 +163,8 @@ export function createSessionControlClient(options = {}) {
   return {
     handoffStatus: () => send('GET', '/api/handoff'),
     handoff: (reason) => send('POST', '/api/handoff', reason === undefined ? {} : { reason }),
-    resume: () => send('POST', '/api/handoff/resume', {}),
+    // 不提供 resume：交回是坐席凭证的端点，移动壳（不配 BAH_OPERATOR_TOKEN）调它只会 404。
+    // 坐席工作台用的是 apps/web/src/seat/api.js 里的那份（同一路径，但走坐席凭证）。
     fork: (turn) => send('POST', '/api/session/fork', { turn }),
   }
 }

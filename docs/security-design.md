@@ -15,9 +15,10 @@
 | plan 节点态 | **9 态**（pending、ready、running、succeeded、failed、skipped、blocked、cancelled、incident） | packages/runtime/src/plan/types.ts 的 `PLAN_NODE_STATES` |
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
-| 工具数 | **16 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表 / 门禁 | **26 项 / 50 项** | `HOST_PLUGINS`、`scripts/verify-*.ts` 计数 |
-| 覆盖率 | **89.06%（行口径，41749/46877 行，实测 2026-10-29）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
+| 工具数 | **21 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
+| 注册表条目（项） | **31** | `HOST_PLUGINS` 计数 |
+| 门禁（项） | **54** | `scripts/verify-*.ts` 计数 |
+| 覆盖率 | **89.96%（行口径，46778/52001 行，实测 2026-10-30）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
 ## 1. 资产、对手与"最坏的一天"
@@ -90,8 +91,8 @@
 >
 > **HP-4（工具出参运行时契约校验）已实现，不在本表**：`ToolPipeline` 在每次工具调用后按
 > `resultSchema` 运行时校验，畸形返回报 `tool-result-invalid` 并落 `isError`
-> （`packages/runtime/src/tools/pipeline.ts:285-292`）；16 个银行工具全覆盖
-> （`packages/bank/src/tools/result-schemas.ts` 16 个键，装配在
+> （`packages/runtime/src/tools/pipeline.ts:285-292`）；21 个银行工具全覆盖
+> （`packages/bank/src/tools/result-schemas.ts` 19 个键，装配在
 > `packages/host/src/boot/plugins/bank-tools.ts:283-295`），直测
 > `packages/runtime/src/tools/contracts.test.ts:172-197`。
 
@@ -99,7 +100,7 @@
 |---|---|---|---|
 | 1 | **HP-2：RAG 响应信封签名** | 需要跨语言黄金向量与密钥分发，收益集中在"证明对端身份"；本轮把预算放在"条目级验签 + 拒答"上（伪造/漂移必被拒） | 服务端**整体被替换**时，只能保证"返回条目必须与我方签名清单逐字一致"，不能证明对方身份。生产接入需补 |
 | 2 | **强验证接真实渠道** | `verify.provider` 默认是测试网关适配器（`mock`），真实人脸/短信/U 盾需要外部服务与合规审批 | "红级已过 MFA"只在仿真环境成立。这是**配置缺口**，不是代码缺口 |
-| 3 | **对抗集 H-13 / H-14 / H-15（幻觉族 12/15）** | 三条期望是 `degrade`（把无证据断言降级为【未核实】），实际 `allowed`；归因 `rule-gap`：断言抽取没覆盖这三类表述 | 无证据的定性表述可能不带【未核实】落账。属于**召回**缺口，不是绕过（资金动作仍受审批约束） |
+| 3 | **对抗集 H-14 / H-15（幻觉族 13/15）** | 两条期望是 `degrade`（把无证据断言降级为【未核实】），实际 `allowed`；归因 `rule-gap`：断言抽取没覆盖这两类表述（H-13 的保本/收益承诺已由第六类断言收口） | 无证据的定性表述可能不带【未核实】落账。属于**召回**缺口，不是绕过（资金动作仍受审批约束） |
 | 4 | **plan 内写工具的补偿** | `saga-bridge` 在 `profiles/plan` 显式关闭（否则 `transfer_create` 被再展开，一条 `plan/node-result` 对上两条 `tool/call`） | plan 里第 2 步扣款、第 3 步失败时**没有自动冲正**；正确做法是让 plan 编排一整笔 saga，这是 P2 的活 |
 | 5 | **plan 动态 args 跨 `resume`** | 节点输出只存在内存里，续跑时无法还原上游 output；存进会话日志会把大对象写进审计面 | 需要"重做一笔已成功的转账"时，只能新 `planId` + 冲正原笔（两张计划用 `meta` 关联） |
 | 6 | **`incident` 状态的真实触发源** | 本仓全内存 mock，没有"外部不可用"的真实来源；可达性靠单测 + 宿主 stub 工具 | Web 的 DAG 视图按 `tool/call` 派生，**不区分** `incident` 与 `failed`；裁判问"什么时候会 incident"要按 `docs/plan.md` 讲条件，不能指屏幕 |
@@ -113,7 +114,7 @@
 - **策略生产签名密钥的分发/轮换未落地**：S4 提供 Ed25519 可选验签与 `policy:rules.signature`
   路径，密钥不进仓；演示 profile 仍 `requireSignature: false`，链上策略判决是 `unsigned`。
   生产强制签名需要密钥托管与轮换流程，登记到 S6；不能据此宣称"策略文件防篡改"。
-- **`security-self-assessment.md` 里的工具数曾停在更早的一版**（现为 16）：本轮已顺手改正，
+- **`security-self-assessment.md` 里的工具数曾停在更早的一版**（现为 19）：本轮已顺手改正，
   该文档的评分与状态不受影响。
 
 ## 5. 每条防线的复现命令（评委可逐条抽验）

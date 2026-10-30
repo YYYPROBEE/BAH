@@ -15,6 +15,31 @@
  * 装饰位移 ≤4px、缩放 ≤1.05，且状态变化不改几何尺寸（00 §5.8）；`prefers-reduced-motion` 全降为 0。
  */
 
+/* ────────────────────────────── 显隐与盒模型基线 */
+
+/* `hidden` 属性必须真的隐藏：`ds/components.css` 给 `.ds-backdrop` 等节点显式设了 display，
+   会覆盖 UA 的 `[hidden] { display: none }`。用 hidden 表达"关着"的节点（全屏遮罩、中断钮、
+   空清单、折叠步骤体、待办槽）因此会常驻可见——其中一条是"遮罩吞掉每一次点击"。
+   这条 blanket 规则是兜底；新代码的显隐应统一走 class。 */
+[hidden] {
+  display: none !important;
+}
+
+/* 盒模型：DS 副本里没有 `box-sizing: border-box`，`width: 100%` 叠加 padding/border
+   会把控件撑出容器（实测审批抽屉的"拒绝理由"右缘溢出 5px，抽屉本身也超出视口 2px）。 */
+.m-shell,
+.m-shell *,
+.m-shell *::before,
+.m-shell *::after {
+  box-sizing: border-box;
+}
+
+/* 桌面壳的 `body { margin: 0 }` 在 app.css 里，双壳不共享样式表（00 D1）⇒ 移动壳会带着
+   UA 默认的 8px 外边距：整壳下移、底部超出一屏，`env(safe-area-inset-bottom)` 的避让语义被破坏。 */
+body {
+  margin: 0;
+}
+
 /* ────────────────────────────── 壳与三区骨架 */
 
 .m-shell {
@@ -773,6 +798,16 @@
   /* 横向滚动条不许吃掉触控高度：给足 padding 让每颗 chip 仍 ≥44px 可点 */
   padding-bottom: var(--spacer-4);
   scrollbar-width: none;
+  /* 滑动松手后吸附到 chip 起点：屏外只露半颗的 chip 不会长期停在"半颗"位置（P2-1） */
+  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
+}
+
+/* 溢出时右缘渐隐＝"还有内容在屏外"的唯一提示（滚动条被藏掉了）。
+   只在真正溢出时由 quick-phrases.js 挂类，没溢出时最后一颗 chip 保持完整亮度。 */
+.m-chips--overflow {
+  -webkit-mask-image: linear-gradient(to right, var(--special-black) calc(100% - var(--spacer-24)), transparent);
+  mask-image: linear-gradient(to right, var(--special-black) calc(100% - var(--spacer-24)), transparent);
 }
 
 .m-chip {
@@ -781,6 +816,7 @@
   align-items: center;
   gap: var(--spacer-6);
   min-height: 44px;
+  scroll-snap-align: start;
   padding: var(--spacer-8) var(--spacer-16);
   border: var(--border-width-default) solid var(--border-neutral-l2);
   border-radius: var(--radius-full);
@@ -805,6 +841,10 @@
   /* 上限 5 行由 composer.js 按 scrollHeight 夹（§3.9）；这里给同一上限做 CSS 兜底 */
   max-height: 100px;
   resize: none;
+  /* iOS Safari 对 <16px 的可编辑控件强制整页放大，且聚焦结束后不还原（P2-2）。
+     DS 的 body 基线是 14px、没有 16px 的 body 令牌，这里取 --heading-sm-font-size（同为 16px）。 */
+  font-size: var(--heading-sm-font-size);
+  line-height: var(--body-base-line-height);
 }
 
 .m-composer__actions { flex: none; display: flex; align-items: center; gap: var(--spacer-8); }
@@ -973,10 +1013,76 @@
 
 .session-controls__banner {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacer-8);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacer-4);
   margin: var(--spacer-8) var(--spacer-12) 0;
 }
 
+/* 交回只能由坐席工作台完成——横幅只陈述事实，不给一个注定 404 的"恢复"按钮（P1-1） */
+.session-controls__hint {
+  color: var(--text-tertiary);
+  font-size: var(--body-sm-font-size);
+  line-height: var(--body-sm-line-height);
+}
+
 .session-controls__banner[hidden] { display: none; }
+
+
+/* ── 移动端计划卡（G7）── */
+.m-plan-card {
+  margin: 8px 0;
+  padding: 12px;
+  border: 1px solid var(--border-neutral-l1);
+  border-radius: var(--radius-10);
+  background: var(--bg-base-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.m-plan-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.m-plan-card__title {
+  font-size: 14px;
+  color: var(--text-default);
+}
+
+.m-plan-card__meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.m-plan-card__conditions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.m-plan-card__condition {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-default);
+  flex-wrap: wrap;
+}
+
+.m-plan-card__condition-kind {
+  color: var(--text-secondary);
+}
+
+.m-plan-card__verdict {
+  margin: 0;
+  font-size: 12px;
+  color: var(--status-error-default);
+}

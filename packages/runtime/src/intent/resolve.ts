@@ -19,6 +19,7 @@ import {
   CROSS_SCENE_ASK,
   DOMAIN_KEYWORDS,
   HISTORY_DEICTIC,
+  IMPLICIT_BARE_STATEMENT_SCENES,
   NUMERIC_ONLY,
   PRONOUNS,
   QUERY_VERBS,
@@ -285,7 +286,19 @@ function classify(
     return { kind: 'elliptical', evidence }
   }
 
-  // R-EXP-1：直白动作 + 槽位齐备（基线）
+  // R-EXP-1：直白动作 + 槽位齐备（基线）。
+  // 无动作动词、也无任何可执行实体的句子，在**白名单场景**（当前：卡片）不判 explicit：
+  // 那些场景的 required 是空集，不看动词的话"钱包被偷了"这类陈述会直接 proceed。
+  // 纯数值句（"500"）保留 explicit 基线：它有实体，只是缺上下文（TC-INT-08）。
+  // WHY 不做成全局规则：订阅场景的合法请求本来就没有动词（见 lexicon 的白名单说明）。
+  if (
+    IMPLICIT_BARE_STATEMENT_SCENES.includes(ctx.scene) &&
+    !hasVerb &&
+    !hasNamedAmount &&
+    !hasNamedPayee
+  ) {
+    return { kind: 'implicit', evidence }
+  }
   if (hasVerb && required.length === 0) add('R-EXP-1', utterance)
   return { kind: 'explicit', evidence }
 }
@@ -337,6 +350,7 @@ function buildAskHint(
   conflicts: readonly SlotConflict[],
   input: ResolveInput,
   domainCandidates: readonly FilledSlot[] | undefined,
+  scene: string,
 ): AskHint | null {
   if (kind === 'implicit') return null
 
@@ -350,7 +364,10 @@ function buildAskHint(
   }
 
   const conflict = conflicts[0]
-  const slot: SlotName = conflict?.name ?? missing[0] ?? (domainCandidates === undefined ? 'payee' : 'targetScene')
+  // 订阅场景没有必填槽：别用转账的 fallback 问「要转给谁？」
+  const emptySceneSlot: SlotName = scene === 'subscription' ? 'category' : 'payee'
+  const slot: SlotName =
+    conflict?.name ?? missing[0] ?? (domainCandidates === undefined ? emptySceneSlot : 'targetScene')
   const candidates =
     conflict?.candidates ??
     domainCandidates ??
@@ -363,9 +380,13 @@ function buildAskHint(
       })),
     ) ??
     []
+  const question =
+    scene === 'subscription' && slot === 'category' && conflict === undefined && missing.length === 0
+      ? '您想办哪件订阅相关的事？（看清单 / 查扣款明细 / 退订 / 关闭代扣 / 设提醒）'
+      : (ASK_QUESTIONS[slot] ?? '能再说得具体一点吗？')
   return {
     slot,
-    question: ASK_QUESTIONS[slot] ?? '能再说得具体一点吗？',
+    question,
     candidates: candidates.slice(0, 3),
   }
 }
@@ -463,7 +484,7 @@ export function resolveIntent(input: ResolveInput, ctx: ResolveContext): IntentR
   const decision = decideFor(classified.kind, missing, conflicts, input)
   const askHint =
     decision === 'ask'
-      ? buildAskHint(classified.kind, missing, conflicts, input, classified.domainCandidates)
+      ? buildAskHint(classified.kind, missing, conflicts, input, classified.domainCandidates, ctx.scene)
       : null
   const proposals = classified.kind === 'implicit' ? buildProposals(utterance) : []
 

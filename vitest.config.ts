@@ -28,7 +28,19 @@ export default defineConfig({
     // `scripts/**/*.test.ts`：门禁与运维脚本的冒烟面（C2）。
     // 这类用例**不覆盖**源码，只钉"安全网自身"的形状（35 个 gate 可导入、步骤表不重复、
     // 用例地板是正整数），所以与 unit 面同跑、不单开 config。
-    include: ['packages/*/src/**/*.test.ts', 'scripts/**/*.test.ts'],
+    // `apps/desktop/src/**/*.test.ts`：桌面端的**纯模块**用例（桌面端 02 R-DT-10）。
+    // 它们**不得** import electron——Electron 交互只允许出现在 main.ts / window.ts / menu.ts。
+    //
+    // `apps/im-gateway/{src,test}/**/*.test.ts`：IM 网关（02 单）。网关不进覆盖率强制名单
+    // （`COVERAGE_ALLOWLIST` 只认 `packages/*`），但它与 `channels/im` 的协议层是同一批
+    // 判决的消费方，必须在主测试面里跑。
+    include: [
+      'packages/*/src/**/*.test.ts',
+      'scripts/**/*.test.ts',
+      'apps/desktop/src/**/*.test.ts',
+      'apps/im-gateway/src/**/*.test.ts',
+      'apps/im-gateway/test/**/*.test.ts',
+    ],
     exclude: ['packages/*/src/**/*.e2e.test.ts'],
     passWithNoTests: true,
     /**

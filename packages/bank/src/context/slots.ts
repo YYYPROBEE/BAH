@@ -7,7 +7,8 @@
  * 五条纪律：
  * 1. **快照不是权威**：这里产出的是展示字符串，金额结论仍必须引用工具结果；
  * 2. **不放自由文本**：只有枚举文案、`formatYuan` 金额、`formatCnMinute` 时刻、脱敏尾号、
- *    净化后的姓名；收款人/商户名/备注/渠道一律不进槽位（间接提示注入面）；
+ *    净化后的姓名；收款人/备注/渠道一律不进槽位。订阅商户名是唯一例外：只以
+ *    `sanitizeMerchantForPrompt` 净化后的单行进入【即将扣款】（仍需过"非指令"声明）；
  * 3. **失败是值**：超时/读失败/熔断/取消都返回 `status` + `code`，**绝不 throw 业务错误**
  *    （异常会把核心错误原文带进 `assistant/attempt.reason`，那是 PII 落盘点）；
  * 4. **任一读失败不返回半张图**：模型会把"只有账户没有流水"误读成"最近没有交易"；
@@ -27,10 +28,12 @@ import {
   ACCOUNT_STATUS_LABEL,
   ACCOUNT_TYPE_LABEL,
   CATEGORY_LABEL,
+  CYCLE_LABEL,
 } from '../tools/presenters.ts'
+import { sanitizeMerchantForPrompt } from '../tools/subscriptions.ts'
 
 import type { Account, Transaction, TxnStatus, UserId } from '../core/model.ts'
-import type { BankCoreProvider } from '../core/provider.ts'
+import type { BankCoreProvider, UpcomingCharge } from '../core/provider.ts'
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 1. 配置（host 校验边界；这里只给默认值与使用）
@@ -42,6 +45,8 @@ export interface ContextSlotSettings {
   readonly accounts: number
   /** 最多展示流水数（1..10）。 */
   readonly transactions: number
+  /** 最多展示「即将扣款」条数（0..10；0 = 关闭，输出与旧版逐字一致）。 */
+  readonly subscriptions: number
   /** 流水回看窗口（天，1..365）。 */
   readonly windowDays: number
   /** 单次核心读的真实等待预算（毫秒，50..5000；不走注入钟）。 */
@@ -58,12 +63,16 @@ export interface ContextSlotSettings {
 export const DEFAULT_CONTEXT_SLOTS: ContextSlotSettings = {
   accounts: 3,
   transactions: 3,
+  subscriptions: 3,
   windowDays: 30,
   timeoutMs: 250,
   maxChars: 800,
   breakerFailures: 3,
   breakerOpenMs: 10_000,
 }
+
+/** 「即将扣款」的取数窗口（天）：一周内到期的 active 订阅。 */
+const UPCOMING_WINDOW_DAYS = 7
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 2. 视图与端口（与 runtime 的 `RuntimeContextView` / `RuntimeContextSource` 结构等价）
@@ -89,6 +98,8 @@ export interface ContextSlotView {
   readonly accounts?: readonly ContextSlotAccount[]
   /** 受控模板生成的单行；不含收款人/商户名/备注/渠道/内部 ID。 */
   readonly recentTransactions?: readonly string[]
+  /** 即将扣款（单行；商户名经 `sanitizeMerchantForPrompt` 净化后进入）。 */
+  readonly upcomingCharges?: readonly string[]
   /** 零账户 / 零流水 / 预算截断的说明（**永不截断**）。 */
   readonly notes?: readonly string[]
 }
@@ -199,22 +210,32 @@ export function createBankContextSource(deps: BankContextSourceDeps): BankContex
       const user = userRead.value
       if (user === undefined || user.id !== uid) return degrade('slots-identity-unknown')
 
-      // 6. 账户 + 流水并行（都只依赖 user.id；串行会多一次 RTT）
+      // 6. 账户 + 流水 + 即将扣款并行（都只依赖 user.id；串行会多一次 RTT）
       const from = at - settings.windowDays * DAY_MS
       // 多取一点换顺序正确：Provider 若不保证时间倒序，只取 N 条可能漏掉真正最新的
       const limit = Math.max(1, Math.min(PAGE_LIMIT_MAX, settings.transactions * 4))
-      const [accountsRead, txnsRead] = await Promise.all([
+      const upcomingPromise =
+        settings.subscriptions === 0
+          ? Promise.resolve({ ok: true as const, value: [] as UpcomingCharge[] })
+          : read(
+              () => deps.core.upcomingCharges(user.id, UPCOMING_WINDOW_DAYS),
+              settings.timeoutMs,
+              signal,
+            )
+      const [accountsRead, txnsRead, upcomingRead] = await Promise.all([
         read(() => deps.core.listAccounts(user.id), settings.timeoutMs, signal),
         read(
           () => deps.core.queryTransactions({ userId: uid, from, to: at, limit }),
           settings.timeoutMs,
           signal,
         ),
+        upcomingPromise,
       ])
 
       // 取消优先：任一读被取消 → 整体取消（其余结果丢弃）；取消不是核心故障
       if (!accountsRead.ok && accountsRead.code === 'slots-aborted') return degrade('slots-aborted')
       if (!txnsRead.ok && txnsRead.code === 'slots-aborted') return degrade('slots-aborted')
+      if (!upcomingRead.ok && upcomingRead.code === 'slots-aborted') return degrade('slots-aborted')
 
       // 任一失败 → 整体降级，不返回"半张图"
       if (!accountsRead.ok) {
@@ -224,6 +245,10 @@ export function createBankContextSource(deps: BankContextSourceDeps): BankContex
       if (!txnsRead.ok) {
         noteFailure(txnsRead.code, at)
         return degrade(txnsRead.code)
+      }
+      if (!upcomingRead.ok) {
+        noteFailure(upcomingRead.code, at)
+        return degrade(upcomingRead.code)
       }
 
       // 防御性过滤：Provider 有 bug / 被替换时不泄漏别人数据
@@ -248,8 +273,21 @@ export function createBankContextSource(deps: BankContextSourceDeps): BankContex
         .sort((left, right) => right.at - left.at || compareText(left.id, right.id))
         .slice(0, settings.transactions)
         .map(transactionLine)
+      const selectedUpcoming = [...upcomingRead.value]
+        .filter((charge) => {
+          if (charge.dueAt < at || charge.dueAt > at + UPCOMING_WINDOW_DAYS * DAY_MS) return false
+          // 用户设了提前量就按提前量（1..7）；没设 = 默认一周窗口
+          const days = (charge.dueAt - at) / DAY_MS
+          return days <= (charge.reminderAheadDays ?? UPCOMING_WINDOW_DAYS)
+        })
+        .sort(
+          (left, right) =>
+            left.dueAt - right.dueAt || compareText(left.subscriptionId, right.subscriptionId),
+        )
+        .slice(0, settings.subscriptions)
+        .map((charge) => upcomingLine(charge, at))
 
-      // 9. 预算：先丢流水末尾，再丢账户末尾；notes 永不截断
+      // 9. 预算：先丢流水末尾，再丢即将扣款末尾，最后丢账户末尾；notes 永不截断
       const notes: string[] = []
       if (accounts.length === 0) notes.push('没有可展示的账户')
       if (transactions.length === 0) {
@@ -258,7 +296,11 @@ export function createBankContextSource(deps: BankContextSourceDeps): BankContex
 
       let keptAccounts = selectedAccounts
       let keptTransactions = selectedTransactions
-      let used = sumAccountLines(keptAccounts) + sumTransactionLines(keptTransactions)
+      let keptUpcoming = selectedUpcoming
+      let used =
+        sumAccountLines(keptAccounts) +
+        sumTransactionLines(keptTransactions) +
+        sumTransactionLines(keptUpcoming)
       let truncated = false
       while (used > settings.maxChars && keptTransactions.length > 0) {
         const dropped = keptTransactions[keptTransactions.length - 1]
@@ -266,6 +308,13 @@ export function createBankContextSource(deps: BankContextSourceDeps): BankContex
         // 渲染时流水前面有 `- `（2 字符），预算按渲染后的行算
         used -= dropped.length + TXN_LINE_PREFIX.length
         keptTransactions = keptTransactions.slice(0, -1)
+        truncated = true
+      }
+      while (used > settings.maxChars && keptUpcoming.length > 0) {
+        const dropped = keptUpcoming[keptUpcoming.length - 1]
+        if (dropped === undefined) break
+        used -= dropped.length + TXN_LINE_PREFIX.length
+        keptUpcoming = keptUpcoming.slice(0, -1)
         truncated = true
       }
       while (used > settings.maxChars && keptAccounts.length > 0) {
@@ -286,6 +335,7 @@ export function createBankContextSource(deps: BankContextSourceDeps): BankContex
         ...(name === '' ? {} : { user: { name } }),
         accounts: keptAccounts,
         recentTransactions: keptTransactions,
+        ...(keptUpcoming.length === 0 ? {} : { upcomingCharges: keptUpcoming }),
         ...(notes.length === 0 ? {} : { notes }),
       }
       return { status: 'ok', view, asOfText: formatCnMinute(at) }
@@ -384,6 +434,16 @@ function transactionLine(transaction: Transaction): string {
   return (
     `${formatCnMinute(transaction.at)} ${direction} ${formatYuan(transaction.amountCents)}` +
     `（${CATEGORY_LABEL[transaction.category]}${TXN_STATUS_SUFFIX[transaction.status]}）`
+  )
+}
+
+/** 即将扣款的一行：商户名净化后单行，金额与周期用受控文案。 */
+function upcomingLine(charge: UpcomingCharge, at: number): string {
+  const days = Math.max(0, Math.round((charge.dueAt - at) / DAY_MS))
+  const when = days === 0 ? '今天' : `${String(days)} 天后`
+  return (
+    `${sanitizeMerchantForPrompt(charge.merchant)} ${when} ${formatYuan(charge.amountCents)}` +
+    `（${CYCLE_LABEL[charge.cycle]}）`
   )
 }
 

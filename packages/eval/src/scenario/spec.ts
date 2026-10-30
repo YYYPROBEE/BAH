@@ -8,12 +8,12 @@
  * 设计口径：只冻结"能喂饱四项指标"的最小集，不预留字段。
  * 预留在 W17 的类型收紧里会变成负债（W02 §3 明令禁止）。
  *
- * 六族见 `docs/contracts/scenario-dsl.md` §2：
- * Q 查询 12 / T 转账主链 16 / P 权限分级 10 / S 补偿 8 / D 编排 15 / K 知识与拒答 10 = 71。
+ * 七族见 `docs/contracts/scenario-dsl.md` §2：
+ * Q 查询 14 / T 转账主链 16 / P 权限分级 11 / S 补偿 8 / D 编排 15 / K 知识与拒答 10 / U 意图语料 17 = 91。
  */
 
 /** 场景族。ID 前缀即族字母，形如 `T-03`。 */
-export type ScenarioFamily = 'Q' | 'T' | 'P' | 'S' | 'D' | 'K'
+export type ScenarioFamily = 'Q' | 'T' | 'P' | 'S' | 'D' | 'K' | 'U'
 
 /**
  * 该场景计入哪一项指标。

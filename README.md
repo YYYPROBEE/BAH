@@ -6,7 +6,7 @@
 **一个把"模型能做什么"关进可审计边界里的银行智能体演示系统。**
 
 模型只负责理解和表达；能不能执行、执行到什么程度、出事后怎么解释，全部由确定性代码决定。
-16 个银行工具、七段工具管线、三级权限、一次性票据、四接缝安全平面、append-only 会话日志与
+21 个银行工具、七段工具管线、三级权限、一次性票据、四接缝安全平面、append-only 会话日志与
 SHA-256 审计链，构成一条可回放、可核验、可解释的业务链。
 
 > 演示材料里的数字统一取自 [facts.md](facts.md)；架构细节见 [docs/pipeline.md](docs/pipeline.md)、
@@ -27,8 +27,9 @@ pnpm install
 | **起演示** | `pnpm demo:web` | 主路径为**离线 router**（不读密钥、不依赖外网），每次新建独立会话目录，打开 `http://127.0.0.1:7331` |
 | **容器演示** | `docker build -t bah:local . && docker run --rm -p 7331:7331 bah:local` | 单容器 Web，默认离线 router（不需要密钥）；RAG sidecar 不在镜像内，知识工具降级为 `knowledge-unavailable` |
 | **移动 H5 演示** | `pnpm bah --profile mobile` | 第二个壳（`staticRoot` 同为 `apps/web`），打开 `http://127.0.0.1:7551`；与 7331 共用同一份 `createHttpChannel`（路由 / 闸序 / 安全头 / 审批端点） |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 294 文件 / 3333 用例 |
-| **门禁** | `pnpm gate` | 45 项静态与契约检查，任一红即失败 |
+| **桌面端演示** | `pnpm build && pnpm desktop:dev` | Electron 窗口内嵌私有 host（`port:0`，只绑 `127.0.0.1`），加载同一份 `apps/web`；断网可用。打包见 `pnpm desktop:pack`，说明见 [docs/desktop.md](docs/desktop.md) |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 302 文件 / 3494 用例 |
+| **门禁** | `pnpm gate` | 54 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
 主演示**不需要密钥**：`profiles/web/patch.yml` 默认 `provider: router`（读消息做意图路由，
@@ -77,7 +78,7 @@ flowchart LR
   A --> P[七段工具管线]
   P --> G[治理判决<br/>规则 / 预算 / 断路器 / 三级权限]
   G --> T[票据 + 审批<br/>一次性核销]
-  T --> B[银行核心 + 16 工具<br/>内存账本]
+  T --> B[银行核心 + 18 工具<br/>内存账本]
   P --> SG[Saga 补偿 / 幂等]
   P --> SB[沙箱执行<br/>三档 + worker]
   A --> J[(append-only 会话日志)]
@@ -96,7 +97,7 @@ flowchart LR
 | 组合根 | `packages/host` | profile 解析、boot、插件行（渠道、模型、工具、sentry 的接线） |
 | 主循环 | `packages/runtime` | turn/step、提示词装配、七段工具管线、会话存储、压缩、恢复 |
 | 模型 | `packages/llm` | DeepSeek（OpenAI 兼容协议）、离线意图路由、固定脚本 mock |
-| 银行 | `packages/bank` | 内存账本、16 个工具、三级权限升级、票据桥接、强验证状态机 |
+| 银行 | `packages/bank` | 内存账本、21 个工具、三级权限升级、票据桥接、强验证状态机 |
 | 策略 | `packages/policy` | 决策表 DSL + 编译器 + 内容寻址；规则在 `policies/**`，`tier.ts` 保留为 legacy oracle |
 | 交互 | `packages/interaction` | 审批仲裁器 + 票据账本（五绑定、一次性核销、过期） |
 | 安全 | `packages/safety` | sentry（检测 / 控制 / 票据观测 / 审计 / 幻觉防护 / 断路器）+ 沙箱 |
@@ -210,8 +211,8 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
   失败经窄端口冲正）。plan 编排 saga，但 plan 自身节点写操作的补偿未做（见 `docs/security-design.md` §4）；
   **动态 args 跨不了 `resume`**（上游输出只在内存，重做已成功的转账 = 新 planId + 冲正原笔）；
   `incident` 状态**没有真实触发源**（全内存 mock，Web DAG 视图按 `tool/call` 派生，不区分 incident 与 failed）；
-- 对抗集幻觉族 15 例中 **H-13 / H-14 / H-15 共 3 条未降级**（期望 `degrade` 实际 `allowed`，
-  rule-gap：断言抽取未覆盖这三类表述，详见 `docs/security-design.md` §4 第 3 条）；
+- 对抗集幻觉族 15 例中 **H-14 / H-15 共 2 条未降级**（期望 `degrade` 实际 `allowed`，
+  rule-gap：断言抽取未覆盖这两类表述，详见 `docs/security-design.md` §4 第 3 条；H-13 已由收益承诺禁词规则收口）；
 - 覆盖率有两个包未到 80%：`memory-store` 72.71%、`eval` 40.73%（eval 主体是评测 harness）。
   行口径 86.06% **仅覆盖 `packages/*/src`**，不是物理全仓口径，引用时必须带包口径 14/16 一起说；
 - 卡片挂失已实现（`card_report_lost`，红档不可逆、必进审批 + 强验证）；**解挂与密码修改未实现**；
@@ -220,7 +221,7 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 
 ---
 
-## 5. 16 个工具与权限
+## 5. 21 个工具与权限
 
 | 级别 | 工具 | 说明 |
 |---|---|---|
@@ -230,6 +231,8 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 | green | `wealth_list` `wealth_compare` | 理财查询与对比（必带风险提示） |
 | **red** | `wealth_purchase` | 购买理财：强验证 + 审批 |
 | **red** | `card_report_lost` | 挂失银行卡：不可逆，必进审批 + 强验证 |
+| **yellow** | `card_freeze` | 冻结银行卡：可逆止损，一次确认 |
+| **red** | `card_unfreeze` | 解冻银行卡：恢复支付能力，强验证 + 审批 |
 | **yellow** | `sub_cancel` | 取消自动扣款订阅：可逆 |
 | green | `verify_face` `verify_sms` `verify_ushield` | 强验证挑战（`sideEffect: write`，不参与并行读批） |
 
@@ -241,9 +244,9 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 
 ```text
 apps/web/            前端（对话 / 工具卡 / 审批 / DAG / 审计）
-packages/            17 个包（见 §2.1）
+packages/            18 个包（见 §2.1）
 profiles/            web / mobile / headless / plan / web-plan 装配与 patch
-scripts/             44 个 verify-* 门禁、录制、演示脚本
+scripts/             54 个 verify-* 门禁、录制、演示脚本
 design/bah-ds/       自研设计系统（与应用内分发副本逐字节一致）
 docs/                管线、sentry、审计、前端、测试等落地文档
 facts.md             演示材料唯一数字来源
@@ -251,13 +254,13 @@ facts.md             演示材料唯一数字来源
 
 ## 7. 测试与资料
 
-| 命令 | 范围 | 实测（2026-10-27） |
+| 命令 | 范围 | 实测（2026-10-30） |
 |---|---|---|
-| `pnpm test` | 主仓 | 294 文件 / 3333 用例 |
+| `pnpm test` | 主仓 | 302 文件 / 3494 用例 |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
-| `pnpm test:web` | 前端 | 22 文件 / 333 用例 |
+| `pnpm test:web` | 前端 | 27 文件 / 375 用例 |
 | `pnpm test:snapshot` | 快照回放 | 9 文件 / 39 用例 |
-| `pnpm gate` | 门禁 | 50/50 |
+| `pnpm gate` | 门禁 | 54/54 |
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
 

@@ -37,12 +37,49 @@ const ACCOUNT_VIEW: ToolSchema = {
   },
 }
 
+/** 卡片视图（`CardView`）。 */
+const CARD_VIEW: ToolSchema = {
+  type: 'object',
+  required: [
+    'cardId',
+    'accountId',
+    'tail',
+    'type',
+    'status',
+    'dailyLimitCents',
+    'monthlyLimitCents',
+  ],
+  properties: {
+    cardId: { type: 'string' },
+    accountId: { type: 'string' },
+    tail: { type: 'string' },
+    type: { type: 'string' },
+    status: { type: 'string' },
+    dailyLimitCents: { type: 'integer' },
+    monthlyLimitCents: { type: 'integer' },
+  },
+}
+
+/** 卡片状态迁移结果（`CardStateResult`）。 */
+const CARD_STATE: ToolSchema = {
+  type: 'object',
+  required: ['cardId', 'tail', 'status', 'changed', 'at'],
+  properties: {
+    cardId: { type: 'string' },
+    tail: { type: 'string' },
+    status: { type: 'string', enum: ['frozen', 'normal'] },
+    changed: { type: 'boolean' },
+    at: { type: 'integer' },
+  },
+}
+
 export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSchema>>> = {
   account_list: {
     type: 'object',
-    required: ['accounts', 'availableTotalCents'],
+    required: ['accounts', 'cards', 'availableTotalCents'],
     properties: {
       accounts: { type: 'array', items: ACCOUNT_VIEW },
+      cards: { type: 'array', items: CARD_VIEW },
       availableTotalCents: { type: 'integer' },
     },
   },
@@ -96,7 +133,7 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
     type: 'object',
     required: ['period', 'months', 'totalInCents', 'totalOutCents', 'byCategory', 'anomalies'],
     properties: {
-      period: { type: 'string', enum: ['month', 'quarter'] },
+      period: { type: 'string', enum: ['month', 'quarter', 'year'] },
       months: { type: 'array', items: { type: 'string' } },
       totalInCents: { type: 'integer' },
       totalOutCents: { type: 'integer' },
@@ -124,9 +161,24 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
           },
         },
       },
+      // 品类维度（叙事层）：可选，不进 `required`——旧结果不因此失配
+      byMerchantCategory: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['category', 'amountCents', 'sharePct'],
+          properties: {
+            category: { type: 'string' },
+            amountCents: { type: 'integer' },
+            sharePct: { type: 'number' },
+          },
+        },
+      },
       anomalies: { type: 'array' },
       momChangePct: { type: 'number' },
       comparedPeriod: { type: 'string' },
+      // 年度覆盖声明（`period = 'year'` 时给）
+      coveredMonths: { type: 'integer' },
     },
   },
 
@@ -134,7 +186,7 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
     type: 'object',
     required: ['period', 'format', 'text', 'analysis'],
     properties: {
-      period: { type: 'string', enum: ['month', 'quarter'] },
+      period: { type: 'string', enum: ['month', 'quarter', 'year'] },
       format: { type: 'string', enum: ['summary', 'detail'] },
       text: { type: 'string' },
       analysis: { type: 'object' },
@@ -167,6 +219,9 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
       risks: { type: 'array' },
       verdict: { type: 'string' },
       effectiveTier: { type: 'string', enum: ['green', 'yellow', 'red'] },
+      // 仅当传了 viaCardId 时出现（可选字段不进 required）
+      viaCardTail: { type: 'string' },
+      viaCardStatus: { type: 'string', enum: ['normal', 'frozen', 'lost'] },
       at: { type: 'integer' },
     },
   },
@@ -192,13 +247,13 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
 
   wealth_list: {
     type: 'object',
-    required: ['products', 'disclaimerId'],
+    required: ['products', 'customerRisk', 'disclaimerId'],
     properties: {
       products: {
         type: 'array',
         items: {
           type: 'object',
-          required: ['productId', 'name', 'minAmountCents'],
+          required: ['productId', 'name', 'minAmountCents', 'eligible'],
           properties: {
             productId: { type: 'string' },
             name: { type: 'string' },
@@ -207,9 +262,12 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
             expectedYieldPct: { type: 'number' },
             riskGrade: { type: 'string' },
             minAmountCents: { type: 'integer' },
+            eligible: { type: 'boolean' },
+            suitabilityNote: { type: 'string' },
           },
         },
       },
+      customerRisk: { type: 'string' },
       disclaimerId: { type: 'string' },
       filter: { type: 'object' },
     },
@@ -217,16 +275,17 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
 
   wealth_compare: {
     type: 'object',
-    required: ['products', 'disclaimerId'],
+    required: ['products', 'customerRisk', 'disclaimerId'],
     properties: {
       products: { type: 'array' },
+      customerRisk: { type: 'string' },
       disclaimerId: { type: 'string' },
     },
   },
 
   wealth_purchase: {
     type: 'object',
-    required: ['holdingId', 'productId', 'amountCents', 'disclaimerId', 'at'],
+    required: ['holdingId', 'productId', 'amountCents', 'disclaimerId', 'at', 'riskMatch'],
     properties: {
       holdingId: { type: 'string' },
       productId: { type: 'string' },
@@ -235,6 +294,15 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
       shares: { type: 'number' },
       disclaimerId: { type: 'string' },
       at: { type: 'integer' },
+      riskMatch: {
+        type: 'object',
+        required: ['customerRisk', 'productRisk', 'at'],
+        properties: {
+          customerRisk: { type: 'string' },
+          productRisk: { type: 'string' },
+          at: { type: 'integer' },
+        },
+      },
     },
   },
 
@@ -278,12 +346,185 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
 
   sub_cancel: {
     type: 'object',
-    required: ['subscriptionId', 'merchant', 'status', 'cancelledAt'],
+    required: [
+      'subscriptionId',
+      'merchant',
+      'status',
+      'mode',
+      'path',
+      'cancelRequestId',
+      'expectedEffectiveAt',
+      'verifyBy',
+      'cancelledAt',
+    ],
     properties: {
       subscriptionId: { type: 'string' },
       merchant: { type: 'string' },
-      status: { type: 'string', enum: ['cancelled'] },
+      status: { type: 'string', enum: ['cancelled', 'paused'] },
+      mode: { type: 'string', enum: ['now', 'at-next-cycle'] },
+      path: { type: 'string', enum: ['authorize', 'merchant', 'manual'] },
+      cancelRequestId: { type: 'string' },
+      expectedEffectiveAt: { type: 'integer' },
+      verifyBy: { type: 'integer' },
       cancelledAt: { type: 'integer' },
+      contractEndAt: { type: 'integer' },
+      pauseUntil: { type: 'integer' },
+    },
+  },
+
+  sub_list: {
+    type: 'object',
+    required: ['confirmed', 'detected', 'spendSplit', 'cutoffFindings', 'detectedAt', 'basis', 'detectorVersion'],
+    properties: {
+      confirmed: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: [
+            'subscriptionId',
+            'merchant',
+            'merchantKey',
+            'cycle',
+            'amountCents',
+            'monthlyCents',
+            'nextChargeAt',
+            'status',
+          ],
+          properties: {
+            subscriptionId: { type: 'string' },
+            merchant: { type: 'string' },
+            merchantKey: { type: 'string' },
+            cycle: { type: 'string' },
+            amountCents: { type: 'integer' },
+            monthlyCents: { type: 'integer' },
+            nextChargeAt: { type: 'integer' },
+            status: { type: 'string' },
+            note: { type: 'string' },
+            reminderAheadDays: { type: 'integer' },
+            contractEndAt: { type: 'integer' },
+            pauseUntil: { type: 'integer' },
+            authorizationStatus: { type: 'string' },
+          },
+        },
+      },
+      detected: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: [
+            'merchantKey',
+            'displayName',
+            'kind',
+            'cycle',
+            'amountCents',
+            'monthlyCents',
+            'confidence',
+            'nextChargeAt',
+            'count',
+          ],
+          properties: {
+            merchantKey: { type: 'string' },
+            displayName: { type: 'string' },
+            kind: { type: 'string' },
+            cycle: { type: 'string' },
+            amountCents: { type: 'integer' },
+            monthlyCents: { type: 'integer' },
+            confidence: { type: 'string' },
+            nextChargeAt: { type: 'integer' },
+            count: { type: 'integer' },
+            priceHike: { type: 'object' },
+            priceDrop: { type: 'object' },
+            trialConverted: { type: 'boolean' },
+            suspectedInstallment: { type: 'boolean' },
+            matchedSubscriptionId: { type: 'string' },
+          },
+        },
+      },
+      spendSplit: {
+        type: 'object',
+        required: [
+          'subscriptionCents',
+          'billCents',
+          'installmentCents',
+          'subscriptionCount',
+          'billCount',
+          'installmentCount',
+        ],
+        properties: {
+          subscriptionCents: { type: 'integer' },
+          billCents: { type: 'integer' },
+          installmentCents: { type: 'integer' },
+          subscriptionCount: { type: 'integer' },
+          billCount: { type: 'integer' },
+          installmentCount: { type: 'integer' },
+        },
+      },
+      cutoffFindings: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['kind', 'verdict', 'merchantKey', 'hint', 'dueAt'],
+          properties: {
+            kind: { type: 'string' },
+            verdict: { type: 'string' },
+            merchantKey: { type: 'string' },
+            subscriptionId: { type: 'string' },
+            authorizationId: { type: 'string' },
+            level: { type: 'string' },
+            hint: { type: 'string' },
+            dueAt: { type: 'integer' },
+          },
+        },
+      },
+      detectedAt: { type: 'integer' },
+      basis: {
+        type: 'object',
+        required: ['from', 'to', 'txnCount'],
+        properties: {
+          from: { type: 'integer' },
+          to: { type: 'integer' },
+          txnCount: { type: 'integer' },
+        },
+      },
+      detectorVersion: { type: 'string' },
+    },
+  },
+
+  sub_watch: {
+    type: 'object',
+    required: ['subscriptionId', 'merchant', 'watch', 'at'],
+    properties: {
+      subscriptionId: { type: 'string' },
+      merchant: { type: 'string' },
+      watch: { type: 'string', enum: ['remind', 'idle', 'none'] },
+      aheadDays: { type: 'integer' },
+      note: { type: 'string' },
+      reminderAheadDays: { type: 'integer' },
+      at: { type: 'integer' },
+    },
+  },
+
+  sub_authorize: {
+    type: 'object',
+    required: [
+      'authorizationId',
+      'merchant',
+      'status',
+      'affected',
+      'affectedSubscriptions',
+      'restoreHint',
+      'verifyBy',
+      'revokedAt',
+    ],
+    properties: {
+      authorizationId: { type: 'string' },
+      merchant: { type: 'string' },
+      status: { type: 'string', enum: ['revoked'] },
+      affected: { type: 'integer' },
+      affectedSubscriptions: { type: 'array', items: { type: 'string' } },
+      restoreHint: { type: 'string' },
+      verifyBy: { type: 'integer' },
+      revokedAt: { type: 'integer' },
     },
   },
 
@@ -299,4 +540,7 @@ export const BANK_RESULT_SCHEMAS: Partial<Readonly<Record<BankToolName, ToolSche
       lockedUntil: { type: 'integer' },
     },
   },
+
+  card_freeze: CARD_STATE,
+  card_unfreeze: CARD_STATE,
 }

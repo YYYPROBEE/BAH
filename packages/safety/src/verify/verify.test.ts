@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   ASSERTION_REJECT_CODE,
+  PROHIBITED_CLAIM_CODE,
   UNVERIFIED_PREFIX,
   chineseToDecimal,
   collectEvidence,
@@ -52,6 +53,12 @@ describe('W05 · 归一化（防绕过）', () => {
     expect(moneyToCents('十万')).toBe(10_000_000)
     expect(rateToBasisPoints('0.3', 'percent')).toBe(30)
     expect(rateToBasisPoints('三', 'permille')).toBe(30)
+  })
+
+  it('“人民币 800”无「元」字的前缀写法也要归一化（否则漏抽金额）', () => {
+    const [assertion] = extractAssertions('人民币 800')
+    expect(assertion?.kind).toBe('amount')
+    expect(assertion?.value).toBe('80000')
   })
 
   it('口语省略写法拒绝解析（一百五 ≠ 105：宁可漏判也不误判）', () => {
@@ -136,6 +143,16 @@ describe('W05 · 三态路由', () => {
     expect(extractAssertions('尾号 1234')[0]?.kind).toBe('account-tail')
   })
 
+  it('证据里没有的日期 → needs-evidence（日期不能靠“省略年份”蒙混）', () => {
+    const outcome = verifyReply({
+      text: '账单截至 10月26日。',
+      evidence: ['账单周期：2026-11-25 至 2026-12-24。'],
+    })
+    expect(outcome.needsEvidence).toBe(1)
+    expect(outcome.verified).toBe(0)
+    expect(outcome.decision).toBe('annotate')
+  })
+
   it('无高影响断言 → 零计数直通（不拦闲聊）', () => {
     const outcome = verifyReply({ text: '今天天气不错，有什么可以帮你？', evidence: [] })
     expect(outcome.total).toBe(0)
@@ -146,6 +163,15 @@ describe('W05 · 三态路由', () => {
   it('证据里“消费 800 元”不会把“已转出 800 元”算成已发生', () => {
     const evidence = collectEvidence(['今日消费 ¥800.00，余额 ¥7,200.00。'])
     expect(evidence.actionValues.has('80000')).toBe(false)
+  })
+
+  it('保本类定性表述 → 拒答（第六类断言，total=rejected=1）', () => {
+    const outcome = verifyReply({ text: '该产品保本保息，风险为零。', evidence: [] })
+    expect(outcome.decision).toBe('reject')
+    expect(outcome.total).toBe(1)
+    expect(outcome.rejected).toBe(1)
+    expect(outcome.text).toBe(refusalText(PROHIBITED_CLAIM_CODE))
+    expect(outcome.assertions[0]?.assertion.kind).toBe('guarantee')
   })
 
   it('否定语境不按资金动作拒答（转账失败的诚实说明 → 仅未核实）', () => {

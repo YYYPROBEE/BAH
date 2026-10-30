@@ -106,6 +106,15 @@ const EXEMPT: readonly Exemption[] = [
     backing: 'packages/saga/src/compensation/compensation.test.ts',
   },
   {
+    file: 'packages/saga/src/alert/index.ts',
+    kind: 'offline',
+    reason:
+      'SLO 八指标与进程内告警总线：只被 `/api/metrics`、Prometheus 导出与 `bah metrics` 读取，' +
+      '行为不写 `session.jsonl` / `llm.jsonl`（告警走进程内 sink）。阈值判决（如 soft=0 的边界）' +
+      '只影响 JSON / Prometheus 口径，重录任何对话场景都观察不到它——挂进 coveredSources 是假覆盖。',
+    backing: 'packages/saga/src/observability.test.ts',
+  },
+  {
     file: 'packages/llm/src/deepseek/adapter.ts',
     kind: 'unreachable',
     reason:

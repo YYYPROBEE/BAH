@@ -1,20 +1,22 @@
-/**
- * mock 银行核心（施工单 07 §2–§4 / §6 的 T-BANK-002、003、007、008、012）。
- *
- * 重点不是 CRUD，而是三条权威口径：
- * 1. 写操作必须过票据核销（且核销在任何账本变更之前）；
- * 2. 日累计 / 剩余额度只从账本推导（换会话不重置）；
- * 3. 预检五规则的 block / warn 与业务校验一致。
- */
-
 import { describe, expect, it } from 'vitest'
 
 import { asSessionId, asTicketId, captureThrown } from '@bah/test-support'
 
 import { buildBankDataset, DEFAULT_LIMITS, DEMO_NOW, type BankDataset } from '../forge/index.ts'
-import { accountDisplayName, bankIds, type BankLimits, type Account } from './model.ts'
 import { MockBankCore } from './mock.ts'
 import type { TicketBinding, TicketRef } from './ticket.ts'
+import {
+  accountDisplayName,
+  bankIds,
+  PAGE_LIMIT_DEFAULT,
+  PAGE_LIMIT_MAX,
+  type Account,
+  type BankLimits,
+  type Card,
+  type MerchantAuthorization,
+  type Subscription,
+  type User,
+} from './model.ts'
 
 const NOW = DEMO_NOW
 
@@ -187,7 +189,10 @@ describe('T-BANK-012 余额不足', () => {
     const after = await core.balance(ACCOUNT)
     expect(after).toEqual(before)
     const page = await core.queryTransactions({ userId: USER })
-    expect(page.items).toHaveLength(dataset().transactions.length)
+    // 自洽式：不钉魔数，钉"一页最多取 PAGE_LIMIT_DEFAULT 条"的过滤语义
+    expect(page.items).toHaveLength(
+      Math.min(PAGE_LIMIT_DEFAULT, dataset().transactions.length),
+    )
   })
 })
 
@@ -386,10 +391,14 @@ describe('读操作', () => {
 
   it('queryTransactions：过滤、倒序、分页游标与非法游标', async () => {
     const core = setup()
+    const data = dataset()
+    const total = data.transactions.length
 
     const all = await core.queryTransactions({ userId: USER })
-    expect(all.items).toHaveLength(8)
-    expect(all.nextCursor).toBeUndefined()
+    // 自洽式：一页最多 PAGE_LIMIT_DEFAULT 条；还有下一页就返回游标
+    const firstPage = Math.min(PAGE_LIMIT_DEFAULT, total)
+    expect(all.items).toHaveLength(firstPage)
+    expect(all.nextCursor).toBe(total > firstPage ? String(firstPage) : undefined)
     expect(all.items[0]?.at).toBeGreaterThan(all.items[1]?.at ?? 0)
 
     const page1 = await core.queryTransactions({ userId: USER, limit: 3 })
@@ -398,11 +407,14 @@ describe('读操作', () => {
     const page2 = await core.queryTransactions({ userId: USER, limit: 3, cursor: '3' })
     expect(page2.items).toHaveLength(3)
     const page3 = await core.queryTransactions({ userId: USER, limit: 3, cursor: '6' })
-    expect(page3.items).toHaveLength(2)
-    expect(page3.nextCursor).toBeUndefined()
+    expect(page3.items).toHaveLength(Math.min(3, total - 6))
+    expect(page3.nextCursor).toBe(total > 9 ? '9' : undefined)
 
     expect((await core.queryTransactions({ userId: USER, accountId: FIXED })).items).toEqual([])
-    expect((await core.queryTransactions({ userId: USER, category: 'salary' })).items).toHaveLength(1)
+    const salaryCount = data.transactions.filter((item) => item.category === 'salary').length
+    expect((await core.queryTransactions({ userId: USER, category: 'salary' })).items).toHaveLength(
+      Math.min(PAGE_LIMIT_DEFAULT, salaryCount),
+    )
     expect(
       (
         await core.queryTransactions({
@@ -414,7 +426,9 @@ describe('读操作', () => {
     ).toHaveLength(3)
     // limit 越界被夹到 [1, 100]
     expect((await core.queryTransactions({ userId: USER, limit: 0 })).items).toHaveLength(1)
-    expect((await core.queryTransactions({ userId: USER, limit: 500 })).items).toHaveLength(8)
+    expect((await core.queryTransactions({ userId: USER, limit: 500 })).items).toHaveLength(
+      Math.min(PAGE_LIMIT_MAX, total),
+    )
 
     expect((await rejection(() => core.queryTransactions({ userId: USER, cursor: 'abc' }))).code).toBe('cursor-invalid')
     expect((await rejection(() => core.queryTransactions({ userId: USER, cursor: '-1' }))).code).toBe('cursor-invalid')
@@ -459,9 +473,13 @@ describe('读操作', () => {
 
   it('listWealthProducts：按风险等级 / 类型 / 期限过滤', async () => {
     const core = setup()
-    expect(await core.listWealthProducts()).toHaveLength(3)
+    expect(await core.listWealthProducts()).toHaveLength(5)
     expect((await core.listWealthProducts({ riskGrade: 'R1' })).map((item) => item.id)).toEqual([bankIds.product('w-1')])
-    expect((await core.listWealthProducts({ kind: 'fund' })).map((item) => item.id)).toEqual([bankIds.product('w-3')])
+    expect((await core.listWealthProducts({ kind: 'fund' })).map((item) => item.id)).toEqual([
+      bankIds.product('w-3'),
+      bankIds.product('w-4'),
+      bankIds.product('w-5'),
+    ])
     expect((await core.listWealthProducts({ maxTermDays: 100 })).map((item) => item.id)).toEqual([
       bankIds.product('w-1'),
     ])
@@ -823,5 +841,368 @@ describe('getUser（只读主体，实体槽位用它校验"是谁"）', () => {
     const second = await core.getUser(USER)
     expect(second?.name).toBe('张三')
     expect(first.name).toBe('李四')
+  })
+})
+
+
+/* ── 订阅 / 代扣协议（场景 5 · P1 的 6 个新方法） ─────────────────────────── */
+
+const VIDEO = bankIds.subscription('s-video')
+const MUSIC = bankIds.subscription('s-music')
+const AUTH_VIDEO = bankIds.authorization('auth-video')
+const AUTH_MUSIC = bankIds.authorization('auth-music')
+
+const SUB_VIDEO: Subscription = {
+  id: VIDEO,
+  userId: USER,
+  merchant: '视频会员',
+  merchantKey: '视频会员',
+  cycle: 'monthly',
+  nextChargeAt: NOW + 5 * 24 * 60 * 60 * 1000,
+  amountCents: 3000,
+  status: 'active',
+  contractEndAt: NOW + 90 * 24 * 60 * 60 * 1000,
+}
+const SUB_MUSIC: Subscription = {
+  id: MUSIC,
+  userId: USER,
+  merchant: '支付宝-云音乐',
+  merchantKey: '云音乐',
+  cycle: 'monthly',
+  nextChargeAt: NOW + 7 * 24 * 60 * 60 * 1000,
+  amountCents: 1200,
+  status: 'active',
+}
+const AUTHORIZATIONS: MerchantAuthorization[] = [
+  {
+    id: AUTH_VIDEO,
+    userId: USER,
+    merchant: '视频会员',
+    merchantKey: '视频会员',
+    agreementNo: 'AG-VIDEO-0001',
+    accountId: ACCOUNT,
+    status: 'active',
+    signedAt: NOW - 200 * 24 * 60 * 60 * 1000,
+  },
+  {
+    id: AUTH_MUSIC,
+    userId: USER,
+    merchant: '支付宝-云音乐',
+    merchantKey: '云音乐',
+    agreementNo: 'AG-MUSIC-0001',
+    accountId: ACCOUNT,
+    status: 'active',
+    signedAt: NOW - 150 * 24 * 60 * 60 * 1000,
+  },
+]
+
+function subscriptionSetup(): MockBankCore {
+  return setup({ subscriptions: [SUB_VIDEO, SUB_MUSIC], authorizations: AUTHORIZATIONS })
+}
+
+describe('订阅与代扣协议（P1）', () => {
+  it('listSubscriptions：只返回本人订阅的副本（改副本不污染账本）', async () => {
+    const core = subscriptionSetup()
+    const first = await core.listSubscriptions(USER)
+    expect(first.map((item) => item.id)).toEqual([MUSIC, VIDEO])
+    Object.assign(first[1] as Subscription, { merchant: '被改坏' })
+    const second = await core.listSubscriptions(USER)
+    expect(second[1]?.merchant).toBe('视频会员')
+    expect(await core.listSubscriptions(bankIds.user('u-999'))).toEqual([])
+  })
+
+  it('listAuthorizations：只返回本人协议', async () => {
+    const core = subscriptionSetup()
+    const list = await core.listAuthorizations(USER)
+    expect(list.map((item) => item.id)).toEqual([AUTH_MUSIC, AUTH_VIDEO])
+    expect(await core.listAuthorizations(bankIds.user('u-999'))).toEqual([])
+  })
+
+  it('revokeAuthorization：关协议 → 该 merchantKey 下 active 订阅全部暂停；重复调用幂等', async () => {
+    const core = subscriptionSetup()
+    const result = await core.revokeAuthorization(USER, AUTH_MUSIC)
+    expect(result).toMatchObject({
+      authorizationId: AUTH_MUSIC,
+      merchant: '支付宝-云音乐',
+      revokedAt: NOW,
+      affectedSubscriptions: [MUSIC],
+    })
+    const music = (await core.listSubscriptions(USER)).find((item) => item.id === MUSIC)
+    expect(music).toMatchObject({ status: 'paused', pauseUntil: SUB_MUSIC.nextChargeAt })
+
+    const again = await core.revokeAuthorization(USER, AUTH_MUSIC)
+    expect(again.revokedAt).toBe(NOW)
+    expect(again.affectedSubscriptions).toEqual([])
+  })
+
+  it('revokeAuthorization：未知协议 / 他人协议 → 结构化失败', async () => {
+    const core = subscriptionSetup()
+    expect(
+      (await captureThrownAsync(() => core.revokeAuthorization(USER, bankIds.authorization('auth-404'))))
+        .code,
+    ).toBe('authorization-unknown')
+    expect(
+      (await captureThrownAsync(() => core.revokeAuthorization(bankIds.user('u-999'), AUTH_MUSIC)))
+        .code,
+    ).toBe('authorization-not-owned')
+  })
+
+  it('setSubscriptionWatch：remind / idle / none 三态互斥写入，且可清空', async () => {
+    const core = subscriptionSetup()
+    const reminded = await core.setSubscriptionWatch(USER, VIDEO, { watch: 'remind', aheadDays: 5 })
+    expect(reminded.reminderAheadDays).toBe(5)
+    expect(reminded.note).toBeUndefined()
+
+    const idle = await core.setSubscriptionWatch(USER, VIDEO, { watch: 'idle' })
+    expect(idle.note).toBe('idle')
+    expect(idle.reminderAheadDays).toBeUndefined()
+
+    const cleared = await core.setSubscriptionWatch(USER, VIDEO, { watch: 'none' })
+    expect(cleared.note).toBeUndefined()
+    expect(cleared.reminderAheadDays).toBeUndefined()
+
+    const defaulted = await core.setSubscriptionWatch(USER, VIDEO, { watch: 'remind' })
+    expect(defaulted.reminderAheadDays).toBe(3)
+
+    await core.cancelSubscription(USER, VIDEO)
+    expect(
+      (await captureThrownAsync(() => core.setSubscriptionWatch(USER, VIDEO, { watch: 'none' }))).code,
+    ).toBe('subscription-cancelled')
+  })
+
+  it('setSubscriptionWatch：提前量越界 / 越权 → 结构化失败', async () => {
+    const core = subscriptionSetup()
+    expect(
+      (await captureThrownAsync(() => core.setSubscriptionWatch(USER, VIDEO, { watch: 'remind', aheadDays: 0 })))
+        .code,
+    ).toBe('reminder-ahead-invalid')
+    expect(
+      (await captureThrownAsync(() => core.setSubscriptionWatch(USER, VIDEO, { watch: 'idle', aheadDays: 3 })))
+        .code,
+    ).toBe('reminder-ahead-invalid')
+    expect(
+      (await captureThrownAsync(() => core.setSubscriptionWatch(bankIds.user('u-999'), VIDEO, { watch: 'none' })))
+        .code,
+    ).toBe('subscription-not-owned')
+  })
+
+  it('upcomingCharges：只回 active、窗口内；同一到期日按订阅 ID 稳定排序', async () => {
+    const core = subscriptionSetup()
+    const sameDue: Subscription[] = [
+      { ...SUB_MUSIC, id: bankIds.subscription('s-z'), nextChargeAt: NOW + 3 * 24 * 60 * 60 * 1000 },
+      { ...SUB_MUSIC, id: bankIds.subscription('s-a'), nextChargeAt: NOW + 3 * 24 * 60 * 60 * 1000 },
+      { ...SUB_VIDEO, nextChargeAt: NOW + 5 * 24 * 60 * 60 * 1000 },
+    ]
+    const core2 = setup({ subscriptions: sameDue, authorizations: AUTHORIZATIONS })
+    const listed = await core2.upcomingCharges(USER, 7)
+    expect(listed.map((item) => item.subscriptionId)).toEqual([
+      bankIds.subscription('s-a'),
+      bankIds.subscription('s-z'),
+      VIDEO,
+    ])
+    expect(await core.upcomingCharges(USER, 0)).toEqual([])
+  })
+
+  it('cancelSubscription(mode=at-next-cycle)：置 paused + pauseUntil（到期即断）', async () => {
+    const core = subscriptionSetup()
+    const result = await core.cancelSubscription(USER, VIDEO, 'at-next-cycle')
+    expect(result.pausedUntil).toBe(SUB_VIDEO.nextChargeAt)
+    const found = (await core.listSubscriptions(USER)).find((item) => item.id === VIDEO)
+    expect(found).toMatchObject({ status: 'paused', pauseUntil: SUB_VIDEO.nextChargeAt })
+
+    const cancelled = await core.cancelSubscription(USER, VIDEO)
+    expect(cancelled.pausedUntil).toBeUndefined()
+    expect((await core.listSubscriptions(USER)).find((item) => item.id === VIDEO)?.status).toBe(
+      'cancelled',
+    )
+
+    // 已取消是终态：再调 at-next-cycle 不得复活成 paused
+    await core.cancelSubscription(USER, VIDEO, 'at-next-cycle')
+    expect((await core.listSubscriptions(USER)).find((item) => item.id === VIDEO)?.status).toBe(
+      'cancelled',
+    )
+  })
+
+  it('recordCancelRequest / listCancelRequests：落事实、校验时间顺序与订阅归属', async () => {
+    const core = subscriptionSetup()
+    const record = await core.recordCancelRequest({
+      userId: USER,
+      subscriptionId: VIDEO,
+      path: 'merchant',
+      mode: 'now',
+      requestedAt: NOW,
+      expectedEffectiveAt: NOW,
+      verifyBy: NOW + 3 * 24 * 60 * 60 * 1000,
+    })
+    expect(record.id).toBe(bankIds.cancelRequest('cr-new-1'))
+    expect(await core.listCancelRequests(USER)).toEqual([record])
+
+    // 非有限时间戳
+    expect(
+      (
+        await captureThrownAsync(() =>
+          core.recordCancelRequest({
+            userId: USER,
+            subscriptionId: VIDEO,
+            path: 'merchant',
+            mode: 'now',
+            requestedAt: Number.NaN,
+            expectedEffectiveAt: NOW,
+            verifyBy: NOW,
+          }),
+        )
+      ).code,
+    ).toBe('cancel-request-invalid')
+
+    expect(
+      (
+        await captureThrownAsync(() =>
+          core.recordCancelRequest({
+            userId: USER,
+            subscriptionId: VIDEO,
+            path: 'merchant',
+            mode: 'now',
+            requestedAt: NOW,
+            expectedEffectiveAt: NOW + 1000,
+            verifyBy: NOW,
+          }),
+        )
+      ).code,
+    ).toBe('cancel-request-invalid')
+    expect(
+      (
+        await captureThrownAsync(() =>
+          core.recordCancelRequest({
+            userId: USER,
+            subscriptionId: bankIds.subscription('s-404'),
+            path: 'merchant',
+            mode: 'now',
+            requestedAt: NOW,
+            expectedEffectiveAt: NOW,
+            verifyBy: NOW,
+          }),
+        )
+      ).code,
+    ).toBe('subscription-unknown')
+  })
+})
+
+/* ── 卡片状态机（ADR-0006 / L3 T1–T10 的 core 面） ───────────────────────── */
+
+describe('卡片冻结 / 解冻（core）', () => {
+  const CARD_1 = bankIds.card('c-1')
+
+  it('T1 冻结正常卡 → frozen；T2 重复冻结幂等 changed=false', async () => {
+    const core = setup()
+    expect(await core.freezeCard(USER, CARD_1)).toEqual({
+      cardId: CARD_1,
+      tail: '1234',
+      status: 'frozen',
+      changed: true,
+    })
+    expect((await core.freezeCard(USER, CARD_1)).changed).toBe(false)
+  })
+
+  it('T3 冻结已挂失卡 → card-lost', async () => {
+    const core = setup()
+    await core.reportCardLost(USER, CARD_1)
+    expect((await rejection(() => core.freezeCard(USER, CARD_1))).code).toBe('card-lost')
+  })
+
+  it('T4 解冻冻结卡 → normal；T5 解冻正常卡幂等 changed=false', async () => {
+    const core = setup()
+    await core.freezeCard(USER, CARD_1)
+    expect(await core.unfreezeCard(USER, CARD_1)).toEqual({
+      cardId: CARD_1,
+      tail: '1234',
+      status: 'normal',
+      changed: true,
+    })
+    expect((await core.unfreezeCard(USER, CARD_1)).changed).toBe(false)
+  })
+
+  it('T6 解冻已挂失卡 → card-lost', async () => {
+    const core = setup()
+    await core.reportCardLost(USER, CARD_1)
+    expect((await rejection(() => core.unfreezeCard(USER, CARD_1))).code).toBe('card-lost')
+  })
+
+  it('T7 冻结他人卡 → card-not-owned（跨用户是越权）', async () => {
+    const base = dataset()
+    const otherUser: User = { ...base.users[0]!, id: bankIds.user('u-2') }
+    const otherAccount: Account = {
+      ...base.accounts[0]!,
+      id: bankIds.account('a-9'),
+      userId: otherUser.id,
+      number: '6222 0202 0000 0009',
+    }
+    const otherCard: Card = {
+      ...base.cards[0]!,
+      id: bankIds.card('c-9'),
+      accountId: otherAccount.id,
+      tail: '0009',
+    }
+    const core = setup({
+      users: [...base.users, otherUser],
+      accounts: [...base.accounts, otherAccount],
+      cards: [...base.cards, otherCard],
+    })
+    expect((await rejection(() => core.freezeCard(USER, bankIds.card('c-9')))).code).toBe(
+      'card-not-owned',
+    )
+  })
+
+  it('T8 冻结卡：预检 block card-unavailable；直调 createTransfer 也拒且票据不核销', async () => {
+    const core = setup()
+    await core.freezeCard(USER, CARD_1)
+    const preview = await core.previewTransfer({ ...transfer({ amountCents: 10_000 }), viaCardId: CARD_1 })
+    expect(preview.verdict).toBe('block')
+    expect(preview.risks.find((risk) => risk.code === 'card-unavailable')?.severity).toBe('block')
+    expect(preview.viaCard).toEqual({ tail: '1234', status: 'frozen' })
+
+    const ref = ticket(core, { amountCents: 10_000 })
+    const before = await core.balance(ACCOUNT)
+    expect(
+      (await rejection(() => core.createTransfer({ ...transfer({ amountCents: 10_000 }), viaCardId: CARD_1 }, ref)))
+        .code,
+    ).toBe('card-unavailable')
+    expect(core.tickets.status(ref.ticketId)).toBe('approved')
+    expect(await core.balance(ACCOUNT)).toEqual(before)
+  })
+
+  it('T9 正常卡 viaCardId：预检带 viaCard，执行成功', async () => {
+    const core = setup()
+    const preview = await core.previewTransfer({ ...transfer({ amountCents: 10_000 }), viaCardId: CARD_1 })
+    expect(preview.viaCard).toEqual({ tail: '1234', status: 'normal' })
+    expect(preview.verdict).toBe('allow')
+
+    const created = await core.createTransfer(
+      { ...transfer({ amountCents: 10_000 }), viaCardId: CARD_1 },
+      ticket(core, { amountCents: 10_000 }),
+    )
+    expect(created.amountCents).toBe(10_000)
+  })
+
+  it('T10 不传 viaCardId：零回归（无 viaCard、原语义）', async () => {
+    const core = setup()
+    const preview = await core.previewTransfer(transfer({ amountCents: 10_000 }))
+    expect(preview.viaCard).toBeUndefined()
+    expect(preview.verdict).toBe('allow')
+    expect((await core.createTransfer(transfer({ amountCents: 10_000 }), ticket(core, { amountCents: 10_000 }))).amountCents).toBe(
+      10_000,
+    )
+  })
+
+  it('跨账户用卡 → card-not-owned（不是参数错）', async () => {
+    const core = setup()
+    expect(
+      (await rejection(() =>
+        core.previewTransfer({
+          ...transfer({ amountCents: 10_000 }),
+          fromAccountId: FIXED,
+          viaCardId: CARD_1,
+        }),
+      )).code,
+    ).toBe('card-not-owned')
   })
 })

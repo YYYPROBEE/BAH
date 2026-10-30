@@ -44,7 +44,10 @@ pnpm bah --profile mobile --serve
 > 回交工单、SLA 计时。`handoff/requested`/`handoff/resumed` 两个事件经 `appendDomain` 写入且标记 `ignorable`，
 > 不在事件表 v1.0.1 冻结键清单内。"
 
-接管期 `/api/turn` 与 `/api/session/fork` **一律 409**；交回必须是一次真实的状态转移（未接管时交回也是 409）。
+接管期 `/api/turn` **202 落账但不驱动模型**（消息会出现在会话流里，等坐席处理）；`/api/session/fork` 409。
+交回必须是一次真实的状态转移（未接管时交回也是 409），且只能由**坐席工作台**发起：
+`POST /api/handoff/resume` 认坐席凭证，移动渠道按部署纪律不配 `BAH_OPERATOR_TOKEN` ⇒ 移动壳
+**不渲染"恢复"按钮**（渲染了也只会得到 404，2026-10-29 走查 P1-1）。
 
 ### 3.3 回退 = 分叉
 

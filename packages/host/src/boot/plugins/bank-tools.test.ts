@@ -278,12 +278,12 @@ describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
     }
   })
 
-  it('T-IDN-001 16 个工具全部注册；不写 demoUserId 时业务工具 deny no-identity', async () => {
+  it('T-IDN-001 21 个工具全部注册；不写 demoUserId 时业务工具 deny no-identity', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bah-bank-noid-'))
     const app = await bootWith({}, 's-bank-noid', dir)
     try {
       const registry = app.ctx.get(TOOLS_SERVICE)
-      expect(registry.list()).toHaveLength(16)
+      expect(registry.list()).toHaveLength(21)
       expect(registry.has('account_balance')).toBe(true)
       expect(registry.has('transfer_create')).toBe(true)
       expect(registry.has('verify_face')).toBe(true)
@@ -598,17 +598,25 @@ describe('W12 执行 lease 配置（四件套：白名单 / 默认 / fail-loud /
 /* ── 实体槽位（S3）：bank:tools.contextSlots 的配置面与端口通电 ─────────────── */
 
 describe('实体槽位参数（bank:tools.contextSlots）', () => {
-  it('默认七键 = DEFAULT_CONTEXT_SLOTS（与 02 §ES-23 / 00 §5.1 逐字一致）', () => {
+  it('默认八键 = DEFAULT_CONTEXT_SLOTS（与 02 §ES-23 / 00 §5.1 逐字一致）', () => {
     expect(bankToolsPlugin.validate({}).contextSlots).toEqual(DEFAULT_CONTEXT_SLOTS)
     expect(DEFAULT_CONTEXT_SLOTS).toEqual({
       accounts: 3,
       transactions: 3,
+      subscriptions: 3,
       windowDays: 30,
       timeoutMs: 250,
       maxChars: 800,
       breakerFailures: 3,
       breakerOpenMs: 10_000,
     })
+  })
+
+  it('subscriptions=0 合法（关闭即将扣款），越界仍 fail-loud', () => {
+    const off = bankToolsPlugin.validate({
+      contextSlots: { subscriptions: 0 },
+    }) as BankToolsSettings
+    expect(off.contextSlots.subscriptions).toBe(0)
   })
 
   it('显式覆盖生效（未写的键仍取默认）', () => {
@@ -623,11 +631,13 @@ describe('实体槽位参数（bank:tools.contextSlots）', () => {
     })
   })
 
-  it('七键越界与未知键全部 fail-loud', () => {
+  it('八键越界与未知键全部 fail-loud', () => {
     const cases: readonly [string, Readonly<Record<string, unknown>>, string][] = [
       ['accounts 0', { contextSlots: { accounts: 0 } }, 'invalid-config'],
       ['accounts 11', { contextSlots: { accounts: 11 } }, 'invalid-config'],
       ['transactions 11', { contextSlots: { transactions: 11 } }, 'invalid-config'],
+      ['subscriptions -1', { contextSlots: { subscriptions: -1 } }, 'invalid-config'],
+      ['subscriptions 11', { contextSlots: { subscriptions: 11 } }, 'invalid-config'],
       ['windowDays 366', { contextSlots: { windowDays: 366 } }, 'invalid-config'],
       ['timeoutMs 10', { contextSlots: { timeoutMs: 10 } }, 'invalid-config'],
       ['timeoutMs 5001', { contextSlots: { timeoutMs: 5_001 } }, 'invalid-config'],

@@ -46,6 +46,7 @@ interface Calls {
   getUser: number
   listAccounts: number
   queryTransactions: number
+  upcomingCharges: number
 }
 
 /** 一次装配的产物（测试只拿这些句柄）。 */
@@ -70,7 +71,7 @@ interface HarnessOptions {
  */
 function harness(options: HarnessOptions = {}): Harness {
   const base = new MockBankCore({ data: demoData(), now: () => T0 })
-  const calls: Calls = { getUser: 0, listAccounts: 0, queryTransactions: 0 }
+  const calls: Calls = { getUser: 0, listAccounts: 0, queryTransactions: 0, upcomingCharges: 0 }
   const overrides = options.overrides
 
   const getUser: BankCoreProvider['getUser'] = overrides?.getUser ?? base.getUser.bind(base)
@@ -78,6 +79,8 @@ function harness(options: HarnessOptions = {}): Harness {
     overrides?.listAccounts ?? base.listAccounts.bind(base)
   const queryTransactions: BankCoreProvider['queryTransactions'] =
     overrides?.queryTransactions ?? base.queryTransactions.bind(base)
+  const upcomingCharges: BankCoreProvider['upcomingCharges'] =
+    overrides?.upcomingCharges ?? base.upcomingCharges.bind(base)
 
   const core = new Proxy(base, {
     get(target, prop, receiver) {
@@ -97,6 +100,12 @@ function harness(options: HarnessOptions = {}): Harness {
         return async (query: TxnQuery) => {
           calls.queryTransactions += 1
           return queryTransactions(query)
+        }
+      }
+      if (prop === 'upcomingCharges') {
+        return async (...args: Parameters<BankCoreProvider['upcomingCharges']>) => {
+          calls.upcomingCharges += 1
+          return upcomingCharges(...args)
         }
       }
       const value: unknown = Reflect.get(target, prop, receiver)
@@ -148,7 +157,7 @@ describe('身份解析', () => {
     const now = vi.fn(() => T0)
     const resolution = await source.resolve(invocation({ now }))
     expect(resolution).toEqual({ status: 'unbound' })
-    expect(calls).toEqual({ getUser: 0, listAccounts: 0, queryTransactions: 0 })
+    expect(calls).toEqual({ getUser: 0, listAccounts: 0, queryTransactions: 0, upcomingCharges: 0 })
     expect(now).not.toHaveBeenCalled()
   })
 
@@ -376,7 +385,7 @@ describe('降级', () => {
     const now = vi.fn(() => T0)
     const resolution = await source.resolve(invocation({ signal: controller.signal, now }))
     expect(resolution).toEqual({ status: 'degraded', code: 'slots-aborted' })
-    expect(calls).toEqual({ getUser: 0, listAccounts: 0, queryTransactions: 0 })
+    expect(calls).toEqual({ getUser: 0, listAccounts: 0, queryTransactions: 0, upcomingCharges: 0 })
     expect(now).not.toHaveBeenCalled()
   })
 
@@ -632,20 +641,89 @@ describe('预算与截断', () => {
       meta: { source: 'bank', status: 'ok', asOfText: full.asOfText ?? '' },
     })
     if (rendered === undefined) throw new Error('渲染为空')
-    // 满数据（3 账户 + 3 流水）时没有 notes，所以 `- ` 开头的行全是数据行
+    // 满数据（3 账户 + 3 流水 + 1 条即将扣款）时没有 notes，`- ` 开头的行全是数据行
     const dataLines = rendered.split('\n').filter((line) => line.startsWith('- '))
-    expect(dataLines).toHaveLength(6)
+    expect(dataLines).toHaveLength(7)
     const budget = dataLines.reduce((sum, line) => sum + line.length, 0)
 
     const exact = await harness({ settings: { maxChars: budget } }).source.resolve(invocation())
     expect(exact.view?.accounts).toHaveLength(3)
     expect(exact.view?.recentTransactions).toHaveLength(3)
+    expect(exact.view?.upcomingCharges).toHaveLength(1)
     expect(exact.view?.notes).toBeUndefined()
 
     const tight = await harness({ settings: { maxChars: budget - 1 } }).source.resolve(invocation())
     expect(tight.view?.accounts).toHaveLength(3)
     expect(tight.view?.recentTransactions).toHaveLength(2)
     expect(tight.view?.notes?.join('')).toContain('已按预算截断')
+  })
+})
+
+/* ── 6.1 即将扣款（场景 5 · P6） ───────────────────────────────────────────── */
+
+describe('即将扣款的对话内提醒', () => {
+  it('默认 3 条：demo 视频会员 5 天后进入槽位，渲染出【即将扣款】', async () => {
+    const { source, calls } = harness()
+    const resolution = await source.resolve(invocation())
+    expect(calls.upcomingCharges).toBe(1)
+    expect(resolution.view?.upcomingCharges).toEqual(['视频会员 5 天后 ¥30.00（每月）'])
+    const rendered = renderRuntimeContext({
+      ...resolution.view,
+      meta: { source: 'bank', status: 'ok', asOfText: resolution.asOfText ?? '' },
+    })
+    expect(rendered).toContain('【即将扣款】')
+    expect(rendered).toContain('- 视频会员 5 天后 ¥30.00（每月）')
+    // 商户名进入前已净化：单行、无控制符
+    expect(rendered).not.toContain('\n视频会员')
+  })
+
+  it('subscriptions=0：关闭开关 → 不读核心、不渲染，输出与旧版逐字一致', async () => {
+    const { source, calls } = harness({ settings: { subscriptions: 0 } })
+    const resolution = await source.resolve(invocation())
+    expect(calls.upcomingCharges).toBe(0)
+    expect(resolution.view?.upcomingCharges).toBeUndefined()
+    const rendered = renderRuntimeContext({
+      ...resolution.view,
+      meta: { source: 'bank', status: 'ok', asOfText: resolution.asOfText ?? '' },
+    })
+    expect(rendered).not.toContain('【即将扣款】')
+  })
+
+  it('窗口外不提醒：upcomingCharges 只返回窗口内、只含 active', async () => {
+    const core = new MockBankCore({ data: demoData(), now: () => T0 })
+    const within = await core.upcomingCharges(bankIds.user('u-1'), 7)
+    expect(within).toHaveLength(1)
+    expect(within[0]).toMatchObject({ merchant: '视频会员', amountCents: 3000 })
+    expect(await core.upcomingCharges(bankIds.user('u-1'), 0)).toHaveLength(0)
+    expect(await core.upcomingCharges(bankIds.user('u-999'), 7)).toHaveLength(0)
+  })
+
+  it('reminderAheadDays 不是死字段：设置后进入 upcomingCharges 并收窄提醒窗口', async () => {
+    const core = new MockBankCore({ data: demoData(), now: () => T0 })
+    await core.setSubscriptionWatch(bankIds.user('u-1'), bankIds.subscription('s-1'), {
+      watch: 'remind',
+      aheadDays: 2,
+    })
+    const listed = await core.upcomingCharges(bankIds.user('u-1'), 7)
+    expect(listed[0]?.reminderAheadDays).toBe(2)
+
+    const { source } = harness({
+      overrides: {
+        // 5 天后到期但只提前 1 天提醒 → 今天不该出现
+        upcomingCharges: async () => [
+          {
+            subscriptionId: bankIds.subscription('s-1'),
+            merchant: '视频会员',
+            amountCents: 3000,
+            dueAt: T0 + 5 * DAY_MS,
+            cycle: 'monthly',
+            reminderAheadDays: 1,
+          },
+        ],
+      },
+    })
+    const resolution = await source.resolve(invocation())
+    expect(resolution.view?.upcomingCharges).toBeUndefined()
   })
 })
 
@@ -667,6 +745,7 @@ describe('包入口', () => {
     expect(bank.DEFAULT_CONTEXT_SLOTS).toEqual({
       accounts: 3,
       transactions: 3,
+      subscriptions: 3,
       windowDays: 30,
       timeoutMs: 250,
       maxChars: 800,

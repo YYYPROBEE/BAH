@@ -18,6 +18,7 @@ import type {
   BalanceResult,
   BillAnalysisResult,
   BillReportResult,
+  SubscriptionListResult,
   TransferCreatedResult,
   TransferPreviewResult,
   TxnQueryResult,
@@ -117,10 +118,47 @@ export interface BankSessionEventMap {
     readonly status: 'lost'
     readonly at: number
   }
+  /** 卡片状态迁移（ADR-0006；冻结/解冻。挂失仍走 card/reported-lost）。 */
+  'card/state-changed': {
+    readonly cardId: string
+    readonly tail: string
+    readonly from: 'normal' | 'frozen'
+    readonly to: 'normal' | 'frozen'
+    readonly reason: 'freeze' | 'unfreeze'
+    /** 可选的用户/模型给出的原因（只落审计，不参与判定）。 */
+    readonly note?: string
+    readonly at: number
+  }
   /** 取消自动扣款订阅（ADR-0003；黄档写操作）。 */
   'sub/cancelled': {
     readonly subscriptionId: string
     readonly merchant: string
+    readonly at: number
+  }
+  /**
+   * 订阅清单 + 周期检测结果已读取（ADR-0007）。
+   *
+   * `detected` 是**推断**，一旦落进 `session.jsonl` 就获得事实级的耐久性；
+   * `detectedAt / basis / detectorVersion` 三件套让回放能识别这是快照，不是现况。
+   */
+  'read/subscriptions': {
+    readonly result: SubscriptionListResult
+    readonly detectedAt: number
+    readonly basis: { readonly from: number; readonly to: number; readonly txnCount: number }
+    readonly detectorVersion: string
+  }
+  /** 代扣协议已关闭（ADR-0007；黄档写操作，**只关不开**）。 */
+  'sub/authorization-revoked': {
+    readonly authorizationId: string
+    readonly merchant: string
+    readonly affected: number
+    readonly at: number
+  }
+  /** 订阅提醒 / 标注已更新（ADR-0007；黄档写操作）。 */
+  'sub/watch-updated': {
+    readonly subscriptionId: string
+    readonly watch: 'remind' | 'idle' | 'none'
+    readonly aheadDays?: number
     readonly at: number
   }
 }
@@ -152,7 +190,11 @@ export const BANK_SESSION_EVENT_TYPES = [
   'verify/locked',
   'ticket/ledger-failed',
   'card/reported-lost',
+  'card/state-changed',
   'sub/cancelled',
+  'read/subscriptions',
+  'sub/authorization-revoked',
+  'sub/watch-updated',
 ] as const satisfies readonly BankSessionEventType[]
 
 /**

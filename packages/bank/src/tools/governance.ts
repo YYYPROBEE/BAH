@@ -14,12 +14,12 @@
 
 import { BahError, assertNever, errorCodeOf, logJson, reasonOf } from '@bah/util'
 
-import type { Context, SessionId, TicketDraft, TicketId, ToolTierLevel } from '@bah/core'
+import type { Context, SessionId, TicketAuthorization, TicketDraft, TicketId, ToolTierLevel } from '@bah/core'
 import type { BankTierInput } from '@bah/policy'
 import type { PolicyDecision, PolicyEngine } from '@bah/runtime'
 
 import type { TransferPreview } from '../core/provider.ts'
-import { yuanToCents } from '../core/index.ts'
+import { bankIds, checkSuitability, yuanToCents } from '../core/index.ts'
 import { requireAccount } from './accounts.ts'
 import { readString } from './args.ts'
 import { fingerprintOf } from './fingerprint.ts'
@@ -71,6 +71,8 @@ interface ApprovalLike {
   }
   readonly callId: string
   readonly name: string
+  /** 授权来源（ADR-0006；缺省 = 人工点击）。 */
+  readonly authorization?: TicketAuthorization
   readonly decision: {
     readonly decision: 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
     readonly reason?: string
@@ -105,13 +107,15 @@ export interface TicketLifecycleIssueInput {
     readonly leaseId: string
     readonly expiresAt: number
   }
+  /** 授权来源（ADR-0006；缺省 = 人工点击）。 */
+  readonly authorization?: TicketAuthorization
   readonly at: number
 }
 
 /** 票据生命周期账本的最小面（见 `@bah/interaction` 的 `TicketLedger`）。 */
 export interface TicketLifecycle {
   issue(input: TicketLifecycleIssueInput): unknown
-  approve(ticketId: string, at: number): unknown
+  approve(ticketId: string, at: number, authorization?: TicketAuthorization): unknown
   redeem(ticketId: string, at: number): unknown
   consume(ticketId: string, at: number): unknown
   block(ticketId: string, reason: string, at: number): unknown
@@ -300,6 +304,28 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
       if (downstream.verdict.kind !== 'allow') return downstream
 
       const spec = specOf(input.call.name as BankToolName)
+      // 合约期硬拦：必须在**签票/审批之前**。工具 execute 里的同一检查只服务直接调用
+      // （测试 / CLI），不能替代这一层——否则用户先看到审批弹窗，点完才被告知"合约期内"。
+      const hardBlock = await subscriptionContractBlock(deps, sessionId, spec.name, input.call.args, now)
+      if (hardBlock !== undefined) {
+        appendTierDecided({
+          callId: input.call.callId,
+          name: spec.name,
+          level: spec.tier.level,
+          reason: 'declared',
+          verdict: 'deny',
+          code: hardBlock.code,
+          at: now(),
+          policyVersion: activeVersionOf(),
+          ruleIds: [],
+          paramsDigest,
+          engineSource: mode,
+        })
+        return {
+          ...downstream,
+          verdict: { kind: 'deny', code: hardBlock.code, reason: hardBlock.message },
+        }
+      }
       const audit = await evaluateCall({
         deps,
         sessionId,
@@ -382,6 +408,7 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
             amountCents: binding.amountCents,
             expiresAt: binding.expiresAt,
             ...(lease === undefined ? {} : { lease }),
+            ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
             at: issuedAt,
           }),
         )
@@ -404,7 +431,7 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
         }
         // 记账失败只留审计证据：core 票据已批准，不能因为账本异常改写审批结论
         ledgerSafely(deps, ticketId, 'approve', decidedAt, () =>
-          lifecycle?.approve(ticketId, decidedAt),
+          lifecycle?.approve(ticketId, decidedAt, answered.authorization),
         )
       } else {
         const reason = answered.decision.reason ?? `approval-${answered.decision.decision}`
@@ -497,6 +524,34 @@ interface EvaluateArgs {
  * 预检（余额 / 收款人 / 理财产品）属于"这一笔注定失败"的拒绝，必须在签发票据前完成；
  * 判决本身是纯函数（`tier.ts`），这里只做异步取数。
  */
+/**
+ * `sub_cancel` 的合约期硬拦（pre-execute 层）。
+ *
+ * 只在「没有显式确认 + 订阅确实在合约期」时返回 deny。直接调用工具体时由 execute 里的
+ * 同一检查兜底；两层读同一个 `contractEndAt`，不会出现两套阈值。
+ */
+async function subscriptionContractBlock(
+  deps: BankToolDeps,
+  sessionId: SessionId,
+  name: string,
+  args: Readonly<Record<string, unknown>>,
+  now: () => number,
+): Promise<{ readonly code: string; readonly message: string } | undefined> {
+  if (name !== 'sub_cancel' || args['confirmContract'] === true) return undefined
+  const subscriptionId =
+    typeof args['subscriptionId'] === 'string' ? args['subscriptionId'] : undefined
+  if (subscriptionId === undefined) return undefined
+  const bound = deps.identity.resolve(sessionId)
+  if (bound === undefined) return undefined
+  const subscriptions = await deps.core.listSubscriptions(bankIds.user(bound))
+  const found = subscriptions.find((item) => String(item.id) === subscriptionId)
+  if (found?.contractEndAt === undefined || found.contractEndAt <= now()) return undefined
+  return {
+    code: 'subscription-contract-active',
+    message: `订阅处于合约期（至 ${new Date(found.contractEndAt).toISOString().slice(0, 10)}），需用户显式确认后才能取消`,
+  }
+}
+
 async function evaluateCall(args: EvaluateArgs): Promise<DecisionAudit> {
   const { deps, sessionId, call, spec, config, riskyCallsInTurn, now, mode } = args
   /** 早拒路径的统一形状：当前生效版本 + 空规则集 + 当前模式（02 §4.2 第三条）。 */
@@ -545,7 +600,7 @@ async function evaluateCall(args: EvaluateArgs): Promise<DecisionAudit> {
   }
 
   if (spec.name === 'wealth_purchase') {
-    const checked = await checkWealthPurchase(deps, call)
+    const checked = await checkWealthPurchase(deps, call, userId)
     if ('deny' in checked) return early(checked.deny, spec.tier.level)
     amountCents = checked.amountCents
   }
@@ -791,6 +846,7 @@ async function transferPreview(
       payee: input.payee,
       amountCents: input.amountCents,
       channel: 'app',
+      ...(input.viaCardId === undefined ? {} : { viaCardId: input.viaCardId }),
     })
     const blocked = preview.risks.find((risk) => risk.severity === 'block')
     if (blocked !== undefined) {
@@ -802,10 +858,17 @@ async function transferPreview(
   }
 }
 
-/** 理财购买的产品存在性 / 起投额预检（不存在或低于起投额直接拒绝，不签票据）。 */
+/**
+ * 理财购买预检：产品存在性 / 起投额 / **适当性**（任一不满足直接拒绝，不签票据）。
+ *
+ * 顺序有意固定：金额边界（`below-minimum`）先于适当性。既有用例
+ * `wealth.test.ts`「低于起投额」考的是金额边界，不该被适当性改写语义；
+ * 反过来，适当性判断不依赖金额，后判不会漏拦。
+ */
 async function checkWealthPurchase(
   deps: BankToolDeps,
   call: ToolCallLike,
+  userId: string,
 ): Promise<{ readonly amountCents: number } | { readonly deny: DenyVerdict }> {
   try {
     const amountCents = parsePurchaseAmount(call.args)
@@ -825,9 +888,23 @@ async function checkWealthPurchase(
         },
       }
     }
+    // 适当性读**客户主体**，不读会话、不读画像快照：等级的唯一权威在 core。
+    const user = await deps.core.getUser(bankIds.user(userId))
+    if (user === undefined) {
+      return { deny: { kind: 'deny', code: 'user-unknown', reason: '当前用户不存在' } }
+    }
+    const verdict = checkSuitability({
+      customerRisk: user.riskGrade,
+      productRisk: product.riskGrade,
+    })
+    if (!verdict.allow) {
+      return { deny: { kind: 'deny', code: verdict.code, reason: verdict.reason } }
+    }
     return { amountCents }
   } catch (error) {
-    return { deny: { kind: 'deny', code: 'tool-args-invalid', reason: reasonOf(error) } }
+    // 参数错误自带 `tool-args-invalid`；取数失败（provider / 主体读取）不能伪装成参数错，
+    // 否则审计上会把"系统故障"记成"模型传错参数"。
+    return { deny: { kind: 'deny', code: errorCodeOf(error, 'tool-failed'), reason: reasonOf(error) } }
   }
 }
 

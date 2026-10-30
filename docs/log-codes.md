@@ -23,6 +23,10 @@
 | `host.policy-shadow-eval-failed` | warn | `packages/host/src/boot/plugins/policy.ts` | 影子策略求值失败（不影响生效判决） |
 | `host.saga-tick-failed` | error | `packages/host/src/boot/plugins/saga-bridge.ts` | saga tick 定时器抛错 |
 | `host.saga-recovery-audit-failed` | error | `packages/host/src/boot/plugins/saga.ts` | 启动恢复失败连审计都写不进去 |
+| `host.plan-wake` | info | `packages/host/src/boot/plugins/scheduler.ts` | 一次唤醒执行了到期计划（boot / tick） |
+| `host.plan-wake-refused` | warn | `packages/host/src/boot/plugins/scheduler.ts` | 判定时刻越界，唤醒被拒（一条都不执行） |
+| `host.plan-wake-failed` | error | `packages/host/src/boot/plugins/scheduler.ts` | 唤醒流程抛错（计划内节点失败另走 plan/*） |
+| `host.plan-catchup-unavailable` | warn | `packages/host/src/boot/plugins/scheduler.ts` | 启动补跑等不到 `bah:plan-wake`（plan 插件未装配） |
 | `saga-alert` | warn / error | `packages/host/src/boot/plugins/saga.ts` | saga 告警汇的 stderr 出口（P0 → error） |
 | `bank.saga-store-tenant-unmarked` | warn | `packages/host/src/boot/plugins/saga-store.ts` | 已存在 sqlite 但缺创建者标记，无法判断租户 |
 | `bank.saga-store-tenant-mismatch` | warn | `packages/host/src/boot/plugins/saga-store.ts` | sqlite 由别的租户创建（共用会把两租户事务混一起） |
@@ -46,6 +50,30 @@
 | `telemetry.span-log-relative` | warn | `packages/host/src/boot/plugins/telemetry.ts` | 相对路径的实际落点 |
 | `telemetry.env-invalid` | warn | `packages/host/src/boot/plugins/telemetry.ts` | 遥测环境变量非法被忽略 |
 | `logging.env-invalid` | warn | `packages/util/src/logging.ts` | 日志级别环境变量非法，回落 info |
+| `im-gateway-start` | info | `apps/im-gateway/src/main.ts` | 网关开始监听（只打端口与平台数量） |
+| `im-platform-unknown` | warn | `apps/im-gateway/src/server.ts` | 未知 platform/account（404） |
+| `im-sig-invalid` | warn | `apps/im-gateway/src/server.ts` | 微信验签失败（只给细分 code，不含期望值） |
+| `im-xml-rejected` | warn | `apps/im-gateway/src/server.ts` | DTD/超长/缺字段等报文拒绝 |
+| `im-duplicate` | info | `apps/im-gateway/src/bridge/turn.ts` | platform+msgId 去重命中 |
+| `im-child-start` | info | `apps/im-gateway/src/session/supervisor.ts` | spawn 子进程（只打 sessionKey/pid/port） |
+| `im-child-ready` | info | `apps/im-gateway/src/session/supervisor.ts` | health 200 + CSRF 握手成功 |
+| `im-child-exit` | warn | `apps/im-gateway/src/session/supervisor.ts` | 非预期退出 / 重启耗尽 |
+| `im-child-reap` | info | `apps/im-gateway/src/session/supervisor.ts` | 闲置回收 / 主动停止 |
+| `im-turn-failed` | warn | `apps/im-gateway/src/bridge/turn.ts` | `/api/turn` 非 202（含 `inbox-full` / `auth` / `halted`） |
+| `im-push-fallback` | warn | `apps/im-gateway/src/bridge/outbound.ts` | 适配器 push 不可用 → 拉取式 |
+| `im-push-failed` | warn | `apps/im-gateway/src/platform/wechat/transport.ts` | 客服消息失败（含 errcode，只在日志） |
+| `im-ratelimited` | info | `apps/im-gateway/src/bridge/turn.ts` | 用户/全局限流命中 |
+| `im-untrusted` | info | `apps/im-gateway/src/bridge/turn.ts` | untrusted 命中（reason=user/marker） |
+| `im-config-invalid` | error | `apps/im-gateway/src/config.ts` | 配置非法导致启动失败 |
+| `im-approval-command` | info | `apps/im-gateway/src/bridge/turn.ts` | 审批文本指令命中（sessionKey/ticketId/kind） |
+| `im-approval-result` | info | `apps/im-gateway/src/bridge/turn.ts` | 子进程审批结论（只打 code） |
+| `im-approval-expired` | info | `apps/im-gateway/src/session/hub.ts` | 收到 `unavailable` 收尾（按拒绝处理） |
+| `im-h5-open` | info | `apps/im-gateway/src/approval/page.ts` | H5 页面打开（token 哈希前 8 位） |
+| `im-h5-submit` | info | `apps/im-gateway/src/approval/page.ts` | H5 提交（ticketId/decision，理由只打长度） |
+| `im-h5-token-rejected` | warn | `apps/im-gateway/src/approval/page.ts` | 链接签名/过期/重放被拒 |
+| `im-handoff-request` | info | `apps/im-gateway/src/bridge/turn.ts` | 用户请求转人工 |
+| `im-seat-forward` | info | `apps/im-gateway/src/handoff/operator.ts` | 运营桥转发（路径/状态码，不含 token） |
+| `im-seat-denied` | warn | `apps/im-gateway/src/handoff/operator.ts` | 运营鉴权失败（code=missing/mismatch） |
 
 > 动态 code：`packages/host/src/boot/plugins/bank-tools.ts` 的 `warnContextSlots(code, …)`
 > 会把 bank 适配器给的 `bank.slots-*` 族直接透传；这些值来自闭集枚举，不是自由文本。

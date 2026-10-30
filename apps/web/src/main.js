@@ -16,7 +16,7 @@ import { clear, el, icon } from './dom.js'
 import { createObservability } from './observability.js'
 import { formatWaited } from './format.js'
 import { approvalDecision, createStore, pendingApproval, viewKey } from './store.js'
-import { connectEvents, createHttpApi } from './transport.js'
+import { connectEvents, createHttpApi, createSessionControlClient } from './transport.js'
 import {
   CONVERSATION_KINDS,
   renderDraft,
@@ -75,12 +75,16 @@ function syncContainer(container, rendered, frames, factory) {
  *   root: HTMLElement,
  *   api?: ReturnType<typeof createHttpApi>,
  *   transport?: typeof connectEvents,
+ *   control?: ReturnType<typeof createSessionControlClient>,
  * }} options
  */
 export function mountApp(options) {
   const root = options.root
   const api = options.api ?? createHttpApi()
   const connect = options.transport ?? connectEvents
+  // 会话控制端点（04 单）：桌面壳此前从不调用 `handoff()`，服务端能力在、界面没有入口。
+  // 显式可注入是为了用例不碰真实网络（与 api / transport 同一套依赖注入）。
+  const control = options.control ?? createSessionControlClient()
   const store = createStore()
 
   const sessionLabel = el('span', { class: 'app-header__session', text: '会话 —' })
@@ -177,10 +181,21 @@ export function mountApp(options) {
     },
     [icon('branch', 14), '回到上一步'],
   )
+  // 转人工：服务端 `POST /api/handoff` 一直是通的，桌面壳此前没有任何入口，
+  // 于是"客户请求人工"这一幕只能在移动壳演。失败要给 toast，禁用态由接管帧决定。
+  const handoffButton = el(
+    'button',
+    {
+      class: 'ds-btn ds-btn--ghost ds-btn--sm',
+      type: 'button',
+      title: '请求人工坐席接管',
+    },
+    [icon('agent', 14), '转人工'],
+  )
 
   const composer = el('form', { class: 'composer', id: 'composer' }, [
     composerInput,
-    el('div', { class: 'composer__actions' }, [stopButton, backButton, sendButton]),
+    el('div', { class: 'composer__actions' }, [stopButton, handoffButton, backButton, sendButton]),
   ])
 
   const panel = el('aside', { class: 'panel', 'aria-label': '运行观察' }, [
@@ -239,8 +254,8 @@ export function mountApp(options) {
   const auditRendered = new Map()
 
   const approvals = createApprovalController(overlay, {
-    async onDecision(ticketId, decision, reason) {
-      const result = await api.decide(ticketId, decision, reason)
+    async onDecision(ticketId, decision, reason, confirmText) {
+      const result = await api.decide(ticketId, decision, reason, confirmText)
       if (!result.ok) notify(`提交失败：${result.reason}`, 'danger')
       return result
     },
@@ -274,6 +289,15 @@ export function mountApp(options) {
   let handoffTimer
   let resumedNoticeTimer
   let handoffWasActive = false
+  /** 转人工请求在飞（防连点重复 POST）。 */
+  let handoffInFlight = false
+  /**
+   * 转人工已被受理、但接管帧还没到（成功后保持入口禁用）。
+   *
+   * 不能只靠 `handoffButton.disabled`：任何无关帧都会触发一次 sync，
+   * `syncHandoffBanner` 的"未接管"分支会把它重新点亮。
+   */
+  let handoffAccepted = false
 
   /**
    * 同步接管横幅（D13：独立节点；`setBanner` 只负责连接异常）。
@@ -288,7 +312,11 @@ export function mountApp(options) {
         resumedNoticeTimer = undefined
       }
       handoffWasActive = true
+      handoffAccepted = false
       composerInput.placeholder = HANDOFF_PLACEHOLDER
+      // 已在接管中：入口禁用（服务端重复请求会回 409，界面不该先给一个假入口）
+      handoffButton.disabled = true
+      handoffButton.title = '已在人工接管中'
       // 超时告警只在**本次接管**之后才算数（上一轮的红标不能跟到新接管）
       const freshWarn = warn !== null && warn !== undefined && warn.seq > handoff.seq ? warn : null
       const tick = () => {
@@ -318,6 +346,11 @@ export function mountApp(options) {
       handoffTimer = undefined
     }
     composerInput.placeholder = COMPOSER_PLACEHOLDER
+    // 收到权威的"未接管"帧（含快照里的 active:false）才解除成功后的临时禁用；
+    // 没有任何接管帧（store.handoff 为 null）时保持禁用，避免再点一次撞 409。
+    if (handoff !== null && handoff !== undefined) handoffAccepted = false
+    handoffButton.disabled = handoffInFlight || handoffAccepted
+    handoffButton.title = '请求人工坐席接管'
     // 从"接管中"切到"已交回"：一次性提示 3 秒；之后到来的帧不许把它提前抹掉
     if (handoffWasActive) {
       handoffWasActive = false
@@ -350,11 +383,46 @@ export function mountApp(options) {
     setTimeout(() => node.remove(), 4000)
   }
 
+  /** 上一份快照的会话号：服务重启后快照换了会话，界面必须说出"会话已重置"。 */
+  let lastSessionId = null
+
+  /**
+   * 会话号同步。
+   *
+   * `api.session()` 只在挂载时读一次；之后的权威来源是每份快照的 `sessionId`。
+   * 服务重启 + 断线重连后快照会换号（历史蒸发），不提示等于让客户以为"刚才的对话丢了"。
+   */
+  function syncSession(state) {
+    const next = state.sessionId
+    if (typeof next !== 'string' || next.length === 0) return
+    if (lastSessionId !== null && lastSessionId !== next) {
+      notify('会话已重置（服务重启），此前的对话历史不再显示', 'warning')
+      // 新会话没有旧的接管状态：解除"成功后等帧"的临时禁用。
+      handoffAccepted = false
+    }
+    lastSessionId = next
+    sessionLabel.textContent = `会话 ${next}`
+  }
+
+  /**
+   * 选择题卡的发送通道（`choice` 帧）。
+   *
+   * 与 composer 走同一条 `POST /api/turn`：点选 = 把选项 label 当普通用户消息发出去，
+   * 不本地回显（用户消息等 `user/message` 帧）。"手动输入"出口只交还焦点，零请求。
+   */
+  const choiceDeps = {
+    submit: async (text) => {
+      const result = await api.turn(text)
+      return result.ok ? { ok: true } : { ok: false, code: result.code, message: result.reason }
+    },
+    focusComposer: () => composerInput.focus(),
+  }
+
   /** 全量同步（幂等；每帧都可能触发一次）。 */
   function sync(state) {
     // ① 对话流
     const conversationFrames = state.frames.filter((frame) => CONVERSATION_KINDS.has(frame.kind))
-    syncContainer(conversation, rendered, conversationFrames, renderFrame)
+    syncContainer(conversation, rendered, conversationFrames, (frame) => renderFrame(frame, choiceDeps))
 
     // 草稿气泡
     const draft = conversation.querySelector('[data-draft="true"]')
@@ -400,7 +468,16 @@ export function mountApp(options) {
     const status = STATUS[state.status] ?? STATUS.connecting
     statusDot.className = `app-header__status ${status.cls}`
     statusDot.querySelector('.app-header__status-text').textContent = status.label
-    setBanner(state.fault === null ? null : state.fault.reason)
+    // 断线也要横幅：顶栏 11px 文案在 1440 宽屏上等于没有提示（走查 P2-2）。
+    // `fault` 是服务端主动发的事件，`offline` 是 SSE 断开的本地事实，两者都要说话。
+    setBanner(
+      state.status === 'offline'
+        ? (state.fault?.reason ?? '与服务器的连接已断开，界面数据可能不是最新')
+        : state.fault === null
+          ? null
+          : state.fault.reason,
+    )
+    syncSession(state)
     syncHandoffBanner(state.handoff, state.handoffWarn)
   }
 
@@ -455,6 +532,29 @@ export function mountApp(options) {
     // 服务端 `POST /api/interrupt` 一律回 `{ok:true}`（空闲时是幂等空操作），
     // 所以这里只说"已提交"，不假装"打断了一轮"——按钮点下去什么都不发生是最坏的一种"看起来能用"。
     notify('中断请求已提交', 'info')
+  })
+
+  // 转人工：成功不等 optimistic 渲染——横幅由 `handoff/requested` 帧点亮（与移动壳同一口径）。
+  handoffButton.addEventListener('click', async () => {
+    if (handoffInFlight) return
+    handoffInFlight = true
+    handoffButton.disabled = true
+    let accepted = false
+    try {
+      const result = await control.handoff('客户请求人工')
+      if (!result.ok) {
+        notify(`转人工失败：${result.reason}`, 'danger')
+        return
+      }
+      accepted = true
+      notify('已提交转人工请求，等待坐席接入', 'info')
+    } finally {
+      handoffInFlight = false
+      // 成功就保持禁用，等接管帧 / 交回帧来推翻它：帧还没到时重新点亮，
+      // 等于允许用户再点一次去撞 409。
+      handoffAccepted = accepted
+      if (!accepted && store.state().handoff?.active !== true) handoffButton.disabled = false
+    }
   })
 
   // 观测面板轮询控制器：拉取式（U-1 不许新增 SSE 帧）；非观测 tab 不发请求

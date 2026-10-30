@@ -18,6 +18,14 @@
   --surface-frosted: color-mix(in srgb, var(--bg-base-default) 82%, transparent);
 }
 
+/* `hidden` 属性必须真的隐藏：`ds/components.css` 给 `.ds-backdrop` 等节点显式设了 display，
+   会覆盖 UA 的 `[hidden] { display: none }`。用 hidden 表达"关着"的节点（凭证闸、审计面板、
+   坐席骨架）因此会常驻可见——2026-10-29 走查里最重的一条就是"遮罩吞掉每一次点击"。
+   blanket 规则是兜底；新代码的显隐应统一走 class。 */
+[hidden] {
+  display: none !important;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -71,6 +79,8 @@ textarea {
 .icon--doc { --icon-url: url('../assets/icons/doc.svg'); }
 .icon--search { --icon-url: url('../assets/icons/Search.svg'); }
 .icon--up { --icon-url: url('../assets/icons/arrow_up.svg'); }
+/* 选择题卡用 `chat`（与移动壳同一枚图标；文件在 assets/icons/chat.svg） */
+.icon--chat { --icon-url: url('../assets/icons/chat.svg'); }
 
 /* ────────────────────────────── 骨架布局 */
 
@@ -225,7 +235,8 @@ textarea {
 .login-card .ds-hint {
   margin: 0;
   color: var(--status-error-default);
-  font-size: var(--body-sm-font-size);
+  /* 登录错误是"必须读到"的一句话：11px 在 1440 屏上实测读不出来（P2-7）。 */
+  font-size: var(--body-base-font-size);
 }
 
 .app-body {
@@ -371,6 +382,16 @@ textarea {
 .message--correction .bubble__body {
   background: var(--bg-overlay-l1);
   border-style: dashed;
+}
+
+/* 运行时上下文默认折叠：展开钮贴在标题行尾，不单独占一行。 */
+.message__toggle {
+  margin-inline-start: var(--spacer-6);
+}
+
+/* 接管期客户留言：仍是 user 气泡，靠 tag 表示"等待坐席处理"。 */
+.message--handoff-waiting .message__meta {
+  color: var(--status-warning-default);
 }
 
 .notice {
@@ -536,6 +557,156 @@ textarea {
 .tool-card__duration {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
+}
+
+/* ────────────────────────────── 选择题卡（choice 帧：点选 = 一条用户消息） */
+
+.choice-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-12);
+  padding: var(--spacer-16);
+}
+
+.choice-card__prompt {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacer-8);
+  margin: 0;
+  font-weight: var(--font-weight-strong);
+}
+
+.choice-card__prompt .icon {
+  color: var(--icon-secondary);
+  margin-top: var(--spacer-2);
+}
+
+.choice-card__options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-8);
+}
+
+.choice-card__option {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-8);
+  min-height: 40px;
+  padding: var(--spacer-8) var(--spacer-12);
+  border: var(--border-width-default) solid var(--border-neutral-l2);
+  border-radius: var(--radius-8);
+  background: var(--bg-overlay-l1);
+  color: var(--text-default);
+  font-size: var(--body-base-font-size);
+  line-height: var(--body-base-line-height);
+  text-align: start;
+  transition: background-color 120ms ease-out;
+}
+
+.choice-card__option:hover:not(:disabled) {
+  background: var(--bg-overlay-l2);
+}
+
+.choice-card__option:active:not(:disabled) {
+  background: var(--bg-overlay-l3);
+}
+
+.choice-card__option:disabled {
+  color: var(--text-disabled);
+}
+
+.choice-card__option-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-2);
+  min-width: 0;
+}
+
+.choice-card__option-hint {
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+  line-height: var(--body-xs-line-height);
+}
+
+/* "手动输入"是出口不是选项：退一级，避免与候选争抢 */
+.choice-card__option--free {
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.choice-card__error {
+  margin: 0;
+  padding: var(--spacer-8) var(--spacer-12);
+  border-radius: var(--radius-8);
+  background: var(--status-error-surface-l1);
+  color: var(--status-error-default);
+  font-size: var(--body-sm-font-size);
+  line-height: var(--body-sm-line-height);
+}
+
+/* ────────────────────────────── 已发生操作清单（effects 帧，只读） */
+
+.effects {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-8);
+  padding: var(--spacer-16);
+}
+
+.effects__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-8);
+}
+
+.effects__icon {
+  display: inline-flex;
+  color: var(--status-success-default);
+}
+
+.effects__title {
+  font-weight: var(--font-weight-strong);
+}
+
+.effects__turn {
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+}
+
+.effects__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-6);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.effects__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacer-8);
+  padding: var(--spacer-8) var(--spacer-12);
+  border-radius: var(--radius-8);
+  background: var(--bg-overlay-l1);
+  font-size: var(--body-sm-font-size);
+  line-height: var(--body-sm-line-height);
+}
+
+.effects__name {
+  font-weight: var(--font-weight-strong);
+}
+
+.effects__amount {
+  font-family: var(--font-family-mono);
+}
+
+.effects__meta {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
 }
 
 /* ────────────────────────────── 输入区 */
@@ -726,9 +897,9 @@ textarea {
 
 /* ────────────────────────────── DAG */
 
+/* 固定字号 + 横向滚动：SVG 按自然尺寸（`renderDag` 写 width/height 属性），
+   容器 `.panel__section` 已有 overflow:auto。等比缩放会把标签压到不可读。 */
 .dag {
-  width: 100%;
-  height: auto;
   display: block;
 }
 
@@ -777,6 +948,19 @@ textarea {
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   animation: fade-in var(--motion-base) var(--motion-standard);
+}
+
+/* 结论生效后遮罩放行（P1-4）：弹窗只剩"关掉它"，不能再锁住整个视口。
+   遮罩本身不接指针，结果卡仍可点；客户可以继续对话，关掉卡片由「关闭」或 Esc 完成。 */
+.approval-backdrop--passive {
+  pointer-events: none;
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.approval-backdrop--passive .approval {
+  pointer-events: auto;
 }
 
 .approval {
@@ -1038,17 +1222,52 @@ textarea {
   color: var(--text-secondary);
 }
 
-.obs__table {
-  width: 100%;
-  border-collapse: collapse;
+/* SLO 八行：两行堆叠（不是五列表格）。400px 列宽下五列会把判决列挤出面板 111px；
+   第一行"色点 + 指标 + 判决"，第二行"值 / soft / hard"，判决色点挂在指标名前。 */
+.obs__slo-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-6);
+}
+
+.obs__slo-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-2);
+  padding-bottom: var(--spacer-6);
+  border-bottom: var(--border-width-default) solid var(--border-neutral-l1);
   font-size: 12px;
 }
 
-.obs__table th,
-.obs__table td {
-  padding: var(--spacer-4) var(--spacer-6);
-  text-align: left;
-  border-bottom: var(--border-width-default) solid var(--border-neutral-l1);
+.obs__slo-row:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.obs__slo-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-6);
+}
+
+.obs__slo-name {
+  color: var(--text-default);
+}
+
+.obs__slo-verdict {
+  margin-inline-start: auto;
+}
+
+.obs__slo-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacer-8);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.obs__slo-value {
+  color: var(--text-secondary);
 }
 
 .obs__mono {
@@ -1117,6 +1336,23 @@ textarea {
 
 .obs__dot--error {
   background: var(--status-error-default);
+}
+
+/* SLO 判决色点：与 verdict 文字同色，指标名前也能看出越阈。 */
+.obs__dot--ok {
+  background: var(--status-success-default);
+}
+
+.obs__dot--alert {
+  background: var(--status-alert-default);
+}
+
+.obs__dot--danger {
+  background: var(--status-error-default);
+}
+
+.obs__dot--muted {
+  background: var(--text-tertiary);
 }
 
 .obs__bar {
@@ -1569,3 +1805,102 @@ textarea {
   }
 }
 
+
+
+/* ── 计划卡（G7）：四块信息，状态一律用 .ds-tag，不用左侧竖条 ── */
+.plan-card {
+  margin: var(--space-3, 12px) 0;
+  padding: var(--space-4, 16px);
+  border: 1px solid var(--border-neutral-l1);
+  border-radius: var(--radius-12);
+  background: var(--bg-base-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3, 12px);
+}
+
+.plan-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2, 8px);
+}
+
+.plan-card__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-default);
+}
+
+.plan-card__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2, 8px);
+  margin: 0;
+}
+
+.plan-card__fact dt {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.plan-card__fact dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text-default);
+}
+
+.plan-card__digest {
+  font-family: var(--font-family-default);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.plan-card__section-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.plan-card__condition-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plan-card__condition {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  font-size: 12px;
+  color: var(--text-default);
+}
+
+.plan-card__condition-kind {
+  font-family: var(--font-family-default);
+  color: var(--text-secondary);
+}
+
+.plan-card__condition-actual {
+  color: var(--status-error-default);
+}
+
+.plan-card__empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.plan-card__verdict {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--status-error-default);
+}

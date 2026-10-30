@@ -193,6 +193,35 @@ describe('WebProjector · 审批六要素', () => {
     expect(approval.amountConfirmed).toBe(false)
   })
 
+  it('风险级别与 challenge 对齐：黄级工具被上升为红级时，审批帧必须是红', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(
+      ev('tool/call', {
+        callId: 'call-1',
+        name: 'transfer_create',
+        args: { amount: 6000, payee: { name: '王建国' } },
+        fingerprint: 'fp-1',
+        // 声明级别是黄（工具本身需要审批），金额超过日限额被策略升红并签发短信挑战
+        tier: { level: 'yellow' },
+        at: 1,
+      }),
+    )
+    projector.apply(
+      ev('approval/asked', {
+        ticketId: 'ticket:call-1',
+        callId: 'call-1',
+        name: 'transfer_create',
+        amount: 6000,
+        challenge: 'sms',
+      }),
+    )
+    const approval = projector.frames().find((frame) => frame.kind === 'approval') as ApprovalFrame
+    expect(approval.tier).toBe('red')
+    expect(approval.challenge).toBe('sms')
+  })
+
   it('手机号脱敏后才进帧；手续费来自本 turn 的预演结果', () => {
     reset()
     const projector = new WebProjector()

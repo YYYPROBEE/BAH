@@ -9,6 +9,7 @@
  * - `verify/`：强验证渠道（挑战 / 锁定 / 可替换 Provider；施工单 09 §6）。
  */
 export * from './core/index.ts'
+export * from './detect/index.ts'
 export * from './forge/index.ts'
 export * from './tools/index.ts'
 export * from './context/index.ts'

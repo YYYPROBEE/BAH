@@ -29,7 +29,7 @@ export interface BankToolSpec {
   /** 批次（08 只做 P0）。 */
   readonly batch: 'P0'
   /** 场景分组（目录展示用）。 */
-  readonly scenario: '账户/账单' | '转账' | '理财' | '强验证'
+  readonly scenario: '账户/账单' | '转账' | '理财' | '强验证' | '卡片'
 }
 
 /** 收款人参数（转账 / 试算共用）。 */
@@ -68,7 +68,7 @@ export const BANK_TOOL_SPECS = [
   {
     name: 'account_list',
     description:
-      '列出当前用户名下全部银行账户（尾号、类型、状态、余额）。用户问“我有几张卡/哪些账户”时用；不要用它查单笔流水或账单分析。',
+      '列出当前用户名下全部账户与卡片（账户尾号/类型/余额；卡尾号/类型/状态/日限额）。用户问“我有几张卡/哪些账户/卡什么状态”时用；不要用它查单笔流水或账单分析。',
     schema: { type: 'object', properties: {} },
     tier: { level: 'green' },
     event: 'read/accounts',
@@ -115,12 +115,19 @@ export const BANK_TOOL_SPECS = [
   {
     name: 'bill_analyze',
     description:
-      '按月度或季度汇总收支、分类占比、环比与异常（大额 / 夜间 / 重复扣费）。用户问“这个月钱花哪了/帮我分析账单”时用；不要用它列单笔明细（用 txn_query）。',
+      '按月度/季度/年度汇总收支、分类占比、环比与异常（大额 / 夜间 / 重复扣费）。用户问“这个月钱花哪了/帮我分析账单”时用；不要用它列单笔明细（用 txn_query）。',
     schema: {
       type: 'object',
       properties: {
-        period: { type: 'string', description: '统计口径：month（本月）/ quarter（近三个月）' },
-        groupBy: { type: 'string', description: '汇总维度：category（分类，缺省）/ payee（收款人）' },
+        period: {
+          type: 'string',
+          description: '统计口径：month（本月）/ quarter（近三个月）/ year（近十二个月，不做同比）',
+        },
+        groupBy: {
+          type: 'string',
+          description:
+            '汇总维度：category（账务分类，缺省）/ payee（收款人）/ merchant（商户品类：餐饮/咖啡/通勤等）',
+        },
       },
       required: ['period'],
     },
@@ -132,11 +139,14 @@ export const BANK_TOOL_SPECS = [
   {
     name: 'bill_report',
     description:
-      '生成一段可读的账单报告（摘要或明细）。用户要“出一份账单报告/发给我的报告”时用；不要用它做单笔交易查询。',
+      '按月度/季度/年度生成一段可读的账单报告（摘要或明细）。用户要“出一份账单报告/发给我的报告”时用；不要用它做单笔交易查询。',
     schema: {
       type: 'object',
       properties: {
-        period: { type: 'string', description: '统计口径：month / quarter' },
+        period: {
+          type: 'string',
+          description: '统计口径：month（本月）/ quarter（近三个月）/ year（近十二个月）',
+        },
         format: { type: 'string', description: '报告形态：summary（摘要，缺省）/ detail（含异常与收款人明细）' },
       },
       required: ['period'],
@@ -184,6 +194,10 @@ export const BANK_TOOL_SPECS = [
         },
         payee: PAYEE_SCHEMA,
         remark: { type: 'string', description: '转账附言（可选）' },
+        viaCardId: {
+          type: 'string',
+          description: '用哪张卡支付（可选；仅当用户点名“用这张卡”时填，不要默认填）',
+        },
       },
       required: ['amount', 'payee'],
     },
@@ -211,6 +225,10 @@ export const BANK_TOOL_SPECS = [
         idempotencyKey: {
           type: 'string',
           description: '可选幂等键：网络重试/重复提交时复用同一键，10 分钟内同参数只扣款一次',
+        },
+        viaCardId: {
+          type: 'string',
+          description: '用哪张卡支付（可选；仅当用户点名“用这张卡”时填，不要默认填）',
         },
       },
       required: ['amount', 'payee'],
@@ -335,7 +353,7 @@ export const BANK_TOOL_SPECS = [
     schema: {
       type: 'object',
       properties: {
-        cardId: { type: 'string', description: '要挂失的银行卡 ID（从 account_list 的卡片信息里取）' },
+        cardId: { type: 'string', description: '要挂失的卡片 ID（从 account_list 结果里每张卡的「卡ID」取，不要猜）' },
       },
       required: ['cardId'],
     },
@@ -347,11 +365,19 @@ export const BANK_TOOL_SPECS = [
   {
     name: 'sub_cancel',
     description:
-      '取消自动扣款订阅（黄档写操作，可逆：用户可重新签约）。用户明确要求"取消/退订某个自动续费"后用；查订阅明细请用 txn_query，不要用它代替查询。',
+      '取消自动扣款订阅（黄档写操作）。用户明确要求“取消/退订某个自动续费”后用；合约期内需显式确认（confirmContract），只想停一个订阅用本工具，要关整个商户的代扣协议用 sub_authorize。不要用它代替订阅查询；不要在用户未确认合约后果时取消。',
     schema: {
       type: 'object',
       properties: {
-        subscriptionId: { type: 'string', description: '要取消的订阅 ID（从账单/订阅明细里取）' },
+        subscriptionId: { type: 'string', description: '要取消的订阅 ID（从 sub_list 取）' },
+        confirmContract: {
+          type: 'boolean',
+          description: '合约期内取消必须显式置 true（用户已确认违约金/后果）',
+        },
+        mode: {
+          type: 'string',
+          description: 'now（立即取消，缺省）/ at-next-cycle（到期即断）',
+        },
       },
       required: ['subscriptionId'],
     },
@@ -360,9 +386,92 @@ export const BANK_TOOL_SPECS = [
     batch: 'P0',
     scenario: '账户/账单',
   },
+  {
+    name: 'sub_list',
+    description:
+      '列出订阅并识别周期扣款：三分法汇总（订阅/账单/分期）、涨价、闲置、断供核验，以及单条订阅详情。用户问“我有哪些订阅/每月固定扣多少/这项为什么多了”时用；不要用它取消订阅（用 sub_cancel）或关闭代扣协议（用 sub_authorize）。',
+    schema: {
+      type: 'object',
+      properties: {
+        subscriptionId: { type: 'string', description: '只看某条订阅时传入（从本工具结果里取）' },
+        limit: { type: 'integer', description: '最多返回多少条检测结果（1..30，缺省 10）' },
+      },
+    },
+    tier: { level: 'green' },
+    event: 'read/subscriptions',
+    batch: 'P0',
+    scenario: '账户/账单',
+  },
+  {
+    name: 'sub_watch',
+    description:
+      '设置订阅提醒或标注（黄档写操作）：remind=到期提醒、idle=我不用了、none=清除。用户说“到期提醒我/这个我不用了”时用；不要用它改订阅状态或关闭代扣（取消用 sub_cancel，关协议用 sub_authorize）。',
+    schema: {
+      type: 'object',
+      properties: {
+        subscriptionId: { type: 'string', description: '订阅 ID（从 sub_list 取）' },
+        watch: { type: 'string', description: 'remind / idle / none（必填）' },
+        aheadDays: { type: 'integer', description: '提前几天提醒（1..7；仅 remind 有效）' },
+      },
+      required: ['subscriptionId', 'watch'],
+    },
+    tier: { level: 'yellow' },
+    event: 'sub/watch-updated',
+    batch: 'P0',
+    scenario: '账户/账单',
+  },
+  {
+    name: 'sub_authorize',
+    description:
+      '关闭某商户的代扣协议（黄档写操作，只关不开，影响该商户全部订阅）。用户要求“彻底停掉这家扣款”时用；不要用它停单个订阅（用 sub_cancel）。恢复扣款需在商户侧重新签约，本工具不提供恢复。',
+    schema: {
+      type: 'object',
+      properties: {
+        merchant: { type: 'string', description: '商户名或归一化键（从 sub_list 的商户名取）' },
+      },
+      required: ['merchant'],
+    },
+    tier: { level: 'yellow' },
+    event: 'sub/authorization-revoked',
+    batch: 'P0',
+    scenario: '账户/账单',
+  },
+  {
+    name: 'card_freeze',
+    description:
+      '冻结银行卡（黄档写操作，可逆：随时可解冻）。用户怀疑盗刷、卡暂时找不到、或想停用某张卡时用；卡已确认丢失请用 card_report_lost（红档、不可逆），不要用本工具代替挂失。',
+    schema: {
+      type: 'object',
+      properties: {
+        cardId: { type: 'string', description: '要冻结的卡片 ID（从 account_list 结果里每张卡的「卡ID」取，不要猜）' },
+        reason: { type: 'string', description: '冻结原因（可选，仅落审计，不影响判定）' },
+      },
+      required: ['cardId'],
+    },
+    tier: { level: 'yellow' },
+    event: 'card/state-changed',
+    batch: 'P0',
+    scenario: '卡片',
+  },
+  {
+    name: 'card_unfreeze',
+    description:
+      '解冻银行卡（红档写操作：必须强验证 + 审批）。用户明确要求恢复用卡、并已确认卡在本人手中时用；卡已挂失请走补发流程，不要用本工具解挂。',
+    schema: {
+      type: 'object',
+      properties: {
+        cardId: { type: 'string', description: '要解冻的卡片 ID（从 account_list 结果里每张卡的「卡ID」取）' },
+      },
+      required: ['cardId'],
+    },
+    tier: { level: 'red' },
+    event: 'card/state-changed',
+    batch: 'P0',
+    scenario: '卡片',
+  },
 ] as const satisfies readonly BankToolSpec[]
 
-/** 工具名联合（16 个字面量）。 */
+/** 工具名联合（18 个字面量）。 */
 export type BankToolName = (typeof BANK_TOOL_SPECS)[number]['name']
 
 /** 工具数量上限（施工单 08 §2）。 */

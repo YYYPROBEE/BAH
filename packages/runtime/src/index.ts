@@ -11,9 +11,12 @@
  */
 export * from './agent/index.ts'
 export * from './agent-loop/index.ts'
+export * from './authorization/index.ts'
 export * from './compaction/index.ts'
+export * from './fact/index.ts'
 export * from './goal/index.ts'
 export * from './intent/index.ts'
+export * from './notify/index.ts'
 export * from './plan/index.ts'
 export * from './todo/index.ts'
 export * from './policy/index.ts'

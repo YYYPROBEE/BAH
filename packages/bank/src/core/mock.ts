@@ -11,19 +11,29 @@
 
 import { BahError } from '@bah/util'
 
-import type { CardLostResult, SubscriptionCancelled } from './provider.ts'
+import type {
+  AuthorizationRevoked,
+  CardLostResult,
+  CardStateChange,
+  SubscriptionCancelled,
+  SubscriptionWatch,
+} from './provider.ts'
 import type { ReversalResult } from './compensation.ts'
 
 import type { BankDataset } from '../forge/index.ts'
 import { checkTransferRisks, isNight } from '../forge/risk.ts'
+import { normalizeMerchant } from '../detect/merchant.ts'
 import type {
   Account,
   AccountId,
+  AuthorizationId,
   BankLimits,
   BillAnomaly,
+  CancelRequest,
   Card,
   CardId,
   Holding,
+  MerchantAuthorization,
   Payee,
   Subscription,
   SubscriptionId,
@@ -45,10 +55,12 @@ import type {
   TransferReq,
   TransferResult,
   TxnQuery,
+  UpcomingCharge,
   WealthFilter,
 } from './provider.ts'
+import { checkSuitability } from './suitability.ts'
 import { TicketStore, type TicketRef } from './ticket.ts'
-import { dayKey, monthKey, periodRange, previousMonth } from './time.ts'
+import { DAY_MS, dayKey, monthKey, periodRange, previousMonth } from './time.ts'
 
 /** mock 核心的装配参数。 */
 export interface MockBankCoreOptions {
@@ -78,6 +90,8 @@ export class MockBankCore implements BankCoreProvider {
   private accounts: Account[]
   private cards: Card[]
   private subscriptions: Subscription[]
+  private authorizations: MerchantAuthorization[]
+  private cancelRequests: CancelRequest[]
   private transactions: Transaction[]
   private payees: Payee[]
   private holdings: Holding[]
@@ -85,6 +99,8 @@ export class MockBankCore implements BankCoreProvider {
   private txnSeq: number
   private payeeSeq: number
   private holdingSeq: number
+  private authorizationSeq: number
+  private cancelRequestSeq: number
   /** 幂等键 → 首笔结果（10 分钟窗口；只防"同参数重复提交"，不替代票据）。 */
   private readonly idempotency = new Map<
     string,
@@ -103,13 +119,20 @@ export class MockBankCore implements BankCoreProvider {
     this.accounts = data.accounts.map((item) => ({ ...item }))
     this.cards = [...data.cards]
     this.subscriptions = [...data.subscriptions]
+    this.authorizations = [...(data.authorizations ?? [])]
+    this.cancelRequests = [...(data.cancelRequests ?? [])]
     this.transactions = data.transactions.map((item) => ({ ...item }))
     this.payees = data.payees.map((item) => ({ ...item }))
     this.holdings = data.holdings.map((item) => ({ ...item }))
     this.products = [...data.wealthProducts]
-    this.txnSeq = this.transactions.length
+    // 新流水号不把**历史背景流水**（`th-*`，账单场景 T-05）算进起点：
+    // 它们只用于账单聚合，不该把演示新流水从 `t-new-9` 推到 `t-new-69`
+    // （数据变了 ≠ 行为变了，但快照里的流水号会因此漂移）。
+    this.txnSeq = this.transactions.filter((item) => !String(item.id).startsWith('th-')).length
     this.payeeSeq = this.payees.length
     this.holdingSeq = this.holdings.length
+    this.authorizationSeq = this.authorizations.length
+    this.cancelRequestSeq = this.cancelRequests.length
   }
 
   /* ── 读操作 ─────────────────────────────────────────────────────────────── */
@@ -126,6 +149,22 @@ export class MockBankCore implements BankCoreProvider {
   async getUser(userId: UserId): Promise<User | undefined> {
     const user = this.users.get(userId)
     return user === undefined ? undefined : { ...user }
+  }
+
+  /**
+   * 列出用户名下全部卡片（只读）。
+   *
+   * 不认识的用户返回 `[]`（不抛错——"没有卡"是业务结果，同 `getUser` 的判定口径）；
+   * 必须 `map` 复制（`this.cards` 是可变数组，调用方改字段不能污染账本）；
+   * 顺序按账本原序（种子顺序 = 实体卡在前），不额外排序，保证跨端一致。
+   */
+  async listCards(userId: UserId): Promise<Card[]> {
+    const accountIds = new Set(
+      this.accounts.filter((item) => item.userId === userId).map((item) => item.id),
+    )
+    return this.cards
+      .filter((item) => accountIds.has(item.accountId))
+      .map((item) => ({ ...item }))
   }
 
   async reportCardLost(userId: UserId, cardId: CardId): Promise<CardLostResult> {
@@ -145,23 +184,211 @@ export class MockBankCore implements BankCoreProvider {
     return { cardId, tail: card.tail, status: 'lost' }
   }
 
+  async freezeCard(userId: UserId, cardId: CardId): Promise<CardStateChange> {
+    const card = this.cardOfUser(userId, cardId)
+    if (card.status === 'lost') {
+      throw new BahError('card-lost', 'bank: 该卡已挂失，只能补发新卡，不能冻结', { cardId })
+    }
+    if (card.status === 'frozen') return { cardId, tail: card.tail, status: 'frozen', changed: false }
+    this.cards = this.cards.map((item) =>
+      item.id === cardId ? { ...item, status: 'frozen' as const } : item,
+    )
+    return { cardId, tail: card.tail, status: 'frozen', changed: true }
+  }
+
+  async unfreezeCard(userId: UserId, cardId: CardId): Promise<CardStateChange> {
+    const card = this.cardOfUser(userId, cardId)
+    if (card.status === 'lost') {
+      throw new BahError('card-lost', 'bank: 该卡已挂失，解挂请走补发流程，不能解冻', { cardId })
+    }
+    if (card.status === 'normal') return { cardId, tail: card.tail, status: 'normal', changed: false }
+    this.cards = this.cards.map((item) =>
+      item.id === cardId ? { ...item, status: 'normal' as const } : item,
+    )
+    return { cardId, tail: card.tail, status: 'normal', changed: true }
+  }
+
   async cancelSubscription(
     userId: UserId,
     subscriptionId: SubscriptionId,
+    mode: 'now' | 'at-next-cycle' = 'now',
   ): Promise<SubscriptionCancelled> {
-    const found = this.subscriptions.find((item) => item.id === subscriptionId)
-    if (found === undefined) {
-      throw new BahError('subscription-unknown', `bank: 未知订阅：${subscriptionId}`, {
-        subscriptionId,
-      })
-    }
-    if (found.userId !== userId) {
-      throw new BahError('subscription-not-owned', 'bank: 该订阅不属于当前用户', { subscriptionId })
+    const found = this.requireSubscription(userId, subscriptionId)
+    // 已取消是终态：`at-next-cycle` 不得把 cancelled 复活成 paused
+    if (found.status === 'cancelled') return { subscriptionId, merchant: found.merchant }
+    if (mode === 'at-next-cycle') {
+      // 到期即断：先暂停，`pauseUntil` 到期后由检测发现「仍在扣款」再升级取消流程（无定时器）
+      const pauseUntil = found.nextChargeAt
+      this.subscriptions = this.subscriptions.map((item) =>
+        item.id === subscriptionId ? { ...item, status: 'paused' as const, pauseUntil } : item,
+      )
+      return { subscriptionId, merchant: found.merchant, pausedUntil: pauseUntil }
     }
     this.subscriptions = this.subscriptions.map((item) =>
       item.id === subscriptionId ? { ...item, status: 'cancelled' as const } : item,
     )
     return { subscriptionId, merchant: found.merchant }
+  }
+
+  async listSubscriptions(userId: UserId): Promise<Subscription[]> {
+    return this.subscriptions
+      .filter((item) => item.userId === userId)
+      .map((item) => ({ ...item }))
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+  }
+
+  async listAuthorizations(userId: UserId): Promise<MerchantAuthorization[]> {
+    return this.authorizations
+      .filter((item) => item.userId === userId)
+      .map((item) => ({ ...item }))
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+  }
+
+  async revokeAuthorization(
+    userId: UserId,
+    authorizationId: AuthorizationId,
+  ): Promise<AuthorizationRevoked> {
+    const found = this.authorizations.find((item) => item.id === authorizationId)
+    if (found === undefined) {
+      throw new BahError('authorization-unknown', `bank: 未知代扣协议：${authorizationId}`, {
+        authorizationId,
+      })
+    }
+    if (found.userId !== userId) {
+      throw new BahError('authorization-not-owned', 'bank: 该代扣协议不属于当前用户', {
+        authorizationId,
+      })
+    }
+    const at = this.now()
+    if (found.status === 'revoked') {
+      // 幂等：已关的协议不重复记时刻，也不重复影响订阅
+      return {
+        authorizationId: found.id,
+        merchant: found.merchant,
+        revokedAt: found.revokedAt ?? at,
+        affectedSubscriptions: [],
+      }
+    }
+    this.authorizations = this.authorizations.map((item) =>
+      item.id === authorizationId
+        ? { ...item, status: 'revoked' as const, revokedAt: at }
+        : item,
+    )
+    const authorizationKey = normalizeMerchant(found.merchantKey)
+    const affected = this.subscriptions.filter(
+      (item) =>
+        item.userId === userId &&
+        item.status === 'active' &&
+        subscriptionKey(item) === authorizationKey,
+    )
+    this.subscriptions = this.subscriptions.map((item) =>
+      affected.some((candidate) => candidate.id === item.id)
+        ? { ...item, status: 'paused' as const, pauseUntil: item.nextChargeAt }
+        : item,
+    )
+    return {
+      authorizationId: found.id,
+      merchant: found.merchant,
+      revokedAt: at,
+      affectedSubscriptions: affected.map((item) => item.id),
+    }
+  }
+
+  async setSubscriptionWatch(
+    userId: UserId,
+    subscriptionId: SubscriptionId,
+    input: SubscriptionWatch,
+  ): Promise<Subscription> {
+    const found = this.requireSubscription(userId, subscriptionId)
+    if (found.status === 'cancelled') {
+      throw new BahError('subscription-cancelled', 'bank: 已取消的订阅不能再设置提醒/标注', {
+        subscriptionId,
+      })
+    }
+    if (input.watch !== 'remind' && input.aheadDays !== undefined) {
+      throw new BahError('reminder-ahead-invalid', 'bank: 只有 remind 才接受提前量', {
+        watch: input.watch,
+        aheadDays: input.aheadDays,
+      })
+    }
+    if (input.aheadDays !== undefined && (!Number.isSafeInteger(input.aheadDays) || input.aheadDays < 1 || input.aheadDays > 7)) {
+      throw new BahError('reminder-ahead-invalid', 'bank: 提醒提前量必须是 1..7 的整数天', {
+        aheadDays: input.aheadDays,
+      })
+    }
+    let updated: Subscription
+    if (input.watch === 'idle') {
+      updated = { ...stripWatchFields(found), note: 'idle' }
+    } else if (input.watch === 'remind') {
+      updated = { ...stripWatchFields(found), reminderAheadDays: input.aheadDays ?? 3 }
+    } else {
+      updated = stripWatchFields(found)
+    }
+    this.subscriptions = this.subscriptions.map((item) =>
+      item.id === subscriptionId ? updated : item,
+    )
+    return { ...updated }
+  }
+
+  async recordCancelRequest(request: Omit<CancelRequest, 'id'>): Promise<CancelRequest> {
+    this.requireSubscription(request.userId, request.subscriptionId)
+    if (
+      !Number.isFinite(request.requestedAt) ||
+      !Number.isFinite(request.expectedEffectiveAt) ||
+      !Number.isFinite(request.verifyBy)
+    ) {
+      throw new BahError('cancel-request-invalid', 'bank: 取消请求的时间戳非法', { request })
+    }
+    if (request.expectedEffectiveAt < request.requestedAt || request.verifyBy < request.expectedEffectiveAt) {
+      throw new BahError('cancel-request-invalid', 'bank: 取消请求的生效/核验时间顺序非法', {
+        requestedAt: request.requestedAt,
+        expectedEffectiveAt: request.expectedEffectiveAt,
+        verifyBy: request.verifyBy,
+      })
+    }
+    this.cancelRequestSeq += 1
+    const record: CancelRequest = {
+      ...request,
+      id: bankIds.cancelRequest(`cr-new-${this.cancelRequestSeq}`),
+    }
+    this.cancelRequests = [...this.cancelRequests, record]
+    return { ...record }
+  }
+
+  async listCancelRequests(userId: UserId): Promise<CancelRequest[]> {
+    return this.cancelRequests
+      .filter((item) => item.userId === userId)
+      .map((item) => ({ ...item }))
+      .sort((left, right) => left.requestedAt - right.requestedAt)
+  }
+
+  async upcomingCharges(userId: UserId, withinDays: number): Promise<UpcomingCharge[]> {
+    const at = this.now()
+    const until = at + Math.max(0, withinDays) * DAY_MS
+    return this.subscriptions
+      .filter(
+        (item) =>
+          item.userId === userId &&
+          item.status === 'active' &&
+          item.nextChargeAt >= at &&
+          item.nextChargeAt <= until,
+      )
+      .map((item) => ({
+        subscriptionId: item.id,
+        merchant: item.merchant,
+        amountCents: item.amountCents,
+        dueAt: item.nextChargeAt,
+        cycle: item.cycle,
+        ...(item.reminderAheadDays === undefined
+          ? {}
+          : { reminderAheadDays: item.reminderAheadDays }),
+      }))
+      .sort((left, right) => {
+        const byDue = left.dueAt - right.dueAt
+        if (byDue !== 0) return byDue
+        // 同一到期日按 ID 稳定排序（布尔差，不产生额外分支）
+        return Number(left.subscriptionId > right.subscriptionId) - Number(left.subscriptionId < right.subscriptionId)
+      })
   }
 
   async listAccounts(userId: UserId): Promise<Account[]> {
@@ -258,7 +485,9 @@ export class MockBankCore implements BankCoreProvider {
     // 本人账户命中优先于收款人表：否则「锁定账户(9012)」会被当成新收款人升红
     const selfTarget = this.resolveSelfTransfer(account, req.payee)
     const payee = selfTarget === undefined ? this.findPayee(account.userId, req.payee) : undefined
-    const dailyLimitCents = this.dailyLimitOf(account.id)
+    const viaCard =
+      req.viaCardId === undefined ? undefined : this.requireCardOf(account.id, req.viaCardId)
+    const dailyLimitCents = this.dailyLimitOf(account.id, req.viaCardId)
     const dailyUsedCents = this.dailyUsedCents(account.id, at)
     const risks = checkTransferRisks({
       amountCents: req.amountCents,
@@ -270,6 +499,7 @@ export class MockBankCore implements BankCoreProvider {
       duplicateRecent: this.hasRecentDuplicate(account.id, req.payee.name, req.amountCents, at),
       at,
       limits: this.limitsConfig,
+      ...(viaCard === undefined ? {} : { cardStatus: viaCard.status, cardTail: viaCard.tail }),
     })
     return {
       amountCents: req.amountCents,
@@ -287,6 +517,7 @@ export class MockBankCore implements BankCoreProvider {
         : risks.length > 0
           ? 'warn'
           : 'allow',
+      ...(viaCard === undefined ? {} : { viaCard: { tail: viaCard.tail, status: viaCard.status } }),
     }
   }
 
@@ -300,6 +531,18 @@ export class MockBankCore implements BankCoreProvider {
         accountId: account.id,
         status: account.status,
       })
+    }
+    // 卡状态是第二条守卫：预检里的 block 可能被绕过（工具可被直接调用），
+    // 核销之前必须再判一次，否则"冻结了却还能刷"就是结构性成立的。
+    if (req.viaCardId !== undefined) {
+      const card = this.requireCardOf(account.id, req.viaCardId)
+      if (card.status !== 'normal') {
+        throw new BahError(
+          'card-unavailable',
+          card.status === 'lost' ? 'bank: 该卡已挂失，不能用于支付' : 'bank: 该卡已冻结，请先解冻',
+          { cardId: card.id, status: card.status },
+        )
+      }
     }
     if (req.payee.name.trim().length === 0) {
       throw new BahError('payee-invalid', 'bank: 收款人姓名不能为空', { accountId: account.id })
@@ -377,7 +620,7 @@ export class MockBankCore implements BankCoreProvider {
     })
 
     const dailyUsedCents = this.dailyUsedCents(account.id, at)
-    const dailyLimitCents = this.dailyLimitOf(account.id)
+    const dailyLimitCents = this.dailyLimitOf(account.id, req.viaCardId)
     const result: TransferResult = {
       txnId: transaction.id,
       ticketId: ticket.ticketId,
@@ -511,6 +754,23 @@ export class MockBankCore implements BankCoreProvider {
         { productId: product.id, minAmountCents: product.minAmountCents },
       )
     }
+    // 第二道适当性闸门：直接调 `execute`（测试 / CLI / 未来适配器）绕过治理面时，
+    // 这里的拒绝才是真的拦。两层调同一个纯函数，不会出现两套阈值。
+    const customer = this.users.get(req.userId)
+    if (customer === undefined) {
+      throw new BahError('user-unknown', `bank: 用户不存在：${req.userId}`, { userId: req.userId })
+    }
+    const verdict = checkSuitability({
+      customerRisk: customer.riskGrade,
+      productRisk: product.riskGrade,
+    })
+    if (!verdict.allow) {
+      throw new BahError(verdict.code, `bank: ${verdict.reason}`, {
+        productId: product.id,
+        customerRisk: customer.riskGrade,
+        productRisk: product.riskGrade,
+      })
+    }
     if (account.availableCents < req.amountCents) {
       throw new BahError('insufficient-balance', 'bank: 余额不足', {
         accountId: account.id,
@@ -641,10 +901,43 @@ export class MockBankCore implements BankCoreProvider {
    * 从 5000 降到 1000 之后，判决层按 1000 升红，而预览层仍显示"今日还可转 5000"——
    * 客户看到的是 5000，转 1200 就被要求强验证。展示口径必须与判决口径同源。
    */
-  private dailyLimitOf(accountId: AccountId): number {
-    const card = this.cards.find((item) => item.accountId === accountId && item.status === 'normal')
+  private dailyLimitOf(accountId: AccountId, cardId?: CardId): number {
+    const card =
+      cardId === undefined
+        ? this.cards.find((item) => item.accountId === accountId && item.status === 'normal')
+        : this.cards.find((item) => item.id === cardId)
     const configured = this.limitsConfig.dailyTransferLimitCents
     return card === undefined ? configured : Math.min(card.dailyLimitCents, configured)
+  }
+
+  /**
+   * 按账户 + 卡 ID 取卡（转账支付工具路径）。
+   *
+   * @throws `card-unknown` 卡不存在
+   * @throws `card-not-owned` 卡不属于该账户（跨账户用卡是越权，不是参数错）
+   */
+  private requireCardOf(accountId: AccountId, cardId: CardId): Card {
+    const card = this.cards.find((item) => item.id === cardId)
+    if (card === undefined) {
+      throw new BahError('card-unknown', `bank: 未知银行卡：${cardId}`, { cardId })
+    }
+    if (card.accountId !== accountId) {
+      throw new BahError('card-not-owned', 'bank: 该卡不属于本账户', { cardId, accountId })
+    }
+    return card
+  }
+
+  /** 归属校验（与 `reportCardLost` 同一口径）。 */
+  private cardOfUser(userId: UserId, cardId: CardId): Card {
+    const card = this.cards.find((item) => item.id === cardId)
+    if (card === undefined) {
+      throw new BahError('card-unknown', `bank: 未知银行卡：${cardId}`, { cardId })
+    }
+    const account = this.requireAccount(card.accountId)
+    if (account.userId !== userId) {
+      throw new BahError('card-not-owned', 'bank: 该卡不属于当前用户', { cardId })
+    }
+    return card
   }
 
   private requireAccount(accountId: AccountId): Account {
@@ -653,6 +946,19 @@ export class MockBankCore implements BankCoreProvider {
       throw new BahError('account-unknown', `bank: 未知账户：${accountId}`, { accountId })
     }
     return account
+  }
+
+  private requireSubscription(userId: UserId, subscriptionId: SubscriptionId): Subscription {
+    const found = this.subscriptions.find((item) => item.id === subscriptionId)
+    if (found === undefined) {
+      throw new BahError('subscription-unknown', `bank: 未知订阅：${subscriptionId}`, {
+        subscriptionId,
+      })
+    }
+    if (found.userId !== userId) {
+      throw new BahError('subscription-not-owned', 'bank: 该订阅不属于当前用户', { subscriptionId })
+    }
+    return found
   }
 
   private replaceAccount(accountId: AccountId, patch: Pick<Account, 'balanceCents' | 'availableCents'>): void {
@@ -817,6 +1123,19 @@ export class MockBankCore implements BankCoreProvider {
       })
     }
   }
+}
+
+/** 订阅的关联键：`merchantKey` 优先，缺省按展示名现算（与检测共用同一套归一化）。 */
+function subscriptionKey(subscription: Subscription): string {
+  return normalizeMerchant(subscription.merchantKey ?? subscription.merchant)
+}
+
+/** 清掉提醒/标注两个字段（`none` 与切换标注时共用）。 */
+function stripWatchFields(subscription: Subscription): Subscription {
+  const copy: Record<string, unknown> = { ...subscription }
+  delete copy['note']
+  delete copy['reminderAheadDays']
+  return copy as unknown as Subscription
 }
 
 /** 预检里的收款人视图（未登记过 → `binding = 'new'`）。 */

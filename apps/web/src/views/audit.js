@@ -85,6 +85,14 @@ export function renderAuditSummary(frames) {
       (summaryOf(frame).startsWith('已拒绝') || summaryOf(frame).startsWith('无人应答')),
   ).length
 
+  // 取消单独一格：点遮罩 / Esc / 关闭都走 cancelled，且不要求理由。
+  // 混进"拒绝"会虚增否决数，吞掉又会让"点遮罩绕过拒绝理由"看起来毫无痕迹——
+  // 分开记才既不撒谎也不漏账。
+  const cancelled = audits.filter(
+    (frame) =>
+      frame.category === 'approval' && frame.label === '审批结论' && summaryOf(frame).startsWith('已取消'),
+  ).length
+
   // 阻断按**事故**去重：同一次事故既出"票据已阻断"，也会让轮次以 `blocked` 收尾，
   // 不能各记一笔（那样 1 次阻断会显示成 2）。
   //
@@ -107,6 +115,7 @@ export function renderAuditSummary(frames) {
   return el('div', { class: 'audit__summary' }, [
     chip('审批', approvals),
     chip('拒绝', rejected),
+    chip('取消', cancelled),
     chip('阻断', blocked),
   ])
 }

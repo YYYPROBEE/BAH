@@ -236,7 +236,7 @@ declare module '@bah/core' {
     /** @mode emit */
     'saga/anchor-published': { period: string; merkleRoot: string; targets: readonly string[] }
     /** @mode serial */
-    'saga/tick': { now: number; dueJobs: readonly ('janitor' | 'recon' | 'anchor')[] }
+    'saga/tick': { now: number; dueJobs: readonly ('janitor' | 'recon' | 'anchor' | 'plan-wake')[] }
   }
 }
 

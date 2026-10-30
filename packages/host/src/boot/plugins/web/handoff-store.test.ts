@@ -15,8 +15,10 @@ import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { captureThrown } from '@bah/test-support'
+import type { SessionId } from '@bah/core'
 
-import { createHandoffStore, handoffStateFileOf, type HandoffSnapshot } from './handoff-store.ts'
+import { createHandoffStore, handoffFileNextToSession, handoffStateFileOf, type HandoffSnapshot } from './handoff-store.ts'
+import type { SessionFiles } from '../persistence.ts'
 
 const dirs: string[] = []
 
@@ -184,5 +186,38 @@ describe('字段校验逐项 fail-loud', () => {
     bad({ ...SNAPSHOT, reason: 1 })
     bad({ ...SNAPSHOT, operator: 1 })
     bad({ ...SNAPSHOT, warnedAt: 'x' })
+  })
+
+  it('operatorLabel / requestedBy / operatorId 非串 → handoff-state-invalid', () => {
+    bad({ ...SNAPSHOT, operatorLabel: 1 })
+    bad({ ...SNAPSHOT, requestedBy: 1 })
+    bad({ ...SNAPSHOT, operatorId: 1 })
+  })
+})
+
+describe('T-07 旧文件兼容：只有 `operator` 字符串', () => {
+  it('按 operatorLabel 读出（只读不迁移），其它字段原样', () => {
+    const root = tempRoot()
+    const file = handoffStateFileOf(root, 's-1')
+    writeRaw(file, JSON.stringify({ at: SNAPSHOT.at, lastSeq: SNAPSHOT.lastSeq, operator: '坐席-A' }))
+
+    const loaded = createHandoffStore({ file }).load()
+    expect(loaded).toEqual({
+      at: SNAPSHOT.at,
+      lastSeq: SNAPSHOT.lastSeq,
+      operatorLabel: '坐席-A',
+    })
+  })
+})
+
+describe('T-08 生产装配路径：会话目录必须含租户段', () => {
+  it('不含租户段的会话目录 → handoff-store-unavailable（宁可不落盘也不落错租户）', () => {
+    const root = tempRoot()
+    const files = {
+      tenantId: 'demo',
+      fileOf: () => join(root, 'acme', 's-1', 'session.jsonl'),
+    } as unknown as SessionFiles
+    const error = captureThrown(() => handoffFileNextToSession(files, 's-1' as SessionId))
+    expect((error as { code?: string }).code).toBe('handoff-store-unavailable')
   })
 })

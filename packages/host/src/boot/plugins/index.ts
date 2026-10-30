@@ -14,8 +14,10 @@ import { approvalPlugin } from './approval.ts'
 import { auditDecisionsPlugin } from './audit-decisions.ts'
 import { bankToolsPlugin } from './bank-tools.ts'
 import { echoPlugin } from './echo.ts'
+import { factPlugin } from './fact.ts'
 import { knowledgePlugin } from './knowledge.ts'
 import { intentPlanePlugin } from './intent.ts'
+import { merchantPlugin } from './merchant.ts'
 import { modelPlugin } from './model.ts'
 import { persistencePlugin } from './persistence.ts'
 import { planPlugin } from './plan.ts'
@@ -28,6 +30,7 @@ import { sagaAuditPlugin } from './saga-audit.ts'
 import { sagaBridgePlugin } from './saga-bridge.ts'
 import { sagaStorePlugin } from './saga-store.ts'
 import { sandboxPlugin } from './sandbox.ts'
+import { schedulerPlugin } from './scheduler.ts'
 import { sentryPlugin } from './sentry.ts'
 import { sessionPlugin } from './session.ts'
 // 可观测性 01：遥测内核（只读旁路，不产生会话事件）
@@ -39,6 +42,10 @@ import { verifyPlugin } from './verify.ts'
 import { memoryPlugin } from './memory.ts'
 // 施工单 01：移动 H5 渠道（`channel:mobile`）。与 web 共用 `createHttpChannel`，薄壳。
 import { mobilePlugin } from './mobile.ts'
+// 施工单 15 / 桌面端 01：桌面渠道（`channel:desktop`）。同样与 web 共用 `createHttpChannel`。
+import { desktopPlugin } from './desktop.ts'
+// IM 网关 01：IM 渠道（`channel:im`）。同样薄壳，只多注册一段降权提示词。
+import { imPlugin } from './im.ts'
 import { webPlugin } from './web.ts'
 
 /** base bundle 的插件集（施工单 06 §3：内核 + 主循环 + 模型层 + 工具管线 + 持久化）。 */
@@ -73,6 +80,11 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   // 编排原语（plan:dag）：只在新 profile `plan` 里被 patch 显式启用。
   // 登记在这里 = "可以被 use 引用"，**不等于**会被装配（`enabled: true` 必须写在 patch 里）
   planPlugin,
+  // G2/G3：到期唤醒驱动器与生活事实库（登记 = 可被 use 引用，装配由 profile 决定）
+  schedulerPlugin,
+  factPlugin,
+  // G4：商户域（mock 商户；资金腿仍走银行工具）
+  merchantPlugin,
   // C4：跨会话记忆。登记 = 可被 use 引用；真正装配由 profile 的 patch 决定
   // （默认不装：记忆会改变模型输入，不做静默开启）
   memoryPlugin,
@@ -84,14 +96,23 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   webPlugin,
   // 渠道（施工单 01）：移动 H5；同样只由 profiles/mobile 的 patch 显式装配
   mobilePlugin,
+  // 渠道（施工单 15 / 桌面端 01）：桌面端；只由 profiles/desktop 的 patch 显式装配。
+  // 登记 ≠ 装配：base bundle 不含此行，否则每个 profile 都会多绑一个端口。
+  desktopPlugin,
+  // IM 网关 01：IM 渠道；只由 profiles/im 的 patch 显式装配（不进 base bundle）
+  imPlugin,
 ].map(toAnyHostPlugin)
 
 export {
   agentPlugin,
+  merchantPlugin,
+  factPlugin,
   approvalPlugin,
   auditDecisionsPlugin,
   bankToolsPlugin,
+  desktopPlugin,
   echoPlugin,
+  imPlugin,
   intentPlanePlugin,
   knowledgePlugin,
   memoryPlugin,
@@ -107,6 +128,7 @@ export {
   sagaBridgePlugin,
   sagaStorePlugin,
   sandboxPlugin,
+  schedulerPlugin,
   sentryPlugin,
   sessionPlugin,
   telemetryPlugin,
@@ -116,7 +138,21 @@ export {
 }
 
 // 编排原语的服务键（`bah:plan`）：消费方按 key 取 `PlanApi`，不 import 插件实现
-export { PLAN_SERVICE } from './plan.ts'
+export {
+  PLAN_ARMED_SERVICE,
+  PLAN_SERVICE,
+  PLAN_WAKE_SERVICE,
+  type ArmedPlansView,
+  type PlanWakeEntry,
+  type PlanWakeReport,
+  type PlanWakeRunner,
+  type PlanWakeSource,
+} from './plan.ts'
+
+// 桌面渠道的服务键（`channel:desktop`）：桌面主进程按 key 取实际端口，不 import 插件实现。
+// WHY 必须导出：`port: 0` 下端口由内核分配，主进程唯一能拿到真实值的途径就是这个服务
+// （I-DT-02 的判据——写死 7331 会在下一次启动就失配）。
+export { DESKTOP_SERVER } from './desktop.ts'
 
 // 03 单：意图平面的会话状态服务键（`prompt:ask` 与诊断面按 key 取用）
 export { INTENT_STATE_SERVICE } from './intent.ts'

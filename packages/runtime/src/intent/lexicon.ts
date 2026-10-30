@@ -26,6 +26,8 @@ export const ACTION_VERBS: readonly string[] = [
   '申购',
   '取消',
   '挂失',
+  '冻结',
+  '解冻',
   '对比',
   '试算',
   '改',
@@ -157,6 +159,16 @@ export const SCENE_LABELS: Readonly<Record<string, string>> = {
   subscription: '订阅扣款',
   cross_scene: '跨场景',
 }
+
+/**
+ * 「无动作动词就不判 explicit」的场景白名单（当前只有卡片场景）。
+ *
+ * WHY 是**白名单**而不是全局规则：订阅场景的合法请求**本来就无动词**
+ * （「我有哪些订阅」「网盘会员是季付吗」——20 条语料见 `intent/subscription.test.ts`），
+ * 一旦全局化，这些句子会被整片判成 implicit ⇒ 订阅场景回归。
+ * 卡场景不同：它的 required 为空集，一句陈述（「钱包被偷了」）若判 explicit 就会直接 proceed。
+ */
+export const IMPLICIT_BARE_STATEMENT_SCENES: readonly string[] = ['card']
 
 /** 跨场景拒借时的建议反问（R-XS-1）。`{target}` 由调用方替换成中文场景名。 */
 export const CROSS_SCENE_ASK = '您是想在「{target}」那边继续吗？我不确定，先跟您确认一下。'

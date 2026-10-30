@@ -65,6 +65,13 @@ export interface ProvideSessionOptions {
   readonly formatVersion?: number
   /** 复用外部存储（JSONL 回放时 `restore` 过事件的实例）。 */
   readonly store?: SessionStore
+  /**
+   * 启动恢复：把磁盘上已有的事件灌进日志（seq 必须连续）。
+   *
+   * 只由宿主在"续写既有会话"时传（CLI `bah plan wake`）；普通 boot 不传，
+   * 行为与改动前逐字节一致。
+   */
+  readonly restore?: readonly AnySessionEvent[]
 }
 
 /**
@@ -91,6 +98,10 @@ export function provideSession(ctx: Context, options: ProvideSessionOptions): Di
   const store =
     options.store ??
     new SessionStore({ now: options.now, formatVersion: options.formatVersion })
+  if (options.restore !== undefined && options.restore.length > 0) {
+    // restore 只推日志、不广播：恢复不是"新发生的事"，重放给监听器会写第二份审计
+    store.restore(options.restore as never)
+  }
 
   /** 待派发队列（重入时只入队，由最外层派发循环统一消费）。 */
   const pending: AnySessionEvent[] = []

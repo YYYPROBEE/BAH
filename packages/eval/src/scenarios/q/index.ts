@@ -208,5 +208,56 @@ export const Q_SCENARIOS: readonly EvalScenario[] = [
       ],
     },
   }),
+
+  /**
+   * 账单场景收口 01 · T-06：品类与年度两条语料。
+   *
+   * 断言值来自**先跑一次的真实输出**（探针）：eval 固定钟 1_700_000_000_000
+   * （2023-11-14），本月咖啡 68 元、年度 12 个账期全覆盖。
+   */
+  scenario({
+    id: 'Q-13',
+    family: 'Q',
+    title: '品类口径：本月咖啡 68 元（商户维度而非账务分类）',
+    turns: ['这个月咖啡喝掉多少？'],
+    expect: [
+      { kind: 'tool-sequence', tools: ['bill_analyze'], mode: 'exact' },
+      { kind: 'tool-result', tool: 'bill_analyze', path: 'period', equals: 'month' },
+      {
+        kind: 'tool-result',
+        tool: 'bill_analyze',
+        path: 'byMerchantCategory.0.category',
+        equals: 'coffee',
+      },
+      {
+        kind: 'tool-result',
+        tool: 'bill_analyze',
+        path: 'byMerchantCategory.0.amountCents',
+        equals: 6_800,
+      },
+    ],
+    metric: 'task-success',
+    action: {
+      kind: 'script',
+      steps: readSteps('bill_analyze', { period: 'month', groupBy: 'merchant' }),
+    },
+  }),
+  scenario({
+    id: 'Q-14',
+    family: 'Q',
+    title: '年度口径：近 12 个账期全覆盖，不做同比',
+    turns: ['给我一份年度账单报告'],
+    expect: [
+      { kind: 'tool-sequence', tools: ['bill_report'], mode: 'exact' },
+      { kind: 'tool-result', tool: 'bill_report', path: 'period', equals: 'year' },
+      { kind: 'tool-result', tool: 'bill_report', path: 'analysis.coveredMonths', equals: 12 },
+      { kind: 'tool-result', tool: 'bill_report', path: 'analysis.months.0', equals: '2022-12' },
+    ],
+    metric: 'task-success',
+    action: {
+      kind: 'script',
+      steps: readSteps('bill_report', { period: 'year', format: 'summary' }),
+    },
+  }),
 ]
 

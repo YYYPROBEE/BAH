@@ -1,11 +1,13 @@
 /**
  * 造数（施工单 07 §4）：seeded 可复现的仿真银行数据集。
  *
- * 三档：
+ * 四档：
  * - `demo`：演示用的小数据；**预置王建国为白名单收款人**（首笔早于演示），保证 800 元转账
  *   不会触发"新收款人升红"；
  * - `stress`：压测用的大数据（多用户 / 数百笔交易）；
- * - `adversarial`：安全用例素材（几乎触阈值的金额、新收款人、深夜大额、重复扣费订阅）。
+ * - `adversarial`：安全用例素材（几乎触阈值的金额、新收款人、深夜大额、重复扣费订阅）；
+ * - `recurring`：场景 5 的订阅/代扣数据集（6 个月周期序列、脏商户名、断供失败样本）。
+ *   固定脚本（不用随机源），`demo` 档因此保持字节不变。
  *
  * 随机源来自 `@bah/util` 的 `seededRandom`（与快照夹具同源）：同 seed 同数据，
  * 答辩、回放与"数据速查表"都能逐字复现。种子由调用方记录（施工单 12 的会话元数据）。
@@ -18,9 +20,11 @@ import type {
   AccountId,
   BankLimits,
   Bill,
+  CancelRequest,
   Card,
   CardId,
   Holding,
+  MerchantAuthorization,
   Payee,
   Subscription,
   Transaction,
@@ -36,7 +40,7 @@ import { DAY_MS, monthKey, previousMonth } from '../core/time.ts'
 export * from './risk.ts'
 
 /** 造数档位。 */
-export type ForgeTier = 'demo' | 'stress' | 'adversarial'
+export type ForgeTier = 'demo' | 'stress' | 'adversarial' | 'recurring'
 
 /** 造数参数。 */
 export interface ForgeOptions {
@@ -49,8 +53,9 @@ export interface ForgeOptions {
    * 租户盐（01 TA-14；缺省 0 = 无偏移）。
    *
    * 只有 `stress` / `adversarial` 档用随机源，所以**盐只对这两档生效**；
-   * `demo` 档是固定脚本（王建国 + 一笔预置收款人），盐对它没有作用——
-   * 那一档必须保持字节不变（7 个快照 + 槽位姓名一致性都靠它）。
+   * `demo` 档是固定脚本（王建国 + 预置收款人 + 近 12 个月纯算术历史），盐对它没有作用。
+   * 快照不读流水，只依赖静态字段（用户名 / 账户尾号 / 余额）；流水由
+   * `mock.test.ts` 的自洽式断言与账单测试兜住（见账单场景收口 01 · T-05）。
    */
   readonly tenantSalt?: number
 }
@@ -73,6 +78,10 @@ export interface BankDataset {
   readonly holdings: readonly Holding[]
   readonly subscriptions: readonly Subscription[]
   readonly payees: readonly Payee[]
+  /** 代扣协议（场景 5；demo 档缺省）。 */
+  readonly authorizations?: readonly MerchantAuthorization[]
+  /** 取消请求（场景 5；demo 档缺省）。 */
+  readonly cancelRequests?: readonly CancelRequest[]
   readonly limits: BankLimits
 }
 
@@ -133,6 +142,8 @@ export function buildBankDataset(options: ForgeOptions): BankDataset {
       return { ...header, ...buildStress(now, random) }
     case 'adversarial':
       return { ...header, ...buildAdversarial(now) }
+    case 'recurring':
+      return { ...header, ...buildRecurring(now) }
     default:
       return assertNever(tier, 'forge-tier')
   }
@@ -141,6 +152,47 @@ export function buildBankDataset(options: ForgeOptions): BankDataset {
 /* ────────────────────────────────────────────────────────────────────────────
  * demo 档
  * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * demo 档的近 12 个月历史（账单场景收口 01 · T-05）。
+ *
+ * 区间：`now` 所在月 **-11 … -2**。不进入当前月与上月——那两个月由 8 笔固定脚本
+ * 决定，`mock.test.ts` 的月度断言、`queries.test.ts` 的咖啡 68 元、Q-04 的
+ * `totalOutCents=9_800` 都钉在上面。
+ *
+ * 每月 6 笔固定角色；金额按月份序号做**纯算术**微扰，不引入 `seededRandom`：
+ * demo 档的契约是"不用随机源"（见文件头），用 PRNG 等于破约。
+ */
+function buildDemoHistory(now: number): Transaction[] {
+  const current = bankIds.account('a-1')
+  const thisMonth = monthKey(now)
+  const history: Transaction[] = []
+
+  for (let offset = 11; offset >= 2; offset -= 1) {
+    const period = monthsBefore(thisMonth, offset)
+    const i = 12 - offset
+    const at = (day: number): number =>
+      Date.parse(`${period}-${String(day).padStart(2, '0')}T02:00:00.000Z`)
+
+    history.push(
+      txn(`th-${offset}-salary`, current, at(3), 1_500_000 + ((i * 37) % 900), 'in', '工资代发', 'salary', 'app'),
+      txn(`th-${offset}-rent`, current, at(6), 300_000 + ((i * 37) % 900), 'out', '房东', 'transfer', 'app'),
+      txn(`th-${offset}-coffee`, current, at(8), 6_800 + ((i * 37) % 900), 'out', '瑞幸咖啡', 'consumption', 'app'),
+      txn(`th-${offset}-takeout`, current, at(12), 4_200 + ((i * 53) % 700), 'out', '美团外卖', 'consumption', 'app'),
+      txn(`th-${offset}-metro`, current, at(15), 1_250 + ((i * 17) % 300), 'out', '地铁出行', 'consumption', 'app'),
+      txn(`th-${offset}-membership`, current, at(18), 3_000 + ((i * 11) % 200), 'out', '视频会员', 'subscription', 'app'),
+    )
+  }
+
+  return history
+}
+
+/** `YYYY-MM` 往前数 `count` 个账期（不引 `tools/time.ts`：forge 不向上依赖工具层）。 */
+function monthsBefore(period: string, count: number): string {
+  let result = period
+  for (let index = 0; index < count; index += 1) result = previousMonth(result)
+  return result
+}
 
 function buildDemo(now: number): DatasetParts {
   const user: User = {
@@ -200,6 +252,10 @@ function buildDemo(now: number): DatasetParts {
   }
 
   const transactions: Transaction[] = [
+    // 近 12 个月的账单历史（T-05）。当前月与上月**绝不进入**：
+    // 那两个月由下面 8 笔固定脚本决定，`queries.test` / `mock.test` 与
+    // Q-04 的月度断言都钉在上面。
+    ...buildDemoHistory(now),
     txn('t-1', current, now - 45 * DAY_MS, 1_500_000, 'in', '工资代发', 'salary', 'app'),
     txn('t-2', current, now - 40 * DAY_MS, 32_800, 'out', '盒马鲜生', 'consumption', 'app'),
     txn('t-3', current, now - 35 * DAY_MS, 12_500, 'out', '地铁出行', 'consumption', 'app'),
@@ -402,6 +458,221 @@ function buildAdversarial(now: number): DatasetParts {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
+ * recurring 档（场景 5：订阅 / 代扣）
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 订阅 / 代扣数据集：11 条周期序列（8 订阅 + 2 账单 + 1 分期）。
+ *
+ * 固定脚本（不用随机源）：租户盐对它零作用，与 `demo` 同构；`demo` 档保持字节不变。
+ * 脏商户名、重复扣款、预置 revoked 后仍扣款，都是演示要用的对照样本。
+ */
+function buildRecurring(now: number): DatasetParts {
+  const user: User = {
+    id: bankIds.user('u-1'),
+    // 与 profiles/subscription/patch.yml 的静态画像一致（张三）
+    name: '张三',
+    phone: '13800001111',
+    riskGrade: 'R2',
+    verified: true,
+    strongAuth: 'sms',
+  }
+  const current = bankIds.account('a-1')
+  const savings = bankIds.account('a-2')
+  const accounts: Account[] = [
+    account(current, user.id, '6222 0202 0000 1234', 'current', 2_000_000, 2_000_000),
+    account(savings, user.id, '6222 0202 0000 5678', 'fixed', 8_000_000, 0),
+  ]
+  const cards: Card[] = [card(bankIds.card('c-1'), current, '1234', 'physical', 100_000, 2_000_000)]
+
+  const transactions: Transaction[] = []
+  let sequence = 0
+  const charge = (
+    name: string,
+    at: number,
+    amountCents: number,
+    category: TxnCategory = 'subscription',
+  ): void => {
+    sequence += 1
+    transactions.push(txn(`t-r-${sequence}`, current, at, amountCents, 'out', name, category, 'app'))
+  }
+  const monthly = (
+    name: string,
+    amounts: readonly number[],
+    options: { category?: TxnCategory; names?: (index: number) => string } = {},
+  ): void => {
+    for (const [index, amount] of amounts.entries()) {
+      const at = now - (amounts.length - 1 - index) * 30 * DAY_MS
+      charge(options.names?.(index) ?? name, at, amount, options.category ?? 'subscription')
+    }
+  }
+
+  // 订阅 8 个（视频：第 4 期涨价；云音乐仅 3 期 → 中置信；云存储标 idle）
+  monthly('视频会员', [3000, 3000, 3000, 3500, 3500, 3500], {
+    names: (index) => (index < 3 ? 'STM*VIDEO' : '视频会员'),
+  })
+  charge('支付宝-云音乐', now - 61 * DAY_MS, 1200)
+  charge('支付宝-云音乐', now - 31 * DAY_MS, 1200)
+  charge('支付宝-云音乐', now - DAY_MS, 1200)
+  // 同额同日重复扣款（演示 duplicate）
+  charge('云音乐', now, 1200)
+  monthly('财付通-云存储', [1800, 1800, 1800, 1800, 1800, 1800, 1800])
+  monthly('财付通-某某健身(朝阳店)', [19_900, 19_900, 19_900, 19_900, 19_900, 19_900])
+  for (let index = 0; index < 24; index += 1) {
+    charge('新闻会员', now - (23 - index) * 7 * DAY_MS, 600)
+  }
+  // 季度扣款：最老一笔放在 -178 天（不是恰好 -180），否则进程启动几十秒后
+  // 滑动窗口就把第一期甩出去，演示变成「开机越久越少一条」
+  for (let index = 0; index < 3; index += 1) {
+    charge('网盘超级会员', now - (2 - index) * 89 * DAY_MS, 4500)
+  }
+  monthly('阅读包月', [900, 900, 900, 900, 900, 900])
+  monthly('XX软件订阅', [6800, 6800, 6800, 6800])
+
+  // 账单 2 个（房租进账单不进订阅清单；水电金额波动 → low）
+  monthly('房租-王房东', [450_000, 450_000, 450_000, 450_000, 450_000, 450_000], {
+    category: 'consumption',
+  })
+  monthly('国网电力', [15_500, 20_500, 16_000, 20_000, 15_200, 20_700], {
+    category: 'consumption',
+  })
+
+  // 分期 1 个：12 期递减（899 → 800），窗口内可见 7 期
+  for (let index = 0; index < 12; index += 1) {
+    charge('XX商城分期', now - (11 - index) * 30 * DAY_MS, 89_900 - index * 900, 'consumption')
+  }
+
+  // 非周期消费（不可成 series 的对照样本）
+  charge('盒马鲜生', now - 12 * DAY_MS, 32_800, 'consumption')
+  charge('海底捞', now - 22 * DAY_MS, 45_600, 'consumption')
+  charge('地铁出行', now - 8 * DAY_MS, 12_500, 'consumption')
+  sequence += 1
+  transactions.push(txn(`t-r-${sequence}`, current, now - 40 * DAY_MS, 1_500_000, 'in', '工资代发', 'salary', 'app'))
+
+  const subscriptions: Subscription[] = [
+    {
+      id: bankIds.subscription('s-video'),
+      userId: user.id,
+      merchant: '视频会员',
+      merchantKey: '视频会员',
+      cycle: 'monthly',
+      nextChargeAt: now + 5 * DAY_MS,
+      amountCents: 3500,
+      status: 'active',
+      // 合约期内退订是硬拦（演示第⑤步）；到期即断需要显式确认
+      contractEndAt: now + 90 * DAY_MS,
+      authorizationId: bankIds.authorization('auth-video'),
+    },
+    {
+      id: bankIds.subscription('s-music'),
+      userId: user.id,
+      merchant: '支付宝-云音乐',
+      merchantKey: '云音乐',
+      cycle: 'monthly',
+      nextChargeAt: now + 9 * DAY_MS,
+      amountCents: 1200,
+      status: 'active',
+      authorizationId: bankIds.authorization('auth-music'),
+    },
+    {
+      id: bankIds.subscription('s-storage'),
+      userId: user.id,
+      merchant: '财付通-云存储',
+      merchantKey: '云存储',
+      cycle: 'monthly',
+      nextChargeAt: now + 12 * DAY_MS,
+      amountCents: 1800,
+      status: 'active',
+      note: 'idle',
+      authorizationId: bankIds.authorization('auth-storage'),
+    },
+    {
+      id: bankIds.subscription('s-gym'),
+      userId: user.id,
+      merchant: '财付通-某某健身(朝阳店)',
+      merchantKey: '某某健身',
+      cycle: 'monthly',
+      nextChargeAt: now - 10 * DAY_MS,
+      pauseUntil: now - 10 * DAY_MS,
+      amountCents: 19_900,
+      status: 'paused',
+      contractEndAt: now + 90 * DAY_MS,
+      authorizationId: bankIds.authorization('auth-gym'),
+    },
+    {
+      id: bankIds.subscription('s-news'),
+      userId: user.id,
+      merchant: '新闻会员',
+      merchantKey: '新闻会员',
+      cycle: 'weekly',
+      nextChargeAt: now + 3 * DAY_MS,
+      amountCents: 600,
+      status: 'active',
+      authorizationId: bankIds.authorization('auth-news'),
+    },
+    {
+      id: bankIds.subscription('s-netdisk'),
+      userId: user.id,
+      merchant: '网盘超级会员',
+      merchantKey: '网盘超级会员',
+      cycle: 'quarterly',
+      nextChargeAt: now + 30 * DAY_MS,
+      amountCents: 4500,
+      status: 'active',
+      authorizationId: bankIds.authorization('auth-netdisk'),
+    },
+    {
+      id: bankIds.subscription('s-reading'),
+      userId: user.id,
+      merchant: '阅读包月',
+      merchantKey: '阅读包月',
+      cycle: 'monthly',
+      nextChargeAt: now + 6 * DAY_MS,
+      amountCents: 900,
+      status: 'active',
+      authorizationId: bankIds.authorization('auth-reading'),
+    },
+    {
+      id: bankIds.subscription('s-software'),
+      userId: user.id,
+      merchant: 'XX软件订阅',
+      merchantKey: 'xx软件订阅',
+      cycle: 'monthly',
+      nextChargeAt: now + 15 * DAY_MS,
+      amountCents: 6800,
+      status: 'active',
+      authorizationId: bankIds.authorization('auth-software'),
+    },
+  ]
+
+  const authorizations: MerchantAuthorization[] = subscriptions.map((subscription, index) => ({
+    id: subscription.authorizationId ?? bankIds.authorization(`auth-${index + 1}`),
+    userId: user.id,
+    merchant: subscription.merchant,
+    merchantKey: subscription.merchantKey ?? subscription.merchant,
+    agreementNo: `AG-2026-${String(index + 1).padStart(4, '0')}`,
+    accountId: current,
+    // 健身房：协议已关，但之后仍有一笔扣款（断供失败样本）
+    status: subscription.id === bankIds.subscription('s-gym') ? 'revoked' : 'active',
+    signedAt: now - 365 * DAY_MS,
+    ...(subscription.id === bankIds.subscription('s-gym') ? { revokedAt: now - 10 * DAY_MS } : {}),
+  }))
+
+  return {
+    users: [user],
+    accounts,
+    cards,
+    transactions,
+    bills: [buildBill(previousMonth(monthKey(now)), transactions)],
+    wealthProducts: defaultProducts(),
+    holdings: [],
+    subscriptions,
+    authorizations,
+    payees: [],
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
  * 共用零件
  * ──────────────────────────────────────────────────────────────────────────── */
 
@@ -415,6 +686,8 @@ interface DatasetParts {
   readonly holdings: readonly Holding[]
   readonly subscriptions: readonly Subscription[]
   readonly payees: readonly Payee[]
+  readonly authorizations?: readonly MerchantAuthorization[]
+  readonly cancelRequests?: readonly CancelRequest[]
 }
 
 function account(
@@ -491,6 +764,27 @@ function defaultProducts(): readonly WealthProduct[] {
       riskGrade: 'R3',
       minAmountCents: 100_000,
     },
+    // R4/R5 是适当性演示的刚需：客户 C2 买 R4 必须被拦。产品数量不是目标，
+    // "每个风险等级至少一只"才是（见 02 裁决 §6）。
+    {
+      id: bankIds.product('w-4'),
+      name: '进取优选 365 天',
+      kind: 'fund',
+      termDays: 365,
+      expectedYieldPct: 6.8,
+      riskGrade: 'R4',
+      minAmountCents: 100_000,
+    },
+    {
+      id: bankIds.product('w-5'),
+      name: '量化增强 720 天',
+      kind: 'fund',
+      termDays: 720,
+      // 不取 9.9：对抗集 H-08 的编造值就是 9.9%，产品库里出现同值会把「编造」判成「有据」。
+      expectedYieldPct: 8.8,
+      riskGrade: 'R5',
+      minAmountCents: 200_000,
+    },
   ]
 }
 
@@ -524,3 +818,6 @@ function pick<T>(random: () => number, items: readonly T[]): T {
   }
   return value
 }
+
+// 商户域（跨场景主动能力 G4）：mock 商户种子 + 搜索 + 下单（资金腿仍走 transfer_create）
+export * from './merchants.ts'

@@ -11,7 +11,7 @@ import { parseTenantId } from '@bah/util'
 
 import type { IncomingMessage } from 'node:http'
 
-import { createSessionStore } from './session-store.ts'
+import { createSessionStore, type SessionStore } from './session-store.ts'
 import { createAuthRuntime } from './identity.ts'
 import { createStaticIdentifier } from './static.ts'
 import { createThrottle } from './throttle.ts'
@@ -175,5 +175,29 @@ describe('identify · 三种模式', () => {
     const foreign = store.issue({ tenantId: 'acme', userId: 'u-9', roles: ['agent'] })
     expect(auth.identify(request({ cookie: `bah_sid=${foreign.sid}` }), NOW).kind).toBe('anonymous')
     void parseTenantId
+  })
+})
+
+describe('identify · 绝不抛', () => {
+  it('TA-24-7 会话存储读取抛错 → anonymous（坏存储不能变成 500）', () => {
+    const auth = createAuthRuntime({
+      mode: 'password',
+      tenantId: TENANT,
+      now: () => NOW,
+      sessions: {
+        resolve: () => {
+          throw new Error('session store corrupted')
+        },
+        touch: () => undefined,
+      } as unknown as SessionStore,
+      throttle: createThrottle({ maxFailures: 5, lockMs: 1_000, backoffBaseMs: 1_000, backoffMaxMs: 2_000 }),
+      serverCsrf: SERVER_CSRF,
+      staticIdentify: () => undefined,
+      absoluteMs: 600_000,
+      cookieName: 'bah_sid',
+      cookieSecure: false,
+    })
+    // 每一次请求都要经过 identify：这里抛就是整站 500，必须降级成匿名
+    expect(auth.identify(request({ cookie: 'bah_sid=sid-1' }), NOW).kind).toBe('anonymous')
   })
 })

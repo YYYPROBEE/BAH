@@ -1,0 +1,59 @@
+# subscription profile patch（场景 5：订阅 / 代扣）。
+#
+# 语义与其它 profile 一致：整块替换，不深合并。
+# 数据档 = `recurring`（固定脚本，6 个月周期序列、脏商户名、断供失败样本）；
+# `demo` 档保持字节不变（7 份快照与静态画像都钉在它上面）。
+
+- id: core:model
+  config:
+    provider: router
+    model: router-chat
+    chunkSize: 4
+
+- id: bank:tools
+  config:
+    # 主体与 profiles/*/patch.yml 的静态画像一致（张三）；不一致会触发 slots-user-mismatch
+    demoUserId: u-1
+    seed: 7
+    datasetTier: recurring
+    # 策略外置 S3：判决走内容寻址的外置规则
+    policy: { engine: bundle }
+    # 实体槽位的数据层预算（与 web 同口径；只有 core:agent.slots.source=bank 时才被读）
+    contextSlots:
+      accounts: 3
+      transactions: 3
+      subscriptions: 3
+      windowDays: 30
+      timeoutMs: 250
+      maxChars: 800
+      breakerFailures: 3
+      breakerOpenMs: 10000
+
+- id: interaction:approval
+  config:
+    # headless 演示：自动应答（默认 none = 拒绝，绝不默认放行）
+    responder: headless
+    autoDecision: allow
+    autoVerify: true
+
+- id: safety:sentry
+  config:
+    trace:
+      sink: session
+    rules:
+      crossScenario: true
+    budget:
+      # 与上方的演示用量对齐：3 次非绿调用 × 2 倍余量（审查 D-07）
+      riskyCalls: 6
+
+- id: core:agent
+  config:
+    channel: headless
+    loop:
+      model: router:router-chat
+      maxSteps: 8
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }
+      notes:
+        - 本对话运行在仿真数据集（recurring 档）：6 个月订阅/代扣流水，均为造数，不产生真实资金变动。

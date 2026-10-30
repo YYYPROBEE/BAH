@@ -1,17 +1,17 @@
 {
   "schemaVersion": "eval-baseline.v1",
-  "commit": "e09b165ad25fee00e873a61dada10dafd29c1f4d",
+  "commit": "1c369b337413e54002a68c4e5da6b98cfb25d5eb",
   "seed": 20261026,
-  "recordedAt": "2026-10-29T08:06:20.317Z",
+  "recordedAt": "2026-10-29T17:07:41.785Z",
   "metrics": {
     "taskSuccess": {
-      "passed": 59,
-      "total": 59,
+      "passed": 76,
+      "total": 76,
       "rate": 1
     },
     "privilegeBlock": {
-      "passed": 5,
-      "total": 5,
+      "passed": 6,
+      "total": 6,
       "rate": 1
     },
     "refusalAccuracy": {
@@ -19,7 +19,7 @@
       "total": 7,
       "rate": 1
     },
-    "averageSteps": 1.55
+    "averageSteps": 1.45
   },
   "targets": {
     "taskSuccessRate": 0.95,

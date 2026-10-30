@@ -122,8 +122,15 @@ export function createRuntimeContextResolver(
     }
     const accountCount = view.accounts?.length ?? 0
     const transactionCount = view.recentTransactions?.length ?? 0
+    const upcomingCount = view.upcomingCharges?.length ?? 0
     const noteCount = view.notes?.length ?? 0
-    if (view.user?.name === undefined && accountCount === 0 && transactionCount === 0 && noteCount === 0) {
+    if (
+      view.user?.name === undefined &&
+      accountCount === 0 &&
+      transactionCount === 0 &&
+      upcomingCount === 0 &&
+      noteCount === 0
+    ) {
       throw new BahError(
         'slots-empty-resolution',
         'runtime-context: 解析器返回 ok 但没有任何可展示内容（slots-empty-resolution；适配器 bug）',
@@ -158,6 +165,8 @@ export function createRuntimeContextResolver(
       ...(view.recentTransactions === undefined
         ? {}
         : { recentTransactions: view.recentTransactions }),
+      // 即将扣款：字段名与 bank 适配器、runtime 视图三处必须同名（丢字段 = 静默不提醒）
+      ...(view.upcomingCharges === undefined ? {} : { upcomingCharges: view.upcomingCharges }),
       // 顺序是语义：provider 的 notes 在前，静态 disclaimer 永远是最后一条
       ...(view.notes === undefined && staticNotes.length === 0
         ? {}

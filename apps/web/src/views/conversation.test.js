@@ -71,6 +71,31 @@ describe('对话流 · 消息气泡', () => {
     expect(node.textContent).toContain('运行时上下文')
   })
 
+  it('运行时上下文默认折叠，点「展开」才显示正文', () => {
+    const node = renderMessage(message({ source: 'runtime-context' }))
+    const body = node.querySelector('.bubble__body')
+    const toggle = node.querySelector('.message__toggle')
+    expect(body.hidden).toBe(true)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+
+    toggle.click()
+    expect(body.hidden).toBe(false)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(toggle.textContent).toBe('收起')
+  })
+
+  it('接管期客户留言画成 user 气泡并标注"等待坐席处理"（不是运行时上下文）', () => {
+    const node = renderMessage(
+      message({ source: 'handoff-waiting', blocks: [{ type: 'text', text: '那我等你消息' }] }),
+    )
+    expect(node.className).toContain('message--user')
+    expect(node.className).toContain('message--handoff-waiting')
+    expect(node.className).not.toContain('message--correction')
+    expect(node.textContent).toContain('那我等你消息')
+    expect(node.textContent).toContain('等待坐席处理')
+    expect(node.textContent).not.toContain('运行时上下文')
+  })
+
   it('非文本块留摘要，不丢"有内容"这个事实', () => {
     const node = renderMessage(message({ role: 'assistant', blocks: [{ type: 'other', summary: 'tool_use' }] }))
     expect(node.textContent).toContain('[tool_use]')
@@ -107,16 +132,64 @@ describe('对话流 · 行内提示', () => {
 })
 
 describe('对话流 · 帧分发', () => {
-  it('四类帧都有对应节点；未知帧有兜底文案', () => {
+  it('六类帧都有对应节点；未知帧有兜底文案', () => {
     expect(renderFrame({ kind: 'turn', turn: 1, phase: 'start' }).className).toContain('turn-divider')
     expect(renderFrame(message()).className).toContain('message')
     expect(renderFrame({ kind: 'notice', seq: 1, level: 'info', title: '提示' }).className).toContain('notice')
     expect(renderFrame({ kind: 'tool', seq: 1, callId: 'c', state: 'pending', title: '转账' }).className).toContain('tool-card')
+    expect(
+      renderFrame({
+        kind: 'choice',
+        seq: 2,
+        at: 2,
+        callId: 'call-ask',
+        prompt: '要转给谁？',
+        options: [{ id: 'a', label: '王建国' }],
+        allowFreeText: true,
+      }).className,
+    ).toContain('choice-card')
+    expect(
+      renderFrame({
+        kind: 'effects',
+        seq: 3,
+        at: 3,
+        turn: 1,
+        items: [{ callId: 'c1', name: 'transfer_create', title: '转账', tone: 'success' }],
+      }).className,
+    ).toContain('effects')
     expect(renderFrame({ kind: 'mystery', seq: 1 }).textContent).toContain('未知帧')
   })
 
-  it('对话流只收四类帧（审计 / DAG 各归各的面板）', () => {
-    expect([...CONVERSATION_KINDS].sort()).toEqual(['message', 'notice', 'tool', 'turn'])
+  it('choice 帧把交互依赖透传给卡片（点选走注入的 submit）', async () => {
+    const node = renderFrame(
+      {
+        kind: 'choice',
+        seq: 2,
+        at: 2,
+        callId: 'call-ask',
+        prompt: '要转给谁？',
+        options: [{ id: 'a', label: '王建国' }],
+        allowFreeText: true,
+      },
+      { submit: async () => ({ ok: true }) },
+    )
+    const option = node.querySelector('[data-role="choice-option"]')
+    expect(option.disabled).toBe(false)
+    option.click()
+    await Promise.resolve()
+    expect(node.dataset.state).toBe('picked')
+  })
+
+  it('对话流收七类帧（审计 / DAG 各归各的面板；goal/todo 桌面不产生；G7 计划卡进对话流）', () => {
+    expect([...CONVERSATION_KINDS].sort()).toEqual([
+      'choice',
+      'effects',
+      'message',
+      'notice',
+      'plan-card',
+      'tool',
+      'turn',
+    ])
   })
 })
 

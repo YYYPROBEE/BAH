@@ -1,16 +1,20 @@
 /**
  * 对话流（施工单 13 §2.1 第一行 + §5.1）。
  *
- * 只有四种节点：轮次分割、消息气泡、行内提示、工具卡（工具卡在 `tool-card.js`）。
+ * 六种节点：轮次分割、消息气泡、行内提示、工具卡（`tool-card.js`）、
+ * 选择题卡（`choice-card.js`）、已发生操作清单（`effects.js`）。
  * 全部从帧生成，没有"输入框回显"这类平行状态——POST 成功不插入气泡，
  * 用户消息一律等 `user/message` 帧（避免双份，`docs/web-frontend.md` §7 末条）。
  */
 
 import { el, icon } from '../dom.js'
+import { renderChoiceCard } from './choice-card.js'
+import { renderEffects } from './effects.js'
+import { renderPlanCard } from './plan-card.js'
 import { renderTool } from './tool-card.js'
 
-/** 对话流收纳的帧类型。 */
-export const CONVERSATION_KINDS = new Set(['turn', 'message', 'notice', 'tool'])
+/** 对话流收纳的帧类型（`choice`/`effects`/`plan-card` 不在旧版白名单里时会整帧静默丢弃）。 */
+export const CONVERSATION_KINDS = new Set(['turn', 'message', 'notice', 'tool', 'choice', 'effects', 'plan-card'])
 
 /** 轮次结束原因的文案（`guard-stopped` 与 `failed` 必须区分）。 */
 const END_LABEL = {
@@ -26,9 +30,11 @@ const END_LABEL = {
  * 一条帧 → 节点。
  *
  * @param {Record<string, any>} frame
+ * @param {{ submit?: (text: string) => Promise<{ok: boolean, code?: string, message?: string, reason?: string}>, focusComposer?: () => void }} [deps]
+ *        仅 `choice` 用到；其余帧忽略
  * @returns {HTMLElement}
  */
-export function renderFrame(frame) {
+export function renderFrame(frame, deps = {}) {
   switch (frame.kind) {
     case 'turn':
       return renderTurn(frame)
@@ -38,6 +44,12 @@ export function renderFrame(frame) {
       return renderNotice(frame)
     case 'tool':
       return renderTool(frame)
+    case 'choice':
+      return renderChoiceCard(frame, deps)
+    case 'effects':
+      return renderEffects(frame)
+    case 'plan-card':
+      return renderPlanCard(frame)
     default:
       return el('div', { class: 'frame-unknown', text: `未知帧：${String(frame.kind)}` })
   }
@@ -58,11 +70,16 @@ export function renderTurn(frame) {
 /** 消息气泡。 */
 export function renderMessage(frame) {
   const role = frame.role === 'operator' ? 'operator' : frame.role === 'user' ? 'user' : 'assistant'
+  // 接管期客户留言（`handoff-waiting`）是**真人说的话**：必须画成 user 气泡并标注
+  // "等待坐席处理"，不能混进下面的上下文样式，否则客户会以为"消息石沉大海"。
+  const handoffWaiting = role === 'user' && frame.source === 'handoff-waiting'
   // 模型的上下文类消息（`context` = 工具后置纠正，`runtime-context` = 每次请求现渲染的用户档案）
   // 都不是用户发言；`handoff-handover` 是人工交回时系统写的交接语，也不是用户原话。
   // 三者都用提示样式，避免"用户说了没说过的话"。
   const contextSource =
-    role === 'user' && typeof frame.source === 'string' && frame.source !== 'user' ? frame.source : null
+    role === 'user' && !handoffWaiting && typeof frame.source === 'string' && frame.source !== 'user'
+      ? frame.source
+      : null
   const contextLabel =
     contextSource === 'context'
       ? '系统纠正（模型可见）'
@@ -77,8 +94,30 @@ export function renderMessage(frame) {
   )
 
   if (contextSource !== null) {
+    // 运行时上下文每轮一张、内容是一整份用户档案（姓名/等级/余额/流水），实测 292px 高，
+    // 比用户气泡和工具卡都大，会把真正的对话挤出屏幕。默认折叠成一行，需要时再展开。
+    // 其余两类（系统纠正 / 交接语）本来就短，保持直接可见。
+    const collapsible = contextSource === 'runtime-context'
+    const toggle = collapsible
+      ? el(
+          'button',
+          {
+            class: 'ds-btn ds-btn--ghost ds-btn--sm message__toggle',
+            type: 'button',
+            'aria-expanded': 'false',
+            onclick: () => {
+              const open = body.hidden
+              body.hidden = !open
+              toggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+              toggle.textContent = open ? '收起' : '展开'
+            },
+          },
+          ['展开'],
+        )
+      : null
+    if (collapsible) body.hidden = true
     return el('div', { class: 'message message--correction', dataset: { seq: String(frame.seq), source: contextSource } }, [
-      el('div', { class: 'message__meta' }, [icon('ai', 14), contextLabel]),
+      el('div', { class: 'message__meta' }, [icon('ai', 14), contextLabel, ...(toggle === null ? [] : [toggle])]),
       body,
     ])
   }
@@ -103,7 +142,7 @@ export function renderMessage(frame) {
   return el(
     'article',
     {
-      class: `message message--${role}`,
+      class: `message message--${role}${handoffWaiting ? ' message--handoff-waiting' : ''}`,
       dataset: { seq: String(frame.seq), role },
     },
     [
@@ -111,6 +150,9 @@ export function renderMessage(frame) {
         icon(iconName, 14),
         label,
         el('span', { class: 'message__seq', text: `#${String(frame.seq)}` }),
+        ...(handoffWaiting
+          ? [el('span', { class: 'ds-tag ds-tag--warning', text: '等待坐席处理' })]
+          : []),
       ]),
       body,
       ...(frame.toolCalls === undefined || frame.toolCalls.length === 0

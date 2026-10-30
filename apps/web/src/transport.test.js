@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { connectEvents, createHttpApi } from './transport.js'
+import { connectEvents, createHttpApi, createSessionControlClient } from './transport.js'
 
 const originalFetch = globalThis.fetch
 const originalEventSource = globalThis.EventSource
@@ -187,6 +187,26 @@ describe('transport · 02 TA-31 会话失效收敛', () => {
     try {
       const api = createHttpApi({ token: '' })
       const result = await api.session()
+      expect(result.ok).toBe(false)
+      expect(result.status).toBe(401)
+      expect(received).toEqual(['unauthorized'])
+    } finally {
+      window.removeEventListener('bah:unauthorized', listener)
+    }
+  })
+
+  it('会话控制端点 401 同样交回登录门（转人工不是例外）', async () => {
+    const received = []
+    const listener = () => received.push('unauthorized')
+    window.addEventListener('bah:unauthorized', listener)
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: { code: 'web-unauthorized', reason: '缺少或失效的登录状态' } }),
+    }))
+    try {
+      const control = createSessionControlClient({ token: '' })
+      const result = await control.handoff('客户请求人工')
       expect(result.ok).toBe(false)
       expect(result.status).toBe(401)
       expect(received).toEqual(['unauthorized'])

@@ -28,6 +28,17 @@ export function frameKey(frame) {
       return `audit:${frame.seq}`
     case 'dag':
       return `dag:${frame.turn}`
+    case 'choice':
+      // 与 @bah/channels/web 的 frameKey 一致：同一次追问只有一张卡。
+      return `choice:${frame.callId}`
+    case 'goal':
+      // 会话级唯一目标条（跨 turn 替换）。
+      return 'goal'
+    case 'todo':
+      return `todo:${frame.turn}:${frame.planId}`
+    case 'effects':
+      // 一轮一张"已发生清单"，同轮新帧替换旧帧。
+      return `effects:${frame.turn}`
     case 'handoff':
       // 固定 key（与 @bah/channels/web 的 frameKey 一致）：接管会循环，按 active 分键
       // 会让重放顺序留下旧的 active:false，把"又要人工了"画成"已交回"。
@@ -46,9 +57,17 @@ export function frameKey(frame) {
  * 视图键：`turn` 的 start/end 合并到同一个节点（否则一轮会出现两条分割线）。
  *
  * 归约层必须保留 `phase`（审计要区分），合并只发生在渲染层。
+ *
+ * `choice` 额外按 `seq` 分键：服务端键是 `choice:{callId}`（同一次追问一张卡），但离线
+ * router 的 `callId` 是硬编码的（`call-ask`），按 callId 合并会让**第二次追问替换第一次
+ * 的节点并留在历史位置**，用户滚到底部看不到新问题。同一次追问的 seq 恒定，所以按
+ * `callId + seq` 分键既不丢替换语义，又让每张新卡追加到**当时**已有节点之后（后续帧照常
+ * 排在它下面，不会钉在旧卡的历史位置）。
  */
 export function viewKey(frame) {
-  return frame.kind === 'turn' ? `turn:${frame.turn}` : frameKey(frame)
+  if (frame.kind === 'turn') return `turn:${frame.turn}`
+  if (frame.kind === 'choice') return `choice:${frame.callId}:${frame.seq}`
+  return frameKey(frame)
 }
 
 /** 造仓库。 */
@@ -67,6 +86,8 @@ export function createStore() {
   let handoff = null
   /** 最近一条超时告警帧。 */
   let handoffWarn = null
+  /** 快照里的会话号（服务重启后会变；装配层据此提示"会话已重置"）。 */
+  let sessionId = null
 
   const listeners = new Set()
 
@@ -79,6 +100,7 @@ export function createStore() {
       fault,
       handoff,
       handoffWarn,
+      sessionId,
     }
   }
 
@@ -100,6 +122,7 @@ export function createStore() {
       order = []
       handoff = null
       handoffWarn = null
+      sessionId = typeof frame.sessionId === 'string' && frame.sessionId.length > 0 ? frame.sessionId : null
       for (const item of frame.frames) put(item)
       streamText = ''
       emit()
@@ -152,6 +175,7 @@ export function createStore() {
     fault = null
     handoff = null
     handoffWarn = null
+    sessionId = null
     emit()
   }
 
