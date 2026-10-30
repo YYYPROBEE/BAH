@@ -1,6 +1,6 @@
 # 架构：注册表、装配与数据流
 
-> W19 交付件之一。**本文的图与事实表由脚本生成**（`scripts/gen-architecture.ts`），
+> **本文的图与事实表由脚本生成**（`scripts/gen-architecture.ts`），
 > 块外文字手写；生成块过期会让门禁 `verify-architecture` 直接红。
 > 配套两份：[algorithms.md](algorithms.md)（三条核心算法）、[security-design.md](security-design.md)（威胁模型与缺口）。
 >

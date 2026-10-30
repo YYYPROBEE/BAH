@@ -8,7 +8,7 @@
  * - TC-W19-01 注册表图里的每个组件名都在 `HOST_PLUGINS` 里（抓"手改图加了个不存在的组件"）；
  * - TC-W19-02 重跑 diff=0（`staleDocs()` 为空）；
  * - TC-W19-04 安全设计的攻击面表 ≥12 项，且每项都有"缺口"列（不许只写防线不写缺口）；
- * - TC-W19-05 未实现清单 ≥5 项，每项写清"为什么不做"与"影响面"；
+ * - TC-W19-05 已知边界 ≥5 项，每项写清"为什么不做"与"影响面"；
  * - TC-W19-06 三份文档的事实表块**逐字节相同**（同一块注入，结构上不可能互相矛盾）；
  * - TC-W19-07 装配图里 `channel:web` / `plan:dag` 在其他 profile 里是"未装配"虚线；
  * - TC-W19-08 每个 profile 的装配行都指向注册表里存在的插件，且矩阵覆盖注册表全部组件；
@@ -149,7 +149,7 @@ const gate: Gate = {
 
     /* ── TC-W19-04：攻击面表 ≥12 项，且每项都写了缺口 ──────────────── */
     const security = read(DOC_PATHS.security)
-    const surface = sectionOf(security, '## 3. 攻击面清单', '## 4. 未实现清单')
+    const surface = sectionOf(security, '## 3. 攻击面清单', '## 4. 已知边界')
     const surfaceRows = numberedRows(surface)
     if (surfaceRows.length < 12) {
       findings.push(`docs/security-design.md: 攻击面清单只有 ${String(surfaceRows.length)} 项（要求 ≥12）`)
@@ -164,19 +164,19 @@ const gate: Gate = {
     }
     notes.push(`攻击面清单 ${String(surfaceRows.length)} 项`)
 
-    /* ── TC-W19-05：未实现清单 ≥5 项 ───────────────────────────────── */
-    const gaps = numberedRows(sectionOf(security, '## 4. 未实现清单', '## 5. 每条防线的复现命令'))
+    /* ── TC-W19-05：已知边界 ≥5 项 ───────────────────────────────── */
+    const gaps = numberedRows(sectionOf(security, '## 4. 已知边界', '## 5. 自行复现每条防线'))
     if (gaps.length < 5) {
-      findings.push(`docs/security-design.md: 未实现清单只有 ${String(gaps.length)} 项（要求 ≥5）`)
+      findings.push(`docs/security-design.md: 已知边界只有 ${String(gaps.length)} 项（要求 ≥5）`)
     }
     for (const [index, cells] of gaps.entries()) {
       if (cells.length < 4) {
         findings.push(
-          `docs/security-design.md: 未实现第 ${String(index + 1)} 行没写清"为什么不做 / 影响面"（现有 ${String(cells.length)} 列）`,
+          `docs/security-design.md: 已知边界第 ${String(index + 1)} 行没写清"为什么不做 / 影响面"（现有 ${String(cells.length)} 列）`,
         )
       }
     }
-    notes.push(`未实现清单 ${String(gaps.length)} 项`)
+    notes.push(`已知边界 ${String(gaps.length)} 项`)
 
     return { ok: findings.length === 0, findings, notes }
   },
