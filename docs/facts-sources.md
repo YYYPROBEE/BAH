@@ -22,7 +22,7 @@ tests_main_files=349
 tests_main_cases=4007
 <!-- facts:sources:end -->
 
-> `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。
+> `gates` 是**含本门禁**的非测试 `verify-*.ts` 个数（`run-gates` 按 `^verify-[\w-]+\.ts$` 发现；新增门禁后必须同步 +1）。
 > `tests_main_files` / `tests_main_cases` 由 `npx vitest run` 输出，门禁**不重跑**（太慢），
 > 只校验 `facts.md` 与本节一致；要改这两个数必须同批附上跑批输出。
 
@@ -30,7 +30,7 @@ tests_main_cases=4007
 
 | 事实 | 值 | 命令 | 实测输出 |
 |---|---|---|---|
-| 门禁数 | **54** | `ls scripts/verify-*.ts \| wc -l` | 34 → `verify-facts.ts` 后 35 → … → 移动 H5 03 后 46；租户与鉴权 01–04 新增 `verify-tenant-scope.ts` / `verify-tenant-isolation.ts` / `verify-authz-coverage.ts` 后 49；人机接管 01 新增 `verify-handoff-wiring.ts` 后 50；桌面端 02 新增 `verify-desktop-shell.ts` 后 51；IM 网关 02 新增 `verify-im-gateway.ts` 后 52；主动能力线新增 `verify-proactive.ts` / `verify-audit-cli.ts` / `verify-frame-closure.ts` 后 54 |
+| 门禁数 | **54** | `ls scripts/verify-*.ts \| grep -v '\.test\.ts$' \| wc -l` | 34 → `verify-facts.ts` 后 35 → … → 移动 H5 03 后 46；租户与鉴权 01–04 新增 `verify-tenant-scope.ts` / `verify-tenant-isolation.ts` / `verify-authz-coverage.ts` 后 49；人机接管 01 新增 `verify-handoff-wiring.ts` 后 50；桌面端 02 新增 `verify-desktop-shell.ts` 后 51；IM 网关 02 新增 `verify-im-gateway.ts` 后 52；主动能力线新增 `verify-proactive.ts` / `verify-audit-cli.ts` / `verify-frame-closure.ts` 后 54 |
 | 工具数 | **19** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 19（与 `result-schemas.ts` 19 个出参键一一对应；场景 5 新增 3 个） |
 | plan 非测试行数 | **2,260** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,260（2026-10-30 合流后重算） |
 | 快照文件 / 用例 | **11 / 48** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 11 文件 / 48 例（`pnpm test:snapshot` 同值；新增 subscription 与 proactive 场景） |
@@ -55,5 +55,4 @@ tests_main_cases=4007
 | 文件 | 原因 |
 |---|---|
 | `docs/preflight-2026-10-25.md` | 2026-10-25 的开工前体检记录 |
-| `docs/audit-command-16.md`、`docs/next-three-*` | 历史交接件 |
 | `文档归档/**` | 归档稿，改数会让复核者失去时间线 |

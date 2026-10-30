@@ -1,7 +1,0 @@
-# 15 回滚：promote → rollback
-# 2026-10-28T22:01:45+08:00 · HEAD b6e9a63
-
-ROLLBACK {"promote":["bank-tier/1.1.0"],"rollback":["bank-tier/1.0.0"]}
-ROLLOUT_CHAIN {"ok":true,"rows":2}
-
-结论：1.0.0 → 1.1.0 → 1.0.0；rollout 链 2 行且连续

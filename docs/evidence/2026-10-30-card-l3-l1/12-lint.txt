@@ -1,5 +1,0 @@
- WARN  Unsupported engine: wanted: {"node":"^22.19 || >=24"} (current: {"node":"v22.17.0","pnpm":"10.34.7"})
-
-> bah-monorepo@ lint D:\项目集\微众杯银行ai智能体\BAH\CARD-01-WT
-> eslint "packages/*/src/**/*.ts" "scripts/**/*.ts"
-

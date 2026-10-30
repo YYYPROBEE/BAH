@@ -1,8 +1,0 @@
-CAUGHT M1 白名单去掉 choice（复原 P0） · exit=1 · restored=true · [2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m | [2m      Tests [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m21 passed[39m[22m[90m (23)[39m
-CAUGHT M2 点选发送 id 而不是 label · exit=1 · restored=true · [2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m | [2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m10 passed[39m[22m[90m (11)[39m
-CAUGHT M3 去掉 choice 视图键的 seq（退回 callId 合并） · exit=1 · restored=true · [2m Test Files [22m [1m[31m2 failed[39m[22m[90m (2)[39m | [2m      Tests [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m38 passed[39m[22m[90m (40)[39m
-CAUGHT M4 renderFrame 不接 effects · exit=1 · restored=true · [2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m | [2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m22 passed[39m[22m[90m (23)[39m
-CAUGHT M5 effects 卡塞一个"撤销"按钮（破只读） · exit=1 · restored=true · [2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m | [2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m4 passed[39m[22m[90m (5)[39m
-CAUGHT M6 手动输入改成直接发消息 · exit=1 · restored=true · [2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m | [2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m10 passed[39m[22m[90m (11)[39m
-
-变异 6 个，未捕获 0 个

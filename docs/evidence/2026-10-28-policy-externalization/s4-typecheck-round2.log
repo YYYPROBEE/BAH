@@ -1,8 +1,0 @@
-# pnpm typecheck · 2026-10-28T19:27:22+08:00
- WARN  Unsupported engine: wanted: {"node":"^22.19 || >=24"} (current: {"node":"v22.17.0","pnpm":"10.34.7"})
-
-> bah-monorepo@ typecheck D:\项目集\微众杯银行ai智能体\BAH\MonoRepo
-> tsc -b tsconfig.host.json && tsc -b tsconfig.client.json && tsc -p tsconfig.scripts.json
-
-
-# 结论：三项 tsconfig 全绿（exit 0）

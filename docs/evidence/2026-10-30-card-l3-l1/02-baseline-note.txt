@@ -1,8 +1,0 @@
-卡片 L3 + L1 · 基线记录（开工前）
-
-- 仓库：BAH/MonoRepo worktree `../CARD-01-WT`，分支 `card-01-l2`
-- 基线 commit：`957ce0e`（L2 卡清单出口 + 其复审记录，已合入本分支）
-- 基线数字：`pnpm test` 294 文件 / 3337 用例；`pnpm gate` 50/50；`pnpm test:web` 27 文件 / 375 例；`pnpm test:snapshot` 9 文件 / 39 例
-- L2 的基线日志与证据见 `docs/evidence/2026-10-30-card-l2/`
-- 本单新增：L3（冻结/解冻、`viaCardId` 资金路径、`card/state-changed` 事件 + ADR-0006、工具 16→18、事件 19→20）
-  与 L1（卡场景空槽位、冻结/解冻动词、C1–C8、七问、状态机图）。

@@ -1,6 +1,0 @@
-# 17 并发：100 判决 × 10 重载（交错）
-# 2026-10-28T22:01:45+08:00 · HEAD b6e9a63
-
-CONCURRENCY {"decisions":100,"reloads":10,"distinctOutcomes":["yellow/declared/bank-tier/1.0.0+sha256:97764bc1298834d6"]}
-
-结论：100 次判决只出现 1 种结果指纹，无撕裂

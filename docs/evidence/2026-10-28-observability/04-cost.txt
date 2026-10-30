@@ -1,9 +1,0 @@
-# 2026-10-29T08:26:24+08:00  bah cost --dir sessions\demo-2026-10-29-00-24-38-kOzmSX\s-mvsswvtc
- WARN  Unsupported engine: wanted: {"node":"^22.19 || >=24"} (current: {"node":"v22.17.0","pnpm":"10.34.7"})
-
-> bah-monorepo@ bah D:\项目集\微众杯银行ai智能体\BAH\MonoRepo
-> tsx packages/cli/src/main.ts "cost" "--dir" "sessions\\demo-2026-10-29-00-24-38-kOzmSX\\s-mvsswvtc"
-
-会话 s-mvsswvtc · 1 轮 · 输入 200 · 缓存 0 · 输出 40 · 成本 0 微元（未配计价）
-逐轮：
-  turn  1  in 200  out 40  ¥0.00

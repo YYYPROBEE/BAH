@@ -1,9 +1,0 @@
-卡片 L2 · 基线记录（改码前）
-
-- 仓库：BAH/MonoRepo worktree `../CARD-01-WT`
-- 基线 commit：`1c369b3`（main HEAD；施工单写 `c2d140c`，其后的 3 个提交均为 docs/progress，未动代码）
-- 检出纪律：worktree 以 `core.autocrlf=false` 重建。首次以默认 CRLF 检出时，`packages/knowledge/fixtures/corpus.json`
-  的 sha256 与签名清单不一致（19 条测试红，属检出问题不是代码问题）；LF 重建后回绿。
-- `pnpm install` → `pnpm build` → `pnpm test`：**294 文件 / 3335 用例全绿**（见 `02-baseline-test.txt`）
-- `pnpm gate`：**50/50 全绿**
-- 与 `facts.md` 的已登记值（3333 用例 / 365 web 例）相比，基线本身已漂移 +2 / +10；本单按实测校正（见复审 §2.3）。

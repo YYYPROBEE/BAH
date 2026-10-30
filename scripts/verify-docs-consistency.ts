@@ -61,9 +61,6 @@ const PUBLIC_DOCS: readonly string[] = [
   'docs/performance.md',
   'docs/roadmap.md',
   'docs/简介-200字.md',
-  // `docs/dsh-comparison.md` 刻意不扫：它是 2026-10-19 的对位评审报告，
-  // 里面引用的"gate 12/12"是**当时的事实**（并在报告里被定性为治理缺陷）。
-  // 改它等于篡改证据——历史件一律不进扫描面。
   'services/rag/README.md',
 ]
 

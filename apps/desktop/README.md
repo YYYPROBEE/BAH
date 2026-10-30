@@ -19,7 +19,7 @@ pnpm desktop:accept                # 逐项验收（16 条，每条独立）
 | `src/menu.ts`、`src/preload.ts` | 菜单与 contextBridge 最小面 |
 
 完整说明（启动 / 离线演示 / 打包 / 排障 / 安全边界）见 [docs/desktop.md](../../docs/desktop.md)；
-逐项验收记录见 [docs/evidence/2026-10-30-desktop/](../../docs/evidence/2026-10-30-desktop/)。
+逐项验收记录见桌面端 03/04 单（证据件已随 2026-10-30 撤下，历史取 `git show b514496^:docs/evidence/`）。
 
 ⚠ 纯模块**不得 import electron**（`main.ts` / `window.ts` / `menu.ts` 例外）——
 Electron 依赖会让 vitest 拿到一个需要 GUI 运行时的壳。门禁 `verify-desktop-shell` 会拦。

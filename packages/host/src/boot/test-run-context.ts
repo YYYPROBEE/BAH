@@ -17,7 +17,7 @@
  * （host → test-support 是 devDependencies 边，供 host 自己的测试用）。
  * 与造出来的类型放在同一个包，也避免 `RunContext` 出现第二份结构定义。
  *
- * 偏差登记见 `docs/evidence/2026-10-28-tenant-auth/01-t1.md` §4（D-3）。
+ * 偏差登记见租户鉴权 01 单 §4（D-3）；证据件已撤下（历史取 `git show b514496^:docs/evidence/`）。
  */
 
 import type { SessionId } from '@bah/core'

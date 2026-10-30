@@ -315,7 +315,7 @@ pnpm policy:sign policies/sentry-rules/1.0.0 --key ~/.bah/keys/policy-ed25519-1.
   生产配置 `allowedKeyVersions: [1, 2]` 过渡 → 再收窄到 `[2]`（旧钥即吊销）；
 - **吊销**：把旧版本从 `allowedKeyVersions` 移除；旧签名立即
   `policy-signature-invalid`（`签名密钥版本 N 不在允许列表`）。
-- 演练证据：`docs/evidence/2026-10-28-policy-externalization/s5-key-lifecycle.log`
+- 演练证据：策略外置 S5 的密钥生命周期日志（证据件已撤下，历史取 `git show b514496^:docs/evidence/`）
   （签→验→轮换→吊销→错误密钥→unsigned 拒绝，8 步全过）。
 
 **口径**：密钥流程已落地并可演练，但**生产尚未启用**（profile 仍 unsigned）。

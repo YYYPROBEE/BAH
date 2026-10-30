@@ -15,17 +15,23 @@
 5. 错误必须结构化：类型化失败 + 可读理由码；禁止静默吞错。
 6. 判别标签 switch：封闭联合以 assertNever 收尾。
 
+## 文档坐标
+
+过程件（施工单、施工台账、演练单、对抗复审记录、证据原件）**不在默认分支上**，已于 2026-10-30/31 撤下
+（只删 tip，历史保留）。正文取 `git show b514496^:<路径>`；代码注释里的「施工单 NN §x」「PROGRESS R*」
+按此坐标回溯。留在树上的只有落地文档（`docs/*.md`）、`facts.md` 与可执行的门禁/演示脚本。
+
 ## 门禁
 
 三处拦截，力度递减，按实物如实记录：
 
 | 时机 | 机制 | 跑什么 | 失败后果 |
 |---|---|---|---|
-| 提交前 | `.githooks/pre-commit` | `pnpm gate`（50 项） | 拒绝提交 |
+| 提交前 | `.githooks/pre-commit` | `pnpm gate`（54 项） | 拒绝提交 |
 | 推送前 | `.githooks/pre-push` | `pnpm check`（14 步） | 拒绝推送 |
 | 推送后 | `.github/workflows/ci.yml` / `security.yml` | `pnpm check:ci`（严格模式）+ npm audit（pip-audit 先收集基线） | 记录为红色 run |
 
-项数与步数以 `facts.md` 为准（`verify-facts` 重算门禁数 = `scripts/verify-*.ts` 文件数）；
+项数与步数以 `facts.md` 为准（`verify-facts` 按 `^verify-[\w-]+\.ts$` 重算门禁数，**不含** `*.test.ts`）；
 新增门禁必须同批改 `facts.md`、`docs/facts-sources.md` 与上表，否则 `verify-facts` 红。
 
 钩子通过 `core.hooksPath` 生效（`pnpm install` 时的 `prepare` 会自动设置，也可手动

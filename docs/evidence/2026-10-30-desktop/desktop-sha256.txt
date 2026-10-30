@@ -1,7 +1,0 @@
-zip=dist-desktop/BAH-desktop-0.1.0-win-x64.zip
-sha256=3490af76cf0893b9abe4d994300f30343fc9d503d0402ddb2aef941a683df1a4
-bytes=138150184
-electron=39.8.10
-electron_node=22.22.1
-resources_app_files=601
-built_at=2026-10-29T19:06:51.698Z

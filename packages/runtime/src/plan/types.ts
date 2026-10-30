@@ -88,7 +88,7 @@ export const TERMINAL_STATES: ReadonlySet<PlanNodeState> = new Set<PlanNodeState
 /**
  * `incident` 在事件层的**唯一载体**：`plan/node-result(status:'failed', code: 本常量)`。
  *
- * 为什么状态不单独落一个值（两条被否决的路，登记在 `PROGRESS.md` §70.1）：
+ * 为什么状态不单独落一个值（两条被否决的路，登记在施工台账 §70.1，台账已撤下）：
  * - 改 W02 冻结的三值 `status` → `status` 与 `code` 变成两个判定者，没有机制保证不矛盾；
  * - 新增 `plan/node-incident` → `countTerminals()` 要认两个事件族，完整性判据二次复杂化。
  *
@@ -244,7 +244,7 @@ export const PLAN_RESUME_ERRORS = {
    *
    * `PlanNodeOutcome.output` 只在内存传、不进事件，所以 `resume` 跳过已 `succeeded` 的上游时
    * 没有 output 可解析。三条路里只有"入口拒绝"是对的（连带重跑 = 二次扣款；
-   * output 落事件 = 金额进 append-only 日志）。见 `PROGRESS.md` §70.1。
+   * output 落事件 = 金额进 append-only 日志）。见施工台账 §70.1，台账已撤下。
    */
   argsUnresolved: 'plan-resume-args-unresolved',
 } as const
