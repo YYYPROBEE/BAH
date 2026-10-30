@@ -34,7 +34,7 @@ export interface TicketIssuedData {
   readonly amountCents?: number
   /** 过期时刻（epoch ms）。 */
   readonly expiresAt: number
-  /** 授权来源（ADR-0006；缺省 = 人工点击，老日志天然兼容）。 */
+  /** 授权来源（ADR-0008；缺省 = 人工点击，老日志天然兼容）。 */
   readonly authorization?: AuthorizationRef
   /** 转移时刻（注入时钟）。 */
   readonly at: number
@@ -45,7 +45,7 @@ export interface TicketApprovedData {
   readonly ticketId: string
   readonly callId: string
   readonly name: string
-  /** 授权来源（ADR-0006；缺省 = 人工点击）。 */
+  /** 授权来源（ADR-0008；缺省 = 人工点击）。 */
   readonly authorization?: AuthorizationRef
   readonly at: number
 }

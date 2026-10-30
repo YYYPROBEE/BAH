@@ -634,7 +634,7 @@ export const planPlugin: HostPlugin<PlanSettings> = {
           sessionId: session.sessionId,
           now: run.now,
           signal: ictx.signal,
-          // 授权窗口代签：整次 run 的每个节点审批都会带上它（ADR-0006）
+          // 授权窗口代签：整次 run 的每个节点审批都会带上它（ADR-0008）
           ...(runAuthorization.get(ictx.planId) === undefined
             ? {}
             : { authorization: runAuthorization.get(ictx.planId) }),

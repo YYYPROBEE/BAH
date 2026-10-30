@@ -18,8 +18,8 @@ coverage_total=52001
 coverage_pct=89.96
 coverage_package_ok=16
 coverage_package_total=18
-tests_main_files=302
-tests_main_cases=3494
+tests_main_files=349
+tests_main_cases=4007
 <!-- facts:sources:end -->
 
 > `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。
@@ -36,9 +36,9 @@ tests_main_cases=3494
 | 快照文件 / 用例 | **11 / 48** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 11 文件 / 48 例（`pnpm test:snapshot` 同值；新增 subscription 与 proactive 场景） |
 | 覆盖率（行） | **89.96%** | `pnpm test:coverage:all`（本机汇总口径） | 覆盖 46778 行 / 参与统计 52001 行（2026-10-30 场景 5 收口复跑） |
 | 覆盖率（包） | **16/18** | 同上 | 只有 `memory-store` 72.68% 与 `eval` 46.93% 未达 80% |
-| 主仓测试 | **302 文件 / 3494 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 302 passed / 3494 例（2026-10-30 场景 5 收口复跑；合流后含 `apps/desktop/src`、`apps/im-gateway`） |
+| 主仓测试 | **349 文件 / 4007 例** | `NODE_EXTRA_CA_CERTS= npx vitest run --pool=forks` | 349 passed / 4007 例（2026-10-30 五线合流后实测；含 `apps/desktop/src`、`apps/im-gateway`） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
-| web 测试 | **27 文件 / 375 例** | `pnpm test:web` | 27 passed / 375 passed（2026-10-30 复跑） |
+| web 测试 | **30 文件 / 409 例** | `pnpm test:web` | 30 passed / 409 passed（2026-10-30 五线合流后复跑） |
 | 快照跑批 | **11 文件 / 48 例** | `pnpm test:snapshot` | 11 passed / 48 passed（2026-10-30 新增 proactive 场景后重跑） |
 
 ## 3. 覆盖率为什么只有一个值

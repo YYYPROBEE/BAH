@@ -15,7 +15,7 @@ import type { SessionId, TicketAuthorization } from '@bah/core'
 import type { InteractionRecordSink } from './events.ts'
 
 /**
- * 授权来源（ADR-0006）：`human` = 用户点击；`window` = 授权窗口代签。
+ * 授权来源（ADR-0008）：`human` = 用户点击；`window` = 授权窗口代签。
  *
  * 与 `@bah/core` 的 `TicketAuthorization` 同形（不是第二份真相源：别名而非复制）。
  */
@@ -91,7 +91,7 @@ export interface ApprovalInputLike {
   /** 红级操作要求的强验证渠道；缺省 = 不需要挑战。 */
   readonly challenge?: ChallengeChannel
   /**
-   * 授权来源（ADR-0006）。
+   * 授权来源（ADR-0008）。
    *
    * 缺省 = 人工点击。窗口代签只由受控执行器（`plan_wake`）经管线注入；
    * 渠道面（Web / IM）永远不写这个字段——页面端不可自证"我是窗口"。

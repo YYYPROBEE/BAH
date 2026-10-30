@@ -4,7 +4,7 @@
 > 每条结论后给落点，答辩时可按落点当场翻代码。
 > 对应赛题：§3.1 权限分级、§3.2 安全设计、§五.5 安全自评材料。
 
-> 最后核实：2026-10-30（门禁与测试面：`pnpm gate` 54/54、`pnpm test` 302 文件 / 3494 用例（合流后含 `apps/desktop/src`、`apps/im-gateway`）+ 前端 375 例、快照 11 文件 48 例；安全面结论沿用 2026-10-27，合流后补记 17 行角色矩阵与 static 双凭证）。
+> 最后核实：2026-10-30（门禁与测试面：`pnpm gate` 54/54、`pnpm test` 349 文件 / 4007 用例（五线合流后实测）+ 前端 409 例、快照 11 文件 48 例；安全面结论沿用 2026-10-27，合流后补记 17 行角色矩阵与 static 双凭证）。
 
 ---
 
@@ -374,7 +374,7 @@ pnpm vitest run packages/safety/src/sentry/pipeline/fail-closed.test.ts \
   packages/host/src/boot/plugins/web-admin.test.ts \
   packages/host/src/boot/plugins/web.test.ts \
   packages/cli/src/cli/sentry.test.ts       # HP-0 的 79 条
-pnpm test                                   # 302 文件 / 3494 用例（前端另有 375 例）
+pnpm test                                   # 349 文件 / 4007 用例（前端另有 409 例）
 pnpm gate                                   # 54 项
 pnpm demo:web                               # 打印本次独立会话目录
 pnpm demo:verifier-fail                     # fail-injection 演示
