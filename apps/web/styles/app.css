@@ -79,6 +79,8 @@ textarea {
 .icon--doc { --icon-url: url('../assets/icons/doc.svg'); }
 .icon--search { --icon-url: url('../assets/icons/Search.svg'); }
 .icon--up { --icon-url: url('../assets/icons/arrow_up.svg'); }
+/* 选择题卡用 `chat`（与移动壳同一枚图标；文件在 assets/icons/chat.svg） */
+.icon--chat { --icon-url: url('../assets/icons/chat.svg'); }
 
 /* ────────────────────────────── 骨架布局 */
 
@@ -555,6 +557,156 @@ textarea {
 .tool-card__duration {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
+}
+
+/* ────────────────────────────── 选择题卡（choice 帧：点选 = 一条用户消息） */
+
+.choice-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-12);
+  padding: var(--spacer-16);
+}
+
+.choice-card__prompt {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacer-8);
+  margin: 0;
+  font-weight: var(--font-weight-strong);
+}
+
+.choice-card__prompt .icon {
+  color: var(--icon-secondary);
+  margin-top: var(--spacer-2);
+}
+
+.choice-card__options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-8);
+}
+
+.choice-card__option {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-8);
+  min-height: 40px;
+  padding: var(--spacer-8) var(--spacer-12);
+  border: var(--border-width-default) solid var(--border-neutral-l2);
+  border-radius: var(--radius-8);
+  background: var(--bg-overlay-l1);
+  color: var(--text-default);
+  font-size: var(--body-base-font-size);
+  line-height: var(--body-base-line-height);
+  text-align: start;
+  transition: background-color 120ms ease-out;
+}
+
+.choice-card__option:hover:not(:disabled) {
+  background: var(--bg-overlay-l2);
+}
+
+.choice-card__option:active:not(:disabled) {
+  background: var(--bg-overlay-l3);
+}
+
+.choice-card__option:disabled {
+  color: var(--text-disabled);
+}
+
+.choice-card__option-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-2);
+  min-width: 0;
+}
+
+.choice-card__option-hint {
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+  line-height: var(--body-xs-line-height);
+}
+
+/* "手动输入"是出口不是选项：退一级，避免与候选争抢 */
+.choice-card__option--free {
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.choice-card__error {
+  margin: 0;
+  padding: var(--spacer-8) var(--spacer-12);
+  border-radius: var(--radius-8);
+  background: var(--status-error-surface-l1);
+  color: var(--status-error-default);
+  font-size: var(--body-sm-font-size);
+  line-height: var(--body-sm-line-height);
+}
+
+/* ────────────────────────────── 已发生操作清单（effects 帧，只读） */
+
+.effects {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-8);
+  padding: var(--spacer-16);
+}
+
+.effects__head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-8);
+}
+
+.effects__icon {
+  display: inline-flex;
+  color: var(--status-success-default);
+}
+
+.effects__title {
+  font-weight: var(--font-weight-strong);
+}
+
+.effects__turn {
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+}
+
+.effects__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-6);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.effects__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacer-8);
+  padding: var(--spacer-8) var(--spacer-12);
+  border-radius: var(--radius-8);
+  background: var(--bg-overlay-l1);
+  font-size: var(--body-sm-font-size);
+  line-height: var(--body-sm-line-height);
+}
+
+.effects__name {
+  font-weight: var(--font-weight-strong);
+}
+
+.effects__amount {
+  font-family: var(--font-family-mono);
+}
+
+.effects__meta {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
 }
 
 /* ────────────────────────────── 输入区 */

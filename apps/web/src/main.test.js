@@ -168,6 +168,83 @@ describe('mountApp · 独立运行（T-WEB-008）', () => {
     expect(root.querySelector('[role="dialog"]').textContent).toContain('未执行')
   })
 
+  it('choice 帧渲染成可点的选择题卡；点选发的是选项 label，不本地造气泡', async () => {
+    const api = fakeApi()
+    const { root, transport } = mount(api)
+    transport.push({
+      kind: 'choice',
+      seq: 1,
+      at: 1,
+      callId: 'call-ask',
+      prompt: '要转给谁？请给出收款人姓名。',
+      options: [
+        { id: '王建国', label: '王建国' },
+        { id: '张伟', label: '张伟' },
+      ],
+      allowFreeText: true,
+    })
+
+    const card = root.querySelector('[data-role="choice"]')
+    expect(card).not.toBeNull()
+    expect(card.textContent).toContain('要转给谁')
+
+    card.querySelector('[data-option-id="张伟"]').click()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(api.calls).toEqual([['turn', '张伟']])
+    expect(card.dataset.state).toBe('picked')
+    // 桌面纪律：用户消息等 user/message 帧，不在本地插气泡
+    expect(root.querySelectorAll('.message').length).toBe(0)
+  })
+
+  it('同一 callId 的第二次追问替换旧卡，新卡追加在已有节点之后（离线 router 硬编码 callId 的护栏）', () => {
+    const { root, transport } = mount()
+    transport.push({
+      kind: 'choice',
+      seq: 1,
+      at: 1,
+      callId: 'call-ask',
+      prompt: '第一次追问',
+      options: [{ id: 'a', label: '王建国' }],
+      allowFreeText: true,
+    })
+    transport.push({ kind: 'message', seq: 2, at: 2, role: 'user', blocks: [{ type: 'text', text: '张伟' }] })
+    transport.push({
+      kind: 'choice',
+      seq: 3,
+      at: 3,
+      callId: 'call-ask',
+      prompt: '第二次追问',
+      options: [{ id: 'b', label: '张伟' }],
+      allowFreeText: true,
+    })
+
+    const cards = root.querySelectorAll('[data-role="choice"]')
+    expect(cards).toHaveLength(1)
+    expect(cards[0].textContent).toContain('第二次追问')
+    // 新卡必须出现在流末尾，而不是留在旧卡的历史位置
+    expect(root.querySelector('#conversation').lastElementChild).toBe(cards[0])
+  })
+
+  it('effects 帧渲染为只读清单（零按钮零链接）', () => {
+    const { root, transport } = mount()
+    transport.push({
+      kind: 'effects',
+      seq: 1,
+      at: 1,
+      turn: 1,
+      items: [
+        { callId: 'call-create', name: 'transfer_create', title: '转账', amountText: '¥30.00', durationMs: 4049, tone: 'success' },
+      ],
+    })
+    const effects = root.querySelector('[data-role="effects"]')
+    expect(effects).not.toBeNull()
+    expect(effects.textContent).toContain('已发生的操作')
+    expect(effects.textContent).toContain('¥30.00')
+    expect(effects.querySelectorAll('button, a')).toHaveLength(0)
+  })
+
   it('提交调接口；失败不出气泡（状态只来自帧）', async () => {
     const api = fakeApi()
     const { root } = mount(api)

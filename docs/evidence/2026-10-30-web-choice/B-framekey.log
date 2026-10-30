@@ -1,0 +1,19 @@
+OK   turn             server=turn:1:start store=turn:1:start
+OK   turn             server=turn:1:end store=turn:1:end
+OK   message          server=message:3 store=message:3
+OK   delta            server=delta:1 store=delta:1
+OK   tool             server=tool:call-create store=tool:call-create
+OK   approval         server=approval:ticket:1 store=approval:ticket:1
+OK   approval-closed  server=approval-closed:ticket:1 store=approval-closed:ticket:1
+OK   notice           server=notice:8 store=notice:8
+OK   audit            server=audit:9 store=audit:9
+OK   dag              server=dag:2 store=dag:2
+OK   choice           server=choice:call-ask store=choice:call-ask
+OK   goal             server=goal store=goal
+OK   todo             server=todo:3:p1 store=todo:3:p1
+OK   effects          server=effects:4 store=effects:4
+OK   handoff          server=handoff store=handoff
+OK   handoff-warn     server=handoff-warn store=handoff-warn
+OK   snapshot         server=snapshot store=snapshot
+
+样例 17 个，不一致 0 个

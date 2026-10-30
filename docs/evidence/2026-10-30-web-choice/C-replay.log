@@ -1,0 +1,10 @@
+
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mD:/项目集/微众杯银行ai智能体/BAH/MonoRepo[39m
+
+ [32m✓[39m apps/web/src/.tmp-replay-probe.test.js [2m([22m[2m1 test[22m[2m)[22m[32m 29[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m   Start at [22m 13:07:41
+[2m   Duration [22m 1.73s[2m (transform 80ms, setup 0ms, collect 138ms, tests 29ms, environment 951ms, prepare 167ms)[22m
+

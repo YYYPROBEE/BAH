@@ -127,6 +127,10 @@ packages/cli         ← 启动面（--serve）
 | `notice` | `tool/result.isError`、`turn/end.failed`、`compaction/summary`、`sentry/*` | 行内提示（状态语义色 + 理由码） |
 | `audit` | 全部 durable 事件中的"有判决含义"者 | 审计时间线条目 |
 | `dag` | `tool/call`/`tool/result` 聚合 | 调用图（见 §5.4） |
+| `choice` | `prompt_ask` 的 `tool/result` | 选择题卡：点选 = 发一条普通用户消息；帧里**没有**票据，不走审批通道 |
+| `goal` | `goal_set` 的 `tool/result` | 目标条（仅 plan 类 profile；`web` profile 当前不注册该工具） |
+| `todo` | `plan/*` 派生（不落账） | 待办清单（仅 plan 类 profile；`web` profile 无 plan 事件） |
+| `effects` | 成功的写操作 `tool/result` | "已发生的操作"只读清单（中断/断线后回答"钱动了没有"） |
 | `snapshot` | 连接/重同步 | 全量帧替换 + `maxSeq` |
 
 不变量（写进类型与测试）：
@@ -171,6 +175,8 @@ tool/result.code/isError ──▶ 理由码与三态
 
 - 结构：`header`（品牌 + 会话 ID + 连接状态）/ `main`（消息列）/ `composer`（输入 + 发送 + 中断）。
 - 流式：`delta` 帧进入"草稿气泡"（`data-streaming="true"`），`assistant/message` 到达时整体替换草稿——避免"半句话永久残留"。
+- 选择题（`choice`）：点选把选项 **label** 当普通用户消息发 `POST /api/turn`；"手动输入"出口常驻（零请求，只交焦点）；发送失败恢复可点并给行内错误。
+- 已发生操作（`effects`）：只读清单，零按钮零链接；每轮一张，按 `effects:{turn}` 替换。它不是资金审计（审计链在 `audit.jsonl`）。
 - 长对话：按 `turn` 分组，`content-visibility: auto` + `contain-intrinsic-size` 兜底，不手写虚拟滚动（引入复杂度大于收益，且纯原生 DOM 里容易抖动）。
 - 空态：一条 `.ds-empty`，说明三幕演示入口。
 

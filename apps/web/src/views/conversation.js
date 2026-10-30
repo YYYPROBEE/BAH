@@ -1,16 +1,19 @@
 /**
  * 对话流（施工单 13 §2.1 第一行 + §5.1）。
  *
- * 只有四种节点：轮次分割、消息气泡、行内提示、工具卡（工具卡在 `tool-card.js`）。
+ * 六种节点：轮次分割、消息气泡、行内提示、工具卡（`tool-card.js`）、
+ * 选择题卡（`choice-card.js`）、已发生操作清单（`effects.js`）。
  * 全部从帧生成，没有"输入框回显"这类平行状态——POST 成功不插入气泡，
  * 用户消息一律等 `user/message` 帧（避免双份，`docs/web-frontend.md` §7 末条）。
  */
 
 import { el, icon } from '../dom.js'
+import { renderChoiceCard } from './choice-card.js'
+import { renderEffects } from './effects.js'
 import { renderTool } from './tool-card.js'
 
-/** 对话流收纳的帧类型。 */
-export const CONVERSATION_KINDS = new Set(['turn', 'message', 'notice', 'tool'])
+/** 对话流收纳的帧类型（`choice`/`effects` 不在旧版白名单里时会整帧静默丢弃）。 */
+export const CONVERSATION_KINDS = new Set(['turn', 'message', 'notice', 'tool', 'choice', 'effects'])
 
 /** 轮次结束原因的文案（`guard-stopped` 与 `failed` 必须区分）。 */
 const END_LABEL = {
@@ -26,9 +29,11 @@ const END_LABEL = {
  * 一条帧 → 节点。
  *
  * @param {Record<string, any>} frame
+ * @param {{ submit?: (text: string) => Promise<{ok: boolean, code?: string, message?: string, reason?: string}>, focusComposer?: () => void }} [deps]
+ *        仅 `choice` 用到；其余帧忽略
  * @returns {HTMLElement}
  */
-export function renderFrame(frame) {
+export function renderFrame(frame, deps = {}) {
   switch (frame.kind) {
     case 'turn':
       return renderTurn(frame)
@@ -38,6 +43,10 @@ export function renderFrame(frame) {
       return renderNotice(frame)
     case 'tool':
       return renderTool(frame)
+    case 'choice':
+      return renderChoiceCard(frame, deps)
+    case 'effects':
+      return renderEffects(frame)
     default:
       return el('div', { class: 'frame-unknown', text: `未知帧：${String(frame.kind)}` })
   }

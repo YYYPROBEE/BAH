@@ -404,11 +404,25 @@ export function mountApp(options) {
     sessionLabel.textContent = `会话 ${next}`
   }
 
+  /**
+   * 选择题卡的发送通道（`choice` 帧）。
+   *
+   * 与 composer 走同一条 `POST /api/turn`：点选 = 把选项 label 当普通用户消息发出去，
+   * 不本地回显（用户消息等 `user/message` 帧）。"手动输入"出口只交还焦点，零请求。
+   */
+  const choiceDeps = {
+    submit: async (text) => {
+      const result = await api.turn(text)
+      return result.ok ? { ok: true } : { ok: false, code: result.code, message: result.reason }
+    },
+    focusComposer: () => composerInput.focus(),
+  }
+
   /** 全量同步（幂等；每帧都可能触发一次）。 */
   function sync(state) {
     // ① 对话流
     const conversationFrames = state.frames.filter((frame) => CONVERSATION_KINDS.has(frame.kind))
-    syncContainer(conversation, rendered, conversationFrames, renderFrame)
+    syncContainer(conversation, rendered, conversationFrames, (frame) => renderFrame(frame, choiceDeps))
 
     // 草稿气泡
     const draft = conversation.querySelector('[data-draft="true"]')
