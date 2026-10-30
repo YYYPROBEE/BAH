@@ -10,10 +10,11 @@
 import { el, icon } from '../dom.js'
 import { renderChoiceCard } from './choice-card.js'
 import { renderEffects } from './effects.js'
+import { renderPlanCard } from './plan-card.js'
 import { renderTool } from './tool-card.js'
 
-/** 对话流收纳的帧类型（`choice`/`effects` 不在旧版白名单里时会整帧静默丢弃）。 */
-export const CONVERSATION_KINDS = new Set(['turn', 'message', 'notice', 'tool', 'choice', 'effects'])
+/** 对话流收纳的帧类型（`choice`/`effects`/`plan-card` 不在旧版白名单里时会整帧静默丢弃）。 */
+export const CONVERSATION_KINDS = new Set(['turn', 'message', 'notice', 'tool', 'choice', 'effects', 'plan-card'])
 
 /** 轮次结束原因的文案（`guard-stopped` 与 `failed` 必须区分）。 */
 const END_LABEL = {
@@ -47,6 +48,8 @@ export function renderFrame(frame, deps = {}) {
       return renderChoiceCard(frame, deps)
     case 'effects':
       return renderEffects(frame)
+    case 'plan-card':
+      return renderPlanCard(frame)
     default:
       return el('div', { class: 'frame-unknown', text: `未知帧：${String(frame.kind)}` })
   }

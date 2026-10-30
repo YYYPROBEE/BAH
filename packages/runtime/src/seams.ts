@@ -9,7 +9,7 @@
  * 五种模式的分工（施工单 02 §3）：判决/环绕用 waterfall，记账/通知用 emit。
  */
 
-import type { ContentBlock, SessionId, TicketRef } from '@bah/core'
+import type { ContentBlock, SessionId, TicketAuthorization, TicketRef } from '@bah/core'
 
 import type {
   AgentPreStepInput,
@@ -97,6 +97,8 @@ export interface ApprovalInput {
     readonly tier: string
   }
   readonly challenge?: ApprovalChallenge
+  /** 授权来源（ADR-0006；缺省 = 人工点击）。由 `tools/pre-execute` 的 ask 判决透传。 */
+  readonly authorization?: TicketAuthorization
   readonly decision: ApprovalResponse
 }
 

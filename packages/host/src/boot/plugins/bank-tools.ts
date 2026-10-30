@@ -45,6 +45,7 @@ import {
   type IdentityBoundData,
   type StrongAuth,
   type TicketGuard,
+  type UserId,
 } from '@bah/bank'
 import { TicketLedger } from '@bah/interaction'
 import {
@@ -202,6 +203,22 @@ export const BANK_USER_DIRECTORY: ServiceKey<BankUserDirectory> = defineService<
   'bank:user-directory',
 )
 
+/**
+ * 余额探针（授权窗口 `balance-at-least` 条件的取数口）。
+ *
+ * 为什么单独开一个窄端口：唤醒判定需要"当前可用余额"，但 bank-core 不是服务键；
+ * 只交出"按用户汇总可用余额"这一个只读方法，不暴露账本、票据或任意查询面。
+ */
+export interface BalanceProbe {
+  /** 某用户全部账户的可用余额合计（分；用户不存在返回 0）。 */
+  readonly availableCents: (userId: string) => Promise<number>
+}
+
+/** 服务键：`bank:balance-probe`。 */
+export const BANK_BALANCE_PROBE: ServiceKey<BalanceProbe> = defineService<BalanceProbe>(
+  'bank:balance-probe',
+)
+
 export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
   id: 'bank:tools',
 
@@ -256,6 +273,21 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         ctx.provide(BANK_USER_DIRECTORY, {
           has: (userId: string) => dataset.users.some((user) => String(user.id) === userId),
           list: () => dataset.users.map((user) => String(user.id)),
+        }),
+      )
+
+      // 余额探针：授权窗口复验要"现在的余额"，不是武装时的快照。
+      ctx.effect(
+        ctx.provide(BANK_BALANCE_PROBE, {
+          availableCents: async (userId: string) => {
+            const accounts = await core.listAccounts(userId as UserId)
+            let total = 0
+            for (const account of accounts) {
+              const balance = await core.balance(account.id)
+              total += balance.availableCents
+            }
+            return total
+          },
         }),
       )
 

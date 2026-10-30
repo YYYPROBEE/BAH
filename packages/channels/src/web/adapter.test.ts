@@ -113,6 +113,44 @@ describe('WebChannelAdapter · 审批归属（W04）', () => {
   })
 })
 
+describe('WebChannelAdapter · 打字确认（删除/撤销类）', () => {
+  it('fact_forget 缺确认词 ⇒ 400 语义的 approval-confirm-mismatch，票据不消费', () => {
+    const adapter = createWebChannelAdapter()
+    const target = view({ name: 'fact_forget', ticketId: 'ticket:f-1' })
+    adapter.attachApproval(target)
+
+    expect(adapter.decide('ticket:f-1', { decision: 'allowed-once' })).toMatchObject({
+      ok: false,
+      code: 'approval-confirm-mismatch',
+    })
+    expect(adapter.decide('ticket:f-1', { decision: 'allowed-once', confirmText: '删' })).toMatchObject({
+      ok: false,
+      code: 'approval-confirm-mismatch',
+    })
+    expect(target.answers).toEqual([])
+    expect(adapter.pendingTickets()).toEqual(['ticket:f-1'])
+  })
+
+  it('确认词逐字匹配 ⇒ 放行', () => {
+    const adapter = createWebChannelAdapter()
+    const target = view({ name: 'fact_forget', ticketId: 'ticket:f-2' })
+    adapter.attachApproval(target)
+
+    expect(adapter.decide('ticket:f-2', { decision: 'allowed-once', confirmText: '删除' })).toEqual({
+      ok: true,
+    })
+    expect(target.answers).toEqual([{ decision: 'allowed-once' }])
+  })
+
+  it('不需要确认词的普通工具不受影响（确认词被忽略）', () => {
+    const adapter = createWebChannelAdapter()
+    adapter.attachApproval(view())
+    expect(adapter.decide('ticket:call-1', { decision: 'allowed-once', confirmText: '随便' })).toEqual({
+      ok: true,
+    })
+  })
+})
+
 describe('WebChannelAdapter · 审批翻译', () => {
   it('登记后可按票据提交批准', () => {
     const adapter = createWebChannelAdapter()

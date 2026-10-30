@@ -15,6 +15,7 @@ export type Command =
   | { readonly kind: 'metrics' }
   | { readonly kind: 'trace' }
   | { readonly kind: 'cost' }
+  | { readonly kind: 'plan' }
 
 /** 首项是子命令 → 子命令模式；否则 → 现有 flag 模式。 */
 export function parseCommand(argv: readonly string[]): Command {
@@ -33,6 +34,8 @@ export function parseCommand(argv: readonly string[]): Command {
       return { kind: 'trace' }
     case 'cost':
       return { kind: 'cost' }
+    case 'plan':
+      return { kind: 'plan' }
     default:
       return { kind: 'run' }
   }
