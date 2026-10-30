@@ -208,6 +208,78 @@ describe('边界 9–13：试用、重复、脏名、窗口、等额分期', () 
   })
 })
 
+/* ── 算法细节：离群剪枝 / 降价 / 核验守卫 ────────────────────────────────── */
+
+describe('剪枝与降价', () => {
+  it('混入序列的单次购买（同额域但破坏间隔）被剪掉，序列回到 6 笔', () => {
+    const monthly = series('视频会员', [3000, 3000, 3000, 3000, 3000, 3000])
+    // 6000 是 2× 中位数：通过「一个数量级」过滤，但插在周期中间破坏间隔
+    const outlier = charge('视频会员', NOW - 75 * DAY_MS, 6000)
+    const output = detect([...monthly, outlier])
+    expect(output.series).toHaveLength(1)
+    expect(output.series[0]?.instances).toHaveLength(6)
+    expect(output.series[0]?.amountCents).toBe(3000)
+    expect(output.basis.txnCount).toBe(7)
+  })
+
+  it('单次购买紧跟月费之后（离群点在区间右侧）也剪掉，不误伤两档月费', () => {
+    const monthly = series('视频会员', [3000, 3000, 3000, 3000, 3000, 3000])
+    const third = monthly[3]
+    const at = (third?.at ?? NOW) + 3 * DAY_MS
+    const output = detect([...monthly, charge('视频会员', at, 5500)])
+    expect(output.series).toHaveLength(1)
+    expect(output.series[0]?.instances).toHaveLength(6)
+    expect(output.series[0]?.amountCents).toBe(3000)
+    expect(output.series[0]?.priceDrop).toBeUndefined()
+  })
+
+  it('降价（3000 → 2000）仍是一条 series，带 priceDrop 而不是拆成两条', () => {
+    const output = detect(series('视频会员', [3000, 3000, 3000, 2000, 2000, 2000]))
+    expect(output.series).toHaveLength(1)
+    expect(output.series[0]?.amountCents).toBe(2000)
+    expect(output.series[0]?.priceDrop).toMatchObject({ fromCents: 3000, toCents: 2000 })
+  })
+})
+
+describe('断供核验的守卫', () => {
+  it('取消请求指向已不存在的订阅 → 跳过，不产出 finding', () => {
+    const findings = deriveCutoffFindings({
+      transactions: [charge('视频会员', NOW - 5 * DAY_MS, 3000)],
+      cancelRequests: [
+        cancelRequest({ subscriptionId: bankIds.subscription('s-404') }),
+      ],
+      authorizations: [],
+      subscriptions: [SUBSCRIPTION],
+      now: NOW,
+    })
+    expect(findings).toHaveLength(0)
+  })
+
+  it('协议关闭后的失败扣款不算违约（只认成功的转出）', () => {
+    const authorization: MerchantAuthorization = {
+      id: bankIds.authorization('auth-1'),
+      userId: USER,
+      merchant: '视频会员',
+      merchantKey: '视频会员',
+      agreementNo: 'AG-2026-0001',
+      accountId: ACCOUNT,
+      status: 'revoked',
+      signedAt: NOW - 200 * DAY_MS,
+      revokedAt: NOW - 10 * DAY_MS,
+    }
+    const findings = deriveCutoffFindings({
+      transactions: [
+        charge('视频会员', NOW - 5 * DAY_MS, 3000, { status: 'failed' }),
+      ],
+      cancelRequests: [],
+      authorizations: [authorization],
+      subscriptions: [SUBSCRIPTION],
+      now: NOW,
+    })
+    expect(findings).toHaveLength(0)
+  })
+})
+
 /* ── 置信度分层与单调性 ───────────────────────────────────────────────────── */
 
 describe('置信度分层', () => {

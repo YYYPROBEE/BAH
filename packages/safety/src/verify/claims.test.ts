@@ -71,6 +71,11 @@ describe('claims：实现细节的两个边界', () => {
     expect(claims.map((claim) => claim.rule)).toContain('return')
   })
 
+  it('重叠命中只留一条：「保本保收益」不重复计成两条', () => {
+    const claims = detectProhibitedClaims('该产品保本保收益，稳赚不赔。')
+    expect(claims.map((claim) => claim.raw)).toEqual(['保本保收益', '稳赚不赔'])
+  })
+
   it('连续调用结果稳定（g 正则的 lastIndex 已归零）', () => {
     const text = '该产品保本保息。'
     const first = detectProhibitedClaims(text)
