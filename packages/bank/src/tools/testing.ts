@@ -166,6 +166,9 @@ export function createPipelineHarness(options: {
   readonly userId?: string | null
   readonly approval?: 'allowed-once' | 'rejected' | 'unavailable'
   readonly tier?: ForgeTier
+  readonly seed?: number
+  /** 覆盖 `BankToolsConfig`（P5：riskyOps / riskyCallThreshold 的对抗用例）。 */
+  readonly config?: Partial<BankToolsConfig>
   readonly verify?: VerifyService
   /** 复用同一个 bank-core（跨会话累计用例：账本必须共享）。 */
   readonly core?: MockBankCore

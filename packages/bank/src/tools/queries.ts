@@ -7,12 +7,20 @@
  * 金额口径：模型参数是「元」，核心与事件是「分」；展示用 `formatYuan`。
  */
 
-import { BahError } from '@bah/util'
+import { assertNever, BahError } from '@bah/util'
 
 import type { ToolDefinition, ToolExecContext } from '@bah/core'
 
-import type { Account, Transaction, TxnCategory } from '../core/index.ts'
-import { bankIds, formatYuan, PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX, toPct } from '../core/index.ts'
+import type { Account, MerchantCategory, Transaction, TxnCategory } from '../core/index.ts'
+import {
+  bankIds,
+  formatYuan,
+  MERCHANT_LABEL,
+  merchantCategoryOf,
+  PAGE_LIMIT_DEFAULT,
+  PAGE_LIMIT_MAX,
+  toPct,
+} from '../core/index.ts'
 import { DAY_MS, monthKey, periodRange, previousMonth } from '../core/time.ts'
 import { requireAccount, requireUserId, tailOf } from './accounts.ts'
 import { readEnum, readOptionalObject, readOptionalPositiveInteger, readOptionalString, readString } from './args.ts'
@@ -24,6 +32,7 @@ import type {
   BalanceResult,
   BillAnalysisResult,
   BillCategoryLine,
+  BillMerchantLine,
   BillPayeeLine,
   BillReportResult,
   TxnQueryResult,
@@ -214,8 +223,10 @@ export function createBillAnalyzeTool(
       const userId = requireUserId(deps, ctx.sessionId)
       const account = await requireAccount(deps, userId)
       const period = parsePeriod(args)
-      const groupBy = readEnum(args, 'groupBy', 'bill_analyze', ['category', 'payee'] as const) ?? 'category'
-      const result = await buildBillAnalysis(deps, userId, account, period, groupBy === 'payee')
+      const groupBy =
+        readEnum(args, 'groupBy', 'bill_analyze', ['category', 'payee', 'merchant'] as const) ??
+        'category'
+      const result = await buildBillAnalysis(deps, userId, account, period, groupBy)
       deps.audit.append('read/bill-analyzed', { result })
       return result
     },
@@ -239,7 +250,9 @@ export function createBillReportTool(
       const account = await requireAccount(deps, userId)
       const period = parsePeriod(args)
       const format = readEnum(args, 'format', 'bill_report', ['summary', 'detail'] as const) ?? 'summary'
-      const analysis = await buildBillAnalysis(deps, userId, account, period, format === 'detail')
+      // `format` 只决定"报不报收款人明细"（`composeReport` 那一侧），
+      // `groupBy` 只决定"算哪个维度"；两者拆开，避免"要商户维度就必须出详细报告"。
+      const analysis = await buildBillAnalysis(deps, userId, account, period, 'payee')
       const result: BillReportResult = {
         period,
         format,
@@ -305,23 +318,27 @@ export async function readBalance(
   return result
 }
 
+/** 账单口径。 */
+export type BillPeriod = 'month' | 'quarter' | 'year'
+
+/** 账单维度：`category` 账务分类 / `payee` 收款人 / `merchant` 商户品类。 */
+export type BillGroupBy = 'category' | 'payee' | 'merchant'
+
 /** 账单分析（`bill_analyze` 与 `bill_report` 共用）。 */
 export async function buildBillAnalysis(
   deps: BankToolDeps,
   userId: string,
   account: Account,
-  period: 'month' | 'quarter',
-  withPayees: boolean,
+  period: BillPeriod,
+  groupBy: BillGroupBy,
 ): Promise<BillAnalysisResult> {
   const now = clockOf(deps)()
   const current = monthKey(now)
-  const months =
-    period === 'quarter'
-      ? [shiftMonth(current, -2), shiftMonth(current, -1), current]
-      : [current]
+  const months = billMonths(current, period)
 
   let totalInCents = 0
   let totalOutCents = 0
+  let coveredMonths = 0
   const byCategory = new Map<TxnCategory, number>()
   const anomalies: BillAnalysisResult['anomalies'][number][] = []
   for (const month of months) {
@@ -335,13 +352,12 @@ export async function buildBillAnalysis(
     for (const [category, amount] of Object.entries(report.byCategory) as [TxnCategory, number][]) {
       byCategory.set(category, (byCategory.get(category) ?? 0) + amount)
     }
+    // "有流水"= 该账期有收入或支出；只有空账期才不计入覆盖数
+    if (report.totalInCents + report.totalOutCents > 0) coveredMonths += 1
     anomalies.push(...report.anomalies)
   }
 
-  const baselineMonths =
-    period === 'quarter'
-      ? [shiftMonth(current, -5), shiftMonth(current, -4), shiftMonth(current, -3)]
-      : [previousMonth(current)]
+  const baselineMonths = baselineFor(current, period)
   let previousOut = 0
   for (const month of baselineMonths) {
     const report = await deps.core.analyzeBill({
@@ -354,27 +370,66 @@ export async function buildBillAnalysis(
   const momChangePct =
     previousOut > 0 ? toPct(totalOutCents - previousOut, previousOut) : undefined
 
-  const categoryLines = toCategoryLines(byCategory, totalOutCents)
   const comparedPeriod = baselineMonths[0]
-  if (comparedPeriod === undefined) {
-    throw new BahError('period-invalid', 'bank-tools: 账单对比期为空（内部错误）', { period })
-  }
   const result: BillAnalysisResult = {
     period,
     months,
     totalInCents,
     totalOutCents,
-    byCategory: categoryLines,
+    byCategory: toCategoryLines(byCategory, totalOutCents),
     anomalies,
     ...(momChangePct === undefined ? {} : { momChangePct }),
-    comparedPeriod,
-    ...(withPayees
+    ...(comparedPeriod === undefined ? {} : { comparedPeriod }),
+    ...(period === 'year' ? { coveredMonths } : {}),
+    ...(groupBy === 'payee'
+      ? { byPayee: await collectPayees(deps, userId, account, months, totalOutCents) }
+      : {}),
+    ...(groupBy === 'merchant'
       ? {
-          byPayee: await collectPayees(deps, userId, account, months, totalOutCents),
+          byMerchantCategory: await collectMerchantCategories(
+            deps,
+            userId,
+            account,
+            months,
+            totalOutCents,
+          ),
         }
       : {}),
   }
   return result
+}
+
+/** 口径 → 账期（升序；年度 = 近 12 个自然账期，含本月）。 */
+function billMonths(current: string, period: BillPeriod): string[] {
+  switch (period) {
+    case 'month':
+      return [current]
+    case 'quarter':
+      return [shiftMonth(current, -2), shiftMonth(current, -1), current]
+    case 'year':
+      return Array.from({ length: 12 }, (_, index) => shiftMonth(current, index - 11))
+    default:
+      return assertNever(period, 'bill-period')
+  }
+}
+
+/**
+ * 环比基线账期。
+ *
+ * 年度**不做同比**：需要去年同 12 个月的数据（本单只有 12 个月），
+ * 返回空数组让 `momChangePct` 缺省——宁可少一个指标，不编一个数字。
+ */
+function baselineFor(current: string, period: BillPeriod): string[] {
+  switch (period) {
+    case 'month':
+      return [previousMonth(current)]
+    case 'quarter':
+      return [shiftMonth(current, -5), shiftMonth(current, -4), shiftMonth(current, -3)]
+    case 'year':
+      return []
+    default:
+      return assertNever(period, 'bill-period')
+  }
 }
 
 /** 按分类汇总成降序行（同额按分类名升序，输出稳定）。 */
@@ -395,21 +450,25 @@ function toCategoryLines(
     )
 }
 
-/** 从流水汇总收款人（分页读全，最多 50 页；避免模型触发无界循环）。 */
-async function collectPayees(
+/**
+ * 遍历区间内**成功的支出流水**（分页读全，最多 50 页；避免模型触发无界循环）。
+ *
+ * 收款人汇总与商户品类汇总共用这一份遍历：复制第二个分页循环迟早会不同步
+ * （一处改了过滤条件、另一处没改，两份账单就会对不上）。
+ */
+async function eachOutTxn(
   deps: BankToolDeps,
   userId: string,
   account: Account,
   months: readonly string[],
-  totalOutCents: number,
-): Promise<BillPayeeLine[]> {
+  visit: (txn: Transaction) => void,
+): Promise<void> {
   const first = months[0]
   const last = months[months.length - 1]
   if (first === undefined || last === undefined) {
     throw new BahError('period-invalid', 'bank-tools: 账单月份为空（内部错误）', { months })
   }
   const range = { start: periodRange(first).start, end: periodRange(last).end }
-  const byPayee = new Map<string, number>()
   let cursor: string | undefined
   for (let page = 0; page < 50; page += 1) {
     const queried = await deps.core.queryTransactions({
@@ -422,11 +481,25 @@ async function collectPayees(
     })
     for (const txn of queried.items) {
       if (txn.direction !== 'out' || txn.status !== 'success') continue
-      byPayee.set(txn.counterparty.name, (byPayee.get(txn.counterparty.name) ?? 0) + txn.amountCents)
+      visit(txn)
     }
     cursor = queried.nextCursor
     if (cursor === undefined) break
   }
+}
+
+/** 从流水汇总收款人（降序）。 */
+async function collectPayees(
+  deps: BankToolDeps,
+  userId: string,
+  account: Account,
+  months: readonly string[],
+  totalOutCents: number,
+): Promise<BillPayeeLine[]> {
+  const byPayee = new Map<string, number>()
+  await eachOutTxn(deps, userId, account, months, (txn) => {
+    byPayee.set(txn.counterparty.name, (byPayee.get(txn.counterparty.name) ?? 0) + txn.amountCents)
+  })
   return [...byPayee.entries()]
     .map(([payee, amountCents]) => ({
       payee,
@@ -440,11 +513,56 @@ async function collectPayees(
     )
 }
 
+/**
+ * 商户 → 品类：账务分类优先（转账/工资），其余才看名字。
+ *
+ * 不写这条覆盖规则，"王建国 800 元"会被归进 `other`——用户问"我转给谁最多"
+ * 会得到"其他"；这是功能正确性的一部分，不是优化。
+ */
+function merchantCategoryOfTxn(txn: Transaction): MerchantCategory {
+  if (txn.category === 'transfer') return 'transfer'
+  if (txn.category === 'salary') return 'salary'
+  return merchantCategoryOf(txn.counterparty.name)
+}
+
+/** 从流水汇总商户品类（降序；同额按品类名升序，输出稳定）。 */
+async function collectMerchantCategories(
+  deps: BankToolDeps,
+  userId: string,
+  account: Account,
+  months: readonly string[],
+  totalOutCents: number,
+): Promise<BillMerchantLine[]> {
+  const byCategory = new Map<MerchantCategory, number>()
+  await eachOutTxn(deps, userId, account, months, (txn) => {
+    const category = merchantCategoryOfTxn(txn)
+    byCategory.set(category, (byCategory.get(category) ?? 0) + txn.amountCents)
+  })
+  return [...byCategory.entries()]
+    .map(([category, amountCents]) => ({
+      category,
+      amountCents,
+      sharePct: toPct(amountCents, totalOutCents),
+    }))
+    .sort((left, right) =>
+      right.amountCents === left.amountCents
+        ? left.category.localeCompare(right.category)
+        : right.amountCents - left.amountCents,
+    )
+}
+
 /** 模型可见的账单摘要（短文本）。 */
 function summarizeBill(result: BillAnalysisResult): string {
-  const lines = result.byCategory
-    .slice(0, 5)
-    .map((line) => `${line.category} ${formatYuan(line.amountCents)}（${line.sharePct}%）`)
+  const lines =
+    result.byMerchantCategory === undefined
+      ? result.byCategory
+          .slice(0, 5)
+          .map((line) => `${line.category} ${formatYuan(line.amountCents)}（${line.sharePct}%）`)
+      : result.byMerchantCategory
+          .slice(0, 5)
+          .map(
+            (line) => `${MERCHANT_LABEL[line.category]} ${formatYuan(line.amountCents)}（${line.sharePct}%）`,
+          )
   return (
     `${result.months.join(' / ')}：收入 ${formatYuan(result.totalInCents)}，支出 ${formatYuan(result.totalOutCents)}` +
     `${result.momChangePct === undefined ? '' : `，环比 ${result.momChangePct}%`}。` +
@@ -453,17 +571,29 @@ function summarizeBill(result: BillAnalysisResult): string {
   )
 }
 
-/** 报告正文（确定性；summary 不列收款人）。 */
+/** 报告口径文案。 */
+const REPORT_PERIOD_LABEL: Readonly<Record<BillPeriod, string>> = {
+  month: '月度',
+  quarter: '季度',
+  year: '年度',
+}
+
+/**
+ * 报告正文（确定性；`format` 只决定详略，不参与任何计算）。
+ *
+ * 年度报告必须显式写"覆盖 N/12 个账期"：数据是仿真的，只有 N 个账期有流水时，
+ * 不写覆盖声明就会被当成 bug；写了它就是一句可主动交代的话。
+ */
 function composeReport(analysis: BillAnalysisResult, format: 'summary' | 'detail'): string {
+  const coverage =
+    analysis.period === 'year' && analysis.coveredMonths !== undefined
+      ? `，覆盖 ${String(analysis.coveredMonths)}/12 个账期`
+      : ''
   const header =
-    `账单报告（${analysis.months.join(' / ')}，${analysis.period === 'month' ? '月度' : '季度'}）\n` +
+    `账单报告（${analysis.months.join(' / ')}，${REPORT_PERIOD_LABEL[analysis.period]}${coverage}）\n` +
     `收入 ${formatYuan(analysis.totalInCents)}；支出 ${formatYuan(analysis.totalOutCents)}` +
     (analysis.momChangePct === undefined ? '' : `；环比 ${analysis.momChangePct}%`)
-  const categories = analysis.byCategory.length
-    ? analysis.byCategory
-        .map((line) => `- ${line.category}：${formatYuan(line.amountCents)}（${line.sharePct}%）`)
-        .join('\n')
-    : '- 无支出'
+  const categories = reportCategoryLines(analysis)
   if (format === 'summary') {
     return `${header}\n分类汇总：\n${categories}\n异常：${analysis.anomalies.length} 条`
   }
@@ -477,6 +607,20 @@ function composeReport(analysis: BillAnalysisResult, format: 'summary' | 'detail
         .join('\n')
     : '- 无'
   return `${header}\n分类汇总：\n${categories}\n收款人（前 5）：\n${payees}\n异常：\n${anomalies}`
+}
+
+/**
+ * 报告里的分类行（沿用账务分类原值）。
+ *
+ * `bill_report` 本轮**没有** `groupBy` 参数：报告固定按账务分类，明细才附收款人。
+ * 品类维度的模型可见文案走 `bill_analyze` 的 `summarizeBill`——不为一个未承诺的
+ * "品类报告"预留不可达分支。
+ */
+function reportCategoryLines(analysis: BillAnalysisResult): string {
+  const lines = analysis.byCategory.map(
+    (line) => `- ${line.category}：${formatYuan(line.amountCents)}（${line.sharePct}%）`,
+  )
+  return lines.length > 0 ? lines.join('\n') : '- 无支出'
 }
 
 /** 受限执行：超时 / 取消 / seam 抛错都保持结构化理由码。 */

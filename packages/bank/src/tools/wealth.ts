@@ -11,8 +11,8 @@ import { BahError } from '@bah/util'
 
 import type { ToolDefinition } from '@bah/core'
 
-import type { WealthProduct } from '../core/index.ts'
-import { bankIds, formatYuan } from '../core/index.ts'
+import type { RiskGrade, WealthProduct } from '../core/index.ts'
+import { bankIds, checkSuitability, formatYuan } from '../core/index.ts'
 import { requireAccount, requireUserId } from './accounts.ts'
 import { readOptionalString, readString, readStringArray } from './args.ts'
 import type {
@@ -38,11 +38,14 @@ export function createWealthListTool(
     description: spec.description,
     schema: spec.schema,
     tier: spec.tier,
-    execute: async (args) => {
+    execute: async (args, ctx) => {
+      const userId = requireUserId(deps, ctx.sessionId)
+      const customerRisk = await customerRiskOf(deps, userId)
       const filter = parseWealthFilter(args)
       const products = await deps.core.listWealthProducts(filter)
       const result: WealthListResult = {
-        products: products.map(toProductView),
+        products: products.map((product) => toProductView(product, customerRisk)),
+        customerRisk,
         disclaimerId: deps.config.disclaimerId,
         ...(filter === undefined ? {} : { filter }),
       }
@@ -52,15 +55,12 @@ export function createWealthListTool(
     projectContent: (result) => [
       {
         type: 'text',
+        // 首行是「卡片顶部」：渠道卡片只从正文派生（`channels/src/web/cards.ts`），
+        // 这里写什么，画面就显示什么。
         text:
+          `您的风险承受能力：${result.customerRisk}（演示环境静态画像）\n` +
           `共 ${result.products.length} 个产品：\n` +
-          result.products
-            .map(
-              (product) =>
-                `- ${product.name}（${product.productId}）：${product.riskGrade}，${product.termDays} 天，` +
-                `预期年化 ${product.expectedYieldPct}%，起投 ${formatYuan(product.minAmountCents)}`,
-            )
-            .join('\n') +
+          result.products.map(productLine).join('\n') +
           `\n风险提示：${result.disclaimerId}（必须向用户展示，理财非存款、投资有风险）`,
       },
     ],
@@ -78,7 +78,9 @@ export function createWealthCompareTool(
     description: spec.description,
     schema: spec.schema,
     tier: spec.tier,
-    execute: async (args) => {
+    execute: async (args, ctx) => {
+      const userId = requireUserId(deps, ctx.sessionId)
+      const customerRisk = await customerRiskOf(deps, userId)
       const ids = readStringArray(args, 'ids', 'wealth_compare')
       if (ids.length < 2 || ids.length > 4) {
         throw new BahError('tool-args-invalid', 'bank-tools: wealth_compare 只接受 2–4 个产品', {
@@ -92,8 +94,9 @@ export function createWealthCompareTool(
           if (product === undefined) {
             throw new BahError('product-unknown', `bank-tools: 未知理财产品 ${id}`, { productId: id })
           }
-          return toProductView(product)
+          return toProductView(product, customerRisk)
         }),
+        customerRisk,
         disclaimerId: deps.config.disclaimerId,
       }
       deps.audit.append('read/wealth', { op: 'compare', result })
@@ -102,14 +105,10 @@ export function createWealthCompareTool(
     projectContent: (result) => [
       {
         type: 'text',
+        // 对比也带 eligible：否则会出现「列表里不能买、对比里看不出」的缝。
         text:
-          result.products
-            .map(
-              (product) =>
-                `- ${product.name}（${product.productId}）：${product.riskGrade}，${product.termDays} 天，` +
-                `预期年化 ${product.expectedYieldPct}%，起投 ${formatYuan(product.minAmountCents)}`,
-            )
-            .join('\n') + `\n风险提示：${result.disclaimerId}（必须向用户展示）`,
+          result.products.map(productLine).join('\n') +
+          `\n风险提示：${result.disclaimerId}（必须向用户展示）`,
       },
     ],
     presentResult: (_args, result) => wealthCard(result, 'compare'),
@@ -143,12 +142,14 @@ export function createWealthPurchaseTool(
           productId,
         })
       }
+      const customerRisk = await customerRiskOf(deps, userId)
 
       const ticket = ticketRefForCall(deps, ctx, spec.name, args, amountCents)
       const holding = await deps.core.purchaseWealth(
         { userId: bankIds.user(userId), accountId: account.id, productId, amountCents },
         ticket,
       )
+      const at = clockOf(deps)()
       const result: WealthPurchaseResult = {
         holdingId: holding.id,
         productId,
@@ -156,7 +157,9 @@ export function createWealthPurchaseTool(
         amountCents,
         shares: holding.shares,
         disclaimerId: deps.config.disclaimerId,
-        at: clockOf(deps)(),
+        at,
+        // 轻量匹配留痕：随 `wealth/purchased` 载荷落审计链（没有独立 MatchRecord 实体）。
+        riskMatch: { customerRisk, productRisk: product.riskGrade, at },
       }
       deps.audit.append('wealth/purchased', { result })
       return result
@@ -166,7 +169,9 @@ export function createWealthPurchaseTool(
         type: 'text',
         text:
           `购买成功：${result.productName} ${formatYuan(result.amountCents)}（${result.shares} 份），` +
-          `持仓 ${result.holdingId}。风险提示：${result.disclaimerId}。`,
+          `持仓 ${result.holdingId}。\n` +
+          `匹配记录：客户 ${result.riskMatch.customerRisk} ≥ 产品 ${result.riskMatch.productRisk}。` +
+          `风险提示：${result.disclaimerId}。`,
       },
     ],
     presentCall: (args) => wealthPurchaseConfirmCard(args, deps.config.ticketTtlSeconds),
@@ -174,8 +179,18 @@ export function createWealthPurchaseTool(
   } satisfies ToolDefinition<Readonly<Record<string, unknown>>, WealthPurchaseResult>
 }
 
-/** 产品 → 视图。 */
-function toProductView(product: WealthProduct): WealthProductView {
+/** 读客户风险承受能力（等级的唯一权威在 core；查无此人 fail-loud）。 */
+async function customerRiskOf(deps: BankToolDeps, userId: string): Promise<RiskGrade> {
+  const user = await deps.core.getUser(bankIds.user(userId))
+  if (user === undefined) {
+    throw new BahError('user-unknown', 'bank-tools: 当前用户不存在', { userId })
+  }
+  return user.riskGrade
+}
+
+/** 产品 → 视图（`eligible` 由唯一规则算出，不在这里另写阈值）。 */
+function toProductView(product: WealthProduct, customerRisk: RiskGrade): WealthProductView {
+  const verdict = checkSuitability({ customerRisk, productRisk: product.riskGrade })
   return {
     productId: product.id,
     name: product.name,
@@ -184,5 +199,15 @@ function toProductView(product: WealthProduct): WealthProductView {
     expectedYieldPct: product.expectedYieldPct,
     riskGrade: product.riskGrade,
     minAmountCents: product.minAmountCents,
+    eligible: verdict.allow,
+    ...(verdict.allow ? {} : { suitabilityNote: verdict.reason }),
   }
+}
+
+/** 列表 / 对比的一行（不可购买的产品在下一行标注；正文即渠道卡片的内容）。 */
+function productLine(product: WealthProductView): string {
+  const base =
+    `- ${product.name}（${product.productId}）：${product.riskGrade}，${product.termDays} 天，` +
+    `预期年化 ${product.expectedYieldPct}%，起投 ${formatYuan(product.minAmountCents)}`
+  return product.suitabilityNote === undefined ? base : `${base}\n  【${product.suitabilityNote}】`
 }

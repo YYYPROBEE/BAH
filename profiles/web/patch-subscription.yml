@@ -1,0 +1,43 @@
+# 场景 5 · Web 演示覆盖层（订阅 / 代扣）
+#
+# 用法：`pnpm bah --profile web --serve --patch profiles/web/patch-subscription.yml`
+# 只替换三行（`bank:tools` / `core:agent` / `safety:sentry`），审批弹窗仍走 Web 的 `responder: none`。
+
+- id: bank:tools
+  config:
+    demoUserId: u-1
+    seed: 7
+    datasetTier: recurring
+    policy: { engine: bundle }
+    contextSlots:
+      accounts: 3
+      transactions: 3
+      subscriptions: 3
+      windowDays: 30
+      timeoutMs: 250
+      maxChars: 800
+      breakerFailures: 3
+      breakerOpenMs: 10000
+
+- id: core:agent
+  config:
+    channel: web
+    loop:
+      model: router:router-chat
+      maxSteps: 8
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
+    slots: { source: bank }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }
+      notes:
+        - 本对话运行在仿真数据集（recurring 档）：6 个月订阅/代扣流水，均为造数，不产生真实资金变动。
+
+- id: safety:sentry
+  config:
+    trace:
+      sink: session
+    rules:
+      crossScenario: true
+    budget:
+      # 演示 2 次审批 + 彩排余量（会话级、重跑不退）
+      riskyCalls: 6

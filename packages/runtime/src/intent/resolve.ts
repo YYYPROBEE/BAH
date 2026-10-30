@@ -337,6 +337,7 @@ function buildAskHint(
   conflicts: readonly SlotConflict[],
   input: ResolveInput,
   domainCandidates: readonly FilledSlot[] | undefined,
+  scene: string,
 ): AskHint | null {
   if (kind === 'implicit') return null
 
@@ -350,7 +351,10 @@ function buildAskHint(
   }
 
   const conflict = conflicts[0]
-  const slot: SlotName = conflict?.name ?? missing[0] ?? (domainCandidates === undefined ? 'payee' : 'targetScene')
+  // 订阅场景没有必填槽：别用转账的 fallback 问「要转给谁？」
+  const emptySceneSlot: SlotName = scene === 'subscription' ? 'category' : 'payee'
+  const slot: SlotName =
+    conflict?.name ?? missing[0] ?? (domainCandidates === undefined ? emptySceneSlot : 'targetScene')
   const candidates =
     conflict?.candidates ??
     domainCandidates ??
@@ -363,9 +367,13 @@ function buildAskHint(
       })),
     ) ??
     []
+  const question =
+    scene === 'subscription' && slot === 'category' && conflict === undefined && missing.length === 0
+      ? '您想办哪件订阅相关的事？（看清单 / 查扣款明细 / 退订 / 关闭代扣 / 设提醒）'
+      : (ASK_QUESTIONS[slot] ?? '能再说得具体一点吗？')
   return {
     slot,
-    question: ASK_QUESTIONS[slot] ?? '能再说得具体一点吗？',
+    question,
     candidates: candidates.slice(0, 3),
   }
 }
@@ -463,7 +471,7 @@ export function resolveIntent(input: ResolveInput, ctx: ResolveContext): IntentR
   const decision = decideFor(classified.kind, missing, conflicts, input)
   const askHint =
     decision === 'ask'
-      ? buildAskHint(classified.kind, missing, conflicts, input, classified.domainCandidates)
+      ? buildAskHint(classified.kind, missing, conflicts, input, classified.domainCandidates, ctx.scene)
       : null
   const proposals = classified.kind === 'implicit' ? buildProposals(utterance) : []
 

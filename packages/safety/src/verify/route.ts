@@ -14,12 +14,16 @@
 import type { Assertion } from './extract.ts'
 import { MONEY_ACTION_CLAIM, collectEvidence, extractAssertions } from './extract.ts'
 import type { AssertionKind } from './extract.ts'
+import { detectProhibitedClaims } from './claims.ts'
 
 /** 未核实前缀（TC-W05-09 断言"发出去的文本"以它开头）。 */
 export const UNVERIFIED_PREFIX = '【未核实】'
 
 /** 拒答理由码（W13/W14 的拒答正确率按它检索）。 */
 export const ASSERTION_REJECT_CODE = 'assertion-unverified'
+
+/** 收益承诺类拒答的理由码（H-13 收口；与资金动作断言分开，便于审计区分）。 */
+export const PROHIBITED_CLAIM_CODE = 'prohibited-guarantee'
 
 /** 单条断言的判定结果。 */
 export interface AssertionOutcome {
@@ -46,8 +50,11 @@ export interface VerifyReplyInput {
   readonly evidence: readonly string[]
 }
 
-/** 拒答文本（稳定理由码：`assertion-unverified`）。 */
+/** 拒答文本（按理由码分文案；默认是资金动作断言码）。 */
 export function refusalText(reasonCode: string = ASSERTION_REJECT_CODE): string {
+  if (reasonCode === PROHIBITED_CLAIM_CODE) {
+    return `【拒答】回复包含保本或收益承诺类表述，已阻止发送。（reasonCode: ${reasonCode}）`
+  }
   return `【拒答】回复包含无法核验的资金动作依据，已阻止发送。（reasonCode: ${reasonCode}）`
 }
 
@@ -56,10 +63,26 @@ export function verifyReply(input: VerifyReplyInput): VerifyOutcome {
   const assertions = extractAssertions(input.text)
   const evidence = collectEvidence(input.evidence)
 
-  const outcomes: AssertionOutcome[] = assertions.map((assertion) => ({
-    assertion,
-    status: statusOf(assertion, evidence),
+  // 第六类断言：收益承诺类表述（`claims.ts`）。它们没有"证据"可查——定义上不可核验。
+  const claimOutcomes: AssertionOutcome[] = detectProhibitedClaims(input.text).map((claim) => ({
+    assertion: {
+      kind: 'guarantee',
+      raw: claim.raw,
+      value: claim.raw,
+      start: claim.start,
+      end: claim.end,
+      sentence: claim.sentence,
+    },
+    status: 'rejected',
   }))
+
+  const outcomes: AssertionOutcome[] = [
+    ...assertions.map((assertion) => ({
+      assertion,
+      status: statusOf(assertion, evidence),
+    })),
+    ...claimOutcomes,
+  ]
 
   const verified = outcomes.filter((item) => item.status === 'verified').length
   const needsEvidence = outcomes.filter((item) => item.status === 'needs-evidence').length
@@ -67,13 +90,14 @@ export function verifyReply(input: VerifyReplyInput): VerifyOutcome {
   const total = outcomes.length
 
   if (rejected > 0) {
+    const code = claimOutcomes.length > 0 ? PROHIBITED_CLAIM_CODE : ASSERTION_REJECT_CODE
     return {
       total,
       verified,
       needsEvidence,
       rejected,
       decision: 'reject',
-      text: refusalText(),
+      text: refusalText(code),
       assertions: outcomes,
     }
   }
@@ -106,6 +130,8 @@ function statusOf(
   assertion: Assertion,
   evidence: ReturnType<typeof collectEvidence>,
 ): AssertionOutcome['status'] {
+  // 收益承诺定义上不可核验：任何工具出参都不能证明「保本」。
+  if (assertion.kind === 'guarantee') return 'rejected'
   const isMoney = assertion.kind === 'amount' || assertion.kind === 'balance'
   const isActionClaim =
     isMoney && MONEY_ACTION_CLAIM.test(assertion.sentence) && !NOT_COMPLETED.test(assertion.sentence)

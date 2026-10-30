@@ -1,0 +1,1045 @@
+{
+  "name": "edge-18",
+  "now": 1793325600000,
+  "windowDays": 400,
+  "transactions": [
+    {
+      "id": "t-491",
+      "at": 1762135200000,
+      "amountCents": 4500,
+      "name": "季度会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-448",
+      "at": 1764813600000,
+      "amountCents": 89900,
+      "name": "XX商城分期",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-474",
+      "at": 1764813600000,
+      "amountCents": 3000,
+      "name": "等额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-417",
+      "at": 1767146400000,
+      "amountCents": 3000,
+      "name": "月末会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-449",
+      "at": 1767405600000,
+      "amountCents": 89000,
+      "name": "XX商城分期",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-475",
+      "at": 1767405600000,
+      "amountCents": 3000,
+      "name": "等额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-418",
+      "at": 1769824800000,
+      "amountCents": 3000,
+      "name": "月末会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-492",
+      "at": 1769911200000,
+      "amountCents": 4500,
+      "name": "季度会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-450",
+      "at": 1769997600000,
+      "amountCents": 88100,
+      "name": "XX商城分期",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-476",
+      "at": 1769997600000,
+      "amountCents": 3000,
+      "name": "等额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-419",
+      "at": 1772244000000,
+      "amountCents": 3000,
+      "name": "月末会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-451",
+      "at": 1772589600000,
+      "amountCents": 87200,
+      "name": "XX商城分期",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-477",
+      "at": 1772589600000,
+      "amountCents": 3000,
+      "name": "等额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-452",
+      "at": 1775181600000,
+      "amountCents": 86300,
+      "name": "XX商城分期",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-478",
+      "at": 1775181600000,
+      "amountCents": 3000,
+      "name": "等额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-486",
+      "at": 1777687200000,
+      "amountCents": 3000,
+      "name": "边界会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-493",
+      "at": 1777687200000,
+      "amountCents": 4500,
+      "name": "季度会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-453",
+      "at": 1777773600000,
+      "amountCents": 85400,
+      "name": "XX商城分期",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-479",
+      "at": 1777773600000,
+      "amountCents": 3000,
+      "name": "等额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-425",
+      "at": 1780279200000,
+      "amountCents": 3000,
+      "name": "涨价会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-436",
+      "at": 1780279200000,
+      "amountCents": 450000,
+      "name": "房租-王房东",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-442",
+      "at": 1780279200000,
+      "amountCents": 15500,
+      "name": "国网电力",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-468",
+      "at": 1780279200000,
+      "amountCents": 3000,
+      "name": "STM*VIDEO",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-496",
+      "at": 1780279200000,
+      "amountCents": 199000,
+      "name": "大额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-502",
+      "at": 1780279200000,
+      "amountCents": 10000,
+      "name": "波动账单",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-454",
+      "at": 1780365600000,
+      "amountCents": 84500,
+      "name": "XX商城分期",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-480",
+      "at": 1780365600000,
+      "amountCents": 3000,
+      "name": "等额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-420",
+      "at": 1782439200000,
+      "amountCents": 3000,
+      "name": "春节会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-426",
+      "at": 1782871200000,
+      "amountCents": 3000,
+      "name": "涨价会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-431",
+      "at": 1782871200000,
+      "amountCents": 3000,
+      "name": "单次混入会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-437",
+      "at": 1782871200000,
+      "amountCents": 450000,
+      "name": "房租-王房东",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-443",
+      "at": 1782871200000,
+      "amountCents": 20500,
+      "name": "国网电力",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-469",
+      "at": 1782871200000,
+      "amountCents": 3000,
+      "name": "STM*VIDEO",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-497",
+      "at": 1782871200000,
+      "amountCents": 199000,
+      "name": "大额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-503",
+      "at": 1782871200000,
+      "amountCents": 12000,
+      "name": "波动账单",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-455",
+      "at": 1782957600000,
+      "amountCents": 83600,
+      "name": "XX商城分期",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-481",
+      "at": 1782957600000,
+      "amountCents": 3000,
+      "name": "等额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-421",
+      "at": 1785031200000,
+      "amountCents": 3000,
+      "name": "春节会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-427",
+      "at": 1785463200000,
+      "amountCents": 3000,
+      "name": "涨价会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-432",
+      "at": 1785463200000,
+      "amountCents": 3000,
+      "name": "单次混入会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-438",
+      "at": 1785463200000,
+      "amountCents": 450000,
+      "name": "房租-王房东",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-444",
+      "at": 1785463200000,
+      "amountCents": 16000,
+      "name": "国网电力",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-460",
+      "at": 1785463200000,
+      "amountCents": 0,
+      "name": "试用会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-470",
+      "at": 1785463200000,
+      "amountCents": 3000,
+      "name": "STM*VIDEO",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-494",
+      "at": 1785463200000,
+      "amountCents": 4500,
+      "name": "季度会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-498",
+      "at": 1785463200000,
+      "amountCents": 199000,
+      "name": "大额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-504",
+      "at": 1785463200000,
+      "amountCents": 9000,
+      "name": "波动账单",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-456",
+      "at": 1785549600000,
+      "amountCents": 82700,
+      "name": "XX商城分期",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-482",
+      "at": 1785549600000,
+      "amountCents": 3000,
+      "name": "等额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-422",
+      "at": 1787623200000,
+      "amountCents": 3000,
+      "name": "春节会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-428",
+      "at": 1788055200000,
+      "amountCents": 3500,
+      "name": "涨价会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-433",
+      "at": 1788055200000,
+      "amountCents": 3000,
+      "name": "单次混入会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-439",
+      "at": 1788055200000,
+      "amountCents": 450000,
+      "name": "房租-王房东",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-445",
+      "at": 1788055200000,
+      "amountCents": 20000,
+      "name": "国网电力",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-461",
+      "at": 1788055200000,
+      "amountCents": 3000,
+      "name": "试用会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-464",
+      "at": 1788055200000,
+      "amountCents": 1200,
+      "name": "重复扣款会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-471",
+      "at": 1788055200000,
+      "amountCents": 3000,
+      "name": "视频会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-499",
+      "at": 1788055200000,
+      "amountCents": 199000,
+      "name": "大额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-505",
+      "at": 1788055200000,
+      "amountCents": 15000,
+      "name": "波动账单",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-457",
+      "at": 1788141600000,
+      "amountCents": 81800,
+      "name": "XX商城分期",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-465",
+      "at": 1788141600000,
+      "amountCents": 1200,
+      "name": "重复扣款会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-483",
+      "at": 1788141600000,
+      "amountCents": 3000,
+      "name": "等额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-423",
+      "at": 1790647200000,
+      "amountCents": 3000,
+      "name": "春节会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-429",
+      "at": 1790647200000,
+      "amountCents": 3500,
+      "name": "涨价会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-434",
+      "at": 1790647200000,
+      "amountCents": 3000,
+      "name": "单次混入会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-440",
+      "at": 1790647200000,
+      "amountCents": 450000,
+      "name": "房租-王房东",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-446",
+      "at": 1790647200000,
+      "amountCents": 15200,
+      "name": "国网电力",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-462",
+      "at": 1790647200000,
+      "amountCents": 3000,
+      "name": "试用会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-466",
+      "at": 1790647200000,
+      "amountCents": 1200,
+      "name": "重复扣款会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-472",
+      "at": 1790647200000,
+      "amountCents": 3000,
+      "name": "视频会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-489",
+      "at": 1790647200000,
+      "amountCents": 1200,
+      "name": "两笔月付",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-500",
+      "at": 1790647200000,
+      "amountCents": 199000,
+      "name": "大额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-506",
+      "at": 1790647200000,
+      "amountCents": 11000,
+      "name": "波动账单",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-458",
+      "at": 1790733600000,
+      "amountCents": 80900,
+      "name": "XX商城分期",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-484",
+      "at": 1790733600000,
+      "amountCents": 3000,
+      "name": "等额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-487",
+      "at": 1792634400000,
+      "amountCents": 600,
+      "name": "两笔周付",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-435",
+      "at": 1793152800000,
+      "amountCents": 30000,
+      "name": "单次混入会员",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-424",
+      "at": 1793239200000,
+      "amountCents": 3000,
+      "name": "春节会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-430",
+      "at": 1793239200000,
+      "amountCents": 3500,
+      "name": "涨价会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-441",
+      "at": 1793239200000,
+      "amountCents": 450000,
+      "name": "房租-王房东",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-447",
+      "at": 1793239200000,
+      "amountCents": 20700,
+      "name": "国网电力",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-463",
+      "at": 1793239200000,
+      "amountCents": 3000,
+      "name": "试用会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-467",
+      "at": 1793239200000,
+      "amountCents": 1200,
+      "name": "重复扣款会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-473",
+      "at": 1793239200000,
+      "amountCents": 3000,
+      "name": "视频会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-488",
+      "at": 1793239200000,
+      "amountCents": 600,
+      "name": "两笔周付",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-490",
+      "at": 1793239200000,
+      "amountCents": 1200,
+      "name": "两笔月付",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-495",
+      "at": 1793239200000,
+      "amountCents": 4500,
+      "name": "季度会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-501",
+      "at": 1793239200000,
+      "amountCents": 199000,
+      "name": "大额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    },
+    {
+      "id": "t-507",
+      "at": 1793239200000,
+      "amountCents": 20000,
+      "name": "波动账单",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-459",
+      "at": 1793325600000,
+      "amountCents": 80000,
+      "name": "XX商城分期",
+      "direction": "out",
+      "status": "success",
+      "category": "consumption"
+    },
+    {
+      "id": "t-485",
+      "at": 1793325600000,
+      "amountCents": 3000,
+      "name": "等额会员",
+      "direction": "out",
+      "status": "success",
+      "category": "subscription"
+    }
+  ],
+  "series": [
+    {
+      "merchantKey": "月末会员",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-417",
+        "t-418",
+        "t-419"
+      ],
+      "nextChargeAt": 1774922400000
+    },
+    {
+      "merchantKey": "春节会员",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-420",
+        "t-421",
+        "t-422",
+        "t-423",
+        "t-424"
+      ],
+      "nextChargeAt": 1795831200000
+    },
+    {
+      "merchantKey": "涨价会员",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-425",
+        "t-426",
+        "t-427",
+        "t-428",
+        "t-429",
+        "t-430"
+      ],
+      "nextChargeAt": 1795831200000
+    },
+    {
+      "merchantKey": "单次混入会员",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-431",
+        "t-432",
+        "t-433",
+        "t-434"
+      ],
+      "nextChargeAt": 1793239200000
+    },
+    {
+      "merchantKey": "房租王房东",
+      "cycle": "monthly",
+      "kind": "bill",
+      "txnIds": [
+        "t-436",
+        "t-437",
+        "t-438",
+        "t-439",
+        "t-440",
+        "t-441"
+      ],
+      "nextChargeAt": 1795831200000
+    },
+    {
+      "merchantKey": "国网电力",
+      "cycle": "monthly",
+      "kind": "bill",
+      "txnIds": [
+        "t-442",
+        "t-443",
+        "t-444",
+        "t-445",
+        "t-446",
+        "t-447"
+      ],
+      "nextChargeAt": 1795831200000
+    },
+    {
+      "merchantKey": "xx商城分期",
+      "cycle": "monthly",
+      "kind": "installment",
+      "txnIds": [
+        "t-448",
+        "t-449",
+        "t-450",
+        "t-451",
+        "t-452",
+        "t-453",
+        "t-454",
+        "t-455",
+        "t-456",
+        "t-457",
+        "t-458",
+        "t-459"
+      ],
+      "nextChargeAt": 1795917600000
+    },
+    {
+      "merchantKey": "试用会员",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-460",
+        "t-461",
+        "t-462",
+        "t-463"
+      ],
+      "nextChargeAt": 1795831200000
+    },
+    {
+      "merchantKey": "重复扣款会员",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-464",
+        "t-465",
+        "t-466",
+        "t-467"
+      ],
+      "nextChargeAt": 1795831200000
+    },
+    {
+      "merchantKey": "视频会员",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-468",
+        "t-469",
+        "t-470",
+        "t-471",
+        "t-472",
+        "t-473"
+      ],
+      "nextChargeAt": 1795831200000
+    },
+    {
+      "merchantKey": "等额会员",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-474",
+        "t-475",
+        "t-476",
+        "t-477",
+        "t-478",
+        "t-479",
+        "t-480",
+        "t-481",
+        "t-482",
+        "t-483",
+        "t-484",
+        "t-485"
+      ],
+      "nextChargeAt": 1795917600000
+    },
+    {
+      "merchantKey": "两笔周付",
+      "cycle": "weekly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-487",
+        "t-488"
+      ],
+      "nextChargeAt": 1793844000000
+    },
+    {
+      "merchantKey": "两笔月付",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-489",
+        "t-490"
+      ],
+      "nextChargeAt": 1795831200000
+    },
+    {
+      "merchantKey": "季度会员",
+      "cycle": "quarterly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-491",
+        "t-492",
+        "t-493",
+        "t-494",
+        "t-495"
+      ],
+      "nextChargeAt": 1801015200000
+    },
+    {
+      "merchantKey": "大额会员",
+      "cycle": "monthly",
+      "kind": "subscription",
+      "txnIds": [
+        "t-496",
+        "t-497",
+        "t-498",
+        "t-499",
+        "t-500",
+        "t-501"
+      ],
+      "nextChargeAt": 1795831200000
+    },
+    {
+      "merchantKey": "波动账单",
+      "cycle": "monthly",
+      "kind": "bill",
+      "txnIds": [
+        "t-502",
+        "t-503",
+        "t-504",
+        "t-505",
+        "t-506",
+        "t-507"
+      ],
+      "nextChargeAt": 1795831200000
+    }
+  ]
+}

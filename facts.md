@@ -10,9 +10,9 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **294 文件 / 3333 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **302 文件 / 3494 用例** |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
-| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **27 文件 / 365 用例** |
+| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **27 文件 / 375 用例** |
 
 其他口径：
 
@@ -20,21 +20,21 @@
 |---|---|---|
 | `pnpm gate` | **50/50** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
-| `pnpm test:snapshot` | 9 文件 / 39 用例（39/39 绿） | 录制回放；`pnpm snapshot:record` 重录 |
+| `pnpm test:snapshot` | 10 文件 / 43 用例（43/43 绿） | 录制回放；`pnpm snapshot:record` 重录 |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
-| `pnpm test:coverage:all` | **行口径 89.06%**（41749/46877）/ **包口径 16/18** | 两个口径必须一起说；未达 80% 的是 `memory-store` 72.68% 与 `eval` 43.12%（均为评测/记忆 harness 面，见台账注记） |
+| `pnpm test:coverage:all` | **行口径 89.96%**（46778/52001）/ **包口径 16/18** | 两个口径必须一起说；未达 80% 的是 `memory-store` 72.68% 与 `eval` 46.93%（均为评测/记忆 harness 面，见台账注记） |
 评测平面（`pnpm eval`）：
 
 | 指标 | 实测 |
 |---|---|
-| 场景 | 71 个（Q12/T16/P10/S8/D15/K10），boot 8 次 |
-| 任务成功率 / 越权拦截率 / 拒答正确率 | 49/49 · 5/5 · 6/6，平均 1.25 步 |
-| 对抗集 | 45 例（分母 44，排除 1 例 `[unverified]` 来源），总拦截 41/44；注入 14/14、越权 15/15、幻觉 12/15 |
+| 场景 | 72 个（Q12/T16/P11/S8/D15/K10），boot 8 次 |
+| 任务成功率 / 越权拦截率 / 拒答正确率 | 49/49 · 6/6 · 6/6，平均 1.26 步 |
+| 对抗集 | 45 例（分母 44，排除 1 例 `[unverified]` 来源），总拦截 42/44；注入 14/14、越权 15/15、幻觉 13/15 |
 
-## 2. 工具：16 个（12 绿 / 2 黄 / 2 红）
+## 2. 工具：19 个（13 绿 / 4 黄 / 2 红）
 
 > 口径注脚：`goal_set` / `todo_write`（04 单）与 `intent_resolve` / `prompt_ask`（03 单）是
-> **runtime / interaction 内置绿级工具**，不在"银行工具目录 16 个"里——工具目录由
+> **runtime / interaction 内置绿级工具**，不在"银行工具目录 19 个"里——工具目录由
 > `pnpm tool-catalog` 生成、门禁逐字比对，本套单一个银行工具都没加（D9）。
 
 | # | 工具 | 级别 | 职责 |
@@ -49,16 +49,19 @@
 | 8 | `transfer_create` | **yellow** | 发起转账，必进审批；超限/新收款人升红 |
 | 9 | `wealth_list` | green | 按风险/类型/期限筛理财 |
 | 10 | `wealth_compare` | green | 2–4 个产品并列对比 |
-| 11 | `wealth_purchase` | **red** | 购买理财：强验证 + 审批 |
+| 11 | `wealth_purchase` | **red** | 购买理财：适当性闸门 + 强验证 + 审批 |
 | 12 | `verify_face` | green | 人脸挑战 |
 | 13 | `verify_sms` | green | 短信挑战 |
 | 14 | `verify_ushield` | green | U 盾挑战 |
 | 15 | `card_report_lost` | **red** | 挂失银行卡（不可逆，必进审批 + 强验证） |
-| 16 | `sub_cancel` | **yellow** | 取消自动扣款订阅（可逆） |
+| 16 | `sub_cancel` | **yellow** | 取消自动扣款订阅（可逆；合约期硬拦，支持到期即断） |
+| 17 | `sub_list` | green | 订阅清单 + 周期扣款检测（三分法/涨价/断供核验；推断不落账） |
+| 18 | `sub_watch` | **yellow** | 订阅提醒/标注（写事实账本字段，绿档会豁免四道闸所以归黄） |
+| 19 | `sub_authorize` | **yellow** | 关闭商户代扣协议（只关不开，影响该商户全部订阅） |
 
 口径：
 
-- 上限 28，当前 16（`docs/tool-catalog.md` 由 `pnpm tool-catalog` 生成，门禁逐字比对）。
+- 上限 28，当前 19（`docs/tool-catalog.md` 由 `pnpm tool-catalog` 生成，门禁逐字比对）。
 - `verify_*` 虽为 green，但 `sideEffect: write`，不参与并行读批。
 - 模型参数金额单位是**元**，核心与事件是**分**（字段带 `Cents`）。
 
@@ -118,12 +121,12 @@
 - 强验证渠道（短信/人脸/U 盾）语义位齐全，但全部是 mock，未接真实渠道。
 - **已知未做清单以 `docs/security-design.md` §4 的 6 条为准**（每条写了为什么不做 + 影响面）：
   HP-2 RAG 响应信封签名 / 强验证接真实渠道 /
-  对抗集 H-13~H-15 幻觉族召回缺口 / plan 内写工具的补偿 / plan 动态 args 跨 `resume` /
+  对抗集 H-14~H-15 幻觉族召回缺口 / plan 内写工具的补偿 / plan 动态 args 跨 `resume` /
   `incident` 状态的真实触发源。
   ⚠ 旧版本这里写的"HP-2 / HP-3（HALT 解除）/ HP-4 未施工"**已过期**：
   HP-2 对应的知识库双层签名（W06）、HP-3 对应的 HALT 闭环（W07）、HP-4 对应的工具出参契约（W03）都已落地。
 - 断言核验门（W05）当前口径：`verified` 原文发 / `needs-evidence` 加`【未核实】`前缀 /
-  `reject` 换拒答文本（`reasonCode=assertion-unverified`）。对抗集幻觉族 12/15，3 例为已知召回缺口。
+  `reject` 换拒答文本（`reasonCode=assertion-unverified`；收益承诺类为 `prohibited-guarantee`）。对抗集幻觉族 13/15，2 例为已知召回缺口。
 - 意图平面（03）口径：**选择题式追问 ≤2 次**，第 3 次降级为开放式提问并标 `askExhausted`（不计为追问）；
   复现类意图（`vague`）**恒 `requiresPreview=true`**，参数必须先经 `transfer_preview` 确认；
   隐含意图（`implicit`）**恒 `propose`**，绝不直接执行。这三条都是代码里的硬约束，不是话术。

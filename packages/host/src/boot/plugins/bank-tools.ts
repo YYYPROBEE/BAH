@@ -141,7 +141,13 @@ export const DEFAULT_BANK_TOOLS: Omit<BankToolsSettings, 'demoUserId'> = {
    * （`core/mock.ts` 的 `dailyLimitOf` 也取 min）——改一处，两处一起变。
    */
   dailyTransferLimit: 1_000,
-  riskyOps: ['transfer_create', 'wealth_purchase'],
+  /**
+   * 计入组合风险的工具名（施工单 09 §1.1 第 5 条）。
+   *
+   * 场景 5 把 `sub_cancel` / `sub_authorize` 纳入：连续多次退订/关协议本身就是需要
+   * 解释的高风险组合（第 4 次起理由从 `declared` 变 `risky-calls`，不是升级档位）。
+   */
+  riskyOps: ['transfer_create', 'wealth_purchase', 'sub_cancel', 'sub_authorize'],
   riskyCallThreshold: 3,
   // W09：默认走测试网关适配器；`mock` 只是回滚开关（两者行为在演示档等价）。
   verify: { provider: 'gateway', successAfter: 1, maxAttempts: 3, lockMinutes: 30 },
@@ -160,7 +166,7 @@ const CHANNELS: readonly StrongAuth[] = ['face', 'sms', 'ushield']
 const VERIFY_PROVIDERS = ['mock', 'gateway'] as const
 
 /** 允许的造数档位。 */
-const DATASET_TIERS: readonly ForgeTier[] = ['demo', 'stress', 'adversarial']
+const DATASET_TIERS: readonly ForgeTier[] = ['demo', 'stress', 'adversarial', 'recurring']
 
 /** 允许的策略引擎模式（策略外置 S2）。 */
 const POLICY_ENGINES = ['legacy', 'bundle'] as const
@@ -529,6 +535,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
       [
         'accounts',
         'transactions',
+        'subscriptions',
         'windowDays',
         'timeoutMs',
         'maxChars',
@@ -549,9 +556,23 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
       }
       return value
     }
+    // 0 是合法值（关闭「即将扣款」）；`readPositiveInteger` 不接受 0，单独读
+    const boundedZero = (key: string, max: number, fallback: number): number => {
+      const raw = contextSlotsRecord[key]
+      if (raw === undefined || raw === null) return fallback
+      if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0 || raw > max) {
+        throw bootError(
+          'invalid-config',
+          `bank:tools.contextSlots.${key} 必须在 0..${String(max)}（收到 ${String(raw)}）`,
+          { where: 'bank:tools.contextSlots', key, value: raw, min: 0, max },
+        )
+      }
+      return raw
+    }
     const contextSlots: ContextSlotSettings = {
       accounts: bounded('accounts', 1, 10, DEFAULT_CONTEXT_SLOTS.accounts),
       transactions: bounded('transactions', 1, 10, DEFAULT_CONTEXT_SLOTS.transactions),
+      subscriptions: boundedZero('subscriptions', 10, DEFAULT_CONTEXT_SLOTS.subscriptions),
       windowDays: bounded('windowDays', 1, 365, DEFAULT_CONTEXT_SLOTS.windowDays),
       timeoutMs: bounded('timeoutMs', 50, 5_000, DEFAULT_CONTEXT_SLOTS.timeoutMs),
       maxChars: bounded('maxChars', 200, 2_000, DEFAULT_CONTEXT_SLOTS.maxChars),

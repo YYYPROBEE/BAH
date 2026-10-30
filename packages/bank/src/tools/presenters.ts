@@ -16,6 +16,7 @@ import type {
   BalanceResult,
   BillAnalysisResult,
   BillReportResult,
+  SubscriptionListResult,
   TransferCreatedResult,
   TransferPreviewResult,
   TxnQueryResult,
@@ -23,8 +24,9 @@ import type {
   WealthCatalogResult,
   WealthPurchaseResult,
 } from './dto.ts'
-import type { AccountStatus, TxnCategory } from '../core/model.ts'
+import type { AccountStatus, ChargeCycle, RecurringKind, SubscriptionStatus, TxnCategory } from '../core/model.ts'
 import { ACCOUNT_TYPE_LABEL, formatYuan, yuanToCents } from '../core/model.ts'
+import { MERCHANT_LABEL } from '../core/merchant.ts'
 
 /**
  * 账户类型文案。真源在 `core/model.ts`（内部划转的命中口径要用同一个函数），
@@ -38,6 +40,18 @@ export const ACCOUNT_STATUS_LABEL: Readonly<Record<AccountStatus, string>> = {
   frozen: '冻结',
   closed: '销户',
 }
+
+/**
+ * 账单口径文案（穷尽表：新增口径漏写会编译失败，而不是静默显示成"近三个月"）。
+ */
+const PERIOD_LABEL: Readonly<Record<'month' | 'quarter' | 'year', string>> = {
+  month: '本月',
+  quarter: '近三个月',
+  year: '近十二个月',
+}
+
+/** 商户品类文案（真源在 `core/merchant.ts`；这里再导出以保持工具族的导入面）。 */
+export { MERCHANT_LABEL }
 
 /** 交易分类文案。 */
 export const CATEGORY_LABEL: Readonly<Record<TxnCategory, string>> = {
@@ -143,7 +157,7 @@ export function billAnalysisCard(result: BillAnalysisResult): UiCard {
     kind: 'bank.bill-analysis',
     data: {
       title: '账单分析',
-      periodLabel: result.period === 'month' ? '本月' : '近三个月',
+      periodLabel: PERIOD_LABEL[result.period],
       months: result.months,
       totalInText: money(result.totalInCents),
       totalOutText: money(result.totalOutCents),
@@ -163,6 +177,16 @@ export function billAnalysisCard(result: BillAnalysisResult): UiCard {
               shareText: percent(line.sharePct),
             })),
           }),
+      ...(result.byMerchantCategory === undefined
+        ? {}
+        : {
+            merchantCategories: result.byMerchantCategory.map((line) => ({
+              category: line.category,
+              categoryLabel: MERCHANT_LABEL[line.category],
+              amountText: money(line.amountCents),
+              shareText: percent(line.sharePct),
+            })),
+          }),
       anomalies: result.anomalies.map((item) => ({ kind: item.kind, note: item.note })),
     },
   }
@@ -174,7 +198,7 @@ export function billReportCard(result: BillReportResult): UiCard {
     kind: 'bank.bill-report',
     data: {
       title: '账单报告',
-      periodLabel: result.period === 'month' ? '本月' : '近三个月',
+      periodLabel: PERIOD_LABEL[result.period],
       format: result.format,
       text: result.text,
       collapsed: true,
@@ -242,6 +266,7 @@ export function wealthCard(result: WealthCatalogResult, op: 'list' | 'compare'):
     data: {
       title: op === 'list' ? '理财产品' : '产品对比',
       disclaimerId: result.disclaimerId,
+      customerRisk: result.customerRisk,
       products: result.products.map((product) => ({
         productId: product.productId,
         name: product.name,
@@ -250,6 +275,11 @@ export function wealthCard(result: WealthCatalogResult, op: 'list' | 'compare'):
         yieldText: percent(product.expectedYieldPct),
         riskGrade: product.riskGrade,
         minAmountText: money(product.minAmountCents),
+        // 卡片字段与 DTO 同名同义：`eligible=false` 的产品仍展示，只是买不了。
+        eligible: product.eligible,
+        ...(product.suitabilityNote === undefined
+          ? {}
+          : { suitabilityNote: product.suitabilityNote }),
       })),
     },
   }
@@ -268,6 +298,8 @@ export function wealthPurchasedCard(result: WealthPurchaseResult): UiCard {
       amountText: money(result.amountCents),
       shares: result.shares,
       disclaimerId: result.disclaimerId,
+      customerRisk: result.riskMatch.customerRisk,
+      productRisk: result.riskMatch.productRisk,
       atText: when(result.at),
     },
   }
@@ -339,15 +371,168 @@ export function wealthPurchaseConfirmCard(
   }
 }
 
+/** 待执行卡片：退订（黄档；合约期内硬拦的提示必须在卡上）。 */
+export function subscriptionCancelConfirmCard(
+  args: Readonly<Record<string, unknown>>,
+  ticketTtlSeconds: number,
+): UiCard {
+  const mode = args['mode'] === 'at-next-cycle' ? 'at-next-cycle' : 'now'
+  const confirmed = args['confirmContract'] === true
+  return {
+    kind: 'bank.subscription-cancel-confirm',
+    data: {
+      title: '确认退订',
+      operation: 'sub_cancel',
+      subscriptionId:
+        typeof args['subscriptionId'] === 'string' ? args['subscriptionId'] : '（订阅待定）',
+      mode,
+      modeLabel: mode === 'at-next-cycle' ? '到期即断' : '立即取消',
+      contractConfirmed: confirmed,
+      tier: 'yellow',
+      tierLabel: TIER_LABEL.yellow,
+      requiresApproval: true,
+      ticketTtlText: `${ticketTtlSeconds} 秒`,
+      rejectReasonRequired: true,
+      note: confirmed
+        ? '已确认合约期后果（可能产生违约金）；取消后仍扣款将在核验窗口后标为失败'
+        : '若该订阅仍在合约期，会被硬拦并要求显式确认；取消后仍扣款会进入争议工单',
+    },
+  }
+}
+
+/** 待执行卡片：关闭代扣协议（黄档；影响面必须复述）。 */
+export function subscriptionAuthorizeConfirmCard(
+  args: Readonly<Record<string, unknown>>,
+  ticketTtlSeconds: number,
+): UiCard {
+  return {
+    kind: 'bank.subscription-authorize-confirm',
+    data: {
+      title: '确认关闭代扣协议',
+      operation: 'sub_authorize',
+      merchant: typeof args['merchant'] === 'string' ? args['merchant'] : '（商户待定）',
+      tier: 'yellow',
+      tierLabel: TIER_LABEL.yellow,
+      requiresApproval: true,
+      ticketTtlText: `${ticketTtlSeconds} 秒`,
+      rejectReasonRequired: true,
+      note:
+        '影响该商户的全部订阅（不止一个）；关闭后商户继续扣款会触发 critical 违约警报；' +
+        '恢复扣款需在商户侧重新签约，本操作不提供恢复',
+    },
+  }
+}
+
 /** 安全地把「元」转成分（非法输入返回 `undefined`，presenter 不抛错）。 */
 function safeAmount(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined
   return yuanToCents(value)
-}
-
-/** 安全地取收款人姓名。 */
+}/** 安全地取收款人姓名。 */
 function safePayeeName(value: unknown): string | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
   const name = (value as Record<string, unknown>)['name']
   return typeof name === 'string' && name.trim().length > 0 ? name.trim() : undefined
+}
+
+/* ── 场景 5：订阅 / 代扣卡片 ─────────────────────────────────────────────── */
+
+export const CYCLE_LABEL: Readonly<Record<ChargeCycle, string>> = {
+  weekly: '每周',
+  monthly: '每月',
+  quarterly: '每季',
+}
+
+const KIND_LABEL: Readonly<Record<RecurringKind, string>> = {
+  subscription: '订阅',
+  bill: '账单',
+  installment: '分期',
+}
+
+const SUB_STATUS_LABEL: Readonly<Record<SubscriptionStatus, string>> = {
+  active: '生效中',
+  paused: '已暂停',
+  cancelled: '已取消',
+}
+
+const CONFIDENCE_LABEL = {
+  high: '已确认规律',
+  medium: '疑似订阅，确认一下',
+  low: '仅统计',
+} as const
+
+/**
+ * 订阅与自动扣款卡片。
+ *
+ * 推断与事实在 UI 上分开：`detected` 行带置信度徽章，底部固定一行「基于近 N 天 X 笔流水，生成于 Y」；
+ * 断供失败/协议违约进 `alerts`，排在最前。
+ */
+export function subscriptionsCard(result: SubscriptionListResult): UiCard {
+  const split = result.spendSplit
+  const alerts = result.cutoffFindings
+    .filter((item) => item.verdict === 'failed' || item.verdict === 'breached')
+    .map((item) => ({
+      level: item.level ?? 'warn',
+      merchantKey: item.merchantKey,
+      verdict: item.verdict,
+      hint: item.hint,
+    }))
+  const days = Math.max(
+    0,
+    Math.round((result.basis.to - result.basis.from) / (24 * 60 * 60 * 1000)),
+  )
+  return {
+    kind: 'bank.subscription-list',
+    data: {
+      title: '订阅与自动扣款',
+      alerts,
+      split: {
+        subscriptionText: `订阅 ${String(split.subscriptionCount)} 项 · 月 ${money(split.subscriptionCents)}`,
+        billText: `账单 ${String(split.billCount)} 项 · 月 ${money(split.billCents)}`,
+        installmentText: `分期 ${String(split.installmentCount)} 项 · 月 ${money(split.installmentCents)}`,
+      },
+      confirmed: result.confirmed.map((item) => ({
+        subscriptionId: item.subscriptionId,
+        merchant: item.merchant,
+        cycleLabel: CYCLE_LABEL[item.cycle],
+        amountText: money(item.amountCents),
+        nextChargeText: when(item.nextChargeAt),
+        statusLabel: SUB_STATUS_LABEL[item.status],
+        ...(item.note === undefined ? {} : { note: item.note }),
+        ...(item.reminderAheadDays === undefined
+          ? {}
+          : { reminderText: `提前 ${String(item.reminderAheadDays)} 天提醒` }),
+        ...(item.contractEndAt === undefined
+          ? {}
+          : { contractText: `合约至 ${when(item.contractEndAt).slice(0, 10)}` }),
+        ...(item.authorizationStatus === undefined
+          ? {}
+          : { authorizationStatus: item.authorizationStatus }),
+      })),
+      detected: result.detected.map((item) => ({
+        merchantKey: item.merchantKey,
+        displayName: item.displayName,
+        kindLabel: KIND_LABEL[item.kind],
+        cycleLabel: CYCLE_LABEL[item.cycle],
+        amountText: money(item.amountCents),
+        monthlyText: money(item.monthlyCents),
+        nextChargeText: when(item.nextChargeAt),
+        confidence: item.confidence,
+        confidenceLabel: CONFIDENCE_LABEL[item.confidence],
+        count: item.count,
+        ...(item.priceHike === undefined
+          ? {}
+          : {
+              priceHikeText: `${money(item.priceHike.fromCents)} → ${money(item.priceHike.toCents)}`,
+            }),
+        ...(item.trialConverted === undefined ? {} : { trialConverted: item.trialConverted }),
+        ...(item.suspectedInstallment === undefined
+          ? {}
+          : { suspectedInstallment: item.suspectedInstallment }),
+      })),
+      inferenceNote: `基于近 ${String(days)} 天 ${String(result.basis.txnCount)} 笔流水，生成于 ${when(
+        result.detectedAt,
+      )}（推断，非账本事实）`,
+      detectorVersion: result.detectorVersion,
+    },
+  }
 }

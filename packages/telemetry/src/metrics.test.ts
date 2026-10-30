@@ -341,6 +341,19 @@ describe('metrics · SLO 阈值', () => {
         .sort(),
     ).toEqual(['chainBreak/alert', 'dlqDepth/ok', 'rto/P0'])
   })
+
+  it('soft=0 时用严格大于：0 是最好情况，1 才越阈（与 saga sloVerdict 同口径）', () => {
+    // chainBreak 的阈值就是 soft=0 / hard=1：0 判 alert 会让满屏绿里出现假黄。
+    const clean = collectMetrics(
+      inputs({ slo: { chainBreak: { value: 0, soft: 0, hard: 1, unit: 'count' } } }),
+    )
+    expect(family(clean, 'bah_slo_value').samples.map((sample) => sample.labels['verdict'])).toEqual(['ok'])
+
+    const broken = collectMetrics(
+      inputs({ slo: { chainBreak: { value: 1, soft: 0, hard: 1, unit: 'count' } } }),
+    )
+    expect(family(broken, 'bah_slo_value').samples.map((sample) => sample.labels['verdict'])).toEqual(['P0'])
+  })
 })
 
 describe('metrics · LLM TTFT', () => {

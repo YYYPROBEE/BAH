@@ -15,7 +15,7 @@ packages/bank/src/
 │  ├─ mock.ts       MockBankCore：内存账本、预检、转账/理财、日累计推导
 │  └─ time.ts       UTC 日 / 账期口径（dayKey / monthKey / periodRange）
 ├─ forge/
-│  ├─ index.ts      buildBankDataset：demo / stress / adversarial 三档造数
+│  ├─ index.ts      buildBankDataset：demo / stress / adversarial / recurring 四档造数
 │  └─ risk.ts       风控预检六规则 + 夜间时段判定
 ├─ tools/           银行工具族（施工单 08；见 docs/bank-tools.md）
 └─ verify/          强验证挑战 / 锁定（施工单 09 §6 的 Provider seam）
@@ -134,7 +134,7 @@ const ref = {
 - `lease.expiresAt <= 票据 expiresAt` 在配置与账本两处 fail-loud；`renewLease()` 只前移、不动票据 TTL；
 - 回滚开关：`bank:tools.ticketLease.enforce: false`（退回只用票据 TTL）。
 
-## 5. 造数三档
+## 5. 造数四档
 
 ```ts
 import { buildBankDataset, MockBankCore } from '@bah/bank'
@@ -158,13 +158,17 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 | 持仓 | `h-1` 稳盈 500 份，成本 ¥500.00，市值 ¥508.00 |
 | 订阅 | 视频会员 ¥30.00 / 月，下次扣费 5 天后 |
 
-### 三档用途
+### 四档用途
 
 | 档位 | 用途 | 关键点 |
 |---|---|---|
 | `demo` | 演示 | 8 笔历史流水；王建国白名单 |
 | `stress` | 压测 | 3 用户 / 6 账户 / 300 笔流水 |
 | `adversarial` | 安全用例 | 490,000/500,000 差 10,000 分；新收款人韩梅梅；00:00 夜间大额 120,000；10 分钟内 5 笔；订阅同额重复扣费 |
+| `recurring` | 场景 5（订阅/代扣） | 固定脚本、无随机源；6 个月 × 2 账户；8 订阅 + 2 账单 + 1 分期；脏商户名（`STM*VIDEO` / `支付宝-云音乐` / `财付通-某某健身(朝阳店)`）；云音乐同额同日重复扣款；健身房协议已关但之后仍扣款（断供失败样本） |
+
+> `recurring` 档的检测结果为 **11 条 series / 9 high / 1 medium / 1 low / 1 duplicate**（守卫用例见
+> `packages/bank/src/forge/index.test.ts`）；`demo` 档另有 sha256 守卫，字节不得变化。
 
 ## 6. 风控预检六规则（`forge/risk.ts`）
 

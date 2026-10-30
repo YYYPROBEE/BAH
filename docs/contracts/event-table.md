@@ -1,8 +1,9 @@
-# 事件表 · 冻结 v1.0.1
+# 事件表 · 冻结 v1.0.2
 
-> **冻结版本号**：`v1.0.1-frozen-2026-10-26`
-> （v1.0.0 → v1.0.1：按 ADR-0003 追加 `card/reported-lost` / `sub/cancelled` 两个银行领域键，
-> **用掉"领域新键"唯一一次改签名额**；L1-A 技术签署位见 ADR-0003 §5）
+> **冻结版本号**：`v1.0.2-frozen-2026-10-30`
+> （v1.0.0 → v1.0.1：按 ADR-0003 追加 `card/reported-lost` / `sub/cancelled` 两个银行领域键；
+> v1.0.1 → v1.0.2：按 ADR-0007 追加 `read/subscriptions` / `sub/authorization-revoked` /
+> `sub/watch-updated` 三个订阅领域键；两次改签均留有 ADR 与签字位）
 > **冻结单**：W02 · **消费单**：W05 / W07 / W10 / W11；**改签单**：W03（ADR-0003）
 > **代码真相源**：既有 7 个 `plan/*` 在 `packages/runtime/src/plan/events.ts`（第 7 个 `plan/resumed` 由 W10 通电）；
 > 7 个新键由各消费单在自己的声明面落表（含 W03 已通电的两个 bank 键）。
@@ -43,6 +44,9 @@
 | 6 | `card/reported-lost` | W03（ADR-0003） | `{ cardId: string; tail: string; status: 'lost'; at: number }` | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)` |
 | 7 | `sub/cancelled` | W03（ADR-0003） | `{ subscriptionId: string; merchant: string; at: number }` | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)` |
 | 8 | **扩展** `plan/aborted.reason` | W07 | 枚举 `'cancelled' \| 'timeout' \| 'disposed'` **追加** `'halted'` | 改 `events.ts` 的 `PlanSessionEventMap` |
+| 9 | `read/subscriptions` | 场景 5（ADR-0007） | `{ result: SubscriptionListResult; detectedAt: number; basis: { from: number; to: number; txnCount: number }; detectorVersion: string }` | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)` |
+| 10 | `sub/authorization-revoked` | 场景 5（ADR-0007） | `{ authorizationId: string; merchant: string; affected: number; at: number }` | 同上 |
+| 11 | `sub/watch-updated` | 场景 5（ADR-0007） | `{ subscriptionId: string; watch: 'remind' \| 'idle' \| 'none'; aheadDays?: number; at: number }` | 同上 |
 
 ### 3.1 `append` vs `appendDomain` 不是风格问题，是门禁盲区
 
@@ -66,7 +70,8 @@
 
 **例外已通电**：第 6、7 两行由 W03 实现并验收（`packages/bank/src/tools/account-ops.ts`
 的 `deps.audit.append('card/reported-lost' | 'sub/cancelled', …)`，字面量发射）；
-`packages/bank/src/tools/events.ts` 的 map 与 `BANK_SESSION_EVENT_TYPES` 已同步到 19 键。
+第 9–11 三行由场景 5（ADR-0007）在 `packages/bank/src/tools/{subscriptions,account-ops}.ts`
+通电；`packages/bank/src/tools/events.ts` 的 map 与 `BANK_SESSION_EVENT_TYPES` 已同步到 22 键。
 
 ## 4. 变更流程
 

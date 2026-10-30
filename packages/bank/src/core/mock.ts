@@ -11,19 +11,23 @@
 
 import { BahError } from '@bah/util'
 
-import type { CardLostResult, SubscriptionCancelled } from './provider.ts'
+import type { AuthorizationRevoked, CardLostResult, SubscriptionCancelled, SubscriptionWatch } from './provider.ts'
 import type { ReversalResult } from './compensation.ts'
 
 import type { BankDataset } from '../forge/index.ts'
 import { checkTransferRisks, isNight } from '../forge/risk.ts'
+import { normalizeMerchant } from '../detect/merchant.ts'
 import type {
   Account,
   AccountId,
+  AuthorizationId,
   BankLimits,
   BillAnomaly,
+  CancelRequest,
   Card,
   CardId,
   Holding,
+  MerchantAuthorization,
   Payee,
   Subscription,
   SubscriptionId,
@@ -45,10 +49,12 @@ import type {
   TransferReq,
   TransferResult,
   TxnQuery,
+  UpcomingCharge,
   WealthFilter,
 } from './provider.ts'
+import { checkSuitability } from './suitability.ts'
 import { TicketStore, type TicketRef } from './ticket.ts'
-import { dayKey, monthKey, periodRange, previousMonth } from './time.ts'
+import { DAY_MS, dayKey, monthKey, periodRange, previousMonth } from './time.ts'
 
 /** mock 核心的装配参数。 */
 export interface MockBankCoreOptions {
@@ -78,6 +84,8 @@ export class MockBankCore implements BankCoreProvider {
   private accounts: Account[]
   private cards: Card[]
   private subscriptions: Subscription[]
+  private authorizations: MerchantAuthorization[]
+  private cancelRequests: CancelRequest[]
   private transactions: Transaction[]
   private payees: Payee[]
   private holdings: Holding[]
@@ -85,6 +93,8 @@ export class MockBankCore implements BankCoreProvider {
   private txnSeq: number
   private payeeSeq: number
   private holdingSeq: number
+  private authorizationSeq: number
+  private cancelRequestSeq: number
   /** 幂等键 → 首笔结果（10 分钟窗口；只防"同参数重复提交"，不替代票据）。 */
   private readonly idempotency = new Map<
     string,
@@ -103,13 +113,20 @@ export class MockBankCore implements BankCoreProvider {
     this.accounts = data.accounts.map((item) => ({ ...item }))
     this.cards = [...data.cards]
     this.subscriptions = [...data.subscriptions]
+    this.authorizations = [...(data.authorizations ?? [])]
+    this.cancelRequests = [...(data.cancelRequests ?? [])]
     this.transactions = data.transactions.map((item) => ({ ...item }))
     this.payees = data.payees.map((item) => ({ ...item }))
     this.holdings = data.holdings.map((item) => ({ ...item }))
     this.products = [...data.wealthProducts]
-    this.txnSeq = this.transactions.length
+    // 新流水号不把**历史背景流水**（`th-*`，账单场景 T-05）算进起点：
+    // 它们只用于账单聚合，不该把演示新流水从 `t-new-9` 推到 `t-new-69`
+    // （数据变了 ≠ 行为变了，但快照里的流水号会因此漂移）。
+    this.txnSeq = this.transactions.filter((item) => !String(item.id).startsWith('th-')).length
     this.payeeSeq = this.payees.length
     this.holdingSeq = this.holdings.length
+    this.authorizationSeq = this.authorizations.length
+    this.cancelRequestSeq = this.cancelRequests.length
   }
 
   /* ── 读操作 ─────────────────────────────────────────────────────────────── */
@@ -148,20 +165,184 @@ export class MockBankCore implements BankCoreProvider {
   async cancelSubscription(
     userId: UserId,
     subscriptionId: SubscriptionId,
+    mode: 'now' | 'at-next-cycle' = 'now',
   ): Promise<SubscriptionCancelled> {
-    const found = this.subscriptions.find((item) => item.id === subscriptionId)
-    if (found === undefined) {
-      throw new BahError('subscription-unknown', `bank: 未知订阅：${subscriptionId}`, {
-        subscriptionId,
-      })
-    }
-    if (found.userId !== userId) {
-      throw new BahError('subscription-not-owned', 'bank: 该订阅不属于当前用户', { subscriptionId })
+    const found = this.requireSubscription(userId, subscriptionId)
+    // 已取消是终态：`at-next-cycle` 不得把 cancelled 复活成 paused
+    if (found.status === 'cancelled') return { subscriptionId, merchant: found.merchant }
+    if (mode === 'at-next-cycle') {
+      // 到期即断：先暂停，`pauseUntil` 到期后由检测发现「仍在扣款」再升级取消流程（无定时器）
+      const pauseUntil = found.nextChargeAt
+      this.subscriptions = this.subscriptions.map((item) =>
+        item.id === subscriptionId ? { ...item, status: 'paused' as const, pauseUntil } : item,
+      )
+      return { subscriptionId, merchant: found.merchant, pausedUntil: pauseUntil }
     }
     this.subscriptions = this.subscriptions.map((item) =>
       item.id === subscriptionId ? { ...item, status: 'cancelled' as const } : item,
     )
     return { subscriptionId, merchant: found.merchant }
+  }
+
+  async listSubscriptions(userId: UserId): Promise<Subscription[]> {
+    return this.subscriptions
+      .filter((item) => item.userId === userId)
+      .map((item) => ({ ...item }))
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+  }
+
+  async listAuthorizations(userId: UserId): Promise<MerchantAuthorization[]> {
+    return this.authorizations
+      .filter((item) => item.userId === userId)
+      .map((item) => ({ ...item }))
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+  }
+
+  async revokeAuthorization(
+    userId: UserId,
+    authorizationId: AuthorizationId,
+  ): Promise<AuthorizationRevoked> {
+    const found = this.authorizations.find((item) => item.id === authorizationId)
+    if (found === undefined) {
+      throw new BahError('authorization-unknown', `bank: 未知代扣协议：${authorizationId}`, {
+        authorizationId,
+      })
+    }
+    if (found.userId !== userId) {
+      throw new BahError('authorization-not-owned', 'bank: 该代扣协议不属于当前用户', {
+        authorizationId,
+      })
+    }
+    const at = this.now()
+    if (found.status === 'revoked') {
+      // 幂等：已关的协议不重复记时刻，也不重复影响订阅
+      return {
+        authorizationId: found.id,
+        merchant: found.merchant,
+        revokedAt: found.revokedAt ?? at,
+        affectedSubscriptions: [],
+      }
+    }
+    this.authorizations = this.authorizations.map((item) =>
+      item.id === authorizationId
+        ? { ...item, status: 'revoked' as const, revokedAt: at }
+        : item,
+    )
+    const authorizationKey = normalizeMerchant(found.merchantKey)
+    const affected = this.subscriptions.filter(
+      (item) =>
+        item.userId === userId &&
+        item.status === 'active' &&
+        subscriptionKey(item) === authorizationKey,
+    )
+    this.subscriptions = this.subscriptions.map((item) =>
+      affected.some((candidate) => candidate.id === item.id)
+        ? { ...item, status: 'paused' as const, pauseUntil: item.nextChargeAt }
+        : item,
+    )
+    return {
+      authorizationId: found.id,
+      merchant: found.merchant,
+      revokedAt: at,
+      affectedSubscriptions: affected.map((item) => item.id),
+    }
+  }
+
+  async setSubscriptionWatch(
+    userId: UserId,
+    subscriptionId: SubscriptionId,
+    input: SubscriptionWatch,
+  ): Promise<Subscription> {
+    const found = this.requireSubscription(userId, subscriptionId)
+    if (found.status === 'cancelled') {
+      throw new BahError('subscription-cancelled', 'bank: 已取消的订阅不能再设置提醒/标注', {
+        subscriptionId,
+      })
+    }
+    if (input.watch !== 'remind' && input.aheadDays !== undefined) {
+      throw new BahError('reminder-ahead-invalid', 'bank: 只有 remind 才接受提前量', {
+        watch: input.watch,
+        aheadDays: input.aheadDays,
+      })
+    }
+    if (input.aheadDays !== undefined && (!Number.isSafeInteger(input.aheadDays) || input.aheadDays < 1 || input.aheadDays > 7)) {
+      throw new BahError('reminder-ahead-invalid', 'bank: 提醒提前量必须是 1..7 的整数天', {
+        aheadDays: input.aheadDays,
+      })
+    }
+    let updated: Subscription
+    if (input.watch === 'idle') {
+      updated = { ...stripWatchFields(found), note: 'idle' }
+    } else if (input.watch === 'remind') {
+      updated = { ...stripWatchFields(found), reminderAheadDays: input.aheadDays ?? 3 }
+    } else {
+      updated = stripWatchFields(found)
+    }
+    this.subscriptions = this.subscriptions.map((item) =>
+      item.id === subscriptionId ? updated : item,
+    )
+    return { ...updated }
+  }
+
+  async recordCancelRequest(request: Omit<CancelRequest, 'id'>): Promise<CancelRequest> {
+    this.requireSubscription(request.userId, request.subscriptionId)
+    if (
+      !Number.isFinite(request.requestedAt) ||
+      !Number.isFinite(request.expectedEffectiveAt) ||
+      !Number.isFinite(request.verifyBy)
+    ) {
+      throw new BahError('cancel-request-invalid', 'bank: 取消请求的时间戳非法', { request })
+    }
+    if (request.expectedEffectiveAt < request.requestedAt || request.verifyBy < request.expectedEffectiveAt) {
+      throw new BahError('cancel-request-invalid', 'bank: 取消请求的生效/核验时间顺序非法', {
+        requestedAt: request.requestedAt,
+        expectedEffectiveAt: request.expectedEffectiveAt,
+        verifyBy: request.verifyBy,
+      })
+    }
+    this.cancelRequestSeq += 1
+    const record: CancelRequest = {
+      ...request,
+      id: bankIds.cancelRequest(`cr-new-${this.cancelRequestSeq}`),
+    }
+    this.cancelRequests = [...this.cancelRequests, record]
+    return { ...record }
+  }
+
+  async listCancelRequests(userId: UserId): Promise<CancelRequest[]> {
+    return this.cancelRequests
+      .filter((item) => item.userId === userId)
+      .map((item) => ({ ...item }))
+      .sort((left, right) => left.requestedAt - right.requestedAt)
+  }
+
+  async upcomingCharges(userId: UserId, withinDays: number): Promise<UpcomingCharge[]> {
+    const at = this.now()
+    const until = at + Math.max(0, withinDays) * DAY_MS
+    return this.subscriptions
+      .filter(
+        (item) =>
+          item.userId === userId &&
+          item.status === 'active' &&
+          item.nextChargeAt >= at &&
+          item.nextChargeAt <= until,
+      )
+      .map((item) => ({
+        subscriptionId: item.id,
+        merchant: item.merchant,
+        amountCents: item.amountCents,
+        dueAt: item.nextChargeAt,
+        cycle: item.cycle,
+        ...(item.reminderAheadDays === undefined
+          ? {}
+          : { reminderAheadDays: item.reminderAheadDays }),
+      }))
+      .sort((left, right) => {
+        const byDue = left.dueAt - right.dueAt
+        if (byDue !== 0) return byDue
+        // 同一到期日按 ID 稳定排序（布尔差，不产生额外分支）
+        return Number(left.subscriptionId > right.subscriptionId) - Number(left.subscriptionId < right.subscriptionId)
+      })
   }
 
   async listAccounts(userId: UserId): Promise<Account[]> {
@@ -511,6 +692,23 @@ export class MockBankCore implements BankCoreProvider {
         { productId: product.id, minAmountCents: product.minAmountCents },
       )
     }
+    // 第二道适当性闸门：直接调 `execute`（测试 / CLI / 未来适配器）绕过治理面时，
+    // 这里的拒绝才是真的拦。两层调同一个纯函数，不会出现两套阈值。
+    const customer = this.users.get(req.userId)
+    if (customer === undefined) {
+      throw new BahError('user-unknown', `bank: 用户不存在：${req.userId}`, { userId: req.userId })
+    }
+    const verdict = checkSuitability({
+      customerRisk: customer.riskGrade,
+      productRisk: product.riskGrade,
+    })
+    if (!verdict.allow) {
+      throw new BahError(verdict.code, `bank: ${verdict.reason}`, {
+        productId: product.id,
+        customerRisk: customer.riskGrade,
+        productRisk: product.riskGrade,
+      })
+    }
     if (account.availableCents < req.amountCents) {
       throw new BahError('insufficient-balance', 'bank: 余额不足', {
         accountId: account.id,
@@ -653,6 +851,19 @@ export class MockBankCore implements BankCoreProvider {
       throw new BahError('account-unknown', `bank: 未知账户：${accountId}`, { accountId })
     }
     return account
+  }
+
+  private requireSubscription(userId: UserId, subscriptionId: SubscriptionId): Subscription {
+    const found = this.subscriptions.find((item) => item.id === subscriptionId)
+    if (found === undefined) {
+      throw new BahError('subscription-unknown', `bank: 未知订阅：${subscriptionId}`, {
+        subscriptionId,
+      })
+    }
+    if (found.userId !== userId) {
+      throw new BahError('subscription-not-owned', 'bank: 该订阅不属于当前用户', { subscriptionId })
+    }
+    return found
   }
 
   private replaceAccount(accountId: AccountId, patch: Pick<Account, 'balanceCents' | 'availableCents'>): void {
@@ -817,6 +1028,19 @@ export class MockBankCore implements BankCoreProvider {
       })
     }
   }
+}
+
+/** 订阅的关联键：`merchantKey` 优先，缺省按展示名现算（与检测共用同一套归一化）。 */
+function subscriptionKey(subscription: Subscription): string {
+  return normalizeMerchant(subscription.merchantKey ?? subscription.merchant)
+}
+
+/** 清掉提醒/标注两个字段（`none` 与切换标注时共用）。 */
+function stripWatchFields(subscription: Subscription): Subscription {
+  const copy: Record<string, unknown> = { ...subscription }
+  delete copy['note']
+  delete copy['reminderAheadDays']
+  return copy as unknown as Subscription
 }
 
 /** 预检里的收款人视图（未登记过 → `binding = 'new'`）。 */

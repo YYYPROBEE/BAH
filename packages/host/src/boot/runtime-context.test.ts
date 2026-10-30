@@ -46,6 +46,7 @@ const OK: RuntimeContextResolution = {
       },
     ],
     recentTransactions: ['2023-11-10 06:13 转出 ¥68.00（消费）'],
+    upcomingCharges: ['视频会员 5 天后 ¥30.00（每月）'],
     notes: ['近 30 天没有交易记录'],
   },
 }
@@ -120,16 +121,30 @@ describe('slots.source=none', () => {
 /* ── 2. bank/ok：合并语义 ─────────────────────────────────────────────────── */
 
 describe('slots.source=bank · ok', () => {
-  it('姓名取权威、等级取静态、账户/流水透传、notes 顺序（provider 前、静态后）、meta.ok', async () => {
+  it('姓名取权威、等级取静态、账户/流水/即将扣款透传、notes 顺序（provider 前、静态后）、meta.ok', async () => {
     const resolver = resolverOf({ staticView: STATIC, source: stubSource(OK) })
     const view = await resolver(invocation())
     expect(view).toEqual({
       user: { name: '张三', level: '金卡' },
       accounts: OK.view?.accounts,
       recentTransactions: OK.view?.recentTransactions,
+      upcomingCharges: OK.view?.upcomingCharges,
       notes: ['近 30 天没有交易记录', ...(STATIC.notes ?? [])],
       meta: { source: 'bank', status: 'ok', asOfText: '2023-11-15 06:13' },
     })
+  })
+
+  it('只有即将扣款也算可展示内容（不触发 slots-empty-resolution），字段不丢', async () => {
+    const resolver = resolverOf({
+      staticView: STATIC,
+      source: stubSource({
+        status: 'ok',
+        asOfText: '2023-11-15 06:13',
+        view: { upcomingCharges: ['云音乐 3 天后 ¥12.00（每月）'] },
+      }),
+    })
+    const view = await resolver(invocation())
+    expect(view?.upcomingCharges).toEqual(['云音乐 3 天后 ¥12.00（每月）'])
   })
 
   it('provider 没给姓名时只保留静态 level（不显示未验证姓名）', async () => {

@@ -18,6 +18,7 @@ import type {
   BalanceResult,
   BillAnalysisResult,
   BillReportResult,
+  SubscriptionListResult,
   TransferCreatedResult,
   TransferPreviewResult,
   TxnQueryResult,
@@ -123,6 +124,32 @@ export interface BankSessionEventMap {
     readonly merchant: string
     readonly at: number
   }
+  /**
+   * 订阅清单 + 周期检测结果已读取（ADR-0007）。
+   *
+   * `detected` 是**推断**，一旦落进 `session.jsonl` 就获得事实级的耐久性；
+   * `detectedAt / basis / detectorVersion` 三件套让回放能识别这是快照，不是现况。
+   */
+  'read/subscriptions': {
+    readonly result: SubscriptionListResult
+    readonly detectedAt: number
+    readonly basis: { readonly from: number; readonly to: number; readonly txnCount: number }
+    readonly detectorVersion: string
+  }
+  /** 代扣协议已关闭（ADR-0007；黄档写操作，**只关不开**）。 */
+  'sub/authorization-revoked': {
+    readonly authorizationId: string
+    readonly merchant: string
+    readonly affected: number
+    readonly at: number
+  }
+  /** 订阅提醒 / 标注已更新（ADR-0007；黄档写操作）。 */
+  'sub/watch-updated': {
+    readonly subscriptionId: string
+    readonly watch: 'remind' | 'idle' | 'none'
+    readonly aheadDays?: number
+    readonly at: number
+  }
 }
 
 declare module '@bah/core' {
@@ -153,6 +180,9 @@ export const BANK_SESSION_EVENT_TYPES = [
   'ticket/ledger-failed',
   'card/reported-lost',
   'sub/cancelled',
+  'read/subscriptions',
+  'sub/authorization-revoked',
+  'sub/watch-updated',
 ] as const satisfies readonly BankSessionEventType[]
 
 /**

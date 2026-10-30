@@ -43,9 +43,10 @@ describe('W13 · 指标聚合', () => {
     expect(percentile95(Array.from({ length: 100 }, (_, index) => index + 1))).toBe(95)
   })
 
-  it('分族计数覆盖六族', () => {
+  it('分族计数覆盖七族', () => {
     const counts = countsByFamily([outcome('Q-01', 'Q', 'pass', 1)])
     expect(counts.Q).toEqual({ passed: 1, total: 1 })
     expect(counts.K).toEqual({ passed: 0, total: 0 })
+    expect(counts.U).toEqual({ passed: 0, total: 0 })
   })
 })

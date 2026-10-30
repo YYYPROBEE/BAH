@@ -7,7 +7,7 @@
  * 2. **确定性**：固定钟 + 固定 seed；报告只写确定性字段（墙钟延迟进 summary/CLI 输出）。
  * 3. **隔离**：每组独立临时 jsonl 目录 + 独立 saga 签名密钥；仓库根 `sessions/` 零写入。
  *
- * boot 次数口径（W02 冻结版更正）：P 族三种 approval 各一次 → 1(Q)+1(T)+3(P)+1(S)+1(D)+1(K)=**8**。
+ * boot 次数口径（W02 冻结版更正）：P 族三种 approval 各一次 → 1(Q)+1(T)+3(P)+1(S)+1(D)+1(K)+1(U)=**9**。
  */
 
 import { generateKeyPairSync } from 'node:crypto'
@@ -148,7 +148,7 @@ export async function runEval(options: RunEvalOptions): Promise<EvalRunResult> {
   for (const group of wave3) await runOne(group)
 
   // 结果排序与调度无关：族顺序 → ID。
-  const familyOrder: readonly ScenarioFamily[] = ['Q', 'T', 'P', 'S', 'D', 'K']
+  const familyOrder: readonly ScenarioFamily[] = ['Q', 'T', 'P', 'S', 'D', 'K', 'U']
   outcomes.sort((left, right) => {
     const family = familyOrder.indexOf(left.family) - familyOrder.indexOf(right.family)
     return family !== 0 ? family : left.id.localeCompare(right.id)
@@ -191,7 +191,7 @@ export function renderSummary(report: EvalReport, timing: EvalTiming): string {
     '',
     '| 族 | 通过 |',
     '|---|---|',
-    ...(['Q', 'T', 'P', 'S', 'D', 'K'] as const).map(
+    ...(['Q', 'T', 'P', 'S', 'D', 'K', 'U'] as const).map(
       (family) => `| ${family} | ${formatRate(report.families[family])} |`,
     ),
     '',
@@ -328,10 +328,11 @@ function overlayFor(group: Group, keyPath: string, knowledgeUrl: string | undefi
   } else if (group.approval === 'unavailable') {
     rows.push('- id: interaction:approval\n  config: { responder: none }')
   }
-  if (group.family === 'T' || group.family === 'Q') {
+  if (group.family === 'T' || group.family === 'Q' || group.family === 'U') {
     // 03 单：意图平面需要历史记忆才能演示「复现」与「实体歧义」。
     // headless 不装 bah:memory-store（真实记忆），所以这里注入**确定性假记忆**：
     // `match` 限定命中话语，三条夹具互不污染（T-13 只看到王建国，T-15 只看到两个张伟）。
+    // U 族共用同一组夹具（实体歧义用例需要两条张伟）。
     rows.push(
       [
         '- id: intent:plane',
@@ -372,7 +373,7 @@ function overlayFor(group: Group, keyPath: string, knowledgeUrl: string | undefi
         `    baseUrl: '${knowledgeUrl}'`,
         '    required: true',
         '    channel: headless',
-        '    timeouts: { answer: 8000, query: 2000, health: 5000 }',
+        '    timeouts: { answer: 8000, query: 2000, health: 15000 }',
         '    claims:',
         '      default: { role: retail, audience: standard, region: CN-SH }',
         '      users:',

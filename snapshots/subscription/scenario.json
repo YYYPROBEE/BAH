@@ -1,0 +1,229 @@
+{
+  "name": "subscription",
+  "profile": "subscription",
+  "prompts": [
+    "我有哪些订阅",
+    "视频会员退订",
+    "确认，到期即断",
+    "彻底停掉视频会员的扣款",
+    "提前三天提醒我续费云音乐"
+  ],
+  "sessionId": "s-snapshot-subscription",
+  "clock": {
+    "start": 1700000000000,
+    "step": 1
+  },
+  "randomSeed": 7,
+  "rows": [
+    {
+      "id": "core:session",
+      "use": "core:session",
+      "config": {}
+    },
+    {
+      "id": "core:tools",
+      "use": "core:tools",
+      "config": {}
+    },
+    {
+      "id": "core:prompt",
+      "use": "core:prompt",
+      "config": {}
+    },
+    {
+      "id": "core:model",
+      "use": "core:model",
+      "config": {
+        "provider": "router",
+        "model": "router-chat",
+        "chunkSize": 4
+      }
+    },
+    {
+      "id": "core:agent",
+      "use": "core:agent",
+      "config": {
+        "channel": "headless",
+        "loop": {
+          "model": "router:router-chat",
+          "maxSteps": 8,
+          "compaction": {
+            "maxTurns": 8,
+            "keepRecentTurns": 3
+          }
+        },
+        "runtimeContext": {
+          "user": {
+            "name": "张三",
+            "level": "金卡"
+          },
+          "notes": [
+            "本对话运行在仿真数据集（recurring 档）：6 个月订阅/代扣流水，均为造数，不产生真实资金变动。"
+          ]
+        }
+      }
+    },
+    {
+      "id": "core:persistence",
+      "use": "core:persistence",
+      "config": {
+        "root": "sessions"
+      }
+    },
+    {
+      "id": "obs:telemetry",
+      "use": "obs:telemetry",
+      "config": {
+        "maxSpans": 2000
+      }
+    },
+    {
+      "id": "audit:decisions",
+      "use": "audit:decisions",
+      "config": {}
+    },
+    {
+      "id": "policy:rules",
+      "use": "policy:rules",
+      "config": {}
+    },
+    {
+      "id": "bank:tools",
+      "use": "bank:tools",
+      "config": {
+        "demoUserId": "u-1",
+        "seed": 7,
+        "datasetTier": "recurring",
+        "policy": {
+          "engine": "bundle"
+        },
+        "contextSlots": {
+          "accounts": 3,
+          "transactions": 3,
+          "subscriptions": 3,
+          "windowDays": 30,
+          "timeoutMs": 250,
+          "maxChars": 800,
+          "breakerFailures": 3,
+          "breakerOpenMs": 10000
+        }
+      }
+    },
+    {
+      "id": "interaction:approval",
+      "use": "interaction:approval",
+      "config": {
+        "responder": "headless",
+        "autoDecision": "allow",
+        "autoVerify": true
+      }
+    },
+    {
+      "id": "safety:sentry",
+      "use": "safety:sentry",
+      "config": {
+        "trace": {
+          "sink": "session"
+        },
+        "rules": {
+          "crossScenario": true
+        },
+        "budget": {
+          "riskyCalls": 6
+        }
+      }
+    },
+    {
+      "id": "safety:verify",
+      "use": "safety:verify",
+      "config": {}
+    },
+    {
+      "id": "safety:sandbox",
+      "use": "safety:sandbox",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-store",
+      "use": "bank:saga-store",
+      "config": {}
+    },
+    {
+      "id": "bank:saga",
+      "use": "bank:saga",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-audit",
+      "use": "bank:saga-audit",
+      "config": {}
+    },
+    {
+      "id": "intent:plane",
+      "use": "intent:plane",
+      "config": {}
+    },
+    {
+      "id": "prompt:ask",
+      "use": "prompt:ask",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-bridge",
+      "use": "bank:saga-bridge",
+      "config": {
+        "enabled": true,
+        "eligible": [
+          "transfer_create"
+        ],
+        "tickIntervalMs": 60000,
+        "saga": {
+          "maxAttempts": 1
+        }
+      }
+    }
+  ],
+  "model": {
+    "provider": "router",
+    "spec": {
+      "id": "router-chat",
+      "providerId": "router",
+      "displayName": "Demo Router（离线意图路由，非磁带）",
+      "capabilities": {
+        "toolCall": true,
+        "image": false,
+        "reasoning": true
+      },
+      "contextWindow": 32000
+    }
+  },
+  "coveredSources": [
+    "packages/runtime/src/agent-loop/",
+    "packages/runtime/src/agent/",
+    "packages/runtime/src/session/",
+    "packages/runtime/src/system-prompt/",
+    "packages/runtime/src/tools/",
+    "packages/runtime/src/policy/",
+    "packages/runtime/src/seams.ts",
+    "packages/runtime/src/intent/",
+    "packages/interaction/src/prompt/",
+    "packages/llm/src/llm/",
+    "packages/llm/src/mock/",
+    "packages/llm/src/demo/",
+    "packages/bank/src/core/",
+    "packages/bank/src/tools/",
+    "packages/bank/src/detect/",
+    "packages/bank/src/forge/",
+    "packages/bank/src/index.ts",
+    "packages/host/src/boot/",
+    "packages/persistence/src/jsonl/",
+    "packages/persistence/src/chain/",
+    "packages/persistence/src/saga-store/",
+    "packages/safety/src/sentry/",
+    "packages/safety/src/verify/",
+    "packages/interaction/src/approval/",
+    "packages/saga/src/recovery/",
+    "packages/saga/src/index.ts",
+    "packages/saga/src/tick/"
+  ]
+}

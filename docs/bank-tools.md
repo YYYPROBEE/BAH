@@ -9,7 +9,7 @@
 ```text
 packages/bank/src/
 ├─ tools/
-│  ├─ specs.ts        14 个 P0 工具的元数据唯一来源（name / description / schema / tier / 事件）
+│  ├─ specs.ts        19 个银行工具的元数据唯一来源（name / description / schema / tier / 事件）
 │  ├─ catalog.ts      createBankTools(deps)：穷尽工厂表 + 目录顺序
 │  ├─ render.ts       docs/tool-catalog.md 的渲染（生成器与门禁共用）
 │  ├─ dto.ts          结果视图（工具 / 事件 / 卡片三方共用）
@@ -31,14 +31,16 @@ packages/bank/src/
 `pnpm tool-catalog` 由 `specs.ts` 生成 [tool-catalog.md](tool-catalog.md)；
 门禁 `verify-tool-catalog` 逐字比对（数量上限 28、工厂表与目录穷尽一致、事件已声明）。
 
-## 2. 14 个 P0 工具
+## 2. 19 个银行工具
 
 | 场景 | 工具 | 级别 | 落账事件 |
 |---|---|---|---|
 | 账户/账单 | `account_list` `account_balance` `txn_query` `bill_analyze` `bill_report` `analysis_calc` | 绿 | `read/*` |
 | 转账 | `transfer_preview`（绿，只读试算） `transfer_create`（黄，`amountPath: 'amount'`） | 绿 / 黄 | `transfer/preview` `transfer/created` |
-| 理财 | `wealth_list` `wealth_compare`（绿） `wealth_purchase`（红） | 绿 / 绿 / 红 | `read/wealth` `wealth/purchased` |
+| 理财 | `wealth_list` `wealth_compare`（绿，结果带 `customerRisk`/`eligible`） `wealth_purchase`（红，申购前经适当性闸门） | 绿 / 绿 / 红 | `read/wealth` `wealth/purchased` |
 | 强验证 | `verify_face` `verify_sms` `verify_ushield` | 绿（渠道，须由红级挑战链调用） | `verify/*` |
+| 资产处置 | `card_report_lost`（红，挂失不可逆） | 红 | `card/reported-lost` |
+| 订阅/代扣 | `sub_list`（绿，检测只读） `sub_cancel`（黄，合约期硬拦/到期即断） `sub_watch`（黄，提醒与标注） `sub_authorize`（黄，只关不开） | 绿 / 黄 | `read/subscriptions` `sub/cancelled` `sub/watch-updated` `sub/authorization-revoked` |
 
 完整参数 schema 与「何时用 / 何时不用」见 [tool-catalog.md](tool-catalog.md)。
 `tier` **只在 `specs.ts` 声明**，`execute()` 里没有任何权限阈值（`verify-tiers` 门禁 + 评审双保险）。
@@ -182,15 +184,15 @@ presenter 是**纯函数**：同输入同输出；不访问 ctx / 时间 / 随�
 | `bank.account-list` | `account_list` | `accounts[].tail/typeLabel/balanceText` |
 | `bank.balance` | `account_balance` | `balanceText/availableText/frozenText/txnRef` |
 | `bank.txn-list` | `txn_query` | `items[].atText/amountText/counterparty` |
-| `bank.bill-analysis` | `bill_analyze` | `categories[].shareText/anomalies/momText` |
+| `bank.bill-analysis` | `bill_analyze` | `categories[].shareText/anomalies/momText`；`merchantCategories[]`（`groupBy=merchant` 时的品类文案） |
 | `bank.bill-report` | `bill_report` | `text`（`collapsed: true`） |
 | `bank.analysis` | `analysis_calc` | `code/valueText/operations` |
 | `bank.transfer-preview` | `transfer_preview` | `amountText/payeeName/remainingText/risks/tier` |
 | `bank.transfer-confirm` | `transfer_create.presentCall` | `operation/amountText/payeeName/tier/requiresApproval` |
 | `bank.transfer-created` | `transfer_create` 成功 | `txnId/ticketId/atText` |
-| `bank.wealth-list` / `-compare` | `wealth_list` / `wealth_compare` | `products/disclaimerId`（必渲染风险提示） |
+| `bank.wealth-list` / `-compare` | `wealth_list` / `wealth_compare` | `products/disclaimerId`（必渲染风险提示）；`customerRisk` + 每项 `eligible/suitabilityNote` |
 | `bank.wealth-confirm` | `wealth_purchase.presentCall` | `tier: red/requiresApproval` |
-| `bank.wealth-purchased` | `wealth_purchase` 成功 | `holdingId/disclaimerId` |
+| `bank.wealth-purchased` | `wealth_purchase` 成功 | `holdingId/disclaimerId`；`riskMatch`（`customerRisk/productRisk`） |
 | `bank.verify` | `verify_face` / `verify_sms` / `verify_ushield` | `channelLabel/success/remainingAttempts/lockedUntilText` |
 
 三态：待执行 = `presentCall`；完成 = `presentResult`；被拒 = `tool/result` 的 `code`（不伪造卡片）。

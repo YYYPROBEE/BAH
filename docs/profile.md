@@ -87,7 +87,7 @@ interface PluginRow {
 | `core:agent` | `AgentLoop` + 注册表 | `runtime:agents` | `bah:run`、`runtime:session`、`llm:adapters` |
 | `core:persistence` | `JsonlPersistence` | `bah:session-files` | `bah:run` |
 | `policy:rules` | 策略载入 / 编译 / 灰度 / 影子（`@bah/policy` + `@bah/runtime` 端口） | `runtime:policy`、`runtime:policy-meta` | `bah:run`、`runtime:session` |
-| `bank:tools` | 16 个银行工具 + 治理平面 | （注册工具；默认未绑定身份） | `bah:run`、`runtime:session`、`runtime:tools` |
+| `bank:tools` | 19 个银行工具 + 治理平面 | （注册工具；默认未绑定身份） | `bah:run`、`runtime:session`、`runtime:tools` |
 | `bank:saga-store` | Saga 存储 | `bah:saga-store` | — |
 | `bank:saga` | Saga 协调器 | `bah:saga-clock` 等 | `bah:saga-store`、`bah:saga-audit` |
 | `bank:saga-audit` | 审计链 | `bah:saga-audit` | `bah:saga-clock` |

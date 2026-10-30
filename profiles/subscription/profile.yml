@@ -1,0 +1,9 @@
+# subscription（场景 5）：订阅 / 代扣演示 profile。
+#
+# 与 headless 的差别只有 `bank:tools.datasetTier = recurring` 与运行时说明；
+# 无渠道行（脚本 / headless 演示用）。Web 演示可在 web profile 上叠加本 patch：
+#   pnpm bah --profile web --serve --patch profiles/subscription/patch.yml
+name: subscription
+bundles: [base]
+patch: ./patch.yml
+hmr: false

@@ -8,15 +8,20 @@
 import type {
   Account,
   AccountId,
+  AuthorizationId,
   BankLimits,
   BillAnomaly,
+  CancelRequest,
   CardId,
+  ChargeCycle,
   Holding,
+  MerchantAuthorization,
   PayeeBinding,
   PayeeId,
   ProductId,
   ProductKind,
   RiskGrade,
+  Subscription,
   SubscriptionId,
   Transaction,
   TxnCategory,
@@ -191,6 +196,34 @@ export interface CardLostResult {
 export interface SubscriptionCancelled {
   readonly subscriptionId: SubscriptionId
   readonly merchant: string
+  /** `mode = 'at-next-cycle'` 时的「到期即断」截止时刻。 */
+  readonly pausedUntil?: number
+}
+
+/** 关闭代扣协议的结果（ADR-0007；硬断供）。 */
+export interface AuthorizationRevoked {
+  readonly authorizationId: AuthorizationId
+  readonly merchant: string
+  readonly revokedAt: number
+  /** 因协议关闭而暂停的订阅（同一 `merchantKey` 下的全部 active 订阅）。 */
+  readonly affectedSubscriptions: readonly SubscriptionId[]
+}
+
+/** 订阅提醒/标注的写入面（`remind` 写 remind 标记，`none` 清空）。 */
+export interface SubscriptionWatch {
+  readonly watch: 'remind' | 'idle' | 'none'
+  readonly aheadDays?: number
+}
+
+/** 即将扣款的一条（只读；实体槽位「即将扣款」块的数据源）。 */
+export interface UpcomingCharge {
+  readonly subscriptionId: SubscriptionId
+  readonly merchant: string
+  readonly amountCents: number
+  readonly dueAt: number
+  readonly cycle: ChargeCycle
+  /** 用户设置的提醒提前量（1..7）；缺省 = 槽位默认窗口。 */
+  readonly reminderAheadDays?: number
 }
 
 export interface BankCoreProvider {
@@ -217,11 +250,31 @@ export interface BankCoreProvider {
 
   /** 挂失银行卡（写；红档，票据门禁同上）。 */
   reportCardLost(userId: UserId, cardId: CardId): Promise<CardLostResult>
-  /** 取消自动扣款订阅（写；黄档，票据门禁同上）。 */
+  /** 取消自动扣款订阅（写；黄档，票据门禁同上）。`at-next-cycle` = 到期即断。 */
   cancelSubscription(
     userId: UserId,
     subscriptionId: SubscriptionId,
+    mode?: 'now' | 'at-next-cycle',
   ): Promise<SubscriptionCancelled>
+
+  /** 列订阅（只读；事实账本，不含检测推断）。 */
+  listSubscriptions(userId: UserId): Promise<Subscription[]>
+  /** 列代扣协议（只读）。 */
+  listAuthorizations(userId: UserId): Promise<MerchantAuthorization[]>
+  /** 关闭代扣协议（写；黄档；**只关不开**）。 */
+  revokeAuthorization(userId: UserId, authorizationId: AuthorizationId): Promise<AuthorizationRevoked>
+  /** 写订阅提醒/标注（写；黄档）。 */
+  setSubscriptionWatch(
+    userId: UserId,
+    subscriptionId: SubscriptionId,
+    input: SubscriptionWatch,
+  ): Promise<Subscription>
+  /** 记录「用户提交过取消」（写；事实，不是核验结论）。 */
+  recordCancelRequest(req: Omit<CancelRequest, 'id'>): Promise<CancelRequest>
+  /** 列取消请求（只读）。 */
+  listCancelRequests(userId: UserId): Promise<CancelRequest[]>
+  /** 即将扣款（只读；只含 active 订阅、`[now, now + withinDays]` 内）。 */
+  upcomingCharges(userId: UserId, withinDays: number): Promise<UpcomingCharge[]>
 
   /** 风控阈值（只读视图，供工具层展示/解释用）。 */
   limits(): BankLimits
