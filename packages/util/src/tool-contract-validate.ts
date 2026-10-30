@@ -14,7 +14,7 @@
  * ## 为什么是"子集"而不是 JSON Schema 全量
  *
  * 宪法 R-2 零运行时依赖 ⇒ 不能引 `ajv` / `zod`。
- * 14 个工具的参数实测只需要这些关键字：`type` / `required` / `enum` / `minimum` /
+ * 21 个工具的参数实测只需要这些关键字：`type` / `required` / `enum` / `minimum` /
  * `maximum` / `exclusiveMinimum` / `exclusiveMaximum` / `minLength` / `maxLength` /
  * `pattern` / `multipleOf` / `properties` / `items` / `additionalProperties: false`。
  *
