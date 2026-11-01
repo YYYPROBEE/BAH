@@ -18,8 +18,8 @@ coverage_total=55161
 coverage_pct=89.87
 coverage_package_ok=16
 coverage_package_total=18
-tests_main_files=443
-tests_main_cases=5084
+tests_main_files=444
+tests_main_cases=5092
 <!-- facts:sources:end -->
 
 > `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。
@@ -36,7 +36,7 @@ tests_main_cases=5084
 | 快照文件 / 用例 | **13 / 60** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 13 文件 / 60 例（`pnpm test:snapshot` 同值；实现方新增 `birthday-reminder` 场景 1 文件 6 例：3 天窗口 / 同日幂等 / 生日当天不重复 / 通知帧回放 / 负控） |
 | 覆盖率（行） | **89.87%** | `pnpm test:coverage:all`（本机汇总口径） | 覆盖 49571 行 / 参与统计 55161 行（2026-10-30 五线合流后复跑） |
 | 覆盖率（包） | **16/18** | 同上 | 只有 `memory-store` 72.68% 与 `eval` 46.93% 未达 80% |
-| 主仓测试 | **443 文件 / 5084 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 443 文件 / 5084 例，**全绿**（2026-11-01 全量实测；较 442/5073 新增 `endpoints.contract.test.ts` 4 例与测试缺口补测 7 例） |
+| 主仓测试 | **444 文件 / 5092 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 444 文件 / 5092 例（2026-11-02 全量实测；较 443/5084 新增 `packages/saga/src/view/causality.test.ts` 6 例与 `fund-lock` 负控 1 例，另 1 例计入既有补测。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑 17/17 绿），与用例数无关**） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
 | web 测试 | **47 文件 / 550 例** | `pnpm test:web` | 47 文件 / 550 例，**全绿**（2026-11-01 复审修复后实测；新增 `apps/web/src/password.test.js` 2 例，覆盖交接票 `?ticket=` 预填与地址栏清理） |
 | 快照跑批 | **13 文件 / 60 例** | `pnpm test:snapshot` | **60 passed / 0 failed**（2026-11-01 04/实现方重录后回放；新增 `birthday-reminder` 6 例；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 的录制夹具用 overlay 显式放行审批，生产 profile 仍 `responder: none`） |

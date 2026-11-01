@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { deepClone } from '../src/deepClone.ts'
-import { isPlainObject } from '../src/plainObject.ts'
+import { deepClone } from '../src/deep-clone.ts'
+import { isPlainObject } from '../src/plain-object.ts'
 
 describe('isPlainObject：按原型判，不按 typeof 判', () => {
   it('普通对象与 Object.create(null) 算普通对象', () => {

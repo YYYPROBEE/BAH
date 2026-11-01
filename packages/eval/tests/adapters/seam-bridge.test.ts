@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { attachSeamBridge } from '../../src/adapters/seamBridge.ts'
+import { attachSeamBridge } from '../../src/adapters/seam-bridge.ts'
 import { TrajectoryRecorder } from '../../src/recorder/TrajectoryRecorder.ts'
 import { SnapshotChain } from '../../src/snapshot/SnapshotChain.ts'
-import { FakeEvents } from '../helpers/fakeEvents.ts'
+import { FakeEvents } from '../helpers/fake-events.ts'
 import { dropRunsDir, FIXED_TS, makeRunsDir } from '../helpers/fixtures.ts'
 
 const clock = (): Date => new Date(FIXED_TS)

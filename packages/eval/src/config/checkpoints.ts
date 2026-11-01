@@ -14,7 +14,7 @@
 import { readFile } from 'node:fs/promises'
 
 import type { CheckpointKind } from '../types.ts'
-import { isPlainObject } from '../plainObject.ts'
+import { isPlainObject } from '../plain-object.ts'
 
 /** 合法检查点（00 §2）。 */
 const CHECKPOINT_KINDS: readonly CheckpointKind[] = ['auth', 'sanctions', 'risk', 'execute']

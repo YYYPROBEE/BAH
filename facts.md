@@ -10,7 +10,7 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **443 文件 / 5084 用例**（2026-11-01 全量实测，零红；较 442/5073 新增 `endpoints.contract.test.ts` 4 例与测试缺口补测 7 例） |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **444 文件 / 5092 用例**（2026-11-02 全量实测；较 443/5084 新增 `saga/src/view/causality.test.ts` 6 例与 `fund-lock` 零金额负控 1 例。**如实登记**：全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有 1 例时序偶发失败，单文件重跑 17/17 绿，与用例数口径无关） |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **47 文件 / 550 用例**（全绿；新增交接票预填 2 例） |
 

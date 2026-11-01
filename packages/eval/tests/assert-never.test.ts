@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { assertNever } from '../src/assertNever.ts'
+import { assertNever } from '../src/assert-never.ts'
 
 describe('assertNever', () => {
   it('运行期抛出可读理由（编译期价值更大：漏分支直接编译失败）', () => {

@@ -10,7 +10,7 @@
  * 证据链被就地篡改，而且看不出痕迹。
  */
 
-import { isPlainObject } from './plainObject.ts'
+import { isPlainObject } from './plain-object.ts'
 
 /** 递归复制普通对象 / 数组 / Date；其他值（函数、类实例等）原样返回。 */
 export function deepClone<T>(value: T): T {

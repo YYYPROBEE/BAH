@@ -18,7 +18,7 @@
  */
 
 import type { FlatState } from '../types.ts'
-import { isPlainObject } from '../plainObject.ts'
+import { isPlainObject } from '../plain-object.ts'
 
 export interface FlattenOptions {
   /** 键分隔符，缺省 `.`。 */
