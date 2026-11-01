@@ -101,6 +101,31 @@ describe('工具卡片 · 合规与正文', () => {
     expect(alert).not.toBeNull()
     expect(alert.textContent).toContain('wealth.disclaimer.v1')
     expect(alert.className).toContain('ds-alert--warning')
+    // 内容列必须能收窄/撑满，ID 用 chip 类（不是全局 .ds-code 的代码块 padding）
+    expect(alert.querySelector('.tool-card__disclaimer-body')).not.toBeNull()
+    expect(alert.querySelector('.tool-card__disclaimer-id').textContent).toBe('wealth.disclaimer.v1')
+  })
+
+  it('风险提示去掉"必须向用户展示"的内部指令，ID 用 chip 保留', () => {
+    const node = renderTool(
+      tool({
+        card: {
+          kind: 'tool.wealth_list',
+          template: 'wealth',
+          title: '理财产品',
+          fields: [],
+          tags: [{ text: '理财非存款', tone: 'warning' }],
+          disclaimer: {
+            id: 'wealth-risk-v1',
+            text: '风险提示：wealth-risk-v1（必须向用户展示，理财非存款、投资有风险）',
+          },
+        },
+      }),
+    )
+    const desc = node.querySelector('.ds-alert__desc').textContent
+    expect(desc).toBe('理财非存款、投资有风险')
+    expect(desc).not.toContain('必须向用户展示')
+    expect(node.querySelector('.tool-card__disclaimer-id').textContent).toBe('wealth-risk-v1')
   })
 
   it('卡片徽标与字段色调都渲染（合规标签不能只留在数据里）', () => {
@@ -175,6 +200,43 @@ describe('工具卡片 · 合规与正文', () => {
     expect(details.open).toBe(false)
     expect(details.querySelector('summary').textContent).toContain('查看计算过程')
     expect(details.querySelector('pre').textContent).toContain('1 + 1 = 2')
+  })
+})
+
+describe('工具卡片 · 账单报告（结构化块替掉机器口径正文）', () => {
+  it('字段 + 分类表 + 两行说明进卡，不再出现 pre 正文', () => {
+    const node = renderTool(
+      tool({
+        state: 'done',
+        amountConfirmed: true,
+        name: 'bill_report',
+        title: '账单报告',
+        tier: 'green',
+        card: {
+          kind: 'tool.bill_report',
+          template: 'ledger',
+          title: '账单报告',
+          fields: [
+            { label: '账期', value: '2026-09 ~ 2026-10（季度）' },
+            { label: '支出', value: '¥7,654.32', mono: true },
+            { label: '异常', value: '1 条' },
+          ],
+          tags: [],
+          table: { headers: ['分类', '金额', '占比'], rows: [['转账', '¥3,803.70', '49.69%']] },
+          note: '收款人前 1：京东 ¥1,200.00（15.68%）\n异常：大额支出 ¥3,003.70',
+        },
+      }),
+    )
+
+    expect(node.querySelector('.tool-card__body')).toBeNull()
+    expect(node.querySelectorAll('.tool-card__fields .field')).toHaveLength(3)
+    expect(node.querySelector('table.ds-table')).not.toBeNull()
+    expect(node.querySelector('tbody td').textContent).toBe('转账')
+    // 说明里的换行是内容（收款人 / 异常各一行），不能被压成一行
+    const note = node.querySelector('.tool-card__note')
+    expect(note.textContent).toContain('\n')
+    // 卡片里不该再有内部分类键
+    expect(node.textContent).not.toContain('transfer')
   })
 })
 

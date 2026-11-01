@@ -241,6 +241,27 @@ describe('剪枝与降价', () => {
   })
 })
 
+describe('最近一期涨价的边界（容差内单点）', () => {
+  it('恰好 5%（落在金额容差内、平台不拆分）仍判涨价', () => {
+    const output = detect(series('视频会员', [10_000, 10_000, 10_000, 10_000, 10_000, 10_500]))
+    expect(output.series).toHaveLength(1)
+    expect(output.series[0]?.amountCents).toBe(10_500)
+    expect(output.series[0]?.priceHike).toMatchObject({ fromCents: 10_000, toCents: 10_500 })
+  })
+
+  it('涨幅 4%（不足 5%）不判涨价', () => {
+    const output = detect(series('视频会员', [10_000, 10_000, 10_000, 10_000, 10_000, 10_400]))
+    expect(output.series).toHaveLength(1)
+    expect(output.series[0]?.priceHike).toBeUndefined()
+  })
+
+  it('涨幅 ≥5% 但不足 200 分：小额订阅不误报（双阈值同时满足）', () => {
+    const output = detect(series('视频会员', [3000, 3000, 3000, 3000, 3000, 3150]))
+    expect(output.series).toHaveLength(1)
+    expect(output.series[0]?.priceHike).toBeUndefined()
+  })
+})
+
 describe('断供核验的守卫', () => {
   it('取消请求指向已不存在的订阅 → 跳过，不产出 finding', () => {
     const findings = deriveCutoffFindings({

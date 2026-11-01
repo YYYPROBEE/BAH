@@ -171,6 +171,13 @@ export interface AgentReplyInput {
   readonly text: string
   /** 本 turn 已执行工具的结果（核验证据；不含本 turn 之外的历史）。 */
   readonly toolResults: readonly ToolResultData[]
+  /**
+   * 本 turn 提交给模型的运行时上下文文本（权威快照，如账户概览）。
+   *
+   * 核验门把它与工具出参并列作为证据：真模型会直接复述快照里的账户与余额，
+   * 只认工具出参会把真话误判成「未核实」。不含用户消息与历史消息。
+   */
+  readonly contextTexts?: readonly string[]
   /** 这条消息是否同时承载工具调用（true 时它不是本 turn 的最终回复）。 */
   readonly hasToolCalls: boolean
   readonly signal: AbortSignal

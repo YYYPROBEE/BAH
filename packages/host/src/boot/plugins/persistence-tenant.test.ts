@@ -5,7 +5,7 @@
  * 的能力（审计、清理、迁移）都是假的。
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -74,6 +74,36 @@ describe('SessionFiles · 租户化之后', () => {
       expect(files.fileOf(asSessionId('s-1'))).toBe(
         join(dir, 'acme-bank', 's-1', 'session.jsonl'),
       )
+    } finally {
+      await app.dispose('test')
+    }
+  })
+
+  it('TA-12-5 归档目录不被误判为活动会话（IM 子进程重启路径）', async () => {
+    const dir = tempDir()
+    const tenant = 'demo'
+    const sessionId = 'im-restart-1'
+    // 模拟 supervisor 重启归档：目录名带 -prev- 后缀，但 header 仍是原 sessionId。
+    const archived = join(dir, tenant, `${sessionId}-prev-1793421079471`)
+    mkdirSync(archived, { recursive: true })
+    writeFileSync(
+      join(archived, 'session.jsonl'),
+      `${JSON.stringify({
+        kind: 'bah-session-header',
+        sessionId,
+        formatVersion: 1,
+        createdAt: 1_700_000_000_000,
+      })}\n`,
+      'utf8',
+    )
+    const app = await bootPersistence(dir, tenant)
+    try {
+      app.ctx.events.emit('session/event', {
+        session: asSessionId(sessionId),
+        event: { seq: 1, at: 1_700_000_000_000, formatVersion: 1, type: 'user/message', data: { content: 'hi' } },
+      })
+      // 归档不算活动会话 ⇒ 新进程必须在规范目录新建 session.jsonl，而不是 open 一个不存在的目录。
+      expect(existsSync(join(dir, tenant, sessionId, 'session.jsonl'))).toBe(true)
     } finally {
       await app.dispose('test')
     }

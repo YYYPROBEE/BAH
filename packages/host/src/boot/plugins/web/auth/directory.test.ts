@@ -64,6 +64,10 @@ describe('loadDirectory', () => {
     expect(directory.findByPhone('13800000001')?.userId).toBe('u-1')
   })
 
+  it('TA-22-0b 未注入 warn → 走默认告警出口，不影响加载', () => {
+    expect(loadDirectory('auth/users.example.yml', 'demo').size).toBe(1)
+  })
+
   it('TA-22-1 文件缺失 → auth-directory-missing', () => {
     expect(codeOf(() => loadDirectory('auth/no-such-file.yml', 'demo', { warn: () => undefined }))).toBe(
       'auth-directory-missing',
@@ -167,6 +171,59 @@ describe('loadDirectory', () => {
   it('TA-22-7 坏 YAML → auth-directory-invalid（不冒充"策略文件坏了"）', () => {
     const path = tempFile('version: 1\n  tenant: [unclosed\n')
     expect(codeOf(() => loadDirectory(path, 'demo', { warn: () => undefined }))).toBe(
+      'auth-directory-invalid',
+    )
+  })
+
+  it('TA-22-8 手机号重复 → auth-directory-invalid（按手机号登录不能二义）', () => {
+    const path = tempFile(
+      yaml({
+        users: [
+          `  - userId: u-1`,
+          '    phone: "13800000001"',
+          '    roles: [customer]',
+          `    password: "${HASH}"`,
+          `  - userId: u-2`,
+          '    phone: "13800000001"',
+          '    roles: [customer]',
+          `    password: "${HASH}"`,
+        ],
+      }),
+    )
+    expect(codeOf(() => loadDirectory(path, 'demo', { warn: () => undefined }))).toBe(
+      'auth-directory-invalid',
+    )
+  })
+
+  it('TA-22-9 version / 顶层形状 / 空 users → auth-directory-invalid（口径漂移必须启动即失败）', () => {
+    const wrongVersion = tempFile('version: 2\ntenant: demo\nusers: []\n')
+    expect(codeOf(() => loadDirectory(wrongVersion, 'demo', { warn: () => undefined }))).toBe(
+      'auth-directory-invalid',
+    )
+    const arrayTop = tempFile('- version: 1\n- tenant: demo\n')
+    expect(codeOf(() => loadDirectory(arrayTop, 'demo', { warn: () => undefined }))).toBe(
+      'auth-directory-invalid',
+    )
+    const emptyUsers = tempFile('version: 1\ntenant: demo\nusers: []\n')
+    expect(codeOf(() => loadDirectory(emptyUsers, 'demo', { warn: () => undefined }))).toBe(
+      'auth-directory-invalid',
+    )
+  })
+
+  it('TA-22-10 非法租户 ID → auth-directory-invalid（先于 tenant 一致性判定）', () => {
+    const path = tempFile(yaml({ tenant: 'Demo!' }))
+    expect(codeOf(() => loadDirectory(path, 'demo', { warn: () => undefined }))).toBe(
+      'auth-directory-invalid',
+    )
+  })
+
+  it('TA-22-11 字段类型不对（tenant 非字符串 / users 元素非对象）→ auth-directory-invalid', () => {
+    const badTenant = tempFile('version: 1\ntenant: 123\nusers: []\n')
+    expect(codeOf(() => loadDirectory(badTenant, 'demo', { warn: () => undefined }))).toBe(
+      'auth-directory-invalid',
+    )
+    const badEntry = tempFile('version: 1\ntenant: demo\nusers:\n  - 42\n')
+    expect(codeOf(() => loadDirectory(badEntry, 'demo', { warn: () => undefined }))).toBe(
       'auth-directory-invalid',
     )
   })

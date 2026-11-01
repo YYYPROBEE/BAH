@@ -25,10 +25,17 @@
 
 - id: interaction:approval
   config:
-    # headless 没有 Web 弹窗：显式开启自动应答者（默认 none = 拒绝，绝不默认放行）
-    responder: headless
-    autoDecision: allow
-    autoVerify: true
+    # ★ ADR-0010：本 profile 不再"无差别放行"。
+    #
+    # 曾经的 `responder: headless + autoDecision: allow` 让**任何** ask 都被自动批准，
+    # 那是回归夹具的语义，不是生产语义（headless 里没有第二个人，默认方向只能是拒绝）。
+    #
+    # 现在只装窗口代签应答者：票据必须带 `authorization.kind='window'`（只有 `plan_wake`
+    # 注入）且宿主核验通过，才签一次；其余 ask 无人应答 = unavailable = 拒绝。
+    # eval / 幕 3 若确实需要"自动批准"，由用例自己显式写 `autoDecision: allow`
+    # （见 `packages/eval/src/scenario/runner.ts` 的 allow 行），不再借 profile 的默认值。
+    responder: none
+    windowResponder: true
 
 - id: safety:sentry
   config:

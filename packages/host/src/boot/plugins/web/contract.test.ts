@@ -41,7 +41,7 @@ function fingerprint(route: (typeof ROUTES)[number]): string {
 }
 
 describe('W16 路由表（拆分前后同一份期望）', () => {
-  it('26 条路由的三元组逐条不变（18 条 main 基线 + 3 条认证 + 5 条人机接管 + 1 条指标）', () => {
+  it('27 条路由的三元组逐条不变（18 条 main 基线 + 3 条认证 + 5 条人机接管 + 1 条指标 + 1 条改密）', () => {
     expect(ROUTES.map(fingerprint)).toEqual([
       'GET /api/health exact public no-csrf 200 health',
       // 02 新增：登录是**公开但受 CSRF 管**的路由（登录 CSRF 是真实攻击面）
@@ -66,6 +66,8 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
       'POST /api/interrupt exact web csrf 200,401,403,503 interrupt',
       'POST /api/approval/ prefix web csrf 200,400,401,403,404,409 approval',
       'POST /api/verify/ prefix web csrf 200,400,401,403,404 verify',
+      // 01 单（ADR-0014）：安全页改密（**明文只走这一条**，载荷里没有任何密码字段）
+      'POST /api/secure/password exact web csrf 200,400,401,403,404,409,423 secure-password',
       // C5：客户侧三条（读摘要 / 请求接管 / 交回）
       'GET /api/handoff exact web no-csrf 200,401 handoff',
       'POST /api/handoff exact web csrf 200,400,401,403,409 handoff',
@@ -93,6 +95,7 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
       'interrupt /api/interrupt',
       'approval /api/approval/',
       'verify /api/verify/',
+      'secure-password /api/secure/password',
       'handoff /api/handoff',
       'handoff /api/handoff/resume',
       'handoff-message /api/handoff/message',
@@ -238,9 +241,11 @@ describe('03 TA-40 · 路由角色声明（增量，不改既有元素）', () =
     }
   })
 
-  it('TA-40-2 未知角色 / 空数组 / 顺序错 → assertRouteRoles 抛错', () => {
+  it('TA-40-2 未知角色 / 空数组 / 重复 / 顺序错 → assertRouteRoles 抛错', () => {
     expect(() => assertRouteRoles('/api/x', ['root'] as never)).toThrow(/未知角色/)
     expect(() => assertRouteRoles('/api/x', [])).toThrow(/不允许空数组/)
+    // 重复角色会让主体序列化的字节不唯一：同一组角色算出两个审计主体
+    expect(() => assertRouteRoles('/api/x', ['customer', 'customer'])).toThrow(/角色重复/)
     expect(() => assertRouteRoles('/api/x', ['admin', 'customer'])).toThrow(/ROLES 序/)
   })
 

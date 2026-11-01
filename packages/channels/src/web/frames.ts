@@ -135,6 +135,14 @@ export interface ToolFrame {
 }
 
 /** 审批弹窗（六要素 + 挑战 + 截止时刻）。 */
+/** 审批明细的一行（服务端签发；渠道只排版，不重算）。 */
+export interface ApprovalDetail {
+  readonly label: string
+  readonly value: string
+  /** 展示强调：金额等宽 / 时刻 / 风险结论（风险用 `ds-tag`，**不得**用左侧竖色条）。 */
+  readonly emphasis?: 'amount' | 'date' | 'risk'
+}
+
 export interface ApprovalFrame {
   readonly kind: 'approval'
   readonly seq: number
@@ -146,9 +154,9 @@ export interface ApprovalFrame {
   readonly operation: string
   readonly amountText?: string
   /**
-   * 金额是否已被工具结果证实。审批帧**恒为 `false`**，这是口径不是漏推导：
-   * 票据尚未核销，本 turn 不存在该调用的 `tool/result`，`approval/asked` 里的金额
-   * 只是"待批准的数字"。视图据此标灰 + "待确认"；批准执行后的确认以 `tool/result` 为准。
+   * 金额是否已被工具结果证实。审批帧只在**同 turn 已有成功 `transfer_preview`**
+   * 且收款人+金额与本次审批完全一致时为 `true`；其余情况仍是"待批准的数字"，
+   * 视图标灰 + "待确认"。批准执行后的最终确认仍以本次 `tool/result` 为准。
    */
   readonly amountConfirmed: boolean
   readonly payeeName?: string
@@ -169,11 +177,57 @@ export interface ApprovalFrame {
    * 前端只负责要求用户打字。
    */
   readonly confirmText?: string
+  /**
+   * 服务端签发的结构化操作明细（`approval/asked.details` 的**原样**投影）。
+   *
+   * 数量上限见 `project.ts` 的 `DETAILS_MAX_ROWS`（超出截断并标 `truncated`）；
+   * 金额等数值**一律不在这里重算**——重算就等于渠道自造事实。
+   */
+  readonly details?: readonly ApprovalDetail[]
+  /** 明细是否因超出展示上限被截断（截断时 `details` 只含前 N 条）。 */
+  readonly detailsTruncated?: boolean
+}
+
+/** 风险问卷的一个选项（键 / 文本 / 分值，全部来自服务端常量表）。 */
+export interface RiskQuestionOption {
+  readonly key: string
+  readonly text: string
+  readonly score: number
+}
+
+/** 风险问卷的一道题。 */
+export interface RiskQuestionItem {
+  readonly index: number
+  readonly title: string
+  readonly options: readonly RiskQuestionOption[]
+}
+
+/**
+ * 风险问卷卡（`read/risk-questions` 域事件的投影）。
+ *
+ * 语义边界：这张卡**不是审批**——它没有票据、点了不发钱，只负责"让用户本人答题"。
+ * 答完由前端拼一条普通用户消息（`风险测评作答 <问卷ID> 1=… 2=…`）走 `POST /api/turn`，
+ * 与手打一句话完全同一条路径；真正的确认闸是随后的审批卡（逐题回显 + 批准）。
+ *
+ * 为什么不复用 `choice` 帧：`choice` 只能承载一题、点选后回传**选项文本**，
+ * 5 题连问时无法携带题号（用户看到的下一条消息只剩"中等"两个字），
+ * 服务端也就无法证明"第 3 题选了哪一项"。这里用一张卡收齐 5 题，一次提交。
+ */
+export interface RiskQuestionnaireFrame {
+  readonly kind: 'risk-questionnaire'
+  readonly seq: number
+  readonly at: number
+  /** 追溯：`tool/result.callId`（发卷的那次调用）。 */
+  readonly callId: string
+  readonly questionnaireId: string
+  readonly version: string
+  /** 失效时刻（epoch ms）；前端只做展示，判定在服务端。 */
+  readonly expiresAt: number
+  readonly questions: readonly RiskQuestionItem[]
 }
 
 /** 审批收尾。 */
-export interface ApprovalClosedFrame {
-  readonly kind: 'approval-closed'
+export interface ApprovalClosedFrame {  readonly kind: 'approval-closed'
   readonly seq: number
   readonly at: number
   readonly ticketId: string
@@ -195,19 +249,27 @@ export interface NoticeFrame {
 }
 
 /** 审计时间线条目。 */
+/** 审计明细的一行（服务端按白名单裁剪后的安全字段；前端只排版）。 */
+export interface AuditDetail {
+  readonly label: string
+  readonly value: string
+}
+
 export interface AuditFrame {
   readonly kind: 'audit'
   readonly seq: number
   readonly at: number
   /** `HH:MM:SS`（服务端按 UTC 格式化，前端不再算时区）。 */
   readonly timeText: string
-  /** 分类（审批 / 票据 / 工具 / 安全 / 知识 / 轮次）。 */
-  readonly category: 'approval' | 'ticket' | 'tool' | 'safety' | 'knowledge' | 'turn'
+  /** 分类（审批 / 票据 / 工具 / 安全 / 知识 / 订阅 / 轮次）。 */
+  readonly category: 'approval' | 'ticket' | 'tool' | 'safety' | 'knowledge' | 'subscription' | 'turn'
   readonly label: string
   readonly summary: string
   readonly code?: string
   readonly ticketId?: string
   readonly toolName?: string
+  /** 可展开的明细（白名单字段，不放原始工具参数/结果/用户原话）。 */
+  readonly detail?: readonly AuditDetail[]
 }
 
 /**
@@ -438,10 +500,31 @@ export interface PlanCardFrame {
   readonly dueAt: number
   /** 本次实例键（`2026-10-22` / `2026-10` / `once:<dueAt>`）。 */
   readonly occurrence: string
-  readonly state: 'armed' | 'due' | 'running' | 'done' | 'failed' | 'cancelled'
+  readonly state:
+    | 'armed'
+    | 'due'
+    | 'running'
+    | 'done'
+    | 'failed'
+    | 'cancelled'
+    /** 到期未执行（窗口过期；提示词 4-2）。 */
+    | 'expired'
+    /** 需用户重新确认（明细被改 / 条件失守；提示词 4-2）。 */
+    | 'needs-reconfirm'
   readonly conditions: readonly PlanCardCondition[]
   /** 最近一次唤醒的判决（`failed` 态必填）。 */
   readonly lastVerdict?: { readonly code: string; readonly at: number }
+  /**
+   * 最近一次唤醒的补偿（ADR-0013）：只在"已扣款、商户没成交"时出现。
+   * `reversed` 才代表钱回来了；另外两种必须如实显示为未退成。
+   */
+  readonly compensation?: {
+    readonly kind: 'reversed' | 'reversal-failed' | 'reversal-unavailable'
+    readonly txnId?: string
+    readonly reversalTxnId?: string
+    readonly amountCents?: number
+    readonly code?: string
+  }
   /** 节点数（卡片摘要用；明细在 DAG 帧）。 */
   readonly nodeCount: number
   /** 计划内容摘要（与 `plan/created.digest` 同源）。 */
@@ -460,6 +543,7 @@ export type WebFrame =
   | AuditFrame
   | DagFrame
   | ChoiceFrame
+  | RiskQuestionnaireFrame
   | GoalFrame
   | TodoFrame
   | EffectsFrame
@@ -492,6 +576,9 @@ export function frameKey(frame: WebFrame): string {
     case 'choice':
       // 同一次追问只有一张卡（替换语义）
       return `choice:${frame.callId}`
+    case 'risk-questionnaire':
+      // 同一次发卷只有一张问卷卡；重新发卷会得到新的 callId，因此是新卡（旧卡留在历史里）
+      return `risk-questionnaire:${frame.callId}`
     case 'goal':
       // 会话级唯一目标条（跨 turn 替换，D8）
       return 'goal'

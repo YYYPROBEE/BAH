@@ -236,7 +236,18 @@ declare module '@bah/core' {
     /** @mode emit */
     'saga/anchor-published': { period: string; merkleRoot: string; targets: readonly string[] }
     /** @mode serial */
-    'saga/tick': { now: number; dueJobs: readonly ('janitor' | 'recon' | 'anchor' | 'plan-wake')[] }
+    'saga/tick': {
+      now: number
+      dueJobs: readonly (
+        | 'janitor'
+        | 'recon'
+        | 'anchor'
+        | 'plan-wake'
+        | 'sub-reminder'
+        | 'birthday-reminder'
+        | 'aa-expire'
+      )[]
+    }
   }
 }
 

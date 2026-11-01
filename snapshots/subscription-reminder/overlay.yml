@@ -1,0 +1,22 @@
+# subscription-reminder 快照场景的层 4 overlay（只服务录制/回放夹具，不是生产配置）。
+#
+# 两处刻意覆盖：
+#
+# 1. `interaction:approval`：`sub_watch` 是黄档写操作。`profiles/plan` 的应答者是
+#    `none`（ADR-0010：plan 没有弹窗，就不该有人替它点头）。本场景是**回归夹具**，
+#    要真的把「标提醒」写进账本，所以显式放行**普通 ask**；窗口代签保持关闭。
+#
+# 2. `proactive:reminder.catchUpOnBoot: false`：boot 补跑会与脚本的第一次 tick 抢同一个
+#    幂等 key（`sub:digest:<当天>`），谁先到谁发——那会让事件流依赖微任务调度顺序。
+#    本场景显式派发 tick，把时序钉死。
+- id: interaction:approval
+  config:
+    responder: headless
+    autoDecision: allow
+    autoVerify: true
+    windowResponder: false
+
+- id: proactive:reminder
+  config:
+    enabled: true
+    catchUpOnBoot: false

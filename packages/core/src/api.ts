@@ -402,11 +402,20 @@ export interface ToolJsonSchema {
   readonly [keyword: string]: unknown
 }
 
-/** 工具参数 schema：必须是 object 根。 */
+/** 工具 schema：必须是 object 根。 */
 export interface ToolSchema {
   type: 'object'
   properties?: Readonly<Record<string, ToolJsonSchema>>
   required?: readonly string[]
+  /**
+   * 判别式联合（出参契约用，如 `risk_assess` 的 questions / submit 两个结果形状）。
+   *
+   * 语义：**恰好命中 1 个分支**才算通过；分支必须是 object，且只允许根级一层
+   * （嵌套 `oneOf` 由校验器明确拒绝，不静默放过）。
+   * 本接口只声明形状；执行在 `@bah/util` 的 `validateAgainstSchema`（core 依赖 util，
+   * 不能反向 import，因此校验逻辑不放这里）。
+   */
+  oneOf?: readonly ToolSchema[]
 }
 
 /** 工具结果的内容块（project / finalize 阶段的单位）。 */
@@ -519,6 +528,30 @@ export type PreExecuteVerdict =
     }
 
 /**
+ * 一条审批明细的强调语义（只影响**展示**，不影响判定）。
+ *
+ * `amount`：金额类，等宽字体；`date`：时刻类，`<time>`；`risk`：风险/合规结论，用 `ds-tag`。
+ */
+export type TicketDetailEmphasis = 'amount' | 'date' | 'risk'
+
+/**
+ * 服务端签发的结构化操作明细（审批卡逐行渲染）。
+ *
+ * **只用于展示，不参与 fingerprint**：`fingerprint` 的口径是「工具名 + 参数」，
+ * 明细里出现的余额、当日已用、适当性结论等会随后续事实变化，
+ * 把它算进指纹会让「同一笔转账换个时刻就签不出票」。
+ * 也不参与票据绑定与核销判决——票据的权威仍是 `fingerprint / amount / expiresAt`。
+ *
+ * 纪律：`value` 必须是**确定性事实的字符串化**（core 现读，或本次调用的意图值），
+ * 不得放模型生成的自由文本，也不得放占位符（读不到就整条省略）。
+ */
+export interface TicketDetail {
+  readonly label: string
+  readonly value: string
+  readonly emphasis?: TicketDetailEmphasis
+}
+
+/**
  * 票据草稿：`ask` 判决请求签发时提交的绑定信息（最小冻结面）。
  *
  * 五绑定细节（会话 / 工具 / 参数指纹 / 金额 / 时效 TTL）由施工单 09 冻结；
@@ -531,6 +564,13 @@ export interface TicketDraft {
   amount?: number
   /** 票据时效（毫秒）。 */
   ttlMs: number
+  /**
+   * 结构化操作明细（**可选、只展示**）。
+   *
+   * 由治理面在 `ask` 判决里签发，管线原样带进 `approval/asked` 与审批摘要；
+   * 渠道只做投影与排版，不重新计算任何数字（否则同一笔金额会出现两份口径）。
+   */
+  details?: readonly TicketDetail[]
 }
 
 /**
@@ -546,4 +586,11 @@ export interface TicketRef {
   amount?: number
   /** 过期时刻（epoch ms），TTL 由签发时确定。 */
   expiresAt: number
+  /**
+   * 结构化操作明细（只展示；**不参与**指纹与核销判决）。
+   *
+   * 与 `TicketDraft.details` 同一份对象引用：管线不做拷贝、不做二次加工，
+   * 保证「审批卡上写的」与「票据上挂的」逐字相同。
+   */
+  details?: readonly TicketDetail[]
 }

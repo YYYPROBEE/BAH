@@ -481,3 +481,113 @@ describe('03 TA-47 · 工具层租户闸（wrong-tenant 早于 no-identity）', 
     }
   })
 })
+
+describe('动作豁免（READ_ONLY_ACTIONS）：只读分支不签票，写分支照旧 ask', () => {
+  it('risk_assess(action=questions) 按 green 放行，审计记 level=green / reason=declared', async () => {
+    const h = createPipelineHarness({ approval: 'rejected' })
+    try {
+      const execution = await h.run('risk_assess', { action: 'questions' })
+      expect(execution.result.isError).toBe(false)
+      // 没有签票、没有审批：用户点"开始测评"不该看到一张"执行 risk_assess"的确认卡
+      expect(payloads(h, 'approval/asked')).toHaveLength(0)
+      expect(auditPayloads(h, 'tier/decided')[0]).toMatchObject({
+        name: 'risk_assess',
+        level: 'green',
+        verdict: 'allow',
+        reason: 'declared',
+      })
+    } finally {
+      await h.dispose()
+    }
+  })
+
+  it('负控：risk_assess(action=submit) 仍然必须 ask（豁免只认 questions 字面量）', async () => {
+    const h = createPipelineHarness({ approval: 'allowed-once' })
+    try {
+      const issued = await h.run('risk_assess', { action: 'questions' })
+      const questionnaire = issued.value as {
+        questionnaireId: string
+        questions: readonly { index: number }[]
+      }
+      const execution = await h.run('risk_assess', {
+        action: 'submit',
+        questionnaireId: questionnaire.questionnaireId,
+        answers: questionnaire.questions.map((question) => ({
+          index: question.index,
+          key: 'middle',
+        })),
+      })
+      expect(execution.result.isError).toBe(false)
+      expect(payloads(h, 'approval/asked')).toHaveLength(1)
+      // 生效级别仍是声明的黄档（豁免没有把它顺手降成绿）
+      expect(auditPayloads(h, 'tier/decided').at(-1)).toMatchObject({
+        name: 'risk_assess',
+        level: 'yellow',
+        verdict: 'ask',
+      })
+    } finally {
+      await h.dispose()
+    }
+  })
+
+  it('aa_create(action=status) 按 green 放行（B-04），审计记 declared', async () => {
+    const h = createPipelineHarness({ approval: 'allowed-once' })
+    try {
+      const created = (
+        await h.run('aa_create', {
+          totalYuan: 20,
+          participants: [{ name: '张三' }, { name: '李四' }],
+        })
+      ).value as { groupId: string }
+      // create 是写分支：一张票
+      expect(payloads(h, 'approval/asked')).toHaveLength(1)
+
+      const status = await h.run('aa_create', { action: 'status', groupId: created.groupId })
+      expect(status.result.isError).toBe(false)
+      // status 不签票
+      expect(payloads(h, 'approval/asked')).toHaveLength(1)
+      expect(auditPayloads(h, 'tier/decided').at(-1)).toMatchObject({
+        name: 'aa_create',
+        level: 'green',
+        verdict: 'allow',
+        reason: 'declared',
+      })
+    } finally {
+      await h.dispose()
+    }
+  })
+
+  it('负控：aa_create(action=create) 仍然必须 ask（豁免只认 status 字面量）', async () => {
+    const h = createPipelineHarness({ approval: 'allowed-once' })
+    try {
+      const execution = await h.run('aa_create', {
+        totalYuan: 20,
+        participants: [{ name: '张三' }, { name: '李四' }],
+      })
+      expect(execution.result.isError).toBe(false)
+      expect(payloads(h, 'approval/asked')).toHaveLength(1)
+      expect(auditPayloads(h, 'tier/decided').at(-1)).toMatchObject({
+        name: 'aa_create',
+        level: 'yellow',
+        verdict: 'ask',
+      })
+    } finally {
+      await h.dispose()
+    }
+  })
+
+  it('未绑定身份时连只读动作也 deny（豁免在身份闸之后）', async () => {
+    const h = createPipelineHarness({ userId: null })
+    try {
+      const execution = await h.run('risk_assess', { action: 'questions' })
+      expect(execution.result.code).toBe('no-identity')
+      expect(auditPayloads(h, 'tier/decided')[0]).toMatchObject({
+        name: 'risk_assess',
+        verdict: 'deny',
+        code: 'no-identity',
+      })
+    } finally {
+      await h.dispose()
+    }
+  })
+})

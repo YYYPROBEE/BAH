@@ -132,6 +132,9 @@ async function main(): Promise<void> {
     isPackaged: app.isPackaged,
     sessionsDir: sessionsDirOf(userData),
     getWindow: () => mainWindow ?? null,
+    newConversation: () => {
+      void restartForNewConversation()
+    },
   })
 
   window.on('closed', () => {
@@ -202,6 +205,12 @@ function installMessageHandlers(window: BrowserWindow, instance: DesktopBoot): v
     }
     logJson('info', 'desktop.ipc-received', { message: IPC.ready })
   })
+
+  // 零载荷重启：页面只能"请求新对话"，不能指定会话/身份；真正的会话由新进程重新生成。
+  ipcMain.on(IPC.newConversation, () => {
+    logJson('info', 'desktop.new-conversation', {})
+    void restartForNewConversation()
+  })
 }
 
 /** 把 fatal 投给渲染进程并退出（只在窗口存在时调用）。 */
@@ -215,12 +224,16 @@ function fail(window: BrowserWindow, fatal: BootFatal): void {
 }
 
 /**
- * 收尾：dispose 宿主 → 发 shutdown → 退出。
+ * 收尾：dispose 宿主 → 发 shutdown → 退出（或重启）。
  *
  * `shutdown` 在 dispose **之后**发（此时窗口通常还活着）；窗口已销毁时用
  * `isDestroyed()` 兜底，宁可少发一条也不向已销毁的 webContents 发消息。
+ *
+ * `relaunch: true` 走同一个 dispose 路径，但最后用 `app.relaunch()` + `app.exit(0)`
+ * 而不是 `app.quit()`：新进程会重新执行 `startDesktopHost`，拿到一个新的 sessionId。
+ * 这是桌面端唯一能真正"开新对话"的方式（单进程单会话，没有 in-process 换会话能力）。
  */
-async function shutdown(reason: string): Promise<void> {
+async function shutdown(reason: string, options: { readonly relaunch?: boolean } = {}): Promise<void> {
   if (host !== undefined) {
     await stopDesktopHost(host, reason)
     host = undefined
@@ -231,5 +244,20 @@ async function shutdown(reason: string): Promise<void> {
     logJson('info', 'desktop.ipc-sent', { message: IPC.shutdown, reason })
   }
   Menu.setApplicationMenu(null)
+  if (options.relaunch === true) {
+    // 新进程重新生成访问 token：不可以把旧进程注入的 BAH_WEB_TOKEN 继承过去。
+    delete process.env['BAH_WEB_TOKEN']
+    logJson('info', 'desktop.relaunch', { reason })
+    app.relaunch()
+    app.exit(0)
+    return
+  }
   app.quit()
+}
+
+/** 用户请求新对话：走同一条收尾路径，dispose 完成后重启进程。 */
+async function restartForNewConversation(): Promise<void> {
+  if (quitting || host === undefined) return
+  quitting = true
+  await shutdown('new-conversation', { relaunch: true })
 }

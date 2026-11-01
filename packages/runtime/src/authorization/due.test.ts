@@ -47,6 +47,13 @@ describe('duePlans：到期扫描', () => {
     expect(scan.due).toHaveLength(0)
   })
 
+  it('边界取等号：dueAt === at 应当到期；expiresAt === at 仍然有效', () => {
+    const scan = duePlans([plan({ dueAt: NOW, expiresAt: NOW })], NOW, NOW)
+    expect(scan.ok).toBe(true)
+    if (!scan.ok) throw new Error('unreachable')
+    expect(scan.due.map((item) => item.planId)).toEqual(['p-1'])
+  })
+
   it('判定时刻超过 now+maxSkew ⇒ window-clock-ahead，且一条都不给', () => {
     const armed = [plan({ dueAt: NOW - 10 })]
     const scan = duePlans(armed, NOW + 10 * 60 * 1000, NOW)

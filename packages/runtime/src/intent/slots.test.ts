@@ -108,10 +108,32 @@ describe('原话抽取', () => {
     expect(extractAmountCents('随便')).toBeUndefined()
   })
 
+  it('日期/时刻里的数字不当金额（D-1）', () => {
+    // 「每月 1 号转 3500」曾经取到第一个数字 1（¥1.00）
+    expect(extractAmountCents('每月 1 号给我妈转 3500')).toEqual({ cents: 350000, span: '3500' })
+    expect(extractAmountCents('每个月1号转3500')).toEqual({ cents: 350000, span: '3500' })
+    expect(extractAmountCents('1 号还 500')).toEqual({ cents: 50000, span: '500' })
+    expect(extractAmountCents('2023年11月19日转500')).toEqual({ cents: 50000, span: '500' })
+    expect(extractAmountCents('2023-11-19 转 500')).toEqual({ cents: 50000, span: '500' })
+    expect(extractAmountCents('3 天后转 200')).toEqual({ cents: 20000, span: '200' })
+    expect(extractAmountCents('第 1 期还 800')).toEqual({ cents: 80000, span: '800' })
+  })
+
+  it('带单位时仍以单位为准（日期数字不干扰）', () => {
+    expect(extractAmountCents('每月 1 号转 3500 元')).toEqual({ cents: 350000, span: '3500 元' })
+    expect(extractAmountCents('1 号转 800 块')).toEqual({ cents: 80000, span: '800 块' })
+  })
+
   it('收款人三种说法', () => {
     expect(extractPayee('给张三转500')).toBe('张三')
     expect(extractPayee('转给李四')).toBe('李四')
     expect(extractPayee('收款人：王五')).toBe('王五')
+  })
+
+  it('11 位手机号可作为收款人（赛题 §二「按手机号转账」）', () => {
+    expect(extractPayee('给 13800005678 转 2000')).toBe('13800005678')
+    expect(extractPayee('转给13800005678 200 元')).toBe('13800005678')
+    expect(extractPayee('收款人：13800005678')).toBe('13800005678')
   })
 
   it('代词与纯数字不入收款人槽位', () => {

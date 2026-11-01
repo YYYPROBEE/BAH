@@ -14,18 +14,26 @@ import {
   MERCHANT_OFFERS,
   MERCHANT_FAULTS,
   applyFault,
+  commitOffer,
+  merchantCategoryOf,
   orderOffer,
+  releaseOffer,
+  reserveOffer,
   searchOffers,
-  type OfferCategory,
-  type MerchantConstraints,
+  type CardSpendResult,
+  type MerchantCommitResult,
   type MerchantFault,
   type MerchantOffer,
+  type MerchantReservation,
+  type OfferCategory,
+  type MerchantConstraints,
 } from '@bah/bank'
 import { BahError } from '@bah/util'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
 import { readBoolean, readEnum, rejectUnknownKeys } from '../config.ts'
+import { BANK_CARD_SPEND } from './bank-tools.ts'
 
 /** 一次履约的尝试（逐条可审计）。 */
 export interface MerchantAttempt {
@@ -44,17 +52,71 @@ export interface MerchantFulfilment {
     readonly totalCents: number
   }
   readonly attempts: readonly MerchantAttempt[]
+  /** 涨价降级时的事实（分）：用户批准价 vs 唤醒时预占价（ADR-0013）。 */
+  readonly price?: {
+    readonly approvedCents: number
+    readonly currentCents: number
+  }
 }
 
-/** 商户服务（窄面：搜索 + 履约）。 */
+/** 预占结论（先订后付的"订"；**不产生任何资金动作**）。 */
+export type MerchantReserveOutcome =
+  | {
+      readonly ok: true
+      readonly attempts: readonly MerchantAttempt[]
+      readonly reservation: MerchantReservation
+    }
+  | { readonly ok: false; readonly attempts: readonly MerchantAttempt[] }
+
+/** 提交结论（把预占转成成交）。 */
+export type MerchantCommitOutcome =
+  | {
+      readonly ok: true
+      readonly attempts: readonly MerchantAttempt[]
+      readonly order: {
+        readonly orderId: string
+        readonly offerId: string
+        readonly merchantName: string
+        readonly totalCents: number
+      }
+    }
+  | { readonly ok: false; readonly attempts: readonly MerchantAttempt[] }
+
+/** 商户服务（窄面：搜索 + 履约 + 只读查价 + 两阶段预占）。 */
 export interface MerchantService {
   readonly search: (constraints: MerchantConstraints, sessionKey: string) => readonly MerchantOffer[]
+  /**
+   * 按 `offerId` 只读查当前报价（含演示故障开关后的生效价）。
+   *
+   * **不是 `search` 的别名**：`search` 会把结果写进"本会话搜过"的引用闭包，
+   * 让该 offer 之后可以被 `fulfil` 下单。审批明细只需要**读价**，绝不能顺手把
+   * 一个没搜过的 offer 变成可下单——那等于开了一个绕过引用闭包的后门。
+   */
+  readonly offer: (offerId: string) => MerchantOffer | undefined
+  /** 本会话是否搜到过该 offer（引用闭包的只读探针，不改变闭包）。 */
+  readonly orderable: (sessionKey: string, offerId: string) => boolean
   /** 下单 + 失败换店（上限 2 家）；`offerId` 不在本会话搜索闭包里即拒。 */
   readonly fulfil: (
     sessionKey: string,
     offerId: string,
     budgetCents: number,
   ) => MerchantFulfilment
+  /**
+   * 预占（先订后付的"订"）：**不扣款、不成交，也不判预算**。
+   *
+   * 引用闭包先判（没搜过的 offer 不许预占），再判缺货/超时。
+   * 预算与"用户批准价"的比对由调用方做——只有它知道用户批准的是多少钱。
+   * `seq` 由调用方给（同一 seq + 同一 offer → 同一 orderId，可幂等）。
+   */
+  readonly reserve: (
+    sessionKey: string,
+    offerId: string,
+    seq: string,
+  ) => MerchantReserveOutcome
+  /** 提交（确认成交）：价格变了 / 库存没了就失败，调用方据此冲正银行腿。 */
+  readonly commit: (reservation: MerchantReservation) => MerchantCommitOutcome
+  /** 释放预占（不成交；mock 语义动作）。 */
+  readonly release: (reservation: MerchantReservation) => void
   /** 当前故障开关（只读观测）。 */
   readonly fault: () => MerchantFault
 }
@@ -92,6 +154,9 @@ export const merchantPlugin: HostPlugin<MerchantSettings> = {
 
       const service: MerchantService = {
         fault: () => settings.fault,
+        offer: (offerId) =>
+          applyFault(MERCHANT_OFFERS, settings.fault).find((offer) => offer.offerId === offerId),
+        orderable: (sessionKey, offerId) => seen.get(sessionKey)?.has(offerId) ?? false,
         search: (constraints, sessionKey) => {
           const offers = searchOffers(applyFault(MERCHANT_OFFERS, settings.fault), constraints)
           const bucket = seen.get(sessionKey) ?? new Set<string>()
@@ -157,6 +222,53 @@ export const merchantPlugin: HostPlugin<MerchantSettings> = {
           }
           return { status: 'failed', attempts }
         },
+        reserve: (sessionKey, offerId, seq) => {
+          // 引用闭包先判：没搜过的 offer 连"占位"都不许（否则预占本身就是后门）
+          if (!seen.get(sessionKey)?.has(offerId)) {
+            return {
+              ok: false,
+              attempts: [{ offerId, ok: false, code: 'offer-not-searched' }],
+            }
+          }
+          const reserved = reserveOffer(MERCHANT_OFFERS, offerId, settings.fault, seq)
+          if (!reserved.ok) {
+            return {
+              ok: false,
+              attempts: [{ offerId, ok: false, code: reserved.code }],
+            }
+          }
+          return {
+            ok: true,
+            attempts: [{ offerId, ok: true }],
+            reservation: reserved.reservation,
+          }
+        },
+        commit: (reservation) => {
+          const committed: MerchantCommitResult = commitOffer(
+            MERCHANT_OFFERS,
+            reservation,
+            settings.fault,
+          )
+          if (!committed.ok) {
+            return {
+              ok: false,
+              attempts: [{ offerId: committed.offerId, ok: false, code: committed.code }],
+            }
+          }
+          return {
+            ok: true,
+            attempts: [{ offerId: committed.offerId, ok: true }],
+            order: {
+              orderId: committed.orderId,
+              offerId: committed.offerId,
+              merchantName: committed.merchantName,
+              totalCents: committed.totalCents,
+            },
+          }
+        },
+        release: (reservation) => {
+          releaseOffer(reservation)
+        },
       }
 
       ctx.effect(ctx.provide(MERCHANT_SERVICE, service))
@@ -208,22 +320,141 @@ export const merchantPlugin: HostPlugin<MerchantSettings> = {
       ctx.effect(
         registry.register({
           name: 'merchant_order',
-          description: '向商户下单（内部工具；不暴露给模型）。',
+          description:
+            '向商户下单（黄档写操作）。必须先用 merchant_search 拿到 offerId（不许自己编）；' +
+            '超预算会换店或失败，全程不擅自加价；带 viaCardId 时先扣款再下单，扣款失败不落订单。' +
+            '用户明确说“订/买这束花/这个蛋糕”时用；只查商品请用 merchant_search。',
           schema: {
             type: 'object',
-            properties: { offerId: { type: 'string', description: 'merchant_search 返回的 offerId' } },
-            required: ['offerId'],
+            properties: {
+              offerId: {
+                type: 'string',
+                description: 'merchant_search 返回的 offerId（与 category 二选一；有它就按它订）',
+              },
+              category: {
+                type: 'string',
+                enum: ['flower', 'cake'],
+                description:
+                  '品类（没给 offerId 时必填）：flower=鲜花 / cake=蛋糕。系统在本会话按品类+预算搜一次再订第一个。',
+              },
+              budgetYuan: { type: 'number', description: '预算上限（元；超预算换店或失败）' },
+              viaCardId: {
+                type: 'string',
+                description: '用哪张卡支付（可选；给了就先扣款再下单，扣款失败不落订单）',
+              },
+            },
+            required: [],
           },
           tier: { level: 'yellow' },
           sideEffect: 'write',
-          exposure: 'internal',
           execute: async (args) => {
             const record = args as Readonly<Record<string, unknown>>
-            const offerId = typeof record['offerId'] === 'string' ? record['offerId'] : ''
+            const budgetCents =
+              typeof record['budgetYuan'] === 'number' &&
+              Number.isFinite(record['budgetYuan']) &&
+              record['budgetYuan'] > 0
+                ? Math.round(record['budgetYuan'] * 100)
+                : Number.MAX_SAFE_INTEGER
+            const sessionKey = String(run.sessionId)
+            let offerId = typeof record['offerId'] === 'string' ? record['offerId'].trim() : ''
+            /**
+             * 没给 offerId 时按品类现搜一次（2026-11-01）。
+             *
+             * 用户说"订一束 200 的花"时手里没有 offerId；让他先搜再回传，
+             * 等于把一次意图拆成两轮。这里的 search 会正常写进"本会话搜过"闭包，
+             * 所以引用闭包没有被绕过——只是把两步合在服务端做。
+             */
             if (offerId.length === 0) {
-              throw new BahError('merchant-invalid', 'merchant_order: offerId 必填', {})
+              const rawCategory = record['category']
+              if (rawCategory !== 'flower' && rawCategory !== 'cake') {
+                throw new BahError(
+                  'merchant-invalid',
+                  'merchant_order: offerId 与 category 必须给一个',
+                  {},
+                )
+              }
+              const offers = service.search({ category: rawCategory, budgetCents }, sessionKey)
+              const first = offers[0]
+              if (first === undefined) {
+                return {
+                  status: 'failed',
+                  attempts: [{ offerId: '', ok: false, code: 'no-offer' }],
+                }
+              }
+              offerId = first.offerId
             }
-            return service.fulfil(String(run.sessionId), offerId, Number.MAX_SAFE_INTEGER)
+            const viaCardId =
+              typeof record['viaCardId'] === 'string' ? record['viaCardId'].trim() : ''
+            let payment: CardSpendResult | undefined
+            if (viaCardId.length > 0) {
+              const offer = service.offer(offerId)
+              if (offer === undefined) {
+                return { status: 'failed', attempts: [{ offerId, ok: false, code: 'unknown-offer' }] }
+              }
+              // 引用闭包先判：没搜过的 offer 一分钱都不该先扣
+              if (!service.orderable(sessionKey, offerId)) {
+                return {
+                  status: 'failed',
+                  attempts: [{ offerId, ok: false, code: 'offer-not-searched' }],
+                }
+              }
+              // 扣款前预检（缺货 / 超时 / 超预算）：避免"扣了钱但下不了单"
+              const preflight = orderOffer(MERCHANT_OFFERS, offerId, settings.fault, 0)
+              if (!preflight.ok) {
+                return {
+                  status: 'failed',
+                  attempts: [{ offerId, ok: false, code: preflight.code }],
+                }
+              }
+              if (preflight.totalCents > budgetCents) {
+                return {
+                  status: 'failed',
+                  attempts: [{ offerId, ok: false, code: 'over-budget' }],
+                }
+              }
+              let port
+              try {
+                port = ctx.get(BANK_CARD_SPEND)
+              } catch (error) {
+                if ((error as { code?: string }).code !== 'service-missing') throw error
+                throw new BahError(
+                  'card-spend-unavailable',
+                  'merchant_order: 未装配 bank:tools，卡消费不可用',
+                  {},
+                )
+              }
+              payment = await port.spend(sessionKey, {
+                cardId: viaCardId,
+                merchantCategory: merchantCategoryOf(offer.merchantName),
+                amountCents: preflight.totalCents,
+                memo: `${offer.merchantName}·${offer.name}`,
+              })
+            }
+            const fulfilment = service.fulfil(sessionKey, offerId, budgetCents)
+            const result = fulfilment.order === undefined
+              ? { ...fulfilment, ...(payment === undefined ? {} : { payment }) }
+              : {
+                  ...fulfilment,
+                  order: { ...fulfilment.order, totalYuan: fulfilment.order.totalCents / 100 },
+                  ...(payment === undefined ? {} : { payment }),
+                }
+            // 扣款后没有按预检成交：不许装作"已下单"；退款/补偿归提示词 3
+            if (
+              payment !== undefined &&
+              (fulfilment.status !== 'ok' ||
+                fulfilment.order?.offerId !== offerId ||
+                fulfilment.order?.totalCents !== payment.amountCents)
+            ) {
+              return {
+                ...result,
+                status: 'failed',
+                attempts: [
+                  ...fulfilment.attempts,
+                  { offerId, ok: false, code: 'payment-without-order' },
+                ],
+              }
+            }
+            return result
           },
         }),
       )

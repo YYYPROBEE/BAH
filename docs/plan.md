@@ -137,6 +137,16 @@ V9 为什么是**闭包**而不是直接 `deps`：串行执行下只有"拓扑�
 | `dryRunDefault` | `false` | `run()` 不传 `dryRun` 时的缺省 |
 | `ticketTtlMs` | `120000` | 票据 TTL，**只用于越界判定**，不参与执行 |
 | `maxNodeAttempts` | `3` | 同一节点允许的**失败次数**（含首次），按 `plan/node-result(status='failed')` 累计；达到即拒绝再 `resume` 重试 |
+| `dueSoonLeadMs` | `86400000`（24h） | 到期前提醒的提前量；`0` = 关闭。只产出 `plan_wake.notified[].text`，**不执行**任何节点 |
+
+`dueSoonLeadMs` 是提示词 4-2（2026-11-01）新增的键：窗口进入 `[dueAt - lead, dueAt)` 时，
+唤醒执行器发一条 `exec` 级提醒（`notified[].text`，同实例只发一次；进程内账本，重启后再提醒一次）。
+它只影响播报，不影响判定：到点是否扣款仍由窗口复验 + 代签核验决定。
+
+同批还补了**失守回执**：`window-expired` / `details-changed` / `condition-failed` 三类
+在 `plan_wake.notified[].text` 里各有一句话（`planNoticeText()`，只读窗口自己的 durable 字段）。
+`duePlans` 只扫"未过有效期"的窗口，因此**过期窗口**由唤醒执行器单独扫一遍报
+`failed(window-expired)`（不执行、不补扣）；这是计划卡 `expired` 态的投影来源。
 
 `ticketTtlMs` 是方案 5 键之外的第 6 键：票据 TTL 的真源在 `bank:tools.ticketTtlSeconds`，
 插件之间拿不到彼此的配置，与其在代码里写死一个会过期的常数，不如让它成为显式配置——
@@ -179,7 +189,7 @@ V9 为什么是**闭包**而不是直接 `deps`：串行执行下只有"拓扑�
 W12 之后 saga 自身已具备真冲正（`MockBankCore.reverse(txnId)`，两条流水 + 幂等），但那是 saga 层的能力：
 要让"第 3 步失败、第 2 步已扣款要退"发生在 plan 里，正确做法仍是让 **plan 编排 saga**
 （节点 = 一整笔 saga），而不是让 saga 藏在某个节点里。这条留给 P2。
-W12/W05/W06 待办单（2026-10-26，已撤下）的 TC-W12-06 是**配置断言**（profile 里 `enabled: false`），
+历史排期单的 TC-W12-06 是**配置断言**（profile 里 `enabled: false`），
 不是代码级承诺——有人改了 patch，plan 节点就会重新进入 saga 桥接。
 
 判断口诀：**plan 决定"做哪几件事"，saga 决定"一件事做坏了怎么退"。两者是嵌套，不是并列。**
@@ -260,10 +270,11 @@ api.snapshot(plan.planId)                      // 运行中或已完成的快照
 | 引擎 `now: () => Date.now()` | 取 `bah:run` 的注入钟 | 与主循环同一时间轴，且快照回放要逐字节相等 |
 | 本文件的位置：方案写作 docs/plugins/plan.md | `docs/plan.md` | 本仓 `docs/` 是平铺的（`pipeline.md` / `sandbox.md` / `bank-tools.md`），不另开子目录 |
 | `PlanSettings` 5 键 | 6 键（多一个 `ticketTtlMs`） | 票据 TTL 的真源在 `bank:tools`，插件之间拿不到彼此的配置；写死常数会让"< TTL"的判定随时间说谎 |
+| `PlanSettings` 6 键 | 补 `modelTools` / `modelMaxNodes` / `dueSoonLeadMs` 后共 **10 键** | 模型入口默认关闭且要单独的上限；到期前提醒需要可关（`0`）的提前量。三者都有缺省值，不写配置行为不变 |
 | 快照 3 场景 | 1 个录音场景（链式 3 节点）+ 单测/集成覆盖失败与 dry-run 分支 | 快照的职责是"整条链路可复现"，不是把每条分支再录一遍；录得越多重录越贵。**不录 cancel**（依赖事件循环时序，会 flaky） |
 | `plan/` 未进 100% 覆盖率强制名单 | 未加 | 方案未要求；引擎里有一条不可达的防御分支（`depsSatisfied` 兜底），进名单会逼人给死代码写测试 |
 | W11「动态 args 取上游 output」 | `ToolExecution` 增两个**只读**字段：`value`（结构化原值）、`approvalWaitedMs`（审批等待） | `result.content` 是 `projectContent` 之后的**渲染投影**，按字段取不到东西；审批等待只有管线知道。两者都只在内存、不进事件，且默认缺省 ⇒ 对既有消费方零影响 |
-| W11「`incident` 落 `failed` + `code`」 | 不改冻结的三值 `node-result.status`，也不新增 `plan/node-incident` | `status` 与 `code` 同时承载"是不是外部故障"会造成两个判定者；新增事件会让"终态计数"认两个事件族。取舍记录见本表 |
+| W11「`incident` 落 `failed` + `code`」 | 不改冻结的三值 `node-result.status`，也不新增 `plan/node-incident` | `status` 与 `code` 同时承载"是不是外部故障"会造成两个判定者；新增事件会让"终态计数"认两个事件族。见 `PROGRESS.md` §70.1 |
 
 ## 12. 续跑（P1 已做）与仍未做的部分
 

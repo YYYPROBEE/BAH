@@ -11,6 +11,9 @@
  */
 
 import type {
+  AaGroupId,
+  AaGroupStatus,
+  AaParticipantStatus,
   AccountId,
   AccountStatus,
   AccountType,
@@ -19,6 +22,8 @@ import type {
   BillAnomaly,
   CancelVerdict,
   CardId,
+  CardKind,
+  CardRestrictionKind,
   ChargeCycle,
   Confidence,
   CardStatus,
@@ -283,6 +288,123 @@ export interface WealthPurchaseResult {
   }
 }
 
+/** 风险问卷的一个选项（渠道渲染用；分值随卷下发，渠道不自己乘系数）。 */
+export interface RiskQuestionOptionView {
+  readonly key: string
+  readonly text: string
+  readonly score: number
+}
+
+/** 风险问卷的一道题。 */
+export interface RiskQuestionView {
+  readonly index: number
+  readonly title: string
+  readonly options: readonly RiskQuestionOptionView[]
+}
+
+/** 服务端下发的问卷（`action="questions"`）。 */
+export interface RiskQuestionnaireView {
+  readonly questionnaireId: string
+  readonly version: string
+  readonly issuedAt: number
+  readonly expiresAt: number
+  readonly questions: readonly RiskQuestionView[]
+}
+
+/** 一条作答（题号 + 选项键）。 */
+export interface RiskAnswerView {
+  readonly index: number
+  readonly key: string
+}
+
+/**
+ * `risk_assess(action="questions")` 的结果：只有问卷，没有落档。
+ *
+ * 字段平铺而不是嵌套一层 `questionnaire`：两个动作因此共享
+ * `questionnaireId / version / at` 三个键，渠道与审计只有一种读法。
+ */
+export interface RiskQuestionsResult extends RiskQuestionnaireView {
+  readonly action: 'questions'
+  readonly at: number
+}
+
+/**
+ * `risk_assess(action="submit")` 的结果：落档结论 + 确认凭证。
+ *
+ * `questionnaireId / version` 必须回显：审计要把「这条等级变更」钉到具体一张卷上，
+ * 只留 `answers` 的话，同一组答案在换卷后就分不清是哪一次作答。
+ */
+export interface RiskSubmitResult {
+  readonly action: 'submit'
+  readonly questionnaireId: string
+  readonly version: string
+  readonly answers: readonly RiskAnswerView[]
+  readonly score: number
+  readonly from: RiskGrade
+  readonly to: RiskGrade
+  readonly at: number
+}
+
+/** `risk_assess` 的结果（两动作的判别式联合）。 */
+export type RiskAssessResult = RiskQuestionsResult | RiskSubmitResult
+
+/** 一条持仓（`wealth_positions`）。 */
+export interface WealthHoldingView {
+  readonly holdingId: HoldingId
+  readonly productId: ProductId
+  readonly productName: string
+  readonly shares: number
+  readonly costCents: number
+  readonly marketValueCents: number
+  readonly profitCents: number
+}
+
+/** `wealth_positions` 的结果。 */
+export interface WealthPositionsResult {
+  readonly holdings: readonly WealthHoldingView[]
+  readonly totalCostCents: number
+  readonly totalMarketValueCents: number
+  readonly totalProfitCents: number
+  readonly disclaimerId: string
+}
+
+/** `wealth_redeem` 的结果。 */
+export interface WealthRedeemResult {
+  readonly holdingId: HoldingId
+  readonly productId: ProductId
+  readonly productName: string
+  readonly amountCents: number
+  readonly shares: number
+  readonly txnId: TxnId
+  readonly balanceCents: number
+  readonly availableCents: number
+  readonly disclaimerId: string
+  readonly at: number
+}
+
+/** 一条 AA 参与人（`aa_create` 的结果；手机号不出口，避免 PII 进事件/模型历史）。 */
+export interface AaParticipantView {
+  readonly name: string
+  readonly shareCents: number
+  readonly status: AaParticipantStatus
+  readonly paidAt?: number
+}
+
+/** `aa_create` 的创建/查询结果。 */
+export interface AaGroupResult {
+  readonly groupId: AaGroupId
+  readonly title: string
+  readonly totalCents: number
+  readonly collectedCents: number
+  /** 仍为 `pending` 的份额合计；`declined` / `expired` 不计入（它们不会再进钱）。 */
+  readonly pendingCents: number
+  readonly status: AaGroupStatus
+  readonly participants: readonly AaParticipantView[]
+  readonly createdAt: number
+  /** 收款截止时刻（epoch ms）；本次改动前创建的历史组可能没有。 */
+  readonly expiresAt?: number
+}
+
 /** 强验证结果。 */
 export interface VerifyResult {
   readonly channel: 'face' | 'sms' | 'ushield'
@@ -303,8 +425,96 @@ export interface CardView {
   readonly status: CardStatus
   /** 单笔/日累计限额（分）；展示用，判定仍以 core 为准。 */
   readonly dailyLimitCents: number
-  /** 月度限额（分）。当前账本不参与判定（`core/model.ts:168` 零读取），只作展示。 */
+  /** 月度限额（分）：以卡转账/消费按"同卡近 30 天滚动窗口"真判定（不复用自然月口径）。 */
   readonly monthlyLimitCents: number
+  /** 交易限制（非空才出现；让 account_list 能回读限制状态）。 */
+  readonly restrictions?: readonly CardRestrictionView[]
+  /**
+   * 卡产品（ADR-0015；缺省 = 借记）。
+   *
+   * 信用产品才带 `kind/creditLimitCents/usedCreditCents` 三件套——借记卡的视图形状
+   * 与改动前逐字一致（老渠道不认识这三个字段也不需要认识）。
+   */
+  readonly kind?: CardKind
+  /** 授信额度（分）；仅信用产品。 */
+  readonly creditLimitCents?: number
+  /** 已用额度（分）；仅信用产品。可用额度 = 授信 − 已用（不落字段，避免第二份真相）。 */
+  readonly usedCreditCents?: number
+}
+
+/** `card_apply` 的结果。 */
+export interface CardIssuedResult {
+  readonly cardId: CardId
+  readonly accountId: AccountId
+  readonly tail: string
+  readonly type: CardType
+  readonly status: 'normal'
+  readonly dailyLimitCents: number
+  readonly monthlyLimitCents: number
+  /** 卡产品（ADR-0015；缺省 = 借记）；信用产品才出现。 */
+  readonly kind?: CardKind
+  /** 授信额度（分）；仅信用产品。 */
+  readonly creditLimitCents?: number
+  /** 已用额度（分）；新卡恒为 0，仅信用产品出现。 */
+  readonly usedCreditCents?: number
+  /** 补发场景：被替换的旧卡（已挂失）。 */
+  readonly replacedCardId?: CardId
+  readonly at: number
+}
+
+/** `card_limit_set` 的结果。 */
+export interface CardLimitsResult {
+  readonly cardId: CardId
+  readonly tail: string
+  readonly dailyLimitCents: number
+  readonly monthlyLimitCents: number
+  readonly changed: boolean
+  /** 卡产品（ADR-0015；缺省 = 借记）；信用产品才出现。 */
+  readonly kind?: CardKind
+  /** 变更后的授信额度（分）；仅信用产品。 */
+  readonly creditLimitCents?: number
+  /** 变更时的已用额度（分）；仅信用产品。 */
+  readonly usedCreditCents?: number
+  readonly at: number
+}
+
+/** 一条交易限制（展示/出参用）。 */
+export interface CardRestrictionView {
+  readonly kind: CardRestrictionKind
+  readonly value?: string
+  readonly note?: string
+  readonly at: number
+}
+
+/** `card_restriction` 的结果。 */
+export interface CardRestrictionsResult {
+  readonly cardId: CardId
+  readonly tail: string
+  readonly mode: 'set' | 'clear'
+  readonly restrictions: readonly CardRestrictionView[]
+  readonly changed: boolean
+  readonly at: number
+}
+
+/**
+ * 卡消费视图（`spendOnCard` 的出参；宿主 `merchant_order` 的 `payment` 字段用）。
+ *
+ * 金额与额度都是**卡口径**（同卡近 30 天），不是账户转账口径。
+ */
+export interface CardSpendView {
+  readonly cardId: CardId
+  readonly tail: string
+  readonly txnId: TxnId
+  readonly merchantCategory: MerchantCategory
+  readonly amountCents: number
+  readonly memo?: string
+  readonly dailyUsedCents: number
+  readonly dailyLimitCents: number
+  readonly monthlyUsedCents: number
+  readonly monthlyLimitCents: number
+  readonly balanceCents: number
+  readonly availableCents: number
+  readonly at: number
 }
 
 /** 订阅视图（P1）。 */

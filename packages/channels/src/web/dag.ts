@@ -83,6 +83,17 @@ export class DagBuilder {
     this.link(graph, id, step)
   }
 
+  /** 生效档位回写（`tier/decided`）：声明档位可能是黄级，策略上升后必须画红。 */
+  retier(callId: string, tier: FrameTier): void {
+    const turn = this.turnOfCall.get(callId)
+    if (turn === undefined) return
+    const graph = this.graph(turn)
+    const index = graph.nodes.findIndex((node) => node.id === callNodeId(callId))
+    const node = index < 0 ? undefined : graph.nodes[index]
+    if (node === undefined) return
+    graph.nodes[index] = { ...node, tier }
+  }
+
   /** 结果到达：成功 → `ok`；失败 → 下游待执行节点标记 `blocked`。 */
   settle(callId: string, ok: boolean): void {
     const turn = this.turnOfCall.get(callId)

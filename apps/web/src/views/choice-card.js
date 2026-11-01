@@ -31,7 +31,23 @@ export function renderChoiceCard(frame, deps = {}) {
   const submit = typeof deps.submit === 'function' ? deps.submit : null
   const focusComposer = typeof deps.focusComposer === 'function' ? deps.focusComposer : null
   const optionsBox = el('div', { class: 'choice-card__options', dataset: { role: 'choice-options' } })
-  const error = el('p', { class: 'choice-card__error', role: 'alert', hidden: true })
+  const errorText = el('span', { class: 'choice-card__error-text', dataset: { role: 'choice-error-text' } })
+  const retry = el('button', {
+    class: 'choice-card__retry',
+    type: 'button',
+    'aria-label': '重试发送',
+    title: '重试发送',
+    dataset: { role: 'choice-retry' },
+    hidden: true,
+  }, [icon('refresh', 14)])
+  const error = el('div', { class: 'choice-card__error', role: 'alert', hidden: true }, [errorText, retry])
+  let failedLabel = null
+  retry.addEventListener('click', () => {
+    if (failedLabel === null) return
+    error.hidden = true
+    retry.hidden = true
+    void pick(failedLabel)
+  })
   const section = el(
     'section',
     {
@@ -40,7 +56,7 @@ export function renderChoiceCard(frame, deps = {}) {
       'aria-label': '选择题',
     },
     [
-      el('p', { class: 'choice-card__prompt' }, [icon('chat', 16), el('span', { text: frame.prompt })]),
+      el('p', { class: 'choice-card__prompt' }, [icon('message', 16), el('span', { text: frame.prompt })]),
       optionsBox,
       error,
     ],
@@ -54,9 +70,11 @@ export function renderChoiceCard(frame, deps = {}) {
     if (submit === null || inFlight) return
     inFlight = true
     error.hidden = true
+    retry.hidden = true
     for (const button of buttons) button.disabled = true
     const result = await submit(label)
     if (result?.ok === true) {
+      failedLabel = null
       section.dataset.state = 'picked'
       clear(optionsBox)
       optionsBox.append(el('p', { class: 'ds-tag ds-tag--success', text: `已选择：${label}` }))
@@ -64,9 +82,11 @@ export function renderChoiceCard(frame, deps = {}) {
     }
     // 失败不静默吞：恢复可点 + 行内错误（结构化理由优先，绝不显示空错误）
     inFlight = false
+    failedLabel = label
     for (const button of buttons) button.disabled = false
     error.hidden = false
-    error.textContent = `发送失败：${String(result?.message ?? result?.reason ?? result?.code ?? 'unknown')}`
+    errorText.textContent = `发送失败：${String(result?.message ?? result?.reason ?? result?.code ?? 'unknown')}`
+    retry.hidden = false
   }
 
   for (const option of (frame.options ?? []).slice(0, MAX_OPTIONS)) {
@@ -80,7 +100,7 @@ export function renderChoiceCard(frame, deps = {}) {
         onclick: () => void pick(option.label),
       },
       [
-        icon('chat', 16),
+        icon('right', 16),
         el('span', { class: 'choice-card__option-text' }, [
           el('span', { text: option.label }),
           ...(option.hint === undefined

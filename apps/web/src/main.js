@@ -12,11 +12,23 @@
  */
 
 import { bootstrapPasswordGate, logout, readAuthMode } from './auth.js'
+import { BRAND } from './brand.js'
 import { clear, el, icon } from './dom.js'
 import { createObservability } from './observability.js'
 import { formatWaited } from './format.js'
+import { applyFontScale, createFeedbackStore, createPrefs, feedbackKeyOf, isLargeFont, PREF_KEYS } from './prefs.js'
+import { createSpeaker } from './speech.js'
+import { scrollToBottom } from './scroll.js'
 import { approvalDecision, createStore, pendingApproval, viewKey } from './store.js'
 import { connectEvents, createHttpApi, createSessionControlClient } from './transport.js'
+import {
+  answerFooterModel,
+  renderAnswerFooter,
+  renderAssistPanel,
+  renderQuickActions,
+  renderSafetyChip,
+} from './views/assist.js'
+import { createDialog } from './views/dialog.js'
 import {
   CONVERSATION_KINDS,
   renderDraft,
@@ -24,7 +36,7 @@ import {
   renderFrame,
 } from './views/conversation.js'
 import { createApprovalController } from './views/approval.js'
-import { renderAudit, renderAuditEmpty, renderAuditSummary } from './views/audit.js'
+import { renderAudit, renderAuditCounts, renderAuditEmpty, renderAuditSummary } from './views/audit.js'
 import { renderDag, renderDagEmpty } from './views/dag.js'
 import { renderObserve } from './views/observe.js'
 
@@ -86,12 +98,61 @@ export function mountApp(options) {
   // 显式可注入是为了用例不碰真实网络（与 api / transport 同一套依赖注入）。
   const control = options.control ?? createSessionControlClient()
   const store = createStore()
+  const prefs = createPrefs()
+  const feedbackStore = createFeedbackStore(prefs)
+  const speaker = createSpeaker(typeof window === 'undefined' ? undefined : window)
+  applyFontScale(typeof document === 'undefined' ? undefined : document, isLargeFont(prefs) ? 'large' : 'normal')
+  speaker.setEnabled(prefs.get(PREF_KEYS.speech) === '1')
+
+  const feedbackDeps = {
+    value: (frame) => feedbackStore.get(feedbackKeyOf(store.state().sessionId, frame.seq)),
+    rate: (frame, value) => feedbackStore.rate(feedbackKeyOf(store.state().sessionId, frame.seq), value),
+  }
 
   const sessionLabel = el('span', { class: 'app-header__session', text: '会话 —' })
   const statusDot = el('span', { class: 'app-header__status is-connecting' }, [
     el('span', { class: 'app-header__dot' }),
     el('span', { class: 'app-header__status-text', text: STATUS.connecting.label }),
   ])
+
+  // 只有 Electron 桌面壳有 preload 桥；普通 Web / 移动没有真正的"新会话"能力
+  // （宿主单进程单会话），因此不渲染这个按钮，不造一个点了只刷新页面的假入口。
+  const desktopBridge = typeof globalThis === 'undefined' ? undefined : globalThis.bahDesktop
+  const newConversationTool =
+    typeof desktopBridge?.newConversation === 'function'
+      ? el('button', {
+          class: 'app-header__tool app-header__tool--labeled',
+          type: 'button',
+          'aria-label': '新对话',
+          title: '开始新对话（重启桌面客户端）',
+          dataset: { role: 'new-conversation' },
+        }, [icon('message', 16), el('span', { class: 'app-header__tool-label', text: '新对话' })])
+      : null
+
+  const helpTool = el('button', {
+    class: 'app-header__tool',
+    type: 'button',
+    'aria-label': '服务与帮助',
+    title: '服务与帮助',
+    dataset: { role: 'help' },
+  }, [icon('help', 16)])
+  const fontTool = el('button', {
+    class: `app-header__tool${isLargeFont(prefs) ? ' is-on' : ''}`,
+    type: 'button',
+    'aria-label': '大字模式',
+    'aria-pressed': isLargeFont(prefs) ? 'true' : 'false',
+    title: '大字模式（适老化）',
+    dataset: { role: 'font-scale' },
+  }, [icon('font', 16)])
+  const speakTool = el('button', {
+    class: `app-header__tool${speaker.enabled ? ' is-on' : ''}`,
+    type: 'button',
+    'aria-label': '语音播报',
+    'aria-pressed': speaker.enabled ? 'true' : 'false',
+    title: '语音播报助手回复',
+    dataset: { role: 'speech' },
+    hidden: !speaker.supported,
+  }, [icon(speaker.enabled ? 'speak-on' : 'speak-off', 16)])
 
   const conversation = el('section', {
     class: 'conversation',
@@ -155,7 +216,7 @@ export function mountApp(options) {
   const composerInput = el('textarea', {
     class: 'ds-textarea composer__input',
     rows: 1,
-    placeholder: '说点什么，例如「给王建国转 800 元」（Enter 发送，Shift+Enter 换行）',
+    placeholder: '在这里输入消息',
     'aria-label': '输入消息',
   })
   /** 接管期间换成"消息会转给坐席"；交回后恢复。 */
@@ -179,7 +240,7 @@ export function mountApp(options) {
       disabled: true,
       title: '会话分叉属施工单 14（未落地）；此处显式禁用，避免假装可用',
     },
-    [icon('branch', 14), '回到上一步'],
+    [icon('back', 14), '回到上一步'],
   )
   // 转人工：服务端 `POST /api/handoff` 一直是通的，桌面壳此前没有任何入口，
   // 于是"客户请求人工"这一幕只能在移动壳演。失败要给 toast，禁用态由接管帧决定。
@@ -190,12 +251,48 @@ export function mountApp(options) {
       type: 'button',
       title: '请求人工坐席接管',
     },
-    [icon('agent', 14), '转人工'],
+    [icon('person', 14), '转人工'],
   )
 
+  const composerStatusText = el('span', { class: 'composer__status-text', text: '助手正在处理…' })
+  const composerStatus = el('p', {
+    class: 'composer__status',
+    role: 'status',
+    dataset: { role: 'composer-status' },
+    hidden: true,
+  }, [icon('clock', 14), composerStatusText])
+
+  const composerErrorText = el('span', { class: 'composer__error-text', dataset: { role: 'composer-error-text' } })
+  const composerRetry = el('button', {
+    class: 'composer__retry',
+    type: 'button',
+    'aria-label': '重试发送',
+    title: '重试发送',
+    dataset: { role: 'composer-retry' },
+    hidden: true,
+  }, [icon('refresh', 14)])
+  const composerError = el('div', {
+    class: 'composer__error',
+    role: 'alert',
+    dataset: { role: 'composer-error' },
+    hidden: true,
+  }, [composerErrorText, composerRetry])
+
   const composer = el('form', { class: 'composer', id: 'composer' }, [
-    composerInput,
-    el('div', { class: 'composer__actions' }, [stopButton, handoffButton, backButton, sendButton]),
+    composerStatus,
+    el('div', { class: 'composer__row' }, [
+      composerInput,
+      el('div', { class: 'composer__actions' }, [stopButton, handoffButton, backButton, sendButton]),
+    ]),
+    el('p', {
+      class: 'composer__disclaimer',
+      text: '费率与政策以银行官方公布为准 · 高风险操作需出示审批票据并完成强验证',
+    }),
+    composerError,
+  ])
+
+  const quickBar = el('div', { class: 'quick-bar' }, [
+    renderQuickActions({ onPick: (text) => submitText(text) }),
   ])
 
   const panel = el('aside', { class: 'panel', 'aria-label': '运行观察' }, [
@@ -208,6 +305,17 @@ export function mountApp(options) {
   const banner = el('div', { class: 'app-banner', hidden: true })
   // D13：接管横幅是**另一个节点**，不复用 setBanner（后者写死了"连接异常"）。
   const handoffBanner = el('div', { class: 'app-banner', id: 'handoff-banner', hidden: true })
+  const safetyDismissed = prefs.get(PREF_KEYS.safetyDismissed) === '1'
+  // 2026-11-01 走查：安全提醒移到顶栏中间，不再占会话区一行、也不再横跨到右侧审计面板。
+  const safetyBanner = el('div', { class: 'app-header__safety-slot', dataset: { role: 'safety' }, hidden: safetyDismissed }, [
+    renderSafetyChip({
+      onDismiss: () => {
+        prefs.set(PREF_KEYS.safetyDismissed, '1')
+        safetyBanner.hidden = true
+        safetyBanner.replaceChildren()
+      },
+    }),
+  ])
 
   // 退出登录：只在 password 模式出现（static 模式没有"登录"这回事，多一个按钮只会误导）
   const logoutButton =
@@ -222,25 +330,31 @@ export function mountApp(options) {
               void logout()
             },
           },
-          [icon('user', 14), '退出'],
+          [icon('logout', 14), '退出'],
         )
       : null
 
   const shell = el('div', { class: 'app-shell' }, [
     el('header', { class: 'app-header' }, [
       el('div', { class: 'app-header__brand' }, [
-        el('span', { class: 'app-header__logo' }, [icon('ai', 20)]),
-        el('div', {}, [
-          el('div', { class: 'app-header__title', text: 'BAH · 银行智能体' }),
-          el('div', { class: 'app-header__subtitle', text: 'Web 渠道 · 纯原生渲染 · 事件驱动' }),
-        ]),
+        el('span', { class: 'app-header__logo' }, [icon('bank', 20)]),
+        el('div', { class: 'app-header__title', text: BRAND.name }),
       ]),
-      el('div', { class: 'app-header__meta' }, [sessionLabel, statusDot, logoutButton]),
+      safetyBanner,
+      el('div', { class: 'app-header__meta' }, [
+        sessionLabel,
+        statusDot,
+        ...(newConversationTool === null ? [] : [newConversationTool]),
+        helpTool,
+        fontTool,
+        speakTool,
+        logoutButton,
+      ]),
     ]),
     banner,
     handoffBanner,
     el('div', { class: 'app-body' }, [
-      el('div', { class: 'app-left' }, [conversation, composer]),
+      el('div', { class: 'app-left' }, [conversation, quickBar, composer]),
       panel,
     ]),
   ])
@@ -252,6 +366,116 @@ export function mountApp(options) {
   const rendered = new Map()
   const dagRendered = new Map()
   const auditRendered = new Map()
+
+  /**
+   * 滚动策略（2026-11-01 走查）：发送时跳到新消息，回答开始后停止跟随。
+   *
+   * 之前是"只要在底部就每帧贴底"：回答流式变长时视口一直被拽到底，用户往上翻读前文
+   * 会被反复拉回去。现在只在两个时刻主动滚动：
+   * 1. 出现新的用户消息（或用户点发送）→ 跳到底部，让刚说的话可见；
+   * 2. 当前轮的第一段助手正文出现 → 把这段正文的顶部滚进视口，然后**冻结**。
+   * 之后的 delta / 工具帧 / 轮次结束 / 反馈块一律不再滚动，用户看哪儿就停在哪儿。
+   */
+  let scrollInitialized = false
+  let lastUserSeq = 0
+  let jumpToAnswerStart = false
+  let answerStartShown = false
+
+  function isUserSpeechFrame(frame) {
+    return (
+      frame.kind === 'message' &&
+      frame.role === 'user' &&
+      (frame.source === undefined || frame.source === 'user' || frame.source === 'handoff-waiting')
+    )
+  }
+
+  function latestUserSeqOf(frames) {
+    let latest = 0
+    for (const frame of frames) {
+      if (isUserSpeechFrame(frame) && typeof frame.seq === 'number') latest = Math.max(latest, frame.seq)
+    }
+    return latest
+  }
+
+  function scrollConversationToTopOf(node) {
+    if (node === null || node === undefined) return
+    const container = conversation.getBoundingClientRect()
+    const target = conversation.scrollTop + node.getBoundingClientRect().top - container.top - 8
+    conversation.scrollTop = Math.max(0, target)
+  }
+
+  function syncConversationScroll(conversationFrames, state) {
+    const latestUser = latestUserSeqOf(conversationFrames)
+
+    if (!scrollInitialized) {
+      if (conversationFrames.length === 0 && state.streamText.length === 0) return
+      scrollInitialized = true
+      lastUserSeq = latestUser
+      jumpToAnswerStart = false
+      answerStartShown = false
+      scrollToBottom(conversation)
+      return
+    }
+
+    if (latestUser > lastUserSeq) {
+      lastUserSeq = latestUser
+      jumpToAnswerStart = true
+      answerStartShown = false
+      scrollToBottom(conversation)
+      return
+    }
+
+    if (!jumpToAnswerStart || answerStartShown) return
+    const draft = conversation.querySelector('[data-draft="true"]')
+    let target = draft
+    if (target === null) {
+      target =
+        [...conversation.querySelectorAll('.message--assistant')].find(
+          (node) =>
+            Number(node.dataset.seq) > lastUserSeq &&
+            !node.classList.contains('message--tool-only'),
+        ) ?? null
+    }
+    if (target === null) return
+    scrollConversationToTopOf(target)
+    jumpToAnswerStart = false
+    answerStartShown = true
+  }
+
+  /** 对话末尾的收口块（唯一反馈行 + 两条追问）：只在最后一轮完成且没有待选卡时出现。 */
+  let answerFooter = null
+  let answerFooterKey = null
+
+  function syncAnswerFooter(model) {
+    if (model === null) {
+      answerFooter?.remove()
+      answerFooter = null
+      answerFooterKey = null
+      return
+    }
+
+    // 会话号也进键：服务重启后 seq 可能重复，不能把上一个会话的反馈状态带进新会话。
+    const key = `${String(store.state().sessionId)}:${String(model.frame.seq)}:${model.suggestions.join('|')}`
+    const build = () =>
+      renderAnswerFooter({
+        value: feedbackDeps.value(model.frame),
+        onRate: (value) => feedbackDeps.rate(model.frame, value),
+        suggestions: model.suggestions,
+        onPick: (text) => submitText(text),
+      })
+
+    if (answerFooter === null) {
+      answerFooterKey = key
+      answerFooter = build()
+    } else if (key !== answerFooterKey) {
+      const next = build()
+      answerFooter.replaceWith(next)
+      answerFooter = next
+      answerFooterKey = key
+    }
+    // 新帧会追加在末尾；每次 sync 把收口块挪到最后，保证它永远是会话流的最后一项。
+    if (conversation.lastElementChild !== answerFooter) conversation.append(answerFooter)
+  }
 
   const approvals = createApprovalController(overlay, {
     async onDecision(ticketId, decision, reason, confirmText) {
@@ -324,7 +548,7 @@ export function mountApp(options) {
         const overdue = freshWarn === null ? '' : ` · 已等待超过 ${String(Math.max(1, Math.round(freshWarn.slaMs / 60_000)))} 分钟`
         handoffBanner.replaceChildren(
           el('div', { class: 'ds-alert ds-alert--info' }, [
-            el('span', { class: 'ds-alert__icon' }, [icon('agent', 16)]),
+            el('span', { class: 'ds-alert__icon' }, [icon('person', 16)]),
             el('div', {}, [
               el('div', { class: 'ds-alert__title', text: '已转人工坐席' }),
               el('p', {
@@ -383,6 +607,63 @@ export function mountApp(options) {
     setTimeout(() => node.remove(), 4000)
   }
 
+  /** 帮助弹窗（服务范围 / 无障碍 / 常用业务）。 */
+  const helpDialog = createDialog(overlay)
+
+  function toggleFont() {
+    const next = !isLargeFont(prefs)
+    prefs.set(PREF_KEYS.fontScale, next ? 'large' : 'normal')
+    applyFontScale(document, next ? 'large' : 'normal')
+    fontTool.classList.toggle('is-on', next)
+    fontTool.setAttribute('aria-pressed', next ? 'true' : 'false')
+    return next
+  }
+
+  function toggleSpeech() {
+    const next = !speaker.enabled
+    speaker.setEnabled(next)
+    prefs.set(PREF_KEYS.speech, next ? '1' : '0')
+    speakTool.classList.toggle('is-on', next)
+    speakTool.setAttribute('aria-pressed', next ? 'true' : 'false')
+    speakTool.replaceChildren(icon(next ? 'speak-on' : 'speak-off', 16))
+    if (!next) speaker.stop()
+    return next
+  }
+
+  function openHelp() {
+    helpDialog.show({
+      title: '服务与帮助',
+      body: renderAssistPanel({
+        onPick: async (text) => {
+          helpDialog.close()
+          await submitText(text)
+        },
+        fontLarge: isLargeFont(prefs),
+        speechEnabled: speaker.enabled,
+        speechSupported: speaker.supported,
+        collapsibleScope: false,
+        onToggleFont: toggleFont,
+        onToggleSpeech: toggleSpeech,
+      }),
+    })
+  }
+
+  helpTool.addEventListener('click', openHelp)
+  fontTool.addEventListener('click', toggleFont)
+  speakTool.addEventListener('click', toggleSpeech)
+
+  if (newConversationTool !== null) {
+    newConversationTool.addEventListener('click', () => {
+      const bridge = globalThis.bahDesktop
+      if (typeof bridge?.newConversation !== 'function') return
+      const confirmed =
+        typeof globalThis.confirm === 'function'
+          ? globalThis.confirm('开始新对话会重启桌面客户端；当前对话会保留在会话日志中。继续吗？')
+          : true
+      if (confirmed) bridge.newConversation()
+    })
+  }
+
   /** 上一份快照的会话号：服务重启后快照换了会话，界面必须说出"会话已重置"。 */
   let lastSessionId = null
 
@@ -424,6 +705,14 @@ export function mountApp(options) {
     const conversationFrames = state.frames.filter((frame) => CONVERSATION_KINDS.has(frame.kind))
     syncContainer(conversation, rendered, conversationFrames, (frame) => renderFrame(frame, choiceDeps))
 
+    // 一律以"最后一轮是否还在跑"决定收口块：运行中 / 流式草稿 / 接管中都不出反馈与追问。
+    const running = state.frames.some(
+      (frame) =>
+        frame.kind === 'turn' &&
+        frame.phase === 'start' &&
+        !state.frames.some((other) => other.kind === 'turn' && other.turn === frame.turn && other.phase === 'end'),
+    )
+
     // 草稿气泡
     const draft = conversation.querySelector('[data-draft="true"]')
     if (state.streamText.length === 0) draft?.remove()
@@ -435,7 +724,16 @@ export function mountApp(options) {
       if (empty === null) conversation.append(renderEmptyState())
     } else empty?.remove()
 
-    // ② DAG（只画最近一轮；有帧但没节点也走空态，不留一张空白 SVG）
+    // ② 对话末尾的反馈与追问（只在最后一轮完成、没有流式草稿、没有待选卡时出现）
+    syncAnswerFooter(
+      answerFooterModel(state.frames, {
+        running,
+        streamText: state.streamText,
+        handoffActive: state.handoff?.active === true,
+      }),
+    )
+
+    // ③ DAG（只画最近一轮；有帧但没节点也走空态，不留一张空白 SVG）
     const dags = state.frames.filter((frame) => frame.kind === 'dag')
     const latestDag = dags[dags.length - 1]
     if (latestDag === undefined || (latestDag.nodes ?? []).length === 0) {
@@ -446,9 +744,9 @@ export function mountApp(options) {
       dagBox.querySelector('.ds-empty')?.remove()
     }
 
-    // ③ 审计（升序，保持因果阅读顺序）
+    // ④ 审计（升序，保持因果阅读顺序）
     const audits = state.frames.filter((frame) => frame.kind === 'audit')
-    auditSummary.replaceChildren(renderAuditSummary(state.frames))
+    auditSummary.replaceChildren(renderAuditSummary(state.frames), renderAuditCounts(state.frames))
     if (audits.length === 0) {
       if (auditList.firstChild === null) auditList.append(renderAuditEmpty())
     } else {
@@ -457,14 +755,14 @@ export function mountApp(options) {
       auditList.lastElementChild?.scrollIntoView?.({ block: 'nearest' })
     }
 
-    // ④ 审批：先收尾，再开新
+    // ⑤ 审批：先收尾，再开新
     for (const frame of state.frames) {
       if (frame.kind === 'approval-closed') approvals.close(frame)
     }
     const pending = pendingApproval(state.frames)
     if (pending !== null) approvals.show(pending)
 
-    // ⑤ 状态
+    // ⑥ 状态
     const status = STATUS[state.status] ?? STATUS.connecting
     statusDot.className = `app-header__status ${status.cls}`
     statusDot.querySelector('.app-header__status-text').textContent = status.label
@@ -479,6 +777,40 @@ export function mountApp(options) {
     )
     syncSession(state)
     syncHandoffBanner(state.handoff, state.handoffWarn)
+
+    // ⑦ 处理状态 + 滚动策略 + 语音播报（播报只在用户开启时进行，历史消息不进基线）
+    composerStatus.hidden = !running
+    syncConversationScroll(conversationFrames, state)
+    maybeSpeak(state)
+  }
+
+  /** 已播报到的助手消息序号（快照 = 历史基线，不朗读历史）。 */
+  let spokenSeq = 0
+
+  function latestAssistantSeq(frames) {
+    let latest = 0
+    for (const frame of frames ?? []) {
+      if (frame.kind === 'message' && frame.role === 'assistant' && typeof frame.seq === 'number') {
+        latest = Math.max(latest, frame.seq)
+      }
+    }
+    return latest
+  }
+
+  function maybeSpeak(state) {
+    let latest = null
+    for (const frame of state.frames) {
+      if (frame.kind === 'message' && frame.role === 'assistant') latest = frame
+    }
+    if (latest === null) return
+    if (typeof latest.seq !== 'number' || latest.seq <= spokenSeq) return
+    spokenSeq = latest.seq
+    if (!speaker.enabled) return
+    const text = (latest.blocks ?? [])
+      .filter((block) => block.type === 'text' && typeof block.text === 'string')
+      .map((block) => block.text)
+      .join('\n')
+    speaker.speak(text)
   }
 
   store.subscribe(sync)
@@ -488,25 +820,67 @@ export function mountApp(options) {
   // `sendButton.disabled` 只挡住鼠标，挡不住表单再次 submit（连按 Enter / 双击）：
   // 同一句话会提交两轮，银行场景下就是两次工具调用、两次审批。用标志位把入口关死。
   let inFlight = false
-  composer.addEventListener('submit', async (event) => {
-    event.preventDefault()
+  let lastFailedText = null
+
+  function showComposerError(message, retryText) {
+    lastFailedText = retryText ?? null
+    composerErrorText.textContent = message
+    composerError.hidden = false
+    composerRetry.hidden = retryText === undefined
+  }
+
+  function clearComposerError() {
+    lastFailedText = null
+    composerError.hidden = true
+    composerErrorText.textContent = ''
+    composerRetry.hidden = true
+  }
+
+  /**
+   * 提交一轮。`fromComposer` 才清空输入框：快捷业务/帮助弹窗发出的消息
+   * 不能把用户正在打的草稿一并清掉。
+   */
+  async function submitText(rawText, fromComposer = false) {
     if (inFlight) return
-    const text = composerInput.value.trim()
+    const text = String(rawText ?? '').trim()
     if (text.length === 0) return
     inFlight = true
     sendButton.disabled = true
+    composerRetry.disabled = true
+    clearComposerError()
+    // 发送即回到最新位置；随后只滚到本轮回答的顶部一次，正文增长时不再跟随。
+    scrollInitialized = true
+    lastUserSeq = latestUserSeqOf(store.state().frames)
+    jumpToAnswerStart = true
+    answerStartShown = false
+    scrollToBottom(conversation)
     try {
       const result = await api.turn(text)
       if (!result.ok) {
-        notify(result.reason, 'danger')
+        // 失败保留原话与输入框内容，并给一键重试：不逼用户重打一遍
+        showComposerError(String(result.reason ?? result.code ?? '发送失败'), text)
         return
       }
-      composerInput.value = ''
-      composerInput.style.height = ''
+      if (fromComposer) {
+        composerInput.value = ''
+        composerInput.style.height = ''
+      }
     } finally {
       inFlight = false
       sendButton.disabled = false
+      composerRetry.disabled = false
     }
+  }
+
+  composer.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    await submitText(composerInput.value, true)
+  })
+
+  composerRetry.addEventListener('click', () => {
+    if (lastFailedText === null) return
+    const fromInput = composerInput.value.trim() === lastFailedText
+    void submitText(lastFailedText, fromInput)
   })
 
   composerInput.addEventListener('keydown', (event) => {
@@ -606,7 +980,11 @@ export function mountApp(options) {
 
   const connection = connect({
     since: 0,
-    onFrame: (frame) => store.apply(frame),
+    onFrame: (frame) => {
+      // 快照是历史：先推播报基线，再让 sync 看到它（否则会朗读整段历史）。
+      if (frame.kind === 'snapshot') spokenSeq = latestAssistantSeq(frame.frames)
+      store.apply(frame)
+    },
     onFault: (fault) => store.setFault(fault),
     onStatus: (status) => {
       store.setStatus(status)
@@ -620,9 +998,12 @@ export function mountApp(options) {
     store,
     api,
     observe: obs,
+    speaker,
     close: () => {
       obs.stop()
       connection.close()
+      helpDialog.dispose()
+      speaker.dispose()
     },
   }
 }

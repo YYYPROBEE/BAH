@@ -4,6 +4,8 @@
  * 只做接线，判定全在 `@bah/safety` 的 `verify` 模块（纯函数）：
  * - 监听 `agent/reply`（waterfall），**先 `next()` 再判**——这样更内层的监听器
  *   （即使不调 `next()`）返回的文本也会被核验，无法"抢在内层改写后绕过核验"；
+ * - 证据 = 本 turn 工具出参 + 提交给模型的运行时快照 + 系统当天日期。快照是权威
+ *   银行数据（真模型会直接复述账户与余额），只认工具出参会把真话误判成「未核实」；
  * - 每次回复落一条 `safety/assertion`（四个计数自洽），供审计与 eval 读取；
  * - `reject` 时把文本替换为拒答，`needs-evidence` 时加 `【未核实】` 前缀。
  *
@@ -42,7 +44,11 @@ export const verifyPlugin: HostPlugin<VerifySettings> = {
           const downstream = (await next(input)) as AgentReplyInput
           const outcome = verifyReply({
             text: downstream.text,
-            evidence: evidenceTexts(downstream.toolResults),
+            evidence: [
+              ...evidenceTexts(downstream.toolResults),
+              ...(downstream.contextTexts ?? []),
+              systemDateText(run.now()),
+            ],
           })
           session.append(
             'safety/assertion',
@@ -67,6 +73,20 @@ export const verifyPlugin: HostPlugin<VerifySettings> = {
     rejectUnknownKeys(config, ['enabled'], 'safety:verify')
     return { enabled: readBoolean(config, 'enabled', 'safety:verify', true) }
   },
+}
+
+/**
+ * 当天日期作为证据。
+ *
+ * 模型在答「余额」时常用运行时快照的口径写「截至 2026-10-31」，而截止时间来自
+ * 权威槽位快照、不是本 turn 的工具出参。只放**当天**这一条：其他日期仍需工具出参证明，
+ * 写错日期照样落 `【未核实】`。
+ */
+function systemDateText(now: number): string {
+  const date = new Date(now)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `系统日期 ${String(date.getFullYear())}-${month}-${day}`
 }
 
 /** 工具出参 → 证据文本（只取成功结果的文本块；失败文案里的金额不是权威余额）。 */

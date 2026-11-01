@@ -227,6 +227,30 @@ describe('条件收尾步（文案由本 turn 的工具结局决定）', () => {
     ])
   })
 
+  it('okFromResult：成功时原样引用工具正文（票据/地址不抄第二份）', () => {
+    const withResult = { ...closing, okFromResult: true }
+    expect(
+      resolveOutcome(withResult, [
+        { name: 'password_change', isError: false, text: '安全页 /secure/password?ticket=pwd%3Ac-1' },
+      ]),
+    ).toEqual([{ kind: 'text', text: '安全页 /secure/password?ticket=pwd%3Ac-1' }])
+
+    // 结果没有正文时退回 ok：不能把空串当权威结论念给用户
+    expect(resolveOutcome(withResult, [{ name: 'password_change', isError: false }])).toEqual([
+      { kind: 'text', text: '已完成' },
+    ])
+    expect(
+      resolveOutcome(withResult, [{ name: 'password_change', isError: false, text: '   ' }]),
+    ).toEqual([{ kind: 'text', text: '已完成' }])
+
+    // 失败仍然走 failed + 理由，不因为看结果正文就把失败说成成功
+    expect(
+      resolveOutcome(withResult, [
+        { name: 'password_change', isError: true, reason: '缺少审批票据', text: 'x' },
+      ]),
+    ).toEqual([{ kind: 'text', text: '未执行：缺少审批票据' }])
+  })
+
   it('没有可依据的结局即抛——宁可起不来，也不编一句「已完成」', () => {
     expect(() => resolveOutcome(closing, [])).toThrowError(/没有可依据的工具结局/)
     expect(() =>

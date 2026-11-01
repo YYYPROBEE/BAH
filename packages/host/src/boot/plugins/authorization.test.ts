@@ -47,7 +47,15 @@ const ROWS: readonly PluginRow[] = [
   { id: 'bank:tools', config: { demoUserId: 'u-1', seed: 7, datasetTier: 'demo' } },
   {
     id: 'interaction:approval',
-    config: { responder: 'headless', autoDecision: 'allow', autoVerify: true },
+    // ADR-0010：两个应答者各管一类票据——
+    // 武装（人工票据）由回归夹具代点，到期（窗口票据）由窗口代签者签。
+    // headless 显式**不认领**窗口票据，所以这里能同时证明"代签真的走了窗口核验"。
+    config: {
+      responder: 'headless',
+      autoDecision: 'allow',
+      autoVerify: true,
+      windowResponder: true,
+    },
   },
   { id: 'safety:sentry', config: { trace: { sink: 'memory' } } },
   { id: 'bank:saga-store', config: { dbPath: ':memory:' } },

@@ -193,6 +193,156 @@ describe('WebProjector · 审批六要素', () => {
     expect(approval.amountConfirmed).toBe(false)
   })
 
+  it('tier/decided 上升红级后，工具卡与 DAG 节点都画 red（不是声明黄级）', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('step/start', { turn: 1, step: 1 }))
+    projector.apply(
+      ev('tool/call', {
+        callId: 'call-red',
+        name: 'transfer_create',
+        args: { amount: 800, payee: { name: '李四' } },
+        fingerprint: 'fp-red',
+        tier: { level: 'yellow' },
+      }),
+    )
+    projector.apply(
+      ev('tier/decided', {
+        callId: 'call-red',
+        name: 'transfer_create',
+        level: 'red',
+        reason: 'new-payee',
+        verdict: 'ask',
+      }),
+    )
+    projector.apply(
+      ev('tool/result', {
+        callId: 'call-red',
+        name: 'transfer_create',
+        isError: false,
+        content: [{ type: 'text', text: '转账成功：¥800.00' }],
+      }),
+    )
+    const frames = projector.frames()
+    const tool = frames.filter((frame) => frame.kind === 'tool').at(-1) as ToolFrame
+    expect(tool.tier).toBe('red')
+    const dag = frames.filter((frame) => frame.kind === 'dag').at(-1) as DagFrame
+    const node = dag.nodes.find((item) => item.id === 'call:call-red')
+    expect(node?.tier).toBe('red')
+  })
+
+  it('同 turn 成功预演且收款人+金额一致 → 审批金额已确认；不一致仍是待确认', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('step/start', { turn: 1, step: 1 }))
+    projector.apply(
+      ev('tool/call', {
+        callId: 'call-preview',
+        name: 'transfer_preview',
+        args: { amount: 800, payee: { name: '王建国' } },
+        fingerprint: 'fp-preview',
+        tier: { level: 'green' },
+      }),
+    )
+    projector.apply(
+      ev('tool/result', {
+        callId: 'call-preview',
+        name: 'transfer_preview',
+        isError: false,
+        content: [{ type: 'text', text: '试算：向 王建国 转账 ¥800.00' }],
+      }),
+    )
+    projector.apply(
+      ev('tool/call', {
+        callId: 'call-create',
+        name: 'transfer_create',
+        args: { amount: 800, payee: { name: '王建国' } },
+        fingerprint: 'fp-create',
+        tier: { level: 'yellow' },
+      }),
+    )
+    projector.apply(
+      ev('approval/asked', {
+        ticketId: 'ticket:call-create',
+        callId: 'call-create',
+        name: 'transfer_create',
+        amount: 800,
+      }),
+    )
+    const approval = projector.frames().find((frame) => frame.kind === 'approval') as ApprovalFrame
+    expect(approval.amountConfirmed).toBe(true)
+
+    reset()
+    const mismatch = new WebProjector()
+    mismatch.apply(ev('turn/start', { turn: 1 }))
+    mismatch.apply(ev('step/start', { turn: 1, step: 1 }))
+    mismatch.apply(
+      ev('tool/call', {
+        callId: 'call-preview-2',
+        name: 'transfer_preview',
+        args: { amount: 500, payee: { name: '王建国' } },
+        fingerprint: 'fp-preview-2',
+        tier: { level: 'green' },
+      }),
+    )
+    mismatch.apply(
+      ev('tool/result', {
+        callId: 'call-preview-2',
+        name: 'transfer_preview',
+        isError: false,
+        content: [{ type: 'text', text: '试算：向 王建国 转账 ¥500.00' }],
+      }),
+    )
+    mismatch.apply(
+      ev('tool/call', {
+        callId: 'call-create-2',
+        name: 'transfer_create',
+        args: { amount: 800, payee: { name: '王建国' } },
+        fingerprint: 'fp-create-2',
+        tier: { level: 'yellow' },
+      }),
+    )
+    mismatch.apply(
+      ev('approval/asked', {
+        ticketId: 'ticket:call-create-2',
+        callId: 'call-create-2',
+        name: 'transfer_create',
+        amount: 800,
+      }),
+    )
+    const pending = mismatch.frames().find((frame) => frame.kind === 'approval') as ApprovalFrame
+    expect(pending.amountConfirmed).toBe(false)
+  })
+
+  it('非金额操作（card_freeze，amount=0）的审批帧不产 amountText', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('step/start', { turn: 1, step: 1 }))
+    projector.apply(
+      ev('tool/call', {
+        callId: 'call-card',
+        name: 'card_freeze',
+        args: { cardId: 'c-1' },
+        fingerprint: 'fp-card',
+        tier: { level: 'yellow' },
+      }),
+    )
+    projector.apply(
+      ev('approval/asked', {
+        ticketId: 'ticket:call-card',
+        callId: 'call-card',
+        name: 'card_freeze',
+        amount: 0,
+      }),
+    )
+    const approval = projector.frames().find((frame) => frame.kind === 'approval') as ApprovalFrame
+    expect(approval.amountText).toBeUndefined()
+    expect(approval.amountConfirmed).toBe(false)
+  })
+
   it('风险级别与 challenge 对齐：黄级工具被上升为红级时，审批帧必须是红', () => {
     reset()
     const projector = new WebProjector()

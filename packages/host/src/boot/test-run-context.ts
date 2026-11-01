@@ -16,12 +16,15 @@
  * host，test-support 若 `import type` 反向引 host，`tsc -b` 的 project references 会成环
  * （host → test-support 是 devDependencies 边，供 host 自己的测试用）。
  * 与造出来的类型放在同一个包，也避免 `RunContext` 出现第二份结构定义。
+ *
+ * 偏差登记见 `docs/evidence/2026-10-28-tenant-auth/01-t1.md` §4（D-3）。
  */
 
 import type { SessionId } from '@bah/core'
 import { DEFAULT_TENANT_ID } from '@bah/util'
 
 import type { RunContext } from './boot.ts'
+import { createWakeMarkStore } from './wake-marks.ts'
 
 /**
  * 固定钟（2023-11-14T22:13:20Z）。
@@ -58,5 +61,7 @@ export function testRunContext(partial: Partial<RunContext> = {}): RunContext {
     ...(partial.probe === undefined ? {} : { probe: partial.probe }),
     ...(partial.restoreSession === undefined ? {} : { restoreSession: partial.restoreSession }),
     ...(partial.restoreEvents === undefined ? {} : { restoreEvents: partial.restoreEvents }),
+    // 唤醒标记账本（ADR-0010）：每个夹具一套，避免用例之间共享"在途窗口"
+    wakeMarks: partial.wakeMarks ?? createWakeMarkStore(),
   }
 }

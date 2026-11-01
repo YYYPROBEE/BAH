@@ -1,8 +1,9 @@
 /**
  * 应用菜单（桌面端 02 §2.6）。import `electron` 的三处之一。
  *
- * 只放四项：审计视图 / 打开会话目录 / 重新载入 / 退出（+ dev 才有的 DevTools）。
- * 每多一项都是一个新的"绕过页面"的入口，所以"打开外部链接""另存为""打印"一律不做。
+ * 只放五项：新对话 / 审计视图 / 打开会话目录 / 重新载入 / 退出（+ dev 才有的 DevTools）。
+ * "新对话"是零载荷的生命周期动作（重启进程），不是业务入口；其余每一项也必须能在
+ * 页面或宿主的既有能力里找到对应，所以"打开外部链接""另存为""打印"一律不做。
  */
 
 import { app, Menu, shell, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
@@ -22,6 +23,8 @@ export interface MenuOptions {
   readonly reload?: (window: BrowserWindow) => void
   /** 退出（默认 `app.quit()`）。 */
   readonly quit?: () => void
+  /** 开始新对话（重启进程；缺省不挂菜单项）。 */
+  readonly newConversation?: () => void
 }
 
 /**
@@ -85,23 +88,32 @@ export function installMenu(options: MenuOptions): Menu {
     })
   }
 
-  const template: MenuItemConstructorOptions[] = [
-    {
-      label: '文件',
-      submenu: [
-        {
-          label: '打开会话目录',
-          click: () => {
-            // `openPath` 只接受**目录/文件路径**，不接受 URL：外部链接一律不交给系统
-            void shell.openPath(options.sessionsDir).then((error) => {
-              if (error !== '') logJson('warn', 'desktop.open-sessions-failed', { reason: error })
-            })
+  const fileItems: MenuItemConstructorOptions[] = [
+    ...(options.newConversation === undefined
+      ? []
+      : [
+          {
+            label: '新对话',
+            accelerator: 'CmdOrCtrl+N',
+            click: () => options.newConversation?.(),
           },
-        },
-        { type: 'separator' },
-        { label: '退出', accelerator: 'Alt+F4', click: quit },
-      ],
+          { type: 'separator' as const },
+        ]),
+    {
+      label: '打开会话目录',
+      click: () => {
+        // `openPath` 只接受**目录/文件路径**，不接受 URL：外部链接一律不交给系统
+        void shell.openPath(options.sessionsDir).then((error) => {
+          if (error !== '') logJson('warn', 'desktop.open-sessions-failed', { reason: error })
+        })
+      },
     },
+    { type: 'separator' },
+    { label: '退出', accelerator: 'Alt+F4', click: quit },
+  ]
+
+  const template: MenuItemConstructorOptions[] = [
+    { label: '文件', submenu: fileItems },
     { label: '视图', submenu: viewItems },
   ]
 

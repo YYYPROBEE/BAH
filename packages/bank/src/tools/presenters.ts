@@ -126,6 +126,26 @@ export function accountsCard(result: AccountsResult): UiCard {
         availableText: money(account.availableCents),
       })),
       totalAvailableText: money(result.availableTotalCents),
+      /**
+       * 卡片行（ADR-0015）：信用产品多一段「额度 / 已用 / 可用」。
+       *
+       * 为什么可用额度在展示层算：它是 `授信 − 已用` 的派生值，落成字段就是第二份会漂移的真相。
+       * 借记卡不带 `creditText`（`kind` 缺省的卡与改动前的卡片数据逐字一致）。
+       */
+      cards: result.cards.map((card) => ({
+        cardId: card.cardId,
+        tail: card.tail,
+        typeLabel: `${CARD_TYPE_LABEL[card.type]}${card.kind === 'credit' ? '信用' : ''}卡`,
+        statusLabel: CARD_STATUS_LABEL[card.status],
+        limitText: `日限 ${money(card.dailyLimitCents)}`,
+        ...(card.kind === 'credit' && card.creditLimitCents !== undefined
+          ? {
+              creditText:
+                `额度 ${money(card.creditLimitCents)} / 已用 ${money(card.usedCreditCents ?? 0)} / ` +
+                `可用 ${money(Math.max(0, card.creditLimitCents - (card.usedCreditCents ?? 0)))}`,
+            }
+          : {}),
+      })),
     },
   }
 }

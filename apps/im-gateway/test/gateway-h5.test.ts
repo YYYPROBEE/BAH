@@ -310,6 +310,82 @@ describe('T-IM-016 / T-H5-004 红级与跨会话', () => {
     await app.close()
   })
 
+  it('红级 GET：页面提示强验证并给验证按钮；已验证后按钮消失', () => {
+    const config = configFor()
+    const sessionKey = 'im-0123456789abcdef'
+    const child = fakeChild()
+    const records = new Map([
+      [sessionKey, recordOf({ platform: 'mock', userId: 'u-1', sessionKey, client: child })],
+    ])
+    const supervisor = fakeSupervisor({ salt: config.sessionSalt, records })
+    const hub = createSessionHub({
+      config,
+      log,
+      pull: createPullStore({ nowMs: () => NOW }),
+      nowMs: () => NOW,
+    })
+    hub.attach({ sessionKey, port: 1234, client: child }, 'mock', CAPABILITIES)
+    child.emit({
+      kind: 'snapshot',
+      sessionId: sessionKey,
+      maxSeq: 10,
+      frames: [approvalFrame({ tier: 'red', challenge: 'face' })],
+    })
+    const pageDeps = {
+      config,
+      hub,
+      supervisor,
+      log,
+      usedLinks: createUsedLinkStore({ nowMs: () => NOW }),
+      nowMs: () => NOW,
+    }
+
+    const unverified = captureResponse()
+    handleApproveGet(linkOf(config, sessionKey, 't-1'), unverified.res, pageDeps)
+    expect(unverified.body()).toContain('该票据需要强验证')
+    expect(unverified.body()).toContain('id="verify"')
+
+    hub.markVerified(sessionKey, 't-1')
+    const verifiedPage = captureResponse()
+    handleApproveGet(linkOf(config, sessionKey, 't-1'), verifiedPage.res, pageDeps)
+    expect(verifiedPage.body()).toContain('该票据需要强验证')
+    expect(verifiedPage.body()).not.toContain('id="verify"')
+  })
+
+  it('黄级 GET：层级显示「中风险」', () => {
+    const config = configFor()
+    const sessionKey = 'im-0123456789abcdef'
+    const child = fakeChild()
+    const records = new Map([
+      [sessionKey, recordOf({ platform: 'mock', userId: 'u-1', sessionKey, client: child })],
+    ])
+    const supervisor = fakeSupervisor({ salt: config.sessionSalt, records })
+    const hub = createSessionHub({
+      config,
+      log,
+      pull: createPullStore({ nowMs: () => NOW }),
+      nowMs: () => NOW,
+    })
+    hub.attach({ sessionKey, port: 1234, client: child }, 'mock', CAPABILITIES)
+    child.emit({
+      kind: 'snapshot',
+      sessionId: sessionKey,
+      maxSeq: 10,
+      frames: [approvalFrame()],
+    })
+    const captured = captureResponse()
+    handleApproveGet(linkOf(config, sessionKey, 't-1'), captured.res, {
+      config,
+      hub,
+      supervisor,
+      log,
+      usedLinks: createUsedLinkStore({ nowMs: () => NOW }),
+      nowMs: () => NOW,
+    })
+
+    expect(captured.body()).toContain('中风险')
+  })
+
   it('用本会话 token 提交另一张票 → 转发到本会话子进程，子进程 unknown-ticket → 404', async () => {
     const config = configFor()
     const sessionKey = 'im-0123456789abcdef'
@@ -325,6 +401,83 @@ describe('T-IM-016 / T-H5-004 红级与跨会话', () => {
     expect(response.status).toBe(404)
     // 网关按 token 里的 sessionKey 选子进程；票号原样交给子进程裁决
     expect(child.calls.decisions[0]?.ticketId).toBe('t-other')
+    await app.close()
+  })
+})
+
+describe('T-H5-005 提交体校验（只认 decision / reason）', () => {
+  it('非 JSON / 非对象 / 未知字段 / 非法结论 → 400，且这些失败都不烧链接', async () => {
+    const config = configFor()
+    const sessionKey = 'im-0123456789abcdef'
+    const child = fakeChild()
+    const app = await startServer({ config, child, sessionKey })
+    child.emit({ kind: 'snapshot', sessionId: sessionKey, maxSeq: 10, frames: [approvalFrame()] })
+    const token = linkOf(config, sessionKey, 't-1', NOW + 60_005)
+    const url = `${app.base}/a/${token}`
+    const codeOf = async (response: Response): Promise<string> =>
+      ((await response.json()) as { error: { code: string } }).error.code
+
+    const notJson = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{',
+    })
+    expect(notJson.status).toBe(400)
+    expect(await codeOf(notJson)).toBe('im-h5-invalid-body')
+
+    const arrayBody = await post(app.base, `/a/${token}`, [1])
+    expect(arrayBody.status).toBe(400)
+
+    // 未知字段必须拒绝：否则请求体可以夹带额外键进入子进程
+    const unknownField = await post(app.base, `/a/${token}`, {
+      decision: 'allowed-once',
+      approvedBy: 'someone',
+    })
+    expect(unknownField.status).toBe(400)
+    expect(await codeOf(unknownField)).toBe('im-h5-invalid-body')
+
+    const badDecision = await post(app.base, `/a/${token}`, { decision: 'approve' })
+    expect(badDecision.status).toBe(400)
+    expect(await codeOf(badDecision)).toBe('invalid-decision')
+    expect(child.calls.decisions).toEqual([])
+
+    // 校验失败不消耗一次性链接：同一个 token 仍能正常提交
+    const accepted = await post(app.base, `/a/${token}`, { decision: 'allowed-once' })
+    expect(accepted.status).toBe(200)
+    expect(child.calls.decisions).toEqual([{ ticketId: 't-1', decision: 'allowed-once' }])
+    await app.close()
+  })
+})
+
+describe('T-H5-006 写操作鉴权', () => {
+  it('伪造 / 过期链接 → 403 / 410；子进程不可用 → 503，均不产生审批调用', async () => {
+    const config = configFor()
+    const sessionKey = 'im-0123456789abcdef'
+    const child = fakeChild()
+    const app = await startServer({ config, child, sessionKey })
+    child.emit({ kind: 'snapshot', sessionId: sessionKey, maxSeq: 10, frames: [approvalFrame()] })
+    const token = linkOf(config, sessionKey, 't-1', NOW + 60_006)
+    const [part, signature] = token.split('.')
+    const forged = `${(part ?? '').slice(0, -1)}${(part ?? '').endsWith('A') ? 'B' : 'A'}.${signature ?? ''}`
+
+    const forgedRes = await post(app.base, `/a/${forged}`, { decision: 'allowed-once' })
+    expect(forgedRes.status).toBe(403)
+
+    const expired = await post(
+      app.base,
+      `/a/${linkOf(config, sessionKey, 't-1', NOW - 1)}`,
+      { decision: 'allowed-once' },
+    )
+    expect(expired.status).toBe(410)
+
+    app.supervisor.records.delete(sessionKey)
+    const unavailable = await post(app.base, `/a/${token}`, { decision: 'allowed-once' })
+    expect(unavailable.status).toBe(503)
+    expect(((await unavailable.json()) as { error: { code: string } }).error.code).toBe(
+      'im-h5-unavailable',
+    )
+
+    expect(child.calls.decisions).toEqual([])
     await app.close()
   })
 })

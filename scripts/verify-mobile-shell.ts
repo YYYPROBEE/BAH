@@ -104,6 +104,10 @@ const RUNTIME_VARS: Readonly<Record<string, string>> = {
 /** I10：`bah-web-token` 只许出现在这些面上（相对路径前缀匹配）。 */
 const TOKEN_WHITELIST = [
   'apps/web/src/transport.js',
+  // ADR-0014 的交易密码安全页：static 鉴权模式下它**必须**读注入的 token 才能提交，
+  // 否则那张表单永远 401。它是第二个"读 token"的页面脚本，白名单只开这一条；
+  // 页面本身仍然零会话数据、零对话脚本（`verify-web` 的入口页清单同时管着）。
+  'apps/web/src/password.js',
   'apps/web/index.html',
   'apps/web/m.html',
   'packages/host/src/boot/plugins/',

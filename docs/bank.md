@@ -27,8 +27,8 @@ packages/bank/src/
 |---|---|
 | `User` | `id` / `name` / `phone` / `riskGrade`（R1–R5）/ `verified` / `strongAuth` |
 | `Account` | `type`（current / fixed / locked）/ `balanceCents` / `availableCents` / `status` |
-| `Card` | `tail`（只存尾号）/ `type` / `status` / `dailyLimitCents` / `monthlyLimitCents` |
-| `Transaction` | `at` / `amountCents` / `direction` / `counterparty` / `category` / `channel` / `status` |
+| `Card` | `tail`（只存尾号）/ `type` / `status` / `dailyLimitCents` / `monthlyLimitCents`（月限额按同卡近 30 天滚动窗口判定） |
+| `Transaction` | `at` / `amountCents` / `direction` / `counterparty` / `category` / `channel` / `status` / `viaCardId?`（以卡支付的卡归属；冲正继承） |
 | `Bill` | `period`（`YYYY-MM`）/ 分类汇总 / `anomalies` |
 | `WealthProduct` | `kind` / `termDays` / `expectedYieldPct` / `riskGrade` / `minAmountCents` |
 | `Holding` | `productId` / `shares` / `costCents` / `marketValueCents` / `profitCents` |
@@ -152,7 +152,7 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 | 用户 | 张三（`u-1`，手机 13800001111） |
 | 活期账户 | `a-1` 余额 **¥12,345.67**（可用同额） |
 | 定期 / 锁定 | `a-2` ¥50,000.00（不可用）；`a-3` ¥888.88 |
-| 卡 | `c-1` 尾号 1234，日限 ¥5,000 / 月限 ¥20,000；`c-2` 虚拟卡尾号 5678 |
+| 卡 | `c-1` 尾号 1234，日限 ¥5,000 / 月限 ¥20,000（借记）；`c-2` 虚拟卡尾号 5678（借记）；`c-3` 虚拟**信用卡**尾号 2468，授信额度 **¥5,000**、已用 ¥0（ADR-0015；日/月限额缺省 = 授信额度） |
 | 收款人 | 王建国（`p-1`）**白名单**，首笔 30 天前 → 800 元转账不会触发"新收款人" |
 | 理财 | `w-1` 稳盈 90 天 2.8% R1 起投 ¥100；`w-2` 债券 180 天 3.6% R2 起投 ¥500；`w-3` 混合一年 5.2% R3 起投 ¥1,000 |
 | 持仓 | `h-1` 稳盈 500 份，成本 ¥500.00，市值 ¥508.00 |

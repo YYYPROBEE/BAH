@@ -27,7 +27,8 @@ export type ScenarioMetric = 'task-success' | 'privilege-block' | 'refusal-accur
  * 审批应答模式。取值域来自 `ApprovalSettings`（`responder: 'none' | 'headless'`
  * + `autoDecision: 'allow' | 'reject' | 'cancel'`），**不新增第四种**。
  *
- * 为什么需要它：`profiles/headless` 把 `autoDecision` 固定成 `allow`，
+ * 为什么需要它：三种模式必须由**评测夹具自己**写进 overlay（ADR-0010 之后
+ * `profiles/*` 不再有 `autoDecision: allow`：生产 profile 只装窗口代签应答者）。
  * 若场景不能改写这个维度，P 族（权限分级）10 个场景的结果会全部相同——测了个寂寞。
  */
 export type ScenarioApproval = 'allow' | 'reject' | 'unavailable'

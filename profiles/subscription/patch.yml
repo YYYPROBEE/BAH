@@ -31,10 +31,16 @@
 
 - id: interaction:approval
   config:
-    # headless 演示：自动应答（默认 none = 拒绝，绝不默认放行）
-    responder: headless
-    autoDecision: allow
-    autoVerify: true
+    # ★ ADR-0010：删掉 `autoDecision: allow`。
+    #
+    # 之前靠 headless 自动应答把「一键取消订阅」这类黄级操作也一起放行了——
+    # 那是把回归夹具当生产语义。取消是**用户自己**要做的决定，不是系统替他做的。
+    #
+    # 现在：`responder: none`（没有人 = 拒绝）+ `windowResponder: true`
+    # （只有到期唤醒的窗口票据能代签）。订阅评测场景若需要"批准"，
+    # 必须显式带窗口凭据或在用例里装自己的应答者（见 eval runner 的 allow 行）。
+    responder: none
+    windowResponder: true
 
 - id: safety:sentry
   config:

@@ -189,6 +189,19 @@ describe('03 TA-44 · 操作员表（token → id）', () => {
       ),
     ).toMatchObject({ ok: false })
   })
+
+  it('数组项不是对象（null / 字符串 / 嵌套数组）⇒ 明确指到变量名与"每一项必须是对象"', () => {
+    // 这一条在 `for (const key of Object.keys(item))` 之前：少它的话 `Object.keys(null)`
+    // 会先抛 TypeError，管理面变成 500 而不是可判别的 503。
+    for (const raw of ['[null]', '["ops-li"]', '[[1,2]]', '[{}]']) {
+      const parsed = readAdminOperators({ [ADMIN_OPERATORS_ENV]: raw })
+      expect(parsed.ok, raw).toBe(false)
+    }
+    expect(readAdminOperators(env([null]))).toMatchObject({
+      ok: false,
+      reason: `${ADMIN_OPERATORS_ENV} 的每一项必须是对象`,
+    })
+  })
 })
 
 describe('W07 HALT 管理体解析', () => {

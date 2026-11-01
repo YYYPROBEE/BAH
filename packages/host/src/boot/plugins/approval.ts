@@ -14,14 +14,20 @@
  */
 
 import { BANK_CHALLENGE } from '@bah/bank'
-import { APPROVAL_SERVICE, ApprovalService, createHeadlessResponder } from '@bah/interaction'
-import type { ApprovalInputLike } from '@bah/interaction'
+import {
+  APPROVAL_SERVICE,
+  ApprovalService,
+  createHeadlessResponder,
+  createWindowResponder,
+} from '@bah/interaction'
+import type { ApprovalInputLike, WindowSignGrant, WindowSignRequest } from '@bah/interaction'
 import { SESSION_SERVICE } from '@bah/runtime'
 import { assertNever } from '@bah/util'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
 import { readBoolean, readEnum, readPositiveInteger, rejectUnknownKeys } from '../config.ts'
+import { WINDOW_SIGNER } from './plan-grant.ts'
 
 /** 自动应答策略（只在 `responder: headless` 时生效）。 */
 export type AutoDecision = 'allow' | 'reject' | 'cancel'
@@ -36,6 +42,14 @@ export interface ApprovalSettings {
   readonly autoVerify: boolean
   /** 自动应答延迟（ms；缺省 0 = 立即）。 */
   readonly autoDelayMs?: number
+  /**
+   * 是否注册**窗口代签应答者**（ADR-0010；缺省 false）。
+   *
+   * 与 `responder` 正交：`responder: none` + `windowResponder: true` 是
+   * 「没有自动放行，但到期唤醒的窗口票据可以代签」——这正是 plan / web-plan /
+   * subscription / headless 四个 profile 现在要的语义。
+   */
+  readonly windowResponder: boolean
 }
 
 /**
@@ -48,6 +62,7 @@ export const DEFAULT_APPROVAL: ApprovalSettings = {
   responder: 'none',
   autoDecision: 'reject',
   autoVerify: true,
+  windowResponder: false,
 }
 
 /** 允许的应答者。 */
@@ -87,6 +102,17 @@ export const approvalPlugin: HostPlugin<ApprovalSettings> = {
         )
       }
 
+      if (config.windowResponder) {
+        service.attach(
+          createWindowResponder({
+            // ★ 懒取核验端口：`plan:dag` 在本行**之后**装配（profile 行序），
+            //   eager `ctx.get` 会在载入期抛 `service-missing`。
+            //   取不到 = 本 profile 没装 plan:dag ⇒ 不放行（fail-closed）。
+            verifyWindow: (request) => verifyWindow(ctx, request),
+          }),
+        )
+      }
+
       ctx.effect(ctx.provide(APPROVAL_SERVICE, service))
       // 会话关闭时把在途审批归一化为 cancelled（默认拒绝方向）
       ctx.effect(() => {
@@ -105,7 +131,7 @@ export const approvalPlugin: HostPlugin<ApprovalSettings> = {
   validate(config) {
     rejectUnknownKeys(
       config,
-      ['responder', 'autoDecision', 'autoVerify', 'autoDelayMs'],
+      ['responder', 'autoDecision', 'autoVerify', 'autoDelayMs', 'windowResponder'],
       'interaction:approval',
     )
     const autoDelayMs = readPositiveInteger(config, 'autoDelayMs', 'interaction:approval')
@@ -121,9 +147,42 @@ export const approvalPlugin: HostPlugin<ApprovalSettings> = {
         'interaction:approval',
         DEFAULT_APPROVAL.autoVerify,
       ),
+      windowResponder: readBoolean(
+        config,
+        'windowResponder',
+        'interaction:approval',
+        DEFAULT_APPROVAL.windowResponder,
+      ),
       ...(autoDelayMs === undefined ? {} : { autoDelayMs }),
     }
   },
+}
+
+/**
+ * 把窗口应答者的核验请求转给 `plan:dag` 提供的端口。
+ *
+ * 三个 fail-closed 分支：端口不在（没装 plan:dag）、端口抛错、端口返回非 `ok`。
+ * 三者都只是"不回答"——票据留给渠道或超时，绝不替用户拒绝。
+ */
+async function verifyWindow(
+  ctx: Parameters<HostPlugin['plugin']['apply']>[0],
+  request: WindowSignRequest,
+): Promise<WindowSignGrant> {
+  let signer
+  try {
+    signer = ctx.get(WINDOW_SIGNER)
+  } catch {
+    return { ok: false, code: 'window-signer-missing', reason: '本 profile 没有装配 plan:dag' }
+  }
+  try {
+    return await signer.sign(request)
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'window-signer-error',
+      reason: error instanceof Error ? error.message : String(error),
+    }
+  }
 }
 
 /** 配置结论 → 应答者结论。 */

@@ -29,6 +29,7 @@ function rows(options: {
   readonly text?: string
   readonly script?: readonly Readonly<Record<string, unknown>>[]
   readonly bank?: boolean
+  readonly slots?: boolean
 } = {}): readonly PluginRow[] {
   return [
     { id: 'core:session' },
@@ -41,7 +42,13 @@ function rows(options: {
         script: options.script ?? [{ text: options.text ?? '你好' }],
       },
     },
-    { id: 'core:agent', config: { loop: { model: 'mock:mock-chat' } } },
+    {
+      id: 'core:agent',
+      config: {
+        loop: { model: 'mock:mock-chat' },
+        ...(options.slots === true ? { slots: { source: 'bank' } } : {}),
+      },
+    },
     { id: 'core:persistence', config: { root: 'sessions', fsync: false } },
     ...(options.bank === true
       ? [{ id: 'bank:tools', config: { demoUserId: 'u-1', seed: 7, datasetTier: 'demo' } }]
@@ -231,6 +238,63 @@ describe('safety:verify · 装配与出站文本', () => {
     } finally {
       await lying.app.dispose('test')
       rmSync(lying.dir, { recursive: true, force: true })
+    }
+  })
+
+  it('运行时快照里的账户余额可作为证据（模型复述快照不落 【未核实】）', async () => {
+    const { app, dir } = await bootWith(
+      rows({
+        verify: 'on',
+        bank: true,
+        slots: true,
+        script: [{ text: '定期账户余额 ¥50,000.00。' }],
+      }),
+      's-context-evidence',
+    )
+    try {
+      const agent = app.ctx.get(AGENTS_SERVICE).list()[0]
+      if (agent === undefined) throw new Error('没有活体 agent')
+      agent.send('查余额')
+      await agent.run()
+      const events = app.ctx.get(SESSION_SERVICE).events()
+      expect(assistantTexts(events).at(-1)).toBe('定期账户余额 ¥50,000.00。')
+      expect(assertionEvents(events).at(-1)).toMatchObject({ total: 1, verified: 1, needsEvidence: 0 })
+    } finally {
+      await app.dispose('test')
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('运行时快照的当天日期可作为证据：写对不加前缀，写错仍落 【未核实】', async () => {
+    const date = new Date(1_000)
+    const today = `${String(date.getFullYear())}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+
+    const ok = await bootWith(rows({ verify: 'on', text: `截至 ${today}，账户信息如下。` }), 's-date-ok')
+    try {
+      const agent = ok.app.ctx.get(AGENTS_SERVICE).list()[0]
+      if (agent === undefined) throw new Error('没有活体 agent')
+      agent.send('查余额')
+      await agent.run()
+      const events = ok.app.ctx.get(SESSION_SERVICE).events()
+      expect(assistantTexts(events).at(-1)).toBe(`截至 ${today}，账户信息如下。`)
+      expect(assertionEvents(events).at(-1)).toMatchObject({ total: 1, verified: 1, needsEvidence: 0 })
+    } finally {
+      await ok.app.dispose('test')
+      rmSync(ok.dir, { recursive: true, force: true })
+    }
+
+    const wrong = await bootWith(rows({ verify: 'on', text: '截至 1999-01-01，账户信息如下。' }), 's-date-bad')
+    try {
+      const agent = wrong.app.ctx.get(AGENTS_SERVICE).list()[0]
+      if (agent === undefined) throw new Error('没有活体 agent')
+      agent.send('查余额')
+      await agent.run()
+      const events = wrong.app.ctx.get(SESSION_SERVICE).events()
+      expect(assistantTexts(events).at(-1)?.startsWith('【未核实】')).toBe(true)
+      expect(assertionEvents(events).at(-1)).toMatchObject({ total: 1, verified: 0, needsEvidence: 1 })
+    } finally {
+      await wrong.app.dispose('test')
+      rmSync(wrong.dir, { recursive: true, force: true })
     }
   })
 

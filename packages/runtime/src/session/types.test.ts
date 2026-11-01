@@ -1,7 +1,7 @@
 /**
  * 会话事件的**编译期**契约断言（运行期只做一次触发器断言）。
  *
- * 背景（施工台账 R27，台账已撤下）：core 的 `SessionEventMap` 仍带字符串索引签名（阶段 1 冻结面），
+ * 背景（PROGRESS R27）：core 的 `SessionEventMap` 仍带字符串索引签名（阶段 1 冻结面），
  * 所以「拼错事件名」在 core 层面拦不住。runtime 侧用两道闸补上：
  *
  * 1. **编译期**：`SessionSink.append<S extends SessionEventType>` 把 S 收窄成

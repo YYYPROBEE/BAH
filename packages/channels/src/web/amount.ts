@@ -8,8 +8,9 @@
  *    而 `amountCents` / `minAmountCents` 已经是**分**。
  *    这条注释曾经写反（说 `approval/asked.amount` 是分），审计时间线照着写，
  *    把 800 元显示成 ¥8.00；
- * 2. **没结果就不算确认**：只有本 turn 内该 `callId` 的 `tool/result` 成功返回，
- *    金额才算被证实；否则 UI 必须标灰 + "待确认"（幻觉防护的 UI 侧）。
+ * 2. **没结果就不算确认**：工具卡只认本 turn 内该 `callId` 的 `tool/result`；
+ *    审批帧没有本次结果时，可沿用同 turn 成功 `transfer_preview`（收款人+金额一致）
+ *    的证实。两条都不满足才标灰 + "待确认"（幻觉防护的 UI 侧）。
  */
 
 import { formatCents, yuanToCents } from './format.ts'

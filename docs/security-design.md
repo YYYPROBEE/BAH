@@ -1,9 +1,10 @@
 # 安全设计：威胁模型、攻击面与缺口
 
-> **本文是"论证"，不是"打分表"**：回答"为什么这样做、漏了会怎样"。
-> 未实现项见 §4，每条防线的复现命令见 §5。
+> W19 交付件之三。**本文是"论证"，不是"打分表"**——打分表在
+> [security-self-assessment.md](security-self-assessment.md)（HP-0…HP-4 的状态、评分、复现命令）。
+> 两份交叉引用，不复制彼此内容：自评回答"做到什么程度"，本文回答"为什么这样做、漏了会怎样"。
 >
-> 事实口径见 §0（三份安全文档共用同一块，由脚本注入）。
+> 事实口径见 §0（三份 W19 文档共用同一块，由脚本注入）。
 > 每条防线都指向**代码位置**与**能跑的命令**，不写"全面防护""零信任"这类没有定义的词。
 
 ## 0. 事实表（三份文档共用）
@@ -14,8 +15,8 @@
 | plan 节点态 | **9 态**（pending、ready、running、succeeded、failed、skipped、blocked、cancelled、incident） | packages/runtime/src/plan/types.ts 的 `PLAN_NODE_STATES` |
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
-| 工具数 | **21 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表条目（项） | **31** | `HOST_PLUGINS` 计数 |
+| 工具数 | **30 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
+| 注册表条目（项） | **32** | `HOST_PLUGINS` 计数 |
 | 门禁（项） | **54** | `scripts/verify-*.ts` 计数 |
 | 覆盖率 | **89.87%（行口径，49571/55161 行，实测 2026-10-30）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
@@ -83,24 +84,40 @@
 3. **HALT 与风险分**：`HALT` 判定在 `riskScore` 之前——停机是绝对状态，
    不该被"分数还低"绕过。
 
-## 4. 已知边界（类别级）
+## 4. 未实现清单（9 项，每项写清"为什么不做"与"影响面"）
 
-完整取舍表与影响面按内部评审材料维护，不随公开仓分发。公开面只保留能力类别：
+> 施工单要求 ≥5 项。这一节不是道歉，是**接口**：评委会问的每一个"那你们怎么防 X"，
+> 答案要么在这里，要么在上面 §3 的"现有防线"里。
+>
+> **HP-4（工具出参运行时契约校验）已实现，不在本表**：`ToolPipeline` 在每次工具调用后按
+> `resultSchema` 运行时校验，畸形返回报 `tool-result-invalid` 并落 `isError`
+> （`packages/runtime/src/tools/pipeline.ts:285-292`）；28 个银行工具全覆盖
+> （`packages/bank/src/tools/result-schemas.ts` 19 个键，装配在
+> `packages/host/src/boot/plugins/bank-tools.ts:283-295`），直测
+> `packages/runtime/src/tools/contracts.test.ts:172-197`。
 
-| # | 未实现（类别） | 为什么不做 | 影响面 |
+| # | 未实现 | 为什么不做（取舍） | 影响面 |
 |---|---|---|---|
-| 1 | RAG 响应信封签名（跨语言验签） | 需要跨语言黄金向量与密钥分发；本轮预算放在条目级验签与拒答 | 服务端**整体被替换**时无法证明对端身份；生产接入需补 |
-| 2 | 强验证接真实渠道（短信 / 人脸 / U 盾） | 需要外部服务与合规审批 | "红级已过 MFA"只在仿真环境成立，属**配置缺口** |
-| 3 | plan 内写工具的自动补偿 | `saga-bridge` 在 `profiles/plan` 显式关闭，避免同笔操作被重复展开 | plan 中途失败时**没有自动冲正** |
-| 4 | plan 动态 args 跨 `resume` | 节点输出只在内存，写进会话日志会污染审计面 | 重做已成功的转账只能新 `planId` + 冲正原笔 |
-| 5 | `incident` 状态的真实触发源 | 全内存 mock，没有"外部不可用"的真实来源 | DAG 视图不区分 `incident` 与 `failed` |
-| 6 | 真定时调度与外部商户履约 | 调度器属后续阶段；商户履约在银行域外 | 不会到点自动扣款；对账只覆盖银行侧 |
-| 7 | 人工接管与分叉会话的持久化 | 接管状态在进程内，多会话宿主未做 | 重启后接管状态丢失 |
-| 8 | 策略生产签名密钥的分发与轮换 | 需要密钥托管与轮换流程 | 演示 profile 仍 `unsigned`，不能宣称"防篡改" |
+| 1 | **HP-2：RAG 响应信封签名** | 需要跨语言黄金向量与密钥分发，收益集中在"证明对端身份"；本轮把预算放在"条目级验签 + 拒答"上（伪造/漂移必被拒） | 服务端**整体被替换**时，只能保证"返回条目必须与我方签名清单逐字一致"，不能证明对方身份。生产接入需补 |
+| 2 | **强验证接真实渠道** | `verify.provider` 默认是测试网关适配器（`mock`），真实人脸/短信/U 盾需要外部服务与合规审批 | "红级已过 MFA"只在仿真环境成立。这是**配置缺口**，不是代码缺口 |
+| 3 | **对抗集 H-14 / H-15（幻觉族 13/15）** | 两条期望是 `degrade`（把无证据断言降级为【未核实】），实际 `allowed`；归因 `rule-gap`：断言抽取没覆盖这两类表述（H-13 的保本/收益承诺已由第六类断言收口） | 无证据的定性表述可能不带【未核实】落账。属于**召回**缺口，不是绕过（资金动作仍受审批约束） |
+| 4 | **plan 内写工具的补偿** | `saga-bridge` 在 `profiles/plan` 显式关闭（否则 `transfer_create` 被再展开，一条 `plan/node-result` 对上两条 `tool/call`） | plan 里第 2 步扣款、第 3 步失败时**没有自动冲正**；正确做法是让 plan 编排一整笔 saga，这是 P2 的活 |
+| 5 | **plan 动态 args 跨 `resume`** | 节点输出只存在内存里，续跑时无法还原上游 output；存进会话日志会把大对象写进审计面 | 需要"重做一笔已成功的转账"时，只能新 `planId` + 冲正原笔（两张计划用 `meta` 关联） |
+| 6 | **`incident` 状态的真实触发源** | 本仓全内存 mock，没有"外部不可用"的真实来源；可达性靠单测 + 宿主 stub 工具 | Web 的 DAG 视图按 `tool/call` 派生，**不区分** `incident` 与 `failed`；裁判问"什么时候会 incident"要按 `docs/plan.md` 讲条件，不能指屏幕 |
+| 7 | **真定时调度的能力边界** | 定时走 `transfer_schedule` / `birthday_plan` 的**授权窗口** + `plan_wake`（复用 `saga/tick` 与启动补跑），没有独立的 `@bah/schedule` 包；`transfer_create.when` 仍只接受 `now`——防止绕过窗口直接发起"未来扣款" | 到期执行要求进程存活或下次启动补跑；注入钟不推进就不会凭空到点。演示口径应是"授权窗口 + 到点条件复验 + 失守降级"，不要说"独立调度器" |
+| 8 | **外部商户真实通道** | 鲜花/蛋糕来自 `bank:merchant` 的 mock 目录：`merchant_search` 按品类/预算/时效搜，`merchant_order` 只接受**本会话搜过**的 offer（超预算换店、不擅自加价）；资金腿仍是 `transfer_create` 或卡消费 | 不存在真实商户 API 的配送/退款；对账只覆盖银行侧。演示可以说"下单与扣款都可审计"，不能说"已对接真实商户" |
+| 9 | **人工接管与分叉会话的持久化 / 多会话切换** | 接管状态在进程内（重启回 `active`）；`POST /api/session/fork` 产生的新会话也在进程内，HTTP 渠道仍服务原会话——把渠道切到新会话属多会话宿主（D4） | 重启后接管状态丢失；"回到上一步"目前只给分叉元数据与提示，不切换对话流。两者都**不**影响旧会话的审计完整性（旧卷原样封存） |
 
-> 这些是**能力边界**，不是绕过条件：具体到规则与用例的缺口登记只在内部分发。
+补充（不算"未实现"，但要主动说）：
 
-## 5. 自行复现每条防线
+- **覆盖率还有两个包没到 80%**：`memory-store` 72.68% 与 `eval` 43.12%（行口径 89.06%＝41749/46877，仅 `packages/*/src`；包口径 16/18，见事实表）。`eval` 的行数多在场景数据装载、`memory-store` 多在存储适配，属于评测/记忆 harness 而非主资金路径。
+- **策略生产签名密钥的分发/轮换未落地**：S4 提供 Ed25519 可选验签与 `policy:rules.signature`
+  路径，密钥不进仓；演示 profile 仍 `requireSignature: false`，链上策略判决是 `unsigned`。
+  生产强制签名需要密钥托管与轮换流程，登记到 S6；不能据此宣称"策略文件防篡改"。
+- **`security-self-assessment.md` 里的工具数曾停在更早的一版**（现为 19）：本轮已顺手改正，
+  该文档的评分与状态不受影响。
+
+## 5. 每条防线的复现命令（评委可逐条抽验）
 
 ```bash
 # ① 三级权限与票据：3 个工具、只 1 次审批
@@ -127,6 +144,7 @@ npx tsx scripts/replay.ts --session <id> --dir <jsonlDir> --verify
 
 ## 6. 与赛题条款的对应
 
-赛题要求的权限分级、安全设计与自评三部分，分别落在 §2 威胁模型、§3 攻击面清单与 §4 已知边界。
-本文只补充一条口径：**"票据 + 强验证 + 断言核验"三件事共同构成"资金动作可控"**，
+逐条对应表在 [security-self-assessment.md](security-self-assessment.md) §11，
+本文不复制（两份文档各写一遍必然打架）。本文只补充一条口径：
+**"票据 + 强验证 + 断言核验"三件事共同构成"资金动作可控"**，
 单独拿任何一件讲都会被追问缺口（例如只讲票据会被问"模型胡说金额怎么办"）。

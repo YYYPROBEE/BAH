@@ -7,7 +7,7 @@
  * 1. `plan/node-result.status` 是**三值**：`skipped`（调度过没执行）与 `blocked`（没调度）
  *    必须在审计上可区分，否则"计划为什么没跑"永远说不清。
  *    ★ `incident` 不再是第四个值：它以 `status:'failed'` + `code: PLAN_INCIDENT_CODE` 落账，
- *    读侧由 `nodeStateFromResult()` 还原（W11，理由见施工台账 §70.1，台账已撤下）。
+ *    读侧由 `nodeStateFromResult()` 还原（W11，理由见 `PROGRESS.md` §70.1）。
  * 2. **不落 args 原文**：只落 `digest` + `tool` + `code`。金额/收款人不得进 append-only 日志；
  * 3. `digest` 用 **canonical JSON**（键排序后 hash）：`JSON.stringify` 的键序取决于构造顺序，
  *    同一份 plan 从 YAML 和字面量构造会得到两个 digest；

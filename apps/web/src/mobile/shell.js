@@ -18,17 +18,48 @@
 
 import { clear, el } from '../dom.js'
 import { createStore, viewKey } from '../store.js'
+import { bootstrapPasswordGate, readAuthMode } from '../auth.js'
+import { applyFontScale, createFeedbackStore, createPrefs, feedbackKeyOf, isLargeFont, PREF_KEYS } from '../prefs.js'
+import { scrollToBottom } from '../scroll.js'
+import { createSpeaker } from '../speech.js'
+import { createDialog } from '../views/dialog.js'
+import {
+  answerFooterModel,
+  renderAnswerFooter,
+  renderAssistPanel,
+  renderQuickActions,
+  renderSafetyBanner,
+} from '../views/assist.js'
 import { createSessionControls } from './session-controls.js'
 import { connectEvents, createHttpApi } from '../transport.js'
-import { renderAudit } from '../views/audit.js'
 import { renderDraft, renderEmptyState, renderFrame } from '../views/conversation.js'
+import { renderRiskQuestionnaire } from '../views/risk-form.js'
 import { renderTool } from '../views/tool-card.js'
 import { createApprovalSheet } from './approval-sheet.js'
+import { createAuditGroup } from './audit-group.js'
 import { createChoiceCard } from './choice-card.js'
 import { createComposer } from './composer.js'
 import { createEffectsList } from './effects-list.js'
 import { createLayout } from './layout.js'
 import { createPlanSteps } from './plan-steps.js'
+
+/**
+ * 移动端显式复用的渲染件（`conversation.js` 的 switch 之外，或需要移动端专属包装）。
+ *
+ * 为什么用表而不是三元表达式：新增帧时这里会提醒你确认"移动端到底用哪个渲染件"，
+ * 而不是默默掉进 `renderFrame` 的默认分支（那会渲染成"未知帧"）。
+ */
+const SHARED_RENDERERS = new Map([
+  // 风险问卷卡与桌面壳共用同一张卡：两端口径必须逐字一致，
+  // 否则"用户在手机上答的题"与"审批卡回显的题"可能对不上。
+  ['risk-questionnaire', renderRiskQuestionnaire],
+])
+
+/** 按帧取渲染件（未登记的一律走 `renderFrame`，并把反馈依赖原样传下去）。 */
+function rendererOf(frame, deps) {
+  const shared = SHARED_RENDERERS.get(frame.kind)
+  return shared ?? ((item) => renderFrame(item, deps))
+}
 
 /**
  * 快捷短语默认文案（D10 第 5 条：chips 是演示主入口）。
@@ -46,8 +77,7 @@ export const DEFAULT_QUICK_PHRASES = Object.freeze({
 })
 
 /** 重连缺省值表（可调，不散落字面量）。 */
-export const RECONNECT_DEFAULTS = Object.freeze({
-  baseMs: 1000,
+export const RECONNECT_DEFAULTS = Object.freeze({  baseMs: 1000,
   maxMs: 30_000,
   /** ±20% 抖动：多个标签页同时断线时不要齐刷刷同一毫秒打回来。 */
   jitter: 0.2,
@@ -145,7 +175,8 @@ export function dispatchFrame(frame, ctx) {
     case 'approval-closed':
       return ctx.approvalSheet.closeByServer(frame)
     case 'audit':
-      return ctx.feed.append(frame)
+      // 审计帧统一收进「过程记录」模块（feed-audit 槽位），不在会话流里逐条铺开。
+      return undefined
     case 'snapshot':
       return ctx.store.apply(frame)
     case 'choice':
@@ -172,7 +203,7 @@ export function dispatchFrame(frame, ctx) {
 }
 
 /** 会话流：按视图键替换（复用 store 的 `viewKey`），一轮 pass 结束后剪掉没被触到的节点。 */
-function createFeed(container) {
+function createFeed(container, deps = {}) {
   const rendered = new Map()
   let touched = new Set()
 
@@ -200,8 +231,9 @@ function createFeed(container) {
       touched = new Set()
     },
     append(frame) {
-      // audit 帧不在 conversation.js 的 switch 里（它会渲染成"未知帧"），走 audit.js 的渲染件
-      return upsert(frame, frame.kind === 'audit' ? renderAudit : renderFrame)
+      // audit 帧不在 conversation.js 的 switch 里（它会渲染成"未知帧"），走 audit.js 的渲染件；
+      // 其余帧按 `SHARED_RENDERERS` 取（风险问卷卡与桌面壳共用同一张卡）。
+      return upsert(frame, rendererOf(frame, deps))
     },
     appendUnknown(frame) {
       return upsert(frame, (item) =>
@@ -281,6 +313,9 @@ export function createMobileShell(deps) {
   const random = deps.tuning?.random ?? Math.random
   const reconnectConfig = { ...RECONNECT_DEFAULTS, ...(deps.tuning?.reconnect ?? {}) }
   const store = createStore()
+  const prefs = createPrefs(deps.storage)
+  const feedbackStore = createFeedbackStore(prefs)
+  const speaker = createSpeaker(win)
 
   const layout = createLayout(deps.root, { win })
   const { feed: feedRegion, dock, overlayHost } = layout.regions
@@ -290,17 +325,64 @@ export function createMobileShell(deps) {
   const reminderHost = el('div', { dataset: { role: 'reminder-host' } })
   dock.append(reminderHost)
 
+  // 安全提醒与常用业务在会话流顶部：空会话时直接可见，开始对话后业务宫格收起
+  // （空态才有位置），安全提醒保留到用户自己收起。
+  const safetyHost = el('div', { dataset: { role: 'safety' } })
+  const quickHost = el('div', { class: 'm-quick', dataset: { role: 'quick-entry' } })
+
   const conversationHost = el('div', { dataset: { role: 'feed-conversation' } })
   const resultHost = el('div', { dataset: { role: 'feed-result' } })
   const echoHost = el('div', { dataset: { role: 'feed-echo' } })
   const planHost = el('div', { dataset: { role: 'feed-plan' } })
   const choiceHost = el('div', { dataset: { role: 'feed-choice' } })
   const effectsHost = el('div', { dataset: { role: 'feed-effects' } })
-  feedRegion.append(conversationHost, resultHost, echoHost, planHost, choiceHost, effectsHost)
+  const auditHost = el('div', { dataset: { role: 'feed-audit' } })
+  const footerHost = el('div', { dataset: { role: 'feed-footer' } })
+  feedRegion.append(
+    safetyHost,
+    quickHost,
+    conversationHost,
+    resultHost,
+    echoHost,
+    planHost,
+    choiceHost,
+    effectsHost,
+    auditHost,
+    footerHost,
+  )
 
+  const feedbackDeps = {
+    value: (frame) => feedbackStore.get(feedbackKeyOf(store.state().sessionId, frame.seq)),
+    rate: (frame, value) => feedbackStore.rate(feedbackKeyOf(store.state().sessionId, frame.seq), value),
+  }
   const feed = createFeed(conversationHost)
   const planSteps = createPlanSteps(planHost, { renderTool })
   const effectsList = createEffectsList(effectsHost)
+  const auditGroup = createAuditGroup(auditHost)
+  const services = createDialog(overlayHost)
+
+  if (prefs.get(PREF_KEYS.safetyDismissed) !== '1') {
+    safetyHost.append(
+      renderSafetyBanner({
+        onDismiss: () => {
+          prefs.set(PREF_KEYS.safetyDismissed, '1')
+          safetyHost.hidden = true
+          safetyHost.replaceChildren()
+        },
+      }),
+    )
+  } else {
+    safetyHost.hidden = true
+  }
+
+  quickHost.append(
+    renderQuickActions({
+      onPick: (text) => {
+        echoUserMessage(text)
+        return submitTurn(text)
+      },
+    }),
+  )
 
   let capabilities = deps.capabilities
   let sheet = null
@@ -311,6 +393,122 @@ export function createMobileShell(deps) {
 
   /** 本地回显（D6 点选 / chips）：等服务端把 user/message 回流后由 sync 撤掉。 */
   const echoes = new Map()
+
+  /**
+   * 滚动策略与桌面同源：发送时跳到底部；本轮第一段助手正文出现时只滚到它的顶部一次，
+   * 之后 delta / 工具帧 / 收口块都不再跟随，避免用户往上翻读时被持续拽回底部。
+   */
+  let scrollInitialized = false
+  let lastUserSeq = 0
+  let jumpToAnswerStart = false
+  let answerStartShown = false
+  let lastChoiceSeq = 0
+
+  function isUserSpeechFrame(frame) {
+    return (
+      frame.kind === 'message' &&
+      frame.role === 'user' &&
+      (frame.source === undefined || frame.source === 'user' || frame.source === 'handoff-waiting')
+    )
+  }
+
+  function latestUserSeqOf(frames) {
+    let latest = 0
+    for (const frame of frames) {
+      if (isUserSpeechFrame(frame) && typeof frame.seq === 'number') latest = Math.max(latest, frame.seq)
+    }
+    return latest
+  }
+
+  function scrollFeedToTopOf(node) {
+    if (node === null || node === undefined) return
+    const container = feedRegion.getBoundingClientRect()
+    const target = feedRegion.scrollTop + node.getBoundingClientRect().top - container.top - 8
+    feedRegion.scrollTop = Math.max(0, target)
+  }
+
+  function prepareUserSendScroll() {
+    scrollInitialized = true
+    lastUserSeq = latestUserSeqOf(store.state().frames)
+    jumpToAnswerStart = true
+    answerStartShown = false
+    scrollToBottom(feedRegion)
+  }
+
+  function syncFeedScroll(state) {
+    const latestUser = latestUserSeqOf(state.frames)
+
+    if (!scrollInitialized) {
+      if (feed.size === 0 && state.streamText.length === 0 && echoes.size === 0) return
+      scrollInitialized = true
+      lastUserSeq = latestUser
+      jumpToAnswerStart = false
+      answerStartShown = false
+      scrollToBottom(feedRegion)
+      return
+    }
+
+    if (latestUser > lastUserSeq) {
+      lastUserSeq = latestUser
+      jumpToAnswerStart = true
+      answerStartShown = false
+      scrollToBottom(feedRegion)
+      return
+    }
+
+    if (!jumpToAnswerStart || answerStartShown) return
+    const draft = conversationHost.querySelector('[data-draft="true"]')
+    let target = draft
+    if (target === null) {
+      target =
+        [...conversationHost.querySelectorAll('.message--assistant')].find(
+          (node) =>
+            Number(node.dataset.seq) > lastUserSeq &&
+            !node.classList.contains('message--tool-only'),
+        ) ?? null
+    }
+    if (target === null) return
+    scrollFeedToTopOf(target)
+    jumpToAnswerStart = false
+    answerStartShown = true
+  }
+
+  /** 对话末尾的收口块（唯一反馈行 + 两条追问）。 */
+  let answerFooter = null
+  let answerFooterKey = null
+
+  function syncAnswerFooter(model) {
+    if (model === null) {
+      answerFooter?.remove()
+      answerFooter = null
+      answerFooterKey = null
+      return
+    }
+
+    // 会话号也进键：服务重启后 seq 可能重复，不能把上一个会话的反馈状态带进新会话。
+    const key = `${String(store.state().sessionId)}:${String(model.frame.seq)}:${model.suggestions.join('|')}`
+    const build = () =>
+      renderAnswerFooter({
+        value: feedbackDeps.value(model.frame),
+        onRate: (value) => feedbackDeps.rate(model.frame, value),
+        suggestions: model.suggestions,
+        onPick: (text) => {
+          echoUserMessage(text)
+          return submitTurn(text)
+        },
+      })
+
+    if (answerFooter === null) {
+      answerFooterKey = key
+      answerFooter = build()
+    } else if (key !== answerFooterKey) {
+      const next = build()
+      answerFooter.replaceWith(next)
+      answerFooter = next
+      answerFooterKey = key
+    }
+    if (footerHost.lastElementChild !== answerFooter) footerHost.append(answerFooter)
+  }
 
   let lastSeq = 0
   let lastDeltaAt = 0
@@ -388,10 +586,14 @@ export function createMobileShell(deps) {
     feed.begin()
     for (const frame of state.frames) dispatchFrame(frame, ctx)
     feed.end()
+    auditGroup.update(state.frames.filter((frame) => frame.kind === 'audit'))
     feed.setDraft(state.streamText)
     // 空态看**会话流里已渲染的条目数**，不看帧数（tool 帧有 DAG 时挂在步骤里、不进会话流），
     // 也不能数容器子节点：空态卡自己就在容器里，第二次 sync 会因为"它有孩子了"把卡删掉（P1-3）。
-    feed.setEmpty(feed.size === 0 && state.streamText.length === 0 && echoes.size === 0)
+    const empty = feed.size === 0 && state.streamText.length === 0 && echoes.size === 0
+    feed.setEmpty(empty)
+    // 常用业务只在"还没有任何对话"时占屏幕；一开始对话就收起，不抢主视图。
+    quickHost.hidden = !empty
 
     // 回显去重：服务端把用户消息回流成 message 帧之后，本地那条 pending 回显就该消失
     const echoed = new Set()
@@ -405,13 +607,66 @@ export function createMobileShell(deps) {
       echoes.delete(text)
     }
 
-    layout.setStatus(state.status)
     const running = state.frames.some(
       (frame) => frame.kind === 'turn' && frame.phase === 'start' && !hasEnd(state.frames, frame.turn),
     )
+    // 对话完成才在末尾出反馈与追问；运行中 / 流式草稿 / 接管中都不出。
+    syncAnswerFooter(
+      answerFooterModel(state.frames, {
+        running,
+        streamText: state.streamText,
+        handoffActive,
+      }),
+    )
+
+    layout.setStatus(state.status)
     composer?.setRunning(running)
     if (state.fault !== null) composer?.showError(String(state.fault.reason ?? state.fault.code))
-    conversationHost.lastElementChild?.scrollIntoView?.({ block: 'nearest' })
+    syncFeedScroll(state)
+    // 选项卡只在**新卡**出现时滚进视口一次；后续 delta 不重复抢滚动。
+    let latestChoice = 0
+    for (const frame of state.frames) {
+      if (frame.kind === 'choice' && typeof frame.seq === 'number') latestChoice = Math.max(latestChoice, frame.seq)
+    }
+    if (choiceCard?.open === true && latestChoice > lastChoiceSeq) {
+      lastChoiceSeq = latestChoice
+      choiceCard.node.scrollIntoView?.({ block: 'nearest' })
+    }
+    maybeSpeak(state)
+  }
+
+  /** 已播报到的助手消息序号（快照 = 历史基线，不朗读历史）。 */
+  let spokenSeq = 0
+
+  function latestAssistantSeq(frames) {
+    let latest = 0
+    for (const frame of frames ?? []) {
+      if (frame.kind === 'message' && frame.role === 'assistant' && typeof frame.seq === 'number') {
+        latest = Math.max(latest, frame.seq)
+      }
+    }
+    return latest
+  }
+
+  /**
+   * 新的助手消息 → 朗读（仅在用户开启播报且浏览器支持时）。
+   *
+   * 基线无论开关都推进：关着的时候不攒一堆旧回答，打开后从"下一句"开始读。
+   */
+  function maybeSpeak(state) {
+    let latest = null
+    for (const frame of state.frames) {
+      if (frame.kind === 'message' && frame.role === 'assistant') latest = frame
+    }
+    if (latest === null) return
+    if (typeof latest.seq !== 'number' || latest.seq <= spokenSeq) return
+    spokenSeq = latest.seq
+    if (!speaker.enabled) return
+    const text = (latest.blocks ?? [])
+      .filter((block) => block.type === 'text' && typeof block.text === 'string')
+      .map((block) => block.text)
+      .join('\n')
+    speaker.speak(text)
   }
 
   function hasEnd(frames, turn) {
@@ -428,6 +683,9 @@ export function createMobileShell(deps) {
     const seq = typeof frame.maxSeq === 'number' ? frame.maxSeq : frame.seq
     if (typeof seq === 'number' && Number.isFinite(seq) && seq > lastSeq) lastSeq = seq
     framesSinceConnect += 1
+    // 快照是历史：先把播报基线推到快照里的最后一条助手消息，再应用。
+    // 顺序反了（先 apply）会触发 sync → 朗读整段历史。
+    if (frame.kind === 'snapshot') spokenSeq = latestAssistantSeq(frame.frames)
     store.apply(frame)
     // 只认**实时**到达的 handoff 帧：历史里的 handoff/requested 不能把重启后的横幅点亮
     // （接管状态是进程内的，启动真相来自 GET /api/handoff）。快照里的 handoff 帧不经过这里。
@@ -503,7 +761,62 @@ export function createMobileShell(deps) {
   }
 
   async function submitTurn(text) {
-    return uiErrorOf(await api.turn(text))
+    // 发送即回到最新位置；回答开始后只滚到正文顶部一次，不再跟随增长。
+    prepareUserSendScroll()
+    const result = uiErrorOf(await api.turn(text))
+    if (result.ok === true) restoreEcho(text)
+    else markEchoFailed(text)
+    return result
+  }
+
+  /**
+   * 回显失败态：本地气泡留在原地并给"重试发送"。
+   *
+   * 不把失败气泡删掉：用户刚说完一句话它凭空消失，比看见"发送失败"更让人慌。
+   * 服务端最终仍以 `user/message` 帧为准，成功回流时 sync 会把回显撤掉。
+   */
+  function markEchoFailed(text) {
+    const node = echoes.get(text)
+    if (node === undefined) return
+    node.dataset.failed = 'true'
+    node.classList.add('message--failed')
+    const meta = node.querySelector('.message__seq')
+    if (meta !== null) meta.textContent = '发送失败'
+    let retry = node.querySelector('[data-role="echo-retry"]')
+    if (retry === null) {
+      retry = el('button', {
+        class: 'message__retry',
+        type: 'button',
+        dataset: { role: 'echo-retry' },
+        text: '重试发送',
+      })
+      retry.addEventListener('click', () => retryEcho(text))
+      node.append(retry)
+    }
+    retry.hidden = false
+  }
+
+  function restoreEcho(text) {
+    const node = echoes.get(text)
+    if (node === undefined || node.dataset.failed !== 'true') return
+    node.dataset.failed = 'false'
+    node.classList.remove('message--failed')
+    const meta = node.querySelector('.message__seq')
+    if (meta !== null) meta.textContent = '发送中'
+    const retry = node.querySelector('[data-role="echo-retry"]')
+    if (retry !== null) retry.hidden = true
+  }
+
+  function retryEcho(text) {
+    const node = echoes.get(text)
+    if (node === undefined) return
+    node.dataset.failed = 'false'
+    node.classList.remove('message--failed')
+    const meta = node.querySelector('.message__seq')
+    if (meta !== null) meta.textContent = '发送中'
+    const retry = node.querySelector('[data-role="echo-retry"]')
+    if (retry !== null) retry.hidden = true
+    void submitTurn(text)
   }
 
   function echoUserMessage(text) {
@@ -518,6 +831,7 @@ export function createMobileShell(deps) {
     ])
     echoes.set(text, node)
     echoHost.append(node)
+    prepareUserSendScroll()
     return node
   }
 
@@ -544,8 +858,45 @@ export function createMobileShell(deps) {
     }
   }
 
+  /**
+   * 打开“服务与帮助”抽屉：常用业务 + 大字/播报 + 服务范围与免责声明。
+   *
+   * 抽屉内点业务入口 = 发一条普通用户消息；发送在关闭抽屉之后进行，避免
+   * 用户看着一张已经发出的卡片还以为要再点一次。
+   */
+  function openServices() {
+    services.show({
+      title: '服务与帮助',
+      body: renderAssistPanel({
+        onPick: async (text) => {
+          services.close()
+          echoUserMessage(text)
+          await submitTurn(text)
+        },
+        fontLarge: isLargeFont(prefs),
+        speechEnabled: speaker.enabled,
+        speechSupported: speaker.supported,
+        collapsibleScope: true,
+        onToggleFont: () => {
+          const next = !isLargeFont(prefs)
+          prefs.set(PREF_KEYS.fontScale, next ? 'large' : 'normal')
+          applyFontScale(doc, next ? 'large' : 'normal')
+          return next
+        },
+        onToggleSpeech: () => {
+          const next = !speaker.enabled
+          speaker.setEnabled(next)
+          prefs.set(PREF_KEYS.speech, next ? '1' : '0')
+          return next
+        },
+      }),
+    })
+  }
+
   async function start() {
     stopped = false
+    applyFontScale(doc, isLargeFont(prefs) ? 'large' : 'normal')
+    speaker.setEnabled(prefs.get(PREF_KEYS.speech) === '1')
     const session = capabilities === undefined ? await loadSession(api) : { capabilities }
     capabilities = session.capabilities
     const confirmed = capabilities !== undefined
@@ -600,6 +951,7 @@ export function createMobileShell(deps) {
     composer = createComposer(dock, {
       submit: submitTurn,
       interrupt: async (reason) => uiErrorOf(await api.interrupt(reason)),
+      onOpenServices: openServices,
       // chips 只在渠道声明"语音走系统输入法"时渲染（D10 第 5 条）
       ...(confirmed && capabilities.voiceInput === 'ime'
         ? { phrases: deps.phrases ?? DEFAULT_QUICK_PHRASES }
@@ -641,8 +993,11 @@ export function createMobileShell(deps) {
     controls?.dispose()
     choiceCard?.dispose()
     effectsList.dispose()
+    auditGroup.dispose()
     planSteps.dispose()
     sheet?.dispose()
+    services.dispose()
+    speaker.dispose()
     feed.dispose()
     layout.dispose()
   }
@@ -679,11 +1034,28 @@ export function createMobileShell(deps) {
     get choiceCard() {
       return choiceCard
     },
+    get services() {
+      return services
+    },
+    get speaker() {
+      return speaker
+    },
   }
 }
 
 /** 自动挂载（浏览器里 `#app` 存在时；测试导入不会触发——jsdom 无该节点）。 */
 const rootElement = typeof document === 'undefined' ? null : document.querySelector('#app')
 if (rootElement instanceof HTMLElement) {
-  void createMobileShell({ root: rootElement }).start()
+  if (readAuthMode() === 'password') {
+    // 与桌面入口同一条登录门（TA-31）：m.html 也会被注入 auth meta；
+    // 不走这里的话，password 部署下的移动端只会看到 401 与降级提示，永远进不了登录卡片。
+    void bootstrapPasswordGate({
+      root: rootElement,
+      mount: () => {
+        void createMobileShell({ root: rootElement }).start()
+      },
+    })
+  } else {
+    void createMobileShell({ root: rootElement }).start()
+  }
 }

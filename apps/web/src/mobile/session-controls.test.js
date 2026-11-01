@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { createSessionControls } from './session-controls.js'
+import { createSessionControls, HANDOFF_POLL_MS } from './session-controls.js'
 
 /** 假端点客户端（与 `createSessionControlClient` 同形；刻意没有 resume——移动壳不调坐席端点）。 */
 function fakeClient(overrides = {}) {
@@ -33,6 +33,7 @@ describe('会话控制条', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     host.remove()
   })
 
@@ -92,5 +93,72 @@ describe('会话控制条', () => {
     await vi.waitFor(() => expect(notify).toHaveBeenCalledWith('转人工失败：已在接管中', 'warning'))
     expect(controls.banner.hidden).toBe(true)
     controls.dispose()
+  })
+
+  it('服务端摘要驱动横幅：等待时长与已认领坐席（不显示 undefined）', async () => {
+    client.handoffStatus.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { active: true, waitedMs: 65_000, claimed: true, operator: 'A-102' },
+    })
+    const controls = createSessionControls(host, { client, onNotice: notify })
+    await controls.refresh()
+
+    const hint = host.querySelector('[data-role="handoff-hint"]')
+    expect(controls.banner.hidden).toBe(false)
+    expect(hint.textContent).toContain('已等待 1:05')
+    expect(hint.textContent).toContain('坐席 A-102 已认领')
+    expect(hint.textContent).toContain('坐席工作台')
+    controls.dispose()
+  })
+
+  it('摘要缺坐席名 / 未认领时各有兜底文案（不出现 undefined）', async () => {
+    const controls = createSessionControls(host, { client, onNotice: notify })
+
+    client.handoffStatus.mockResolvedValueOnce({ ok: true, status: 200, data: { active: true, claimed: true } })
+    await controls.refresh()
+    expect(host.querySelector('[data-role="handoff-hint"]').textContent).toContain('坐席已认领')
+
+    client.handoffStatus.mockResolvedValueOnce({ ok: true, status: 200, data: { active: true, claimed: false } })
+    await controls.refresh()
+    const hint = host.querySelector('[data-role="handoff-hint"]')
+    expect(hint.textContent).toContain('等待坐席认领')
+    expect(hint.textContent).not.toContain('undefined')
+    controls.dispose()
+  })
+
+  it('轮询在飞时不叠加请求（第二次直接返回 poll-in-flight）', async () => {
+    let release
+    client.handoffStatus.mockImplementation(() => new Promise((resolve) => { release = resolve }))
+    const controls = createSessionControls(host, { client, onNotice: notify })
+
+    const first = controls.refresh()
+    const second = await controls.refresh()
+    expect(client.handoffStatus).toHaveBeenCalledTimes(1)
+    expect(second).toMatchObject({ ok: false, code: 'poll-in-flight' })
+
+    release({ ok: true, status: 200, data: { active: true } })
+    await first
+    controls.dispose()
+  })
+
+  it('接管中每 15 秒自动刷新摘要；dispose 后定时器停止', async () => {
+    vi.useFakeTimers()
+    client.handoff.mockResolvedValue({ ok: true, status: 200, data: { active: true } })
+    client.handoffStatus.mockResolvedValue({ ok: true, status: 200, data: { active: true, waitedMs: 30_000 } })
+    const controls = createSessionControls(host, { client, onNotice: notify })
+
+    host.querySelector('[data-role="handoff"]').click()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(controls.banner.hidden).toBe(false)
+    expect(client.handoffStatus).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(HANDOFF_POLL_MS)
+    expect(client.handoffStatus).toHaveBeenCalledTimes(1)
+
+    controls.dispose()
+    await vi.advanceTimersByTimeAsync(HANDOFF_POLL_MS * 2)
+    expect(client.handoffStatus).toHaveBeenCalledTimes(1)
   })
 })

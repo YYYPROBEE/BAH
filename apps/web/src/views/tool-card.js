@@ -39,6 +39,23 @@ function toneClass(tone) {
 }
 
 /**
+ * 把工具正文里的合规提示整理成客户可读的一句话。
+ *
+ * 原始正文形如「风险提示：wealth-risk-v1（必须向用户展示，理财非存款、投资有风险）」：
+ * 「必须向用户展示」是给模型的指令，不该出现在客户界面；ID 由旁边的 chip 单独展示。
+ * 只去掉这层包装，不改写任何风险表述；认不出格式就原样显示。
+ */
+function disclaimerTextOf(raw) {
+  const text = String(raw ?? '').trim()
+  const cleaned = text
+    .replace(/^风险提示[：:]\s*\S+?\s*[（(]\s*/, '')
+    .replace(/^必须向用户展示[，,、]?\s*/, '')
+    .replace(/\s*[）)]\s*$/, '')
+    .trim()
+  return cleaned === '' ? text : cleaned
+}
+
+/**
  * 工具帧 → 卡片节点。
  *
  * @param {Record<string, any>} frame
@@ -103,10 +120,10 @@ export function renderTool(frame) {
         : [
             el('div', { class: 'ds-alert ds-alert--warning tool-card__disclaimer' }, [
               el('span', { class: 'ds-alert__icon' }, [icon('error', 16)]),
-              el('div', {}, [
-                el('div', { class: 'ds-alert__title', text: '风险提示（必须展示）' }),
-                el('p', { class: 'ds-alert__desc', text: card.disclaimer.text }),
-                el('code', { class: 'ds-code', text: card.disclaimer.id }),
+              el('div', { class: 'tool-card__disclaimer-body' }, [
+                el('div', { class: 'ds-alert__title', text: '风险提示' }),
+                el('p', { class: 'ds-alert__desc', text: disclaimerTextOf(card.disclaimer.text) }),
+                el('code', { class: 'ds-code tool-card__disclaimer-id', text: card.disclaimer.id }),
               ]),
             ]),
           ]),

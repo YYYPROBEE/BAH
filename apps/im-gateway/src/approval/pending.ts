@@ -7,7 +7,7 @@
  * 一切结论仍以子进程返回为准；这里只维护"能不能显示/选择"的展示状态。
  */
 
-import { projectImOutbound, type ApprovalClosedFrame, type ApprovalFrame, type FrameTier, type WebFrame } from '@bah/channels'
+import { projectImOutbound, type ApprovalClosedFrame, type ApprovalDetail, type ApprovalFrame, type FrameTier, type WebFrame } from '@bah/channels'
 
 /** 一张待审批票据（网关内存态；不含平台用户标识）。 */
 export interface PendingTicket {
@@ -23,6 +23,12 @@ export interface PendingTicket {
   readonly operation: string
   readonly amountText?: string
   readonly payeeName?: string
+  /**
+   * 服务端签发的操作明细（**只展示**；H5 与文本出口共用这一份）。
+   *
+   * 缺省 = 该工具还没有明细：文本出口退回原来的摘要，H5 只渲染金额/层级。
+   */
+  readonly details?: readonly ApprovalDetail[]
 }
 
 /** 帧 → 待审批票据。 */
@@ -38,6 +44,7 @@ export function ticketOf(frame: ApprovalFrame): PendingTicket {
     ...(frame.expiresAt === undefined ? {} : { expiresAt: frame.expiresAt }),
     ...(frame.amountText === undefined ? {} : { amountText: frame.amountText }),
     ...(frame.payeeName === undefined ? {} : { payeeName: frame.payeeName }),
+    ...(frame.details === undefined ? {} : { details: frame.details }),
   }
 }
 

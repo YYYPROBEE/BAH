@@ -162,6 +162,8 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       'plan:scheduler',
       'fact:store',
       'bank:merchant',
+      // ADR-0016：订阅续费主动提醒 + 通用主动通知通道（只登记不默认装配）
+      'proactive:reminder',
       // C4 跨会话记忆：同样只登记不默认装配（记忆会改变模型输入，由 profile 显式开）
       'bah:memory-store',
       // 03 单：意图平面与追问。两行按序装配（prompt:ask 取 intent:plane 的会话状态）

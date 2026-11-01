@@ -136,6 +136,61 @@ describe('指令选择（T-H5-004 / T-IM-016）', () => {
       ticketId: 't-red',
     })
   })
+
+  it('显式票号指向已知红级未验证票 → 先验证，verified 后才批准', () => {
+    expect(planApprovalCommand({ kind: 'approve', ticketId: 't-red' }, [red])).toMatchObject({
+      kind: 'reply',
+      text: NEED_VERIFY_TEXT,
+    })
+    expect(
+      planApprovalCommand({ kind: 'approve', ticketId: 't-red' }, [{ ...red, verified: true }]),
+    ).toMatchObject({ kind: 'decide', ticketId: 't-red', decision: 'allowed-once' })
+  })
+
+  it('显式票号拒绝：即使本地没有该票也按票号转发，理由原样携带', () => {
+    expect(
+      planApprovalCommand({ kind: 'reject', ticketId: 't-ghost', reason: '金额不对' }, []),
+    ).toEqual({
+      kind: 'decide',
+      ticketId: 't-ghost',
+      decision: 'rejected',
+      reason: '金额不对',
+    })
+  })
+
+  it('强验证：显式票号先查本地挑战；多张且无票号不猜', () => {
+    expect(planApprovalCommand({ kind: 'verify', ticketId: 't-1' }, [yellow])).toMatchObject({
+      kind: 'reply',
+      text: NO_CHALLENGE_TEXT,
+    })
+    expect(planApprovalCommand({ kind: 'verify', ticketId: 't-red' }, [red])).toEqual({
+      kind: 'verify',
+      ticketId: 't-red',
+    })
+    expect(planApprovalCommand({ kind: 'verify' }, [yellow, red])).toMatchObject({
+      kind: 'reply',
+      text: NEED_TICKET_TEXT,
+    })
+  })
+
+  it('详情：无票号只在恰好一张时选中；0 张 / 多张都不猜', () => {
+    expect(planApprovalCommand({ kind: 'detail' }, [yellow])).toEqual({
+      kind: 'detail',
+      ticketId: 't-1',
+    })
+    expect(planApprovalCommand({ kind: 'detail', ticketId: 't-1' }, [yellow])).toEqual({
+      kind: 'detail',
+      ticketId: 't-1',
+    })
+    expect(planApprovalCommand({ kind: 'detail' }, [])).toMatchObject({
+      kind: 'reply',
+      text: NO_PENDING_TEXT,
+    })
+    expect(planApprovalCommand({ kind: 'detail' }, [yellow, red])).toMatchObject({
+      kind: 'reply',
+      text: NEED_TICKET_TEXT,
+    })
+  })
 })
 
 describe('出站文案（§2.5）', () => {

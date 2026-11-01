@@ -9,6 +9,7 @@
  * 布局响应视口是 JS 的活，布局响应刘海是 CSS 的活，混在一起就没人说得清谁赢了。
  */
 
+import { BRAND } from '../brand.js'
 import { el } from '../dom.js'
 
 /**
@@ -38,7 +39,7 @@ export function createLayout(root, deps = {}) {
   const sessionLabel = el('span', { class: 'm-header__session', text: '会话 —' })
 
   const header = el('header', { class: 'm-header' }, [
-    el('span', { class: 'm-header__title', text: 'BAH · 移动' }),
+    el('span', { class: 'm-header__title', text: BRAND.name }),
     el('div', { class: 'm-header__meta' }, [sessionLabel, statusNode]),
   ])
   const feed = el('main', { class: 'm-feed', id: 'm-feed', 'aria-label': '对话与执行' })

@@ -28,11 +28,20 @@
 
 - id: interaction:approval
   config:
-    # headless 没有弹窗：显式开自动应答者。plan 的每个节点**各走一次**审批，
-    # 所以这条应答者会被调用多次（不是"外层批一次"）
-    responder: headless
-    autoDecision: allow
-    autoVerify: true
+    # ★ ADR-0010：本 profile **不再有"无差别放行"的应答者**。
+    #
+    # `responder: none` = 没有自动应答者：模型/CLI 直接发起的写操作拿不到人，
+    # 结论就是 unavailable（拒绝）——这是对的，plan profile 没有弹窗，就不该有人代它点头。
+    #
+    # `windowResponder: true` = 只装**窗口代签**应答者：票据自带
+    # `authorization.kind='window'`（只有 `plan_wake` 会注入）且宿主核验
+    # （唤醒标记 + 窗口复验 + 档位 + 预算 + 红级预授权）通过时才签一次。
+    # 其余一切 ask 它一个字都不答，把票据留给渠道/超时。
+    #
+    # 为什么删掉 `autoDecision: allow`：那是把回归夹具（headless 自动应答）当成生产语义，
+    # 等于"任何审批都会被批"，窗口、档位、预算全都失去意义。
+    responder: none
+    windowResponder: true
 
 - id: safety:sentry
   config:
@@ -83,3 +92,9 @@
 - id: bank:merchant
   use: bank:merchant
   config: { enabled: true, fault: none }
+
+# ADR-0016：订阅续费主动提醒（通用主动通知通道 `bah:proactive`）。
+# 规则写死在代码里，这里只开总开关；boot 补跑必须开——本 profile 没有 saga-bridge 的 tick。
+- id: proactive:reminder
+  use: proactive:reminder
+  config: { enabled: true, catchUpOnBoot: true }

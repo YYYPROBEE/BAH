@@ -7,8 +7,10 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ImInbound, ImOutbound, PlatformPushResult, PlatformReply, WebFrame } from '@bah/channels'
-import { deriveImSessionId } from '@bah/channels'
+import { deriveImSessionId, verifyApprovalLink } from '@bah/channels'
 
+import { NO_PENDING_TEXT } from '../src/approval/texts.ts'
+import { isHelpRequest } from '../src/bridge/help.ts'
 import { createPullStore } from '../src/bridge/outbound.ts'
 import { handleInbound, type InboundDeps } from '../src/bridge/turn.ts'
 import { createDedupe } from '../src/ingress/dedupe.ts'
@@ -228,5 +230,62 @@ describe('T-IM-007 转人工与接管', () => {
     await deps.hub.flush()
     expect(reply.pushes).toContain('坐席已交回，继续为您服务。')
     expect(deps.hub.handoffActive(sessionKey)).toBe(false)
+  })
+})
+
+describe('T-IM-017 详情指令', () => {
+  it('`3 票据号` → 只回摘要 + 可验签的 H5 链接，不送模型也不调审批', async () => {
+    const { deps, child, reply, sessionKey } = setup([approvalFrame()])
+    const outcome = await handleInbound(deps, inbound('3 t-1', 'm-1'), reply)
+
+    const body = outcome.response.body
+    expect(body).toContain('【审批】转账')
+    expect(body).toContain('金额：100 元')
+    const link = /H5：(https:\/\/im\.example\.test\/a\/\S+)/.exec(body)
+    expect(link).not.toBeNull()
+
+    const token = link?.[1]?.split('/a/')[1] ?? ''
+    const verdict = verifyApprovalLink(token, deps.config.linkSecret, NOW)
+    expect(verdict.ok).toBe(true)
+    if (verdict.ok) expect(verdict.payload).toMatchObject({ s: sessionKey, t: 't-1' })
+
+    expect(child.calls.turns).toEqual([])
+    expect(child.calls.decisions).toEqual([])
+  })
+
+  it('有票据但子进程未就绪 → 回"当前没有待审批"，不转发也不为该指令拉起子进程', async () => {
+    const { deps, child, reply, sessionKey } = setup([approvalFrame()])
+    await deps.supervisor.stop(sessionKey, 'idle')
+
+    const outcome = await handleInbound(deps, inbound('1', 'm-1'), reply)
+    expect(outcome.response.body).toBe(NO_PENDING_TEXT)
+    expect(child.calls.decisions).toEqual([])
+    expect(child.calls.turns).toEqual([])
+  })
+})
+
+describe('T-IM-HELP 文本菜单', () => {
+  it('「菜单」→ 回业务入口与防诈提醒，不启动子进程、不运行模型', async () => {
+    const { deps, child, reply } = setup([])
+    const outcome = await handleInbound(deps, inbound('菜单', 'm-help'), reply)
+
+    const body = outcome.response.body
+    expect(body).toContain('查余额')
+    expect(body).toContain('挂失银行卡')
+    expect(body).toContain('不会索要密码')
+    expect(body).toContain('信用卡还款')
+    expect(child.calls.turns).toEqual([])
+    expect(child.calls.decisions).toEqual([])
+  })
+
+  it('「?」与「help」同样命中；普通业务文本不被菜单劫持', async () => {
+    const { deps, reply } = setup([])
+    const question = await handleInbound(deps, inbound('?', 'm-help-2'), reply)
+    expect(question.response.body).toContain('【智能银行助手】')
+    const english = await handleInbound(deps, inbound('help', 'm-help-3'), reply)
+    expect(english.response.body).toContain('【智能银行助手】')
+
+    expect(isHelpRequest('查余额')).toBe(false)
+    expect(isHelpRequest('给王建国转 800 元')).toBe(false)
   })
 })

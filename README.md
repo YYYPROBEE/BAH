@@ -1,4 +1,4 @@
-﻿# BAH · 银行智能体
+# BAH · 银行智能体
 
 > 仓库：https://github.com/YYYPROBEE/bah-monorepo
 > 许可：源码公开可见，但不是开源许可；授权范围见 [LICENSE](LICENSE)
@@ -6,7 +6,7 @@
 **一个把"模型能做什么"关进可审计边界里的银行智能体演示系统。**
 
 模型只负责理解和表达；能不能执行、执行到什么程度、出事后怎么解释，全部由确定性代码决定。
-21 个银行工具、七段工具管线、三级权限、一次性票据、四接缝安全平面、append-only 会话日志与
+30 个银行工具、七段工具管线、三级权限、一次性票据、四接缝安全平面、append-only 会话日志与
 SHA-256 审计链，构成一条可回放、可核验、可解释的业务链。
 
 > 演示材料里的数字统一取自 [facts.md](facts.md)；架构细节见 [docs/pipeline.md](docs/pipeline.md)、
@@ -28,12 +28,15 @@ pnpm install
 | **容器演示** | `docker build -t bah:local . && docker run --rm -p 7331:7331 bah:local` | 单容器 Web，默认离线 router（不需要密钥）；RAG sidecar 不在镜像内，知识工具降级为 `knowledge-unavailable` |
 | **移动 H5 演示** | `pnpm bah --profile mobile` | 第二个壳（`staticRoot` 同为 `apps/web`），打开 `http://127.0.0.1:7551`；与 7331 共用同一份 `createHttpChannel`（路由 / 闸序 / 安全头 / 审批端点） |
 | **桌面端演示** | `pnpm build && pnpm desktop:dev` | Electron 窗口内嵌私有 host（`port:0`，只绑 `127.0.0.1`），加载同一份 `apps/web`；断网可用。打包见 `pnpm desktop:pack`，说明见 [docs/desktop.md](docs/desktop.md) |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 349 文件 / 4007 用例 |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 443 文件 / 5084 用例 |
 | **门禁** | `pnpm gate` | 54 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
 主演示**不需要密钥**：`profiles/web/patch.yml` 默认 `provider: router`（读消息做意图路由，
-只认查余额 / 转账；不是自然语言理解，认不出会追问）。DeepSeek 是**可替换 provider 的证据**：
+覆盖六场景演示语法：余额/转账/定时转账/AA/理财/账单/卡片/订阅/资金锁定/商户订购/生日计划；
+**不是自然语言理解**，认不出会追问，且绝不替用户猜金额、收款人或时点）。从 2026-11-01 起
+web 主演示已装配 `plan:dag` / `fact:store` / `plan:scheduler` / `bank:merchant`——场景 6 的
+"生日计划 + 到点唤醒 + 商户腿"在主演示里是真跑通的，不再是预演文案。DeepSeek 是**可替换 provider 的证据**：
 把 `core:model` 与 `core:agent.loop.model` 两处**成对**换成 profile 注释里的 DeepSeek 块，
 并在 `.env.local`（不入库）写：
 
@@ -97,7 +100,7 @@ flowchart LR
 | 组合根 | `packages/host` | profile 解析、boot、插件行（渠道、模型、工具、sentry 的接线） |
 | 主循环 | `packages/runtime` | turn/step、提示词装配、七段工具管线、会话存储、压缩、恢复 |
 | 模型 | `packages/llm` | DeepSeek（OpenAI 兼容协议）、离线意图路由、固定脚本 mock |
-| 银行 | `packages/bank` | 内存账本、21 个工具、三级权限升级、票据桥接、强验证状态机 |
+| 银行 | `packages/bank` | 内存账本、30 个工具、三级权限升级、票据桥接、强验证状态机 |
 | 策略 | `packages/policy` | 决策表 DSL + 编译器 + 内容寻址；规则在 `policies/**`，`tier.ts` 保留为 legacy oracle |
 | 交互 | `packages/interaction` | 审批仲裁器 + 票据账本（五绑定、一次性核销、过期） |
 | 安全 | `packages/safety` | sentry（检测 / 控制 / 票据观测 / 审计 / 幻觉防护 / 断路器）+ 沙箱 |
@@ -200,22 +203,28 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 
 **明确不做/未做**（回答追问时照实说）：
 
-- **多租户**：租户 = 部署边界（独立进程 / 目录 / 端口 / 令牌 / 密钥，ADR-0004），不做一进程 N 租户。
-  认证三种模式（`none` / `static` 双凭证 / `password` 登录）；`static` 的 Bearer 不是登录，
-  `password` 才是（scrypt + HttpOnly 会话 + 撤销）；限流是单机级，不是网关。
-- **银行核心是仿真**：账本是内存 mock，进程重启回种子；强验证默认接测试网关适配器，
-  锁定状态在内存、重启丢失。演示证明的是治理与证据机制，不是"能接生产"。
-- **编排**：plan:dag 与 saga 两层已落地；plan 自身节点写操作没有自动补偿，
-  动态 args 跨不了 `resume`；`incident` 状态没有真实触发源。
-- **未接真实渠道**：定时调度、外部商户履约、RAG 响应信封签名、记忆层影子核验。
-  类别级边界见 [docs/security-design.md](docs/security-design.md) §4。
-- **卡片**：挂失已实现（`card_report_lost`，红档不可逆）；解挂与密码修改未实现。
-  注入 / 越权检测在演示与压测 profile 下直接阻断；生产 profile 默认关掉跨场景规则
-  （`rules.crossScenario`），需按真实语料开启。
+- 不做一进程 N 租户：租户 = 部署边界（独立进程 / 目录 / 端口 / 令牌 / 密钥，ADR-0004）；
+  认证有三种模式（`none` / `static` 双凭证 / `password` 登录），`static` 的 Bearer 不是登录，
+  `password` 才是（scrypt + HttpOnly 会话 + 撤销）；限流是单机级，不是网关；
+- 银行账本是内存仿真，进程重启回种子；强验证默认是测试网关适配器（未接真实短信/人脸/U 盾供应商），锁定状态在内存、重启丢失；
+- HALT 人工解除已落地、状态已持久化（C3），但 headless 无远程控制入口；知识库双层签名（W06）与
+  工具出参契约（W03）已落地，**未做**的是 RAG 响应的**信封签名**（跨语言验签）；
+  记忆层的影子核验（用银行权威状态覆盖记忆值）**未接**，`bankQuery` 是占位端口；
+- 编排有两层：**plan:dag**（外部传入一张计划，引擎校验 + 拓扑执行 + 断点续跑）与 saga（"预检 → 执行"两段，
+  失败经窄端口冲正）。plan 编排 saga，但 plan 自身节点写操作的补偿未做（见 `docs/security-design.md` §4）；
+  **动态 args 跨不了 `resume`**（上游输出只在内存，重做已成功的转账 = 新 planId + 冲正原笔）；
+  `incident` 状态**没有真实触发源**（全内存 mock，Web DAG 视图按 `tool/call` 派生，不区分 incident 与 failed）；
+- 对抗集幻觉族 15 例中 **H-14 / H-15 共 2 条未降级**（期望 `degrade` 实际 `allowed`，
+  rule-gap：断言抽取未覆盖这两类表述，详见 `docs/security-design.md` §4 第 3 条；H-13 已由收益承诺禁词规则收口）；
+- 覆盖率有两个包未到 80%：`memory-store` 72.71%、`eval` 40.73%（eval 主体是评测 harness）。
+  行口径 86.06% **仅覆盖 `packages/*/src`**，不是物理全仓口径，引用时必须带包口径 14/16 一起说；
+- 卡片挂失已实现（`card_report_lost`，红档不可逆、必进审批 + 强验证）；**解挂与密码修改未实现**；
+- 注入 / 越权检测在演示与压测 profile 下**直接阻断**（对抗集注入族 14 例期望 `block` 全部通过）；
+  生产 profile 默认关掉跨场景规则（`rules.crossScenario`），需按真实语料开启；
 
 ---
 
-## 5. 21 个工具与权限
+## 5. 30 个工具与权限
 
 | 级别 | 工具 | 说明 |
 |---|---|---|
@@ -246,21 +255,18 @@ docs/                管线、sentry、审计、前端、测试等落地文档
 facts.md             演示材料唯一数字来源
 ```
 
-> **过程件不随仓库分发**：施工台账、施工单、演练单、对抗复审记录与证据原件不在默认分支上。
-> 代码注释里的「施工单 NN §x」「PROGRESS R*」只是当时的线索，正文不在此仓库。
-> 留在树上的只有可读的落地文档与 `facts.md`，数字只从 [facts.md](facts.md) 取。
-
 ## 7. 测试与资料
 
-| 命令 | 范围 | 实测（2026-10-30） |
+| 命令 | 范围 | 实测（2026-10-31） |
 |---|---|---|
-| `pnpm test` | 主仓 | 349 文件 / 4007 用例 |
+| `pnpm test` | 主仓 | 443 文件 / 5084 用例（2026-11-01 全量绿，见 facts.md） |
+| `pnpm test:web` | 前端 | 47 文件 / 550 用例（全绿） |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
-| `pnpm test:web` | 前端 | 30 文件 / 409 用例 |
-| `pnpm test:snapshot` | 快照回放 | 11 文件 / 48 用例 |
-| `pnpm gate` | 门禁 | 54/54 |
+| `pnpm test:snapshot` | 快照回放 | 13 文件 / 60 用例（全绿，含 03 单 `subscription-reminder` 与 04 单 `birthday-reminder`） |
+| `pnpm gate` | 门禁 | 54 项 · 54 通过 |
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
 
-更多材料：[docs/](docs/)；部署见 [docs/deploy.md](docs/deploy.md)，
-安全设计见 [docs/security-design.md](docs/security-design.md)，漏洞披露见 [SECURITY.md](SECURITY.md)。
+更多材料：[docs/](docs/)；200 字简介见 [docs/简介-200字.md](docs/简介-200字.md)；
+部署见 [docs/deploy.md](docs/deploy.md)，安全自评见 [docs/security-self-assessment.md](docs/security-self-assessment.md)，
+漏洞披露见 [SECURITY.md](SECURITY.md)。

@@ -51,8 +51,11 @@
 
 - id: interaction:approval
   config:
-    # Web 有弹窗：plan_execute 这一层要人确认，每个写节点还要各自再批一次
+    # Web 有弹窗：plan_execute 这一层要人确认，每个写节点还要各自再批一次。
+    # ADR-0010：`windowResponder` 只负责**到期唤醒**的那一张票据
+    # （必须带 authorization.kind='window' 且宿主核验通过），人工票据它一律不答。
     responder: none
+    windowResponder: true
 
 - id: safety:sentry
   config:
@@ -73,10 +76,15 @@
       notes:
         - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。
 
-# ★ 关掉 saga-bridge（与 plan profile 同款理由）：避免 transfer_create 双层展开
+# ★ saga-bridge 只保留 tick、不接管工具（复审 P1-2）：
+#   避免 transfer_create 被再展开；同时让 aa-expire / sub-reminder / birthday-reminder
+#   在常驻进程里继续运行（`eligible: []` = 不接管任何工具）。
 - id: bank:saga-bridge
   config:
-    enabled: false
+    enabled: true
+    eligible: []
+    tickIntervalMs: 60000
+    saga: { maxAttempts: 1 }
 
 # ★ B2 的核心增量：plan:dag + modelTools（模型可见的规划入口）
 - id: plan:dag
@@ -107,6 +115,12 @@
 - id: bank:merchant
   use: bank:merchant
   config: { enabled: true, fault: none }
+
+# ADR-0016：订阅续费主动提醒（通用主动通知通道 `bah:proactive`）。
+# 规则写死在代码里，这里只开总开关；boot 补跑保留——启动即扫，不必等第一个 tick。
+- id: proactive:reminder
+  use: proactive:reminder
+  config: { enabled: true, catchUpOnBoot: true }
 
 - id: demo:echo
   use: demo:echo

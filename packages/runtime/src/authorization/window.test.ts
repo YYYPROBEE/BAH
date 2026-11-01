@@ -91,6 +91,36 @@ describe('checkWindow：条件复验', () => {
     expect(verdict.code).toBe('plan-cancelled')
   })
 
+  it('窗口自身 state=cancelled 即失守（快照漏报取消集合也不许放行）', () => {
+    const verdict = checkWindow(window({ state: 'cancelled' }), snapshot(), NOW)
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) throw new Error('unreachable')
+    expect(verdict.code).toBe('plan-cancelled')
+    expect(verdict.failed).toContainEqual({
+      kind: 'plan-not-cancelled',
+      expected: 'armed',
+      actual: 'cancelled',
+    })
+  })
+
+  it('plan-not-cancelled 条件：目标计划未撤销通过；已撤销失守且主码为 plan-cancelled', () => {
+    const condition = { kind: 'plan-not-cancelled', planId: 'p-2' } as const
+    expect(checkCondition(condition, window(), snapshot())).toEqual({ ok: true })
+    expect(checkCondition(condition, window(), snapshot({ cancelledPlans: ['p-2'] }))).toEqual({
+      ok: false,
+      failure: { kind: 'plan-not-cancelled', expected: '未被撤销', actual: '已撤销' },
+    })
+
+    const verdict = checkWindow(
+      window({ conditions: [condition] }),
+      snapshot({ cancelledPlans: ['p-2'] }),
+      NOW,
+    )
+    expect(verdict.ok).toBe(false)
+    if (verdict.ok) throw new Error('unreachable')
+    expect(verdict.code).toBe('plan-cancelled')
+  })
+
   it('窗口已过期 ⇒ window-expired', () => {
     const verdict = checkWindow(window({ expiresAt: NOW - 1 }), snapshot(), NOW)
     expect(verdict.ok).toBe(false)

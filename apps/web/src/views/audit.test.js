@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { renderAudit, renderAuditSummary } from './audit.js'
+import { countAuditCategories, renderAudit, renderAuditCounts, renderAuditSummary } from './audit.js'
 
 /** 造一条审计帧（字段与投影端一一对应）。 */
 function audit(overrides) {
@@ -133,5 +133,99 @@ describe('renderAudit · 时刻口径', () => {
   it('没有 at 时退回帧里的 timeText（不渲染 NaN:NaN:NaN）', () => {
     const node = renderAudit(audit({ at: undefined, timeText: '08:00:00' }))
     expect(node.querySelector('.audit__time').textContent).toBe('08:00:00')
+  })
+})
+
+describe('renderAudit · 分类文案', () => {
+  it('订阅域事件显示「订阅」，不退回英文 category', () => {
+    const node = renderAudit(audit({ category: 'subscription', label: '订阅清单', summary: '2 项订阅 · 推断 1 条' }))
+
+    expect(node.querySelector('.audit__category').textContent).toBe('订阅')
+    expect(node.querySelector('.audit__category--subscription')).not.toBeNull()
+  })
+
+  it('风险测评两键（R-6）：标签与摘要照投影端的原文渲染，分类复用「工具」', () => {
+    const assess = renderAudit(
+      audit({ category: 'tool', label: '风险测评', summary: '风险测评：R2 → R5（5 题）', toolName: 'risk_assess' }),
+    )
+    expect(assess.querySelector('.audit__category').textContent).toBe('工具')
+    expect(assess.querySelector('.audit__category--tool')).not.toBeNull()
+    expect(assess.querySelector('.audit__label').textContent).toBe('风险测评')
+    expect(assess.querySelector('.audit__detail').textContent).toBe('风险测评：R2 → R5（5 题）')
+
+    const questions = renderAudit(
+      audit({
+        category: 'tool',
+        label: '查看风险问卷',
+        summary: '查看风险问卷 · 5 题 · risk-q/v1',
+        toolName: 'risk_assess',
+      }),
+    )
+    expect(questions.querySelector('.audit__label').textContent).toBe('查看风险问卷')
+    expect(questions.querySelector('.audit__detail').textContent).toBe('查看风险问卷 · 5 题 · risk-q/v1')
+    // 没有理由码就不渲染 code 节点（不拿空字符串占位）
+    expect(questions.querySelector('.audit__code')).toBeNull()
+  })
+})
+
+describe('审计分类计数', () => {
+  it('按固定顺序统计，未知分类排最后', () => {
+    const frames = [
+      audit({ category: 'tool' }),
+      audit({ category: 'safety' }),
+      audit({ category: 'safety' }),
+      audit({ category: 'approval' }),
+      audit({ category: 'mystery' }),
+    ]
+    expect(countAuditCategories(frames)).toEqual([
+      { category: 'safety', label: '安全防护', count: 2 },
+      { category: 'tool', label: '工具调用', count: 1 },
+      { category: 'approval', label: '审批', count: 1 },
+      { category: 'mystery', label: 'mystery', count: 1 },
+    ])
+  })
+
+  it('计数条只数审计帧，别的帧不参与', () => {
+    const node = renderAuditCounts([
+      audit({ category: 'safety' }),
+      audit({ category: 'tool' }),
+      { kind: 'message', seq: 9, role: 'assistant', blocks: [] },
+    ])
+    expect([...node.querySelectorAll('.audit__count')].map((item) => item.textContent)).toEqual([
+      '安全防护1',
+      '工具调用1',
+    ])
+  })
+})
+
+describe('renderAudit · 明细展开与零计数说明', () => {
+  it('有 detail 时默认收起，展开后按标签/值显示；无 detail 不渲染空展开钮', () => {
+    const node = renderAudit(
+      audit({
+        category: 'safety',
+        label: '安全防护',
+        summary: 'sentry/trace · tool-call · account_balance',
+        detail: [
+          { label: '类型', value: 'tool-call' },
+          { label: '工具', value: 'account_balance' },
+        ],
+      }),
+    )
+    const details = node.querySelector('details.audit__expand')
+    expect(details).not.toBeNull()
+    expect(details.open).toBe(false)
+    details.open = true
+    expect([...details.querySelectorAll('dt')].map((item) => item.textContent)).toEqual(['类型', '工具'])
+    expect([...details.querySelectorAll('dd')].map((item) => item.textContent)).toEqual(['tool-call', 'account_balance'])
+    expect(renderAudit(audit()).querySelector('details')).toBeNull()
+  })
+
+  it('四个判决计数全零且有审计时，明确说明"没有审批事件"而不是静默零', () => {
+    const node = renderAuditSummary([
+      audit({ category: 'safety', label: '安全防护', summary: 'sentry/trace · tool-call' }),
+      audit({ category: 'tool', label: '工具完成', summary: 'account_balance' }),
+    ])
+    expect(node.textContent).toContain('没有审批事件')
+    expect(node.textContent).toContain('只读工具')
   })
 })

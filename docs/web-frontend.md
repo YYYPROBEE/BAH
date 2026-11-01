@@ -1,6 +1,7 @@
-﻿# Web 前端（施工单 13 落地版）
+# Web 前端施工文档（施工单 13 落地版）
 
-> 版本：v1.2（按实际代码回填）
+> 版本：v1.2（施工后按实际代码回填；评审稿原件留仓库外归档）
+> 对应施工单：[`13-Web前端.md`](../../BAH-施工文档集/13-Web前端.md)
 > 视觉标准：`design/bah-ds/`（BAH DS 自研设计系统，Light-only）
 > 出口：`pnpm typecheck && pnpm test && pnpm test:web && pnpm gate` 全绿，`pnpm web` 可独立运行五视图
 
@@ -176,7 +177,11 @@ tool/result.code/isError ──▶ 理由码与三态
 - 流式：`delta` 帧进入"草稿气泡"（`data-streaming="true"`），`assistant/message` 到达时整体替换草稿——避免"半句话永久残留"。
 - 选择题（`choice`）：点选把选项 **label** 当普通用户消息发 `POST /api/turn`；"手动输入"出口常驻（零请求，只交焦点）；发送失败恢复可点并给行内错误。
 - 已发生操作（`effects`）：只读清单，零按钮零链接；每轮一张，按 `effects:{turn}` 替换。它不是资金审计（审计链在 `audit.jsonl`）。
-- 长对话：按 `turn` 分组，`content-visibility: auto` + `contain-intrinsic-size` 兜底，不手写虚拟滚动（引入复杂度大于收益，且纯原生 DOM 里容易抖动）。
+- 正文：轻量 Markdown（GFM 表格 / 列表 / 围栏代码块 / 行内强调）。表格用 `.md-table-wrap` 横向滚动，窄屏不撑破气泡。
+- 答后收口：最后一轮结束、没有流式草稿、没有待选卡时，会话末尾出现**唯一一条**反馈行 + 两条按最近一轮内容推导的快捷追问；新一轮开始即收起。
+- 滚动：出现新用户消息 / 用户发送时跳到底部；本轮第一段助手正文出现时只滚到正文顶部**一次**，生成期间冻结，不再跟随 delta / 工具帧 / 收口块。
+- 安全提醒：桌面壳放在顶栏 chip（全文在 `title`，可收起），不再占会话行；移动壳仍在会话流顶部。
+- 长对话：按 `turn` 分组，**不使用** `content-visibility: auto`——离屏条目按占位高度估算，滚到底后真实高度陆续结算会让程序化定位反复漂移（2026-11-01 走查实测）。
 - 空态：一条 `.ds-empty`，说明三幕演示入口。
 
 ### 5.2 工具卡片三态
@@ -192,12 +197,13 @@ tool/result.code/isError ──▶ 理由码与三态
 - 三态互斥且不可回退（事件顺序保证），重复帧只更新不追加（按 `callId` 复用节点）。
 - 金额字段统一走 §6 的降级判定。
 
-### 5.3 审批弹窗（六要素 + 两项可选）
+### 5.3 审批弹窗（六要素 + 服务端明细）
 
 | 字段 | 帧字段 | 来源事件 | 缺失时 |
 |---|---|---|---|
 | 操作类型 | `operation`（工具名 + 中文标题） | `approval/asked.name` + 卡片标题 | 显示工具名 |
-| 金额 | `amountText` / `amountConfirmed` | `approval/asked.amount` | 显示"待确认"并置灰 |
+| **执行明细**（2026-10-31） | `details`（`{label,value,emphasis?}[]`，最多 12 行，超出置 `detailsTruncated`） | `approval/asked.details`（**服务端签发**，见 `packages/bank/src/tools/approval-details.ts`） | 不渲染明细块，退回下面几行 |
+| 金额 | `amountText` / `amountConfirmed` | `approval/asked.amount`；同 turn 成功 `transfer_preview` 且收款人+金额一致时已确认 | 非金额操作不渲染该行；金额操作无预演或金额不一致显示"待确认"并置灰 |
 | 收款人 | `payeeName` | 同 turn 的 `tool/call.args.payee.name` | 显示"—" |
 | 收款手机（可选） | `payeePhone`（**已脱敏**：前 3 后 4） | 同 turn 的 `tool/call.args.payee.phone` | 不显示该行；完整号码不进帧 |
 | 手续费（可选） | `feeText` | 本 turn `transfer_preview` 结果正文（`手续费 ¥…`） | 不显示该行；不从金额/费率反推 |
@@ -205,6 +211,11 @@ tool/result.code/isError ──▶ 理由码与三态
 | 等待时长 | `waited`（客户端计时，纯视觉） | — | 永远显示"已等待 mm:ss"；**不做倒计时**（见 R-WEB-D8） |
 | 拒绝理由 | 输入框 → `POST /api/approval/:ticketId` | 回传 `approval/decided(rejected)` | 拒绝时必填（前端校验 + 后端再校验） |
 
+- **明细优先**：帧上出现 `details` 时，金额/收款人/收款手机/手续费**只从明细渲染**，
+  上面那四行不再单独出现——同一笔钱在同一张卡里出现两个来源，用户只能猜哪个是真的
+  （卡片冻结/挂失这类非金额操作也因此不再显示空的金额行）。
+- 明细的数值一律由服务端从 `deps.core` 现读，前端**不重算、不重新格式化**，
+  强调只用字体（金额等宽）与 `ds-tag`（风险），**不用左侧竖色条**。
 - 红级：`challenge` 存在时先展示强验证面板（模拟取景框 / 扫描线），验证通过才允许"批准"；未验证时批准按钮禁用。
 - 超时：**客户端不判超时**。等待时长只是"等了多久"的展示；结论由服务端 `approval/decided(unavailable)` 决定，
   UI 呈现"未执行"（T-WEB-004）。原因见 R-WEB-D8：`approval/asked` 不带票据 TTL，编一个倒计时等于在资金操作上说假话。
@@ -221,10 +232,27 @@ tool/result.code/isError ──▶ 理由码与三态
 
 ### 5.5 审计时间线
 
-- 内容：`approval/*`、`ticket/*`、`tool/result.code`、`sentry/*`、`knowledge/*`、`turn/end`。
-- 每条：时刻（`HH:MM:SS`）、类型标签、摘要、理由码（等宽字体）、`seq`。
-- 附加：顶部三个计数（审批次数 / 拒绝次数 / 阻断节点数），答辩时可直接指着讲。
+- 内容：`approval/*`、`ticket/*`、`tool/result.code`、`sentry/*`、`knowledge/*`、`read/subscriptions`、`sub/cancelled`、`sub/authorization-revoked`、`sub/watch-updated`、`turn/end`。
+- 分类：审批 / 票据 / 工具 / 安全 / 知识 / **订阅** / 轮次（`AuditFrame.category`；界面按分类上色，未知分类退回原文）。
+- 每条：时刻（`HH:MM:SS`）、类型标签、摘要、理由码（等宽字体）、`seq`；有 `detail` 时给「查看明细」的 `<details>`，按标签/值展开。
+- 明细白名单：服务端只收 `kind` / `turn` / `callId` / `name` / `ruleId` / `stage` / `reason` / `code` 等解释字段，工具参数、结果、用户原话与会话 ID 不进帧。`sentry/trace` 的摘要说实际轨迹类型（`turn-start` / `tool-call` / `verdict`），不再统一写"命中"。
+- 附加：顶部四格判决计数（审批 / 拒绝 / 取消 / 阻断）+ 分类计数；四格全零且有审计时显示「本会话没有审批事件（只有只读工具 / 安全轨迹）」，不把"零"伪装成故障或成就。
 - 读取：`GET /api/audit?since=` 可选；本版直接复用帧流（`audit` 帧），少一条链路。
+
+### 5.6 订阅卡片的「即将扣款」块
+
+- 数据源只有一处：`sub_list` 执行时落账的 `read/subscriptions` 事件（ADR-0007 冻结载荷）。`UiCard` 不落账，正文也拿不到结构化清单，**不能**从别处凑。
+- 口径与 bank 槽位「即将扣款」逐条一致：只看 `active`、7 天窗口、`reminderAheadDays` 收紧、到期升序（同刻按 `subscriptionId`）；最多列 5 条，其余只报数。
+- 窗口基准是**事件自己的 `at`**，不读墙上时钟——回放两次必须逐字相同；块上写明「基于近 N 天 M 笔流水 · 生成于 YYYY-MM-DD」，推断不许读成现况。
+- 只在**成功结果**上出现；待执行帧与失败帧都不带（失败说明这次没读到，不拿上一轮的清单充数）；跨 turn 不复用。
+
+### 5.7 账单报告卡的「分类汇总」块
+
+- 数据源只有一处：`bill_report` 执行时落账的 `read/bill-report` 事件（带完整 `analysis`）。卡片**不**从报告正文反解数字——正文是给模型读的一句话，表格要靠结构化数据（与 §5.6、AA 参与人清单同一处理）。
+- 呈现：账期 / 收入 / 支出 / 环比 / 异常条数进 `fields`，分类进 `table`（分类 · 金额 · 占比），收款人前 5 与异常说明进 `note`（两行，`white-space: pre-line`）。有了块就不再渲染 `body`，同一段报告不在一张卡里出现两遍。
+- 口径：分类中文镜像 `presenters.ts` 的 `CATEGORY_LABEL`、账期口径镜像 `queries.ts` 的 `REPORT_PERIOD_LABEL`（渠道不发明第三套说法）；金额一律 `formatCents` 出元，事件里的「分」不外泄。
+- 形状不合格就整块不产（`billReportBlockOf` 返回 `undefined`），卡片退回正文排版——宁可少一张表，不拼一张缺总数的表；同样只在成功结果上出现、跨 turn 不复用。
+- 银行侧同步收紧：`bill_analyze` / `bill_report` 的工具结果正文写中文分类，异常说明写 `大额支出 ¥3,003.70` 而不是 `300370 分`——这份正文模型会原样念给客户。
 
 ---
 
@@ -271,6 +299,7 @@ confirmed(amount, callId) =
 | POST | `/api/interrupt` | 打断当前 turn `{ reason? }`（理由进审计）；客户专属，坐席 403 | Web 凭证（customer） + CSRF | 200 / 401 / 403 / 503 |
 | POST | `/api/approval/:ticketId` | 提交审批结论 `{ decision, reason? }`；跨会话票据 403；客户专属 | Web 凭证（customer） + CSRF | 200 / 400 / 401 / 403 / 404 / 409 |
 | POST | `/api/verify/:ticketId` | 红级票据的强验证（挑战由 VerifyService 签发）；客户专属 | Web 凭证（customer） + CSRF | 200 / 400 / 401 / 403 / 404 |
+| POST | `/api/secure/password` | 安全页改密 `{ ticketId, oldPassword, newPassword }` → `{ ok, changedAt }`；**绝不回显**任何密码字段 | Web 凭证（customer） + CSRF | 200 / 400 / 401 / 403 / 404 / 409 / 423 |
 | GET | `/api/handoff` | 人工接管摘要：`{ active, sessionId, lastSeq, turns, pendingTickets, messages[], reason?, at?, waitedMs, overdue, claimed, operatorMessages, operator?, requestedBy?, operatorId? }` | Web 凭证（任一角色） | 200 / 401 |
 | POST | `/api/handoff` | 请求人工接管 `{ reason? }`：进入者从登录主体派生（`requestedBy`）；接管期间 `/api/turn` 202 落账但不驱动模型 | Web 凭证（customer / agent / admin） + CSRF | 200 / 400 / 401 / 403 / 409 |
 | POST | `/api/handoff/resume` | 交回会话 `{ handover? }`（操作者从登录主体派生，body 不接受 operator）；未接管时 409 | Web 凭证（agent / admin） + CSRF | 200 / 400 / 401 / 403 / 409 |
@@ -522,9 +551,9 @@ pnpm web          # = tsx packages/cli/src/main.ts --profile web --serve
 |---|---|---|---|
 | T-WEB-001 | `seq` 续订 | `packages/channels/src/web/follow.test.ts` | 12 → 20 只补 13..20；重复喂 15 不产生新帧 |
 | T-WEB-002 | 卡片三态 | `apps/web/src/views/tool-card.test.js` | 同一 `callId` 三次更新 = 3 个状态、1 个节点 |
-| T-WEB-003 | 审批六要素 | `apps/web/src/views/approval.test.js` | 六个字段齐、缺金额显示"待确认" |
+| T-WEB-003 | 审批六要素 | `apps/web/src/views/approval.test.js` | 六个字段齐、缺金额显示"待确认"；同轮成功预演一致 → 已确认 |
 | T-WEB-004 | 审批超时 | `apps/web/src/views/approval.test.js` | `unavailable` → "未执行"，按钮禁用 |
-| T-WEB-005 | 金额降级 | `channels/web/amount.test.ts` + `tool-card.test.js` | 无结果 → `confirmed=false` + "待确认" |
+| T-WEB-005 | 金额降级 | `channels/web/amount.test.ts` + `tool-card.test.js` | 无结果 → `confirmed=false` + "待确认"；成功预演且收款人/金额一致 → `true` |
 | T-WEB-006 | DAG blocked | `apps/web/src/views/dag.test.js` | 失败节点下游 `data-blocked="true"` |
 | T-WEB-007 | presenter 纯函数 | `channels/web/project.test.ts` | 两次运行深度相等 + 显式期望 |
 | T-WEB-008 | 独立运行 | `apps/web/src/main.test.js` | 无桌面壳时五视图挂载成功 |

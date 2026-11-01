@@ -129,12 +129,132 @@ export type MerchantOrderResult =
     }
   | {
       readonly ok: false
-      readonly code: 'out-of-stock' | 'merchant-timeout' | 'unknown-offer'
+      readonly code: 'out-of-stock' | 'merchant-timeout' | 'unknown-offer' | 'price-changed'
       readonly offerId: string
     }
 
 /**
- * 下单（幂等的 `seq` 由调用方给：同一 `seq` 同一 `offerId` 必须得到同一个 `orderId`）。
+ * 预占凭据（**值语义**，不引入全局登记表）：`commitOffer` / `releaseOffer` 只认这个值。
+ *
+ * 为什么不用模块级 Map：本包是纯函数域（搜索/下单不读时钟、不读随机），
+ * 全局登记表会让"同一输入同一输出"失效，也会在测试/多会话间串味。凭据本身
+ * 携带决策所需的全部事实（orderId、报价、商户），commit 时重新对照目录即可。
+ */
+export interface MerchantReservation {
+  readonly orderId: string
+  readonly offerId: string
+  readonly merchantId: string
+  readonly merchantName: string
+  /** 预占时的报价（分）；commit 时与**当前**目录价对比，不一致即 `price-changed`。 */
+  readonly totalCents: number
+  readonly etaMinutes: number
+}
+
+/** 预占结果（失败码与下单一致；`price-changed` 只可能出现在 commit）。 */
+export type MerchantReserveResult =
+  | { readonly ok: true; readonly reservation: MerchantReservation }
+  | {
+      readonly ok: false
+      readonly code: 'out-of-stock' | 'merchant-timeout' | 'unknown-offer'
+      readonly offerId: string
+    }
+
+/** 提交（确认成交）结果。 */
+export type MerchantCommitResult =
+  | {
+      readonly ok: true
+      readonly orderId: string
+      readonly offerId: string
+      readonly merchantId: string
+      readonly merchantName: string
+      readonly totalCents: number
+      readonly etaMinutes: number
+    }
+  | {
+      readonly ok: false
+      readonly code: 'out-of-stock' | 'merchant-timeout' | 'unknown-offer' | 'price-changed'
+      readonly offerId: string
+    }
+
+/**
+ * 预占（只占位，不"成交"）：缺货 / 超时在这里失败，**不产生任何资金动作**。
+ *
+ * `seq` 由调用方给（同一 `seq` 同一 `offerId` → 同一 `orderId`，与旧 `orderOffer` 相同）。
+ * `price-up` 时返回**涨价后的报价**（不在这里失败）：调用方要用它和"用户批准的价格"
+ * 对比，对不上就 `releaseOffer` 并降级——涨价后自动按新价扣款是不可接受的。
+ */
+export function reserveOffer(
+  offers: readonly MerchantOffer[],
+  offerId: string,
+  fault: MerchantFault,
+  seq: string | number,
+): MerchantReserveResult {
+  const offer = offers.find((item) => item.offerId === offerId)
+  if (offer === undefined) return { ok: false, code: 'unknown-offer', offerId }
+  if (fault === 'stockout' && offer.merchantId === STOCKOUT_MERCHANT) {
+    return { ok: false, code: 'out-of-stock', offerId }
+  }
+  if (offer.stock <= 0) return { ok: false, code: 'out-of-stock', offerId }
+  if (fault === 'timeout') return { ok: false, code: 'merchant-timeout', offerId }
+  return {
+    ok: true,
+    reservation: {
+      orderId: `mo-${String(seq)}-${offerId}`,
+      offerId,
+      merchantId: offer.merchantId,
+      merchantName: offer.merchantName,
+      totalCents: fault === 'price-up' ? Math.round(offer.priceCents * 1.3) : offer.priceCents,
+      etaMinutes: offer.etaMinutes,
+    },
+  }
+}
+
+/**
+ * 提交：把预占转成成交。重新对照目录——库存没了或价格变了就失败。
+ *
+ * `price-changed` 是**补偿路径的触发点**：调用方此时已扣了银行腿的钱，
+ * 必须冲正，而不是"按新价再扣一次"。
+ */
+export function commitOffer(
+  offers: readonly MerchantOffer[],
+  reservation: MerchantReservation,
+  fault: MerchantFault,
+): MerchantCommitResult {
+  const offer = offers.find((item) => item.offerId === reservation.offerId)
+  if (offer === undefined) return { ok: false, code: 'unknown-offer', offerId: reservation.offerId }
+  if (fault === 'stockout' && offer.merchantId === STOCKOUT_MERCHANT) {
+    return { ok: false, code: 'out-of-stock', offerId: reservation.offerId }
+  }
+  if (offer.stock <= 0) return { ok: false, code: 'out-of-stock', offerId: reservation.offerId }
+  if (fault === 'timeout') return { ok: false, code: 'merchant-timeout', offerId: reservation.offerId }
+  const current = fault === 'price-up' ? Math.round(offer.priceCents * 1.3) : offer.priceCents
+  if (current !== reservation.totalCents) {
+    return { ok: false, code: 'price-changed', offerId: reservation.offerId }
+  }
+  return {
+    ok: true,
+    orderId: reservation.orderId,
+    offerId: reservation.offerId,
+    merchantId: reservation.merchantId,
+    merchantName: reservation.merchantName,
+    totalCents: reservation.totalCents,
+    etaMinutes: reservation.etaMinutes,
+  }
+}
+
+/**
+ * 释放预占。
+ *
+ * mock 商户域没有真实库存账本（`stock` 是种子常量），所以这里是**语义动作**：
+ * 记录"这单不成交了"；真实商户域应对应取消接口。返回 `ok` 便于调用方统一记账。
+ */
+export function releaseOffer(reservation: MerchantReservation): { readonly ok: true } {
+  void reservation
+  return { ok: true }
+}
+
+/**
+ * 下单（兼容旧调用方）= 预占 → 提交。
  *
  * `fault='timeout'` 时**不返回成功**：超时无法证明是否已下单，按"未成交"处理并播报，
  * 由人工决定催单还是换店——这是"不假装成功"的口径。
@@ -145,32 +265,9 @@ export function orderOffer(
   fault: MerchantFault,
   seq: number,
 ): MerchantOrderResult {
-  const offer = offers.find((item) => item.offerId === offerId)
-  if (offer === undefined) return { ok: false, code: 'unknown-offer', offerId }
-  if (fault === 'stockout' && offer.merchantId === STOCKOUT_MERCHANT) {
-    return { ok: false, code: 'out-of-stock', offerId }
-  }
-  if (offer.stock <= 0) return { ok: false, code: 'out-of-stock', offerId }
-  if (fault === 'timeout') return { ok: false, code: 'merchant-timeout', offerId }
-  if (fault === 'price-up') {
-    // 涨价后仍按原价下不了单：价格以涨价后的目录为准（调用方的预算校验会用新价）
-    return {
-      ok: true,
-      orderId: `mo-${String(seq)}-${offerId}`,
-      offerId,
-      merchantId: offer.merchantId,
-      merchantName: offer.merchantName,
-      totalCents: Math.round(offer.priceCents * 1.3),
-      etaMinutes: offer.etaMinutes,
-    }
-  }
-  return {
-    ok: true,
-    orderId: `mo-${String(seq)}-${offerId}`,
-    offerId,
-    merchantId: offer.merchantId,
-    merchantName: offer.merchantName,
-    totalCents: offer.priceCents,
-    etaMinutes: offer.etaMinutes,
-  }
+  const reserved = reserveOffer(offers, offerId, fault, seq)
+  if (!reserved.ok) return { ok: false, code: reserved.code, offerId }
+  const committed = commitOffer(offers, reserved.reservation, fault)
+  if (!committed.ok) return { ok: false, code: committed.code, offerId }
+  return committed
 }

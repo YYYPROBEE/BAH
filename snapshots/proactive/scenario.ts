@@ -184,7 +184,10 @@ export async function runRecord(): Promise<{
 }> {
   const profile = readProfile(REPO_ROOT, CASE.profile)
   const bundles = await loadBundles(REPO_ROOT, profile.bundles)
-  const { layers } = readLayers(REPO_ROOT, profile, { home: join(tmpdir(), 'bah-snapshot-no-home'), overlays: [] })
+  const { layers } = readLayers(REPO_ROOT, profile, {
+    home: join(tmpdir(), 'bah-snapshot-no-home'),
+    overlays: [join(REPO_ROOT, 'snapshots', CASE.name, 'overlay.yml')],
+  })
 
   const clock = jumpableClock()
   const scratch = mkdtempSync(join(tmpdir(), 'bah-proactive-record-'))

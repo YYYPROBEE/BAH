@@ -558,7 +558,7 @@ describe('bank:saga-bridge 单元面：接线层的错误码与副作用', () =>
     }
   })
 
-  it('tickIntervalMs>0：到点必须按 serial 派发 saga/tick，dueJobs 固定 janitor/recon/anchor/plan-wake，now 每次发射现取 SAGA_CLOCK，dispose 即 clearInterval', async () => {
+  it('tickIntervalMs>0：到点必须按 serial 派发 saga/tick，dueJobs 固定 janitor/recon/anchor/plan-wake/sub-reminder/birthday-reminder/aa-expire，now 每次发射现取 SAGA_CLOCK，dispose 即 clearInterval', async () => {
     vi.useFakeTimers()
     try {
       unitNow = 12345
@@ -583,13 +583,35 @@ describe('bank:saga-bridge 单元面：接线层的错误码与副作用', () =>
 
       await vi.advanceTimersByTimeAsync(200)
       expect(ticks).toHaveLength(1)
-      expect(ticks[0]).toEqual({ now: 12345, dueJobs: ['janitor', 'recon', 'anchor', 'plan-wake'] })
+      expect(ticks[0]).toEqual({
+        now: 12345,
+        dueJobs: [
+          'janitor',
+          'recon',
+          'anchor',
+          'plan-wake',
+          'sub-reminder',
+          'birthday-reminder',
+          'aa-expire',
+        ],
+      })
 
       // now 不许在 apply 期缓存：时钟推进后下一次发射必须看见新值
       unitNow = 99_000
       await vi.advanceTimersByTimeAsync(200)
       expect(ticks).toHaveLength(2)
-      expect(ticks[1]).toEqual({ now: 99_000, dueJobs: ['janitor', 'recon', 'anchor', 'plan-wake'] })
+      expect(ticks[1]).toEqual({
+        now: 99_000,
+        dueJobs: [
+          'janitor',
+          'recon',
+          'anchor',
+          'plan-wake',
+          'sub-reminder',
+          'birthday-reminder',
+          'aa-expire',
+        ],
+      })
 
       // 注册即可逆：dispose 必须把定时器 clearInterval 掉（用的是 apply 期那个句柄）
       const clearSpy = vi.spyOn(globalThis, 'clearInterval')

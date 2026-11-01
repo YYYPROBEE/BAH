@@ -148,3 +148,12 @@
     # 与 web 同值，换部署时可调。
     handoff:
       slaMs: 180000
+
+# ── TODO（ADR-0016）：`proactive:reminder` 刻意**没有**在此 profile 装配 ──
+# 理由：本 profile 没有"主动发消息"的出口。
+#   · im：`apps/im-gateway` 只做"收到消息 → 回消息"，没有服务端主动外呼的通道；
+#     要开就得先有 IM 侧的主动发送 API（飞书/企微的机器人消息），否则开关只是摆设。
+#   · desktop：与 web 共用同一个 host 装配，但它有独立的 profile 行；
+#     桌面窗口要主动提醒同样走 SSE（与 web 一致），本单先把行留在 web/mobile/web-plan/plan，
+#     桌面端待"内嵌 host 的页面生命周期"复核后再加上（避免打开就弹一条没人看的提醒）。
+# 加行前先确认：`PROACTIVE_SERVICE.push` 的投递渠道已覆盖该渠道（见 ADR-0016 §投递目标）。

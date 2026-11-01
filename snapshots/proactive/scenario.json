@@ -86,7 +86,8 @@
       "config": {
         "responder": "headless",
         "autoDecision": "allow",
-        "autoVerify": true
+        "autoVerify": true,
+        "windowResponder": true
       }
     },
     {
@@ -174,6 +175,14 @@
       "config": {
         "enabled": true,
         "fault": "none"
+      }
+    },
+    {
+      "id": "proactive:reminder",
+      "use": "proactive:reminder",
+      "config": {
+        "enabled": true,
+        "catchUpOnBoot": true
       }
     }
   ],

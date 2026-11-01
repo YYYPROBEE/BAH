@@ -27,8 +27,10 @@ export function createChoiceCard(host, deps) {
   /** 当前帧（同帧重复 show 幂等；SSE 重连补发时不重置用户的点选结果）。 */
   let currentFrame = null
   let inFlight = false
+  let picked = false
 
   function renderPicked(frame, label) {
+    picked = true
     clear(node)
     node.append(
       el('div', { class: 'm-choice', dataset: { role: 'choice', callId: frame.callId, state: 'picked' } }, [
@@ -47,9 +49,30 @@ export function createChoiceCard(host, deps) {
     if (currentFrame === frame) return node
     currentFrame = frame
     inFlight = false
+    picked = false
     clear(node)
 
-    const errorNode = el('p', { class: 'm-choice-error', role: 'alert', dataset: { role: 'choice-error' }, hidden: true })
+    const errorText = el('span', { class: 'm-choice-error__text', dataset: { role: 'choice-error-text' } })
+    const retryButton = el('button', {
+      class: 'm-choice-retry',
+      type: 'button',
+      'aria-label': '重试发送',
+      title: '重试发送',
+      dataset: { role: 'choice-retry' },
+      hidden: true,
+    }, [icon('refresh', 14)])
+    const errorNode = el('div', { class: 'm-choice-error', role: 'alert', dataset: { role: 'choice-error' }, hidden: true }, [
+      errorText,
+      retryButton,
+    ])
+    /** 最近一次失败可重发的选项文本（重试只重发这一条，不猜别的）。 */
+    let failedLabel = null
+    retryButton.addEventListener('click', () => {
+      if (failedLabel === null) return
+      errorNode.hidden = true
+      retryButton.hidden = true
+      void pick(failedLabel)
+    })
     const options = (frame.options ?? []).slice(0, 3)
     const buttons = []
 
@@ -69,7 +92,7 @@ export function createChoiceCard(host, deps) {
         type: 'button',
         dataset: { role: 'choice-option', optionId: String(option.id) },
       }, [
-        icon('chat', 16),
+        icon('right', 16),
         el('span', { class: 'm-choice-option__text' }, [
           el('span', { text: option.label }),
           ...(option.hint === undefined ? [] : [el('span', { class: 'm-choice-option__hint', text: option.hint })]),
@@ -84,19 +107,23 @@ export function createChoiceCard(host, deps) {
       if (inFlight) return
       inFlight = true
       errorNode.hidden = true
+      retryButton.hidden = true
       // 防双击：点一下立刻全部禁用（窄屏上双击比桌面常见得多）
       for (const button of buttons) button.disabled = true
       deps.echo(label)
       const result = await deps.submit(label)
       if (result?.ok === true) {
+        failedLabel = null
         renderPicked(frame, label)
         return
       }
-      // 失败：恢复可点 + inline 错误（不静默吞错，§3.0）
+      // 失败：恢复可点 + inline 错误（不静默吞错，§3.0）；同一条可一键重发
       inFlight = false
+      failedLabel = label
       for (const button of buttons) button.disabled = false
       errorNode.hidden = false
-      errorNode.textContent = `发送失败：${String(result?.message ?? result?.code ?? 'unknown')}`
+      errorText.textContent = `发送失败：${String(result?.message ?? result?.code ?? 'unknown')}`
+      retryButton.hidden = false
     }
 
     node.append(
@@ -115,8 +142,13 @@ export function createChoiceCard(host, deps) {
     get frame() {
       return currentFrame
     },
+    /** 仍在等用户点选（已选或未出题都为 false）——shell 据此把选项卡滚进视口。 */
+    get open() {
+      return currentFrame !== null && !picked
+    },
     dispose() {
       currentFrame = null
+      picked = false
       node.remove()
     },
   }

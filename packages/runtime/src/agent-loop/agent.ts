@@ -211,6 +211,9 @@ export class AgentLoop implements Agent {
 
   private readonly runtimeContext: RuntimeContextProvider | undefined
 
+  /** 本 turn 最后一次装配出的运行时上下文文本（`agent/reply` 的核验证据之一）。 */
+  private contextTexts: readonly string[] = []
+
   /** 入队前的全系统闸（HALT；缺省 = 不设防，由宿主决定）。 */
   private readonly beforeSend: (() => void) | undefined
 
@@ -558,6 +561,7 @@ export class AgentLoop implements Agent {
       ...(this.channel === undefined ? {} : { channel: this.channel }),
       ...(runtime === undefined ? {} : { runtime }),
     })
+    this.contextTexts = assembly.contextTexts
 
     // ③ agent/request（waterfall）：降级 / 成本控制在这里改写路由与参数
     const asked = await dispatchRequest(this.ctx, {
@@ -652,6 +656,7 @@ export class AgentLoop implements Agent {
         step,
         text: originalText,
         toolResults: this.toolResultsOfTurn(turn),
+        contextTexts: this.contextTexts,
         hasToolCalls: toolCalls.length > 0,
         signal,
       }

@@ -219,6 +219,10 @@ function buildDemo(now: number): DatasetParts {
   const cards: Card[] = [
     card(bankIds.card('c-1'), current, '1234', 'physical', 100_000, 2_000_000),
     card(bankIds.card('c-2'), current, '5678', 'virtual', 200_000, 800_000),
+    // 信用额度卡（ADR-0015）：授信 5,000 元，已用 0；日/月限额缺省 = 授信额度
+    // （额度是天花板，再套更小的交易限额会让"额度内可用却刷不出去"）。
+    // 刻意用新尾号：c-1 / c-2 的介质与限额语义一个字都不动。
+    card(bankIds.card('c-3'), current, '2468', 'virtual', 500_000, 500_000, 500_000),
   ]
 
   // 王建国：已绑定白名单，首笔 30 天前（演示幕 3 的 800 元转账靠它走黄级流程）
@@ -708,8 +712,21 @@ function card(
   type: Card['type'],
   dailyLimitCents: number,
   monthlyLimitCents: number,
+  /** 给了就是信用产品（ADR-0015）：授信额度（分），已用 0。 */
+  creditLimitCents?: number,
 ): Card {
-  return { id, accountId, tail, type, status: 'normal', dailyLimitCents, monthlyLimitCents }
+  return {
+    id,
+    accountId,
+    tail,
+    type,
+    status: 'normal',
+    dailyLimitCents,
+    monthlyLimitCents,
+    ...(creditLimitCents === undefined
+      ? {}
+      : { kind: 'credit' as const, creditLimitCents, usedCreditCents: 0 }),
+  }
 }
 
 function txn(

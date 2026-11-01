@@ -1,16 +1,16 @@
-﻿# 测试地基（Testing）
+# 测试地基（Testing）
 
 > 适用：底座阶段 2 起。规格依据：施工单 00 §9（纪律）、01 §5–§7（测试面 / 门禁 / 覆盖率）、
 > 12 §3（快照回放）。本文件是**操作手册**：改一行代码该跑哪条命令、新用例该怎么写。
 
 ## 1. 四个测试面（一个都不能省）
 
-| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-30 实测） |
+| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-31 实测） |
 |---|---|---|---|---|
-| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 349 文件 / 4007 用例（含 `apps/desktop/src`、`apps/im-gateway`） |
+| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 443 文件 / 5084 用例（2026-11-01 复审修复后全量绿；含 `apps/desktop/src`、`apps/im-gateway`） |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
-| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 9 文件 / 39 用例 |
-| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 前端 30 文件 / 409 用例 |
+| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 13 文件 / 60 用例全绿（含 03 单 `subscription-reminder` 与 04 单 `birthday-reminder`；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 用夹具 overlay 放行审批） |
+| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 前端 47 文件 / 550 用例（全绿） |
 
 意图/追问平面（03 单）在前两个面里各占一块：`packages/runtime/src/intent/*.test.ts`（规则引擎、
 槽位归一化、脱敏、检索闸门、工具 fail-loud）、`packages/interaction/src/prompt/*.test.ts`
@@ -21,7 +21,7 @@
 一条命令跑全链（本地等价 CI，fail-fast）：
 
 ```powershell
-cd <仓库根>
+cd <repo-root>
 pnpm check
 ```
 
@@ -55,7 +55,7 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 | 测试面 | `vitest.web.config.ts`（jsdom），`apps/web/src/mobile/**/*.test.js` |
 | 规模 | **前端 10 文件 / 194 用例**（含 `test:web` 全量 27 文件 / 375 用例） |
 | 覆盖率 | **不在覆盖率面**（`00 §6.1`：前端 jsdom 用例不计入 `packages/*/src` 分母），但计入 `test:web` 用例地板（`scripts/ci.ts` 的 `minCases`） |
-| 门禁 | `scripts/verify-mobile-shell.ts`（11 条不变量）；负控演练 27 条由脚本内的负控用例承载（证据件已撤下） |
+| 门禁 | `scripts/verify-mobile-shell.ts`（11 条不变量）；负控演练 27 条（原件留仓库外归档） |
 
 **桩纪律（比别的面更严，因为 jsdom 缺失的能力多）**：
 
@@ -88,7 +88,7 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 | 口径 | 定义 | 目标 | 命令 |
 |---|---|---|---|
 | **行口径**（主指标） | `packages/*/src/**/*.ts` 全量分母下，被覆盖的可执行行占比 | **≥ 80%** | `pnpm test:coverage:all` |
-| **包口径**（副指标） | 包级行覆盖 ≥80% 的**包数** / 参与统计的包数 | **≥ 16/18（≈89%；未达 80% 的是 `memory-store`、`eval`）** | 同上（同一份报表） |
+| **包口径**（副指标） | 包级行覆盖 ≥80% 的**包数** / 参与统计的包数 | **≥ 14/16（≈85%）** | 同上（同一份报表） |
 
 - 两份配置分工：`vitest.config.ts` 只管**强制 100% 名单**（`scripts/coverage-allowlist.ts`，
   逐文件 100%/100%/100%、分支 80%）——它回答"确定性组件可不可信"；
@@ -291,7 +291,7 @@ snapshots/<case>/
 
 - **入用例**（`snapshots/entity-slots/snapshot.test.ts` 第 4、5 条）：改一条 `assistant/message`
   → 必须红；把 `context/slots` 的 `accounts` 从 3 改 2 → 必须红（差异里点名 `context/slots`）。
-- **人工三条**（不入用例，2026-10-28 实测，记录在 entity-slots 的 S4 对抗复审件，该件已撤下）：
+- **人工三条**（不入用例，2026-10-28 实测，原件留仓库外归档）：
   删掉全部 `context/slots`（36 行 → 34 行）→ 比对红；`scenario.json.clock.start` +1 →
   回放 `at` 整体 +1、比对红；把生效行的 `slots.source` 改成 `none` 后回放 →
   `context/slots` 0 条、`request/context` 退回静态画像（只剩 `【当前用户】` + `【补充说明】`）、比对红。
@@ -316,8 +316,8 @@ snapshots/<case>/
 ## 11. 常见坑
 
 1. **`pnpm.ps1` 被执行策略拦**：在 PowerShell 里用 `cmd /c "pnpm ..."`，或改用 `pnpm.cmd`。
-2. **`engines` 告警**：本机 Node v22.17 < `^22.19`，pnpm 只 warn；CI 需统一版本。
-3. **Windows 下 `--filter='./packages/*'`（单引号）匹配不到任何包**：一律双引号。
+2. **`engines` 告警**：本机 Node v22.17 < `^22.19`，pnpm 只 warn；CI 需统一版本（PROGRESS R1）。
+3. **Windows 下 `--filter='./packages/*'`（单引号）匹配不到任何包**：一律双引号（PROGRESS R6）。
 4. **jsdom 用例必须 `vi.resetModules()`**：模块级副作用（写 DOM）不可重复触发，否则第二个用例拿到上一次的模块实例。
 5. **临时目录用例必须在 `afterEach` 清干净**：Windows 上残留句柄会导致目录删不掉，进而污染后续用例。
 

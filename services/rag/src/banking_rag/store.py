@@ -662,8 +662,16 @@ class Store:
         if not ids:
             return []
         placeholders = ",".join("?" for _ in ids)
+        # 带上 doc 标题/产品号：同一 row_key 在多个产品书里都有（三份说明书都有「起购金额」），
+        # 只按 cell 自身字段打分必然串产品，必须让调用方看见「这条 cell 属于哪份文档」。
         return conn.execute(
-            f"SELECT * FROM cells WHERE chunk_id IN ({placeholders})",
+            f"""
+            SELECT c.*, d.title AS doc_title, d.product_id AS doc_product_id
+            FROM cells c
+            JOIN chunks ch ON ch.chunk_id = c.chunk_id
+            JOIN docs d ON d.doc_id = ch.doc_id
+            WHERE c.chunk_id IN ({placeholders})
+            """,
             ids,
         ).fetchall()
 

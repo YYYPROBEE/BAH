@@ -23,6 +23,7 @@ import type { WebDeps, WebHandler, WebRequest } from './deps.ts'
 import { authorize, type AuthorizeSpec } from './authz/authorize.ts'
 import { handleAdmin } from './handlers/admin.ts'
 import { handleApproval, handleVerify } from './handlers/approval.ts'
+import { handleSecurePassword } from './handlers/password.ts'
 import {
   handleEvents,
   handleHealth,
@@ -57,6 +58,7 @@ const HANDLERS: Readonly<Record<RouteHandler, WebHandler>> = {
   interrupt: handleInterrupt,
   approval: handleApproval,
   verify: handleVerify,
+  'secure-password': handleSecurePassword,
   handoff: handleHandoff,
   'handoff-message': handleHandoffMessage,
   'handoff-claim': handleHandoffClaim,

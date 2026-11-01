@@ -1,0 +1,9 @@
+# birthday-reminder 快照场景的层 4 overlay（只服务录制/回放夹具，不是生产配置）。
+#
+# `proactive:reminder.catchUpOnBoot: false`：boot 补跑会与脚本的第一次 tick 抢
+# 同一个幂等 key（`birthday:<factId>:<YYYY>`），谁先到谁发——那会让事件流依赖
+# 微任务调度顺序。本场景显式派发 tick，把时序钉死。
+- id: proactive:reminder
+  config:
+    enabled: true
+    catchUpOnBoot: false

@@ -155,20 +155,44 @@ function tierLabel(tier: PendingTicket['tier']): string {
   }
 }
 
-/** 渲染票据详情（全部字段转义）。 */
-function ticketContent(ticket: PendingTicket): string {
+/**
+ * 渲染票据详情（全部字段转义）。
+ *
+ * 有 `details`（服务端签发的操作明细）时，金额与收款人**只从明细出**：
+ * 摘要行与明细行并列同一笔钱，出现分歧时用户无从判断该信哪个。
+ *
+ * 导出给用例直接断言渲染结果（不必起 HTTP）：它是纯函数，输入 `PendingTicket`，
+ * 输出一段已转义的 HTML。
+ */
+export function ticketContent(ticket: PendingTicket): string {
   const rows: string[] = []
+  const details = ticket.details ?? []
+  const hasDetails = details.length > 0
   rows.push(`<h1>${escapeHtml(ticket.operation)}</h1>`)
   rows.push('<dl class="facts">')
-  rows.push(`<dt>金额</dt><dd>${escapeHtml(ticket.amountText ?? '待确认')}</dd>`)
-  if (ticket.payeeName !== undefined) {
-    rows.push(`<dt>收款人</dt><dd>${escapeHtml(ticket.payeeName)}</dd>`)
+  if (!hasDetails) {
+    rows.push(`<dt>金额</dt><dd>${escapeHtml(ticket.amountText ?? '待确认')}</dd>`)
+    if (ticket.payeeName !== undefined) {
+      rows.push(`<dt>收款人</dt><dd>${escapeHtml(ticket.payeeName)}</dd>`)
+    }
   }
   rows.push(`<dt>层级</dt><dd>${escapeHtml(tierLabel(ticket.tier))}</dd>`)
   if (ticket.expiresAt !== undefined) {
     rows.push('<dt>剩余时间</dt><dd><span id="countdown">计算中…</span></dd>')
   }
   rows.push('</dl>')
+
+  if (hasDetails) {
+    rows.push('<h2 class="details-title">执行明细</h2>')
+    rows.push('<dl class="facts details">')
+    for (const detail of details) {
+      // 强调只改字体/颜色（`amount` 等宽、`risk` 警示色），不做左侧色条
+      const cls =
+        detail.emphasis === undefined ? '' : ` class="detail-${escapeHtml(detail.emphasis)}"`
+      rows.push(`<dt>${escapeHtml(detail.label)}</dt><dd${cls}>${escapeHtml(detail.value)}</dd>`)
+    }
+    rows.push('</dl>')
+  }
 
   if (ticket.tier === 'red' || ticket.challenge !== undefined) {
     rows.push('<p class="notice">该票据需要强验证。请先完成验证，再批准。</p>')

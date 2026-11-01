@@ -82,6 +82,24 @@ describe('W05 · 三态路由', () => {
     expect(outcome.text).toBe('余额 800 元。')
   })
 
+  it('表格回复与行式出参的金额跨 amount/balance 桶也能对上（真模型误伤回归）', () => {
+    const outcome = verifyReply({
+      text: [
+        '| 账户 | 余额 | 可用 |',
+        '|---|---|---|',
+        '| 活期 尾号 1234 | ¥12,345.67 | ¥12,345.67（冻结 ¥0.00） |',
+        '| 定期 尾号 5678 | ¥50,000.00 | ¥0.00 |',
+      ].join('\n'),
+      evidence: [
+        '尾号 1234（current）：余额 ¥12,345.67，可用 ¥12,345.67\n' +
+          '尾号 5678（fixed）：余额 ¥50,000.00，可用 ¥0.00',
+      ],
+    })
+    expect(outcome.needsEvidence).toBe(0)
+    expect(outcome.rejected).toBe(0)
+    expect(outcome.decision).toBe('pass')
+  })
+
   it('TC-W05-02 无任何工具证据，回复写“余额 5000 元” → needs-evidence（加前缀后发出）', () => {
     const outcome = verifyReply({ text: '你的余额 5000 元。', evidence: [] })
     expect(outcome.needsEvidence).toBe(1)
@@ -181,5 +199,24 @@ describe('W05 · 三态路由', () => {
     })
     expect(outcome.decision).toBe('annotate')
     expect(outcome.rejected).toBe(0)
+  })
+
+  it('已带【未核实】再次核验 ⇒ 不重复加前缀（重放/重试幂等）', () => {
+    const text = `${UNVERIFIED_PREFIX}你的余额 5000 元。`
+    const outcome = verifyReply({ text, evidence: [] })
+    expect(outcome.decision).toBe('annotate')
+    expect(outcome.needsEvidence).toBe(1)
+    expect(outcome.text).toBe(text)
+  })
+
+  it('收益承诺与未核实资金动作同时出现 ⇒ 以 prohibited-guarantee 拒答（合规优先）', () => {
+    const outcome = verifyReply({
+      text: '该产品保本保息，已为你转出 800 元。',
+      evidence: [],
+    })
+    expect(outcome.decision).toBe('reject')
+    // 两类断言都判 rejected；对外理由码必须指向收益承诺（法定红线优先）
+    expect(outcome.rejected).toBe(2)
+    expect(outcome.text).toBe(refusalText(PROHIBITED_CLAIM_CODE))
   })
 })

@@ -161,21 +161,38 @@ export function createPlanSteps(host, deps) {
     return step.state === 'pending' && index === firstPendingIndex()
   }
 
+  /**
+   * 这一行到底有没有可展开的正文。
+   *
+   * WHY 要先问这个：`step` / `plan` 节点既没有 `code` 也没有 `callId`（见 `flattenDag`
+   * 的注释），`buildBody` 对它们只能产出一个空 div。chevron 照画的话就是一个**死控件**——
+   * 用户点一下，箭头转 180°，下面什么都不出现，看起来像渲染坏了（2026-10-31 走查）。
+   * 与其补一句"没有明细"，不如不给这个按钮：可展开性必须由内容决定。
+   */
+  function hasBody(step) {
+    return step.code !== undefined || step.callId !== undefined
+  }
+
   function renderStep(step, index) {
     const view = STEP_VIEW[step.state] ?? { label: `未知状态：${String(step.state)}`, tag: 'ds-tag ds-tag--warning' }
-    const expanded = isExpanded(step, index)
+    const expandable = hasBody(step)
+    const expanded = expandable && isExpanded(step, index)
 
-    const toggle = el('button', {
-      class: 'm-step__toggle',
-      type: 'button',
-      dataset: { role: 'step-toggle', nodeId: step.id },
-      'aria-expanded': String(expanded),
-      'aria-label': `${expanded ? '收起' : '展开'}步骤 ${String(index + 1)}：${step.label}`,
-    }, [icon('chevron-down', 16)])
-    toggle.addEventListener('click', () => {
-      toggled.set(step.id, !expanded)
-      rerender()
-    })
+    const toggle = expandable
+      ? el('button', {
+          class: 'm-step__toggle',
+          type: 'button',
+          dataset: { role: 'step-toggle', nodeId: step.id },
+          'aria-expanded': String(expanded),
+          'aria-label': `${expanded ? '收起' : '展开'}步骤 ${String(index + 1)}：${step.label}`,
+        }, [icon('chevron-down', 16)])
+      : null
+    if (toggle !== null) {
+      toggle.addEventListener('click', () => {
+        toggled.set(step.id, !expanded)
+        rerender()
+      })
+    }
 
     return el('li', {
       class: `m-step m-step--${String(step.state)}`,
@@ -188,10 +205,10 @@ export function createPlanSteps(host, deps) {
         el('span', { class: 'm-step__tags' }, [
           el('span', { class: view.tag === '' ? 'ds-tag' : view.tag, text: view.label }),
         ]),
-        toggle,
+        ...(toggle === null ? [] : [toggle]),
       ]),
       ...(step.state === 'blocked' ? [blockedReason(step)] : []),
-      buildBody(step, expanded),
+      ...(expandable ? [buildBody(step, expanded)] : []),
     ])
   }
 

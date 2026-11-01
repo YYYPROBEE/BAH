@@ -102,3 +102,47 @@ describe('isNight：支持跨零点与非跨零点两种时段', () => {
     expect(isNight(Date.UTC(2026, 9, 17, 22, 0, 0), plain)).toBe(false) // 06:00 +08
   })
 })
+
+/**
+ * 卡状态前置硬约束（L3 冻结/解冻合入时补上的 `lost` 臂）。
+ *
+ * 挂失与冻结走同一规则、不同文案：挂失是**不可逆**的（补发以银行通知为准），
+ * 文案不能写成"请先解冻"——那会让用户以为还能自己解冻一张已经挂失的卡。
+ */
+describe('card-status 规则（冻结 / 挂失两条臂）', () => {
+  it('lost ⇒ block / card-unavailable，文案是"已挂失"而不是"请先解冻"', () => {
+    const findings = checkTransferRisks(input({ cardStatus: 'lost', cardTail: '5678' }))
+    expect(findings.map((item) => item.code)).toEqual(['card-unavailable'])
+    expect(findings[0]?.severity).toBe('block')
+    expect(findings[0]?.message).toContain('已挂失')
+    expect(findings[0]?.message).toContain('尾号 5678')
+    expect(findings[0]?.message).not.toContain('请先解冻')
+    expect(findings[0]?.detail).toEqual({ cardStatus: 'lost' })
+  })
+
+  it('frozen ⇒ 同一码，文案是"已冻结，请先解冻"', () => {
+    const findings = checkTransferRisks(input({ cardStatus: 'frozen', cardTail: '1234' }))
+    expect(findings.map((item) => item.code)).toEqual(['card-unavailable'])
+    expect(findings[0]?.message).toContain('已冻结')
+    expect(findings[0]?.message).toContain('请先解冻')
+  })
+
+  it('normal / 未给卡状态 ⇒ 不产该规则（不给正常卡扣帽子）', () => {
+    expect(checkTransferRisks(input({ cardStatus: 'normal' })).map((i) => i.code)).toEqual([])
+    expect(checkTransferRisks(input()).map((i) => i.code)).toEqual([])
+  })
+
+  it('卡状态排在所有规则之前：余额也不足时，第一条仍是 card-unavailable', () => {
+    const findings = checkTransferRisks(
+      input({ cardStatus: 'lost', amountCents: 2_000, availableCents: 1_000 }),
+    )
+    expect(findings[0]?.code).toBe('card-unavailable')
+    expect(findings.map((item) => item.code)).toContain('insufficient-balance')
+  })
+
+  it('缺尾号 ⇒ 文案留空而不是 "undefined"（尾号只服务可读性，不参与判定）', () => {
+    const findings = checkTransferRisks(input({ cardStatus: 'lost' }))
+    expect(findings[0]?.message).not.toContain('undefined')
+    expect(findings[0]?.detail).toEqual({ cardStatus: 'lost' })
+  })
+})

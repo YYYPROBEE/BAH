@@ -112,9 +112,8 @@
       "id": "interaction:approval",
       "use": "interaction:approval",
       "config": {
-        "responder": "headless",
-        "autoDecision": "allow",
-        "autoVerify": true
+        "responder": "none",
+        "windowResponder": true
       }
     },
     {

@@ -28,6 +28,7 @@ import type { PluginCatalog, ValidatedRow } from '../plugin-manager/index.ts'
 
 import { assertAuthCompatibility } from './auth-compat.ts'
 import { BOOT_PREFIX, bootError } from './config.ts'
+import type { WakeMarkStore } from './wake-marks.ts'
 import {
   diffRows,
   mergeLayers,
@@ -102,6 +103,17 @@ export interface RunContext {
    * 恢复必须在任何插件 replay（如 `plan:dag` 的 armed store）之前完成。
    */
   readonly restoreEvents?: readonly AnySessionEvent[]
+  /**
+   * 唤醒执行器的一次性标记账本（ADR-0010）。
+   *
+   * 写：只有 `plan:dag` 的 `wake()` 会 `open()`；读：窗口代签核验端口按 `windowId` 取。
+   * 它不是"可写开关"——`open()` 只接受完整凭据，放行规则在
+   * `@bah/runtime` 的 `decideWindowSign`，账本只记账。
+   *
+   * 缺省不传时 `plan:dag` 自己造一个（等价于"本进程没有外部注入"，行为不变）；
+   * CLI 与测试夹具都显式传，好让"标记"这件事在装配面上看得见。
+   */
+  readonly wakeMarks?: WakeMarkStore
 }
 
 /** 服务键：`bah:run`（插件以 `inject: ['bah:run']` 声明依赖）。 */

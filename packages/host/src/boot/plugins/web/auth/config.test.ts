@@ -69,4 +69,26 @@ describe('resolveAuthSettings', () => {
     )
     expect(resolveAuthSettings({ cookie: { name: 'bah_sid_v2' } }).cookie.name).toBe('bah_sid_v2')
   })
+
+  it('TA-20-7 每一块都必须是对象：数组 / null 一律 web-invalid-config（不当"没写"回落默认）', () => {
+    // `null` 与 `[]` 在 JS 里都过 `typeof === 'object'`，如果只判 typeof 就会被当成
+    // 空对象读下去：`auth: null` 等于"静默回到 static 默认"，那正是 A3 硬门槛最怕的假配好。
+    expect(codeOf(() => resolveAuthSettings(null))).toBe('web-invalid-config')
+    expect(codeOf(() => resolveAuthSettings([]))).toBe('web-invalid-config')
+    for (const key of ['cookie', 'session', 'directory', 'login'] as const) {
+      expect(codeOf(() => resolveAuthSettings({ [key]: null })), `${key}: null`).toBe(
+        'web-invalid-config',
+      )
+      expect(codeOf(() => resolveAuthSettings({ [key]: [] })), `${key}: []`).toBe(
+        'web-invalid-config',
+      )
+    }
+    // 报错要能指到具体是哪一块（运维看 message 就知道改哪里）
+    try {
+      resolveAuthSettings({ session: null })
+      expect.unreachable('必须抛错')
+    } catch (error) {
+      expect((error as Error).message).toContain('channel:web.auth.session 必须是对象')
+    }
+  })
 })

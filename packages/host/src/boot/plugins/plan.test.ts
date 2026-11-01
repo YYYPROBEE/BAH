@@ -22,6 +22,8 @@ import {
   PLAN_INCIDENT_CODE,
   SESSION_SERVICE,
   TOOLS_SERVICE,
+  ToolGuard,
+  ToolPipeline,
   type Plan,
   type PlanApi,
 } from '@bah/runtime'
@@ -31,7 +33,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { boot, type BootOptions, type BootedApp, type ProfileSummary } from '../boot.ts'
 import { createCatalog } from './index.ts'
-import { PLAN_SERVICE, planPlugin } from './plan.ts'
+import { PLAN_ARMED_SERVICE, PLAN_SERVICE, planPlugin } from './plan.ts'
 
 import type { Bundle, ConfigLayer, PluginRow } from '../profile-plugins.ts'
 import { testRunContext } from '../test-run-context.ts'
@@ -128,7 +130,24 @@ async function bootPlan(extraLayers: readonly ConfigLayer[] = []): Promise<Boote
   const options: BootOptions = {
     profile: PROFILE,
     bundles: [bundle],
-    layers: [profileLayer(), ...extraLayers],
+    layers: [
+      profileLayer(),
+      /**
+       * ★ 本文件只测**编排接缝**，不测"谁签的字"（见 `plan-wake.test.ts` 的窗口用例）。
+       *
+       * `profiles/plan/patch.yml` 自 ADR-0010 起是 `responder: none + windowResponder: true`，
+       * 而这里所有用例都是 **`api.run()` 直接发起**（没有 `authorization`），
+       * 窗口应答者不认领这类票据 ⇒ 结构上必然是 deny。要让"节点真的跑完"这件事
+       * 在本文件里成立，只能显式装一个回归夹具应答者——**这也是它唯一还该出现的地方**。
+       */
+      overlay([
+        {
+          id: 'interaction:approval',
+          config: { responder: 'headless', autoDecision: 'allow', autoVerify: true },
+        },
+      ]),
+      ...extraLayers,
+    ],
     catalog: createCatalog(),
     run: testRunContext({ sessionId: asSessionId('s-plan'), now: () => 1_000, jsonlDir: dir }),
   }
@@ -141,6 +160,37 @@ const overlay = (rows: readonly PluginRow[]): ConfigLayer => ({
   from: 'plan.test.ts',
   rows,
 })
+
+/**
+ * 走**真实七段管线**执行一个工具（签票 → 审批 → 挑战 → 执行）。
+ *
+ * 为什么要这条路径：`birthday_plan` / `transfer_schedule` 自 ADR-0010 起武装的是
+ * **宽档**窗口，而宽档要求"武装时完成过强验证"——凭据只存在于**管线**审批过的
+ * 那次调用里（`preauthOf` 读 `approval/challenge-issued`）。直接 `execute` 过不去，
+ * 也不该过得去：那正是"系统给自己盖章"的后门。
+ */
+async function executeViaPipeline(
+  app: BootedApp,
+  name: string,
+  args: Readonly<Record<string, unknown>>,
+  callId: string,
+): Promise<{ readonly isError: boolean; readonly code?: string; readonly value?: unknown }> {
+  const session = app.ctx.get(SESSION_SERVICE)
+  const pipeline = new ToolPipeline({
+    ctx: app.ctx,
+    registry: app.ctx.get(TOOLS_SERVICE),
+    session,
+    guard: new ToolGuard(),
+    sessionId: session.sessionId,
+    now: () => 1_000,
+  })
+  const execution = await pipeline.execute({ callId, name, args })
+  return {
+    isError: execution.result.isError,
+    ...(execution.result.code === undefined ? {} : { code: execution.result.code }),
+    ...(execution.value === undefined ? {} : { value: execution.value }),
+  }
+}
 
 describe('plan:dag 配置校验', () => {
   it('默认值：32 节点 / 128 边 / 30 秒预算 / 非 dry-run / 单节点最多失败 3 次', () => {
@@ -861,5 +911,101 @@ describe('04 单：goal / todo 平面在 plan 插件里注册', () => {
         signal: new AbortController().signal,
       }),
     ).rejects.toMatchObject({ code: 'goal-invalid-shape' })
+  })
+
+  it('transfer_schedule：生成一张到期的 transfer_create 授权窗口（宽档 + 预授权）', async () => {
+    booted = await bootPlan()
+    const registry = booted.app.ctx.get(TOOLS_SERVICE)
+    expect(registry.has('transfer_schedule')).toBe(true)
+    expect(registry.get('transfer_schedule').tier.level).toBe('yellow')
+
+    // ADR-0010：定时转账武装的是**宽档**窗口（到期收款人常是未登记 ⇒ 红级），
+    // 所以它自己的那次审批必须是红级 + 挑战，凭据随窗口落账。必须走管线。
+    const outcome = await executeViaPipeline(
+      booted.app,
+      'transfer_schedule',
+      { amount: 500, payee: PAYEE, when: '明天 09:00', remark: '房租' },
+      'call-schedule',
+    )
+    expect(outcome.isError).toBe(false)
+    const result = outcome.value as {
+      scheduleId: string
+      planId: string
+      dueAt: number
+      amount: number
+      payeeName: string
+    }
+    // 测试钟 = 1970-01-01T00:00:01Z；「明天 09:00」= 1970-01-02T09:00:00Z
+    expect(result.dueAt).toBe(118_800_000)
+    expect(result).toMatchObject({ amount: 500, payeeName: '王建国' })
+
+    const armed = booted.app.ctx.get(PLAN_ARMED_SERVICE).list()
+    expect(armed).toHaveLength(1)
+    expect(armed[0]).toMatchObject({
+      planId: result.planId,
+      windowId: result.scheduleId,
+      budgetCents: 50_000,
+      dueAt: 118_800_000,
+      state: 'armed',
+      tier: 'wide',
+      verifiedAt: 1_000,
+    })
+    // 有效期 = dueAt + 24h 宽限（红级预授权只在窗口有效期内算数）
+    expect(armed[0]?.expiresAt).toBe(118_800_000 + 24 * 60 * 60 * 1_000)
+    expect(armed[0]?.challenge?.challengeId).toBeTruthy()
+    expect(armed[0]?.plan.nodes).toEqual([
+      {
+        id: 'pay',
+        tool: 'transfer_create',
+        args: { amount: 500, payee: PAYEE, remark: '房租' },
+        deps: [],
+      },
+    ])
+  })
+
+  it('birthday_plan：生日前 2 天三张授权窗口，鲜花/蛋糕带商户腿', async () => {
+    booted = await bootPlan()
+    const registry = booted.app.ctx.get(TOOLS_SERVICE)
+    expect(registry.has('birthday_plan')).toBe(true)
+    expect(registry.get('birthday_plan').tier.level).toBe('yellow')
+
+    // ADR-0010：三张子窗口是**宽档**（收款人未登记 ⇒ 到期是红级），
+    // 父审批因此升级成红级 + 挑战；预授权凭据由父审批继承。所以必须走管线。
+    const outcome = await executeViaPipeline(
+      booted.app,
+      'birthday_plan',
+      { birthday: '下个月8号' },
+      'call-birthday',
+    )
+    expect(outcome.isError).toBe(false)
+    const result = outcome.value as {
+      birthdayAt: number
+      dueAt: number
+      schedules: readonly { kind: string; scheduleId: string; planId: string; amountYuan: number }[]
+    }
+    expect(result.birthdayAt).toBe(Date.UTC(1970, 1, 8))
+    expect(result.dueAt).toBe(Date.UTC(1970, 1, 6, 9))
+    expect(result.schedules.map((schedule) => schedule.kind)).toEqual(['lock', 'flower', 'cake'])
+    expect(result.schedules[0]?.amountYuan).toBe(1000)
+
+    const armed = booted.app.ctx.get(PLAN_ARMED_SERVICE).list()
+    expect(armed).toHaveLength(3)
+    expect(new Set(armed.map((plan) => plan.windowId)).size).toBe(3)
+    expect(armed.filter((plan) => plan.merchant !== undefined)).toHaveLength(2)
+    // 三张窗口都带着父审批的预授权凭据（同一次强验证，三个 challengeId 未必相同）
+    for (const plan of armed) {
+      expect(plan.tier).toBe('wide')
+      expect(plan.verifiedAt).toBe(1_000)
+      expect(plan.challenge?.challengeId).toBeTruthy()
+      expect(plan.expiresAt).toBe(plan.dueAt + 24 * 60 * 60 * 1_000)
+    }
+    expect(armed[1]?.plan.nodes[0]?.args).toMatchObject({
+      amount: 129,
+      payee: { name: '即刻花' },
+    })
+    expect(armed[2]?.plan.nodes[0]?.args).toMatchObject({
+      amount: 169,
+      payee: { name: '小满烘焙' },
+    })
   })
 })

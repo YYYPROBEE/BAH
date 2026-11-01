@@ -30,6 +30,7 @@ import type { PolicyEngine } from '@bah/runtime'
 import type { ForgeTier } from '../forge/index.ts'
 import { DEMO_NOW, buildBankDataset } from '../forge/index.ts'
 import { MockBankCore, bankIds } from '../core/index.ts'
+import { DAY_MS } from '../core/time.ts'
 import { createBankTools } from './catalog.ts'
 import type { BankAudit, BankSessionEventMap, BankSessionEventType } from './events.ts'
 import { provideBankGovernance } from './governance.ts'
@@ -52,6 +53,7 @@ export const TEST_CONFIG: BankToolsConfig = {
   dailyTransferLimit: 1_000,
   riskyOps: ['transfer_create', 'wealth_purchase'],
   riskyCallThreshold: 3,
+  riskCooldownDays: 1,
 }
 
 /** 直接调用工具的 harness。 */
@@ -62,6 +64,13 @@ export interface BankHarness {
   readonly tools: ReadonlyMap<string, ToolDefinition<unknown, unknown>>
   readonly audits: AuditRecord[]
   readonly ctx: ToolExecContext
+  /**
+   * 注入钟（`advance(ms)` 可以推进时间）。
+   *
+   * 为什么交出来：交接票据的 TTL、锁定窗口这类语义**只能靠推进时间**验证，
+   * 而"再造一个 harness"会让同一份夹具出现两条实现。
+   */
+  readonly clock: Clock
   call(name: string, args?: Readonly<Record<string, unknown>>, callId?: string): Promise<unknown>
   auditsOf<K extends BankSessionEventType>(type: K): BankSessionEventMap[K][]
 }
@@ -86,7 +95,16 @@ export function createDeps(options: {
     tier: options.tier ?? 'demo',
     now: DEMO_NOW,
   })
-  const core = options.core ?? new MockBankCore({ data: dataset, now: options.now })
+  // 重测冷却与部署面同源：harness 里由 `config.riskCooldownDays` 决定，
+  // 缺省 = `TEST_CONFIG` 的 1 天（与 host 一致）。想关掉就在 `config` 里写 0。
+  const cooldownDays = options.config?.riskCooldownDays ?? TEST_CONFIG.riskCooldownDays
+  const core =
+    options.core ??
+    new MockBankCore({
+      data: dataset,
+      now: options.now,
+      ...(cooldownDays <= 0 ? {} : { riskCooldownMs: cooldownDays * DAY_MS }),
+    })
   const verify =
     options.verify ??
     new VerifyService({ provider: createMockVerifyProvider(), now: options.now })
@@ -134,6 +152,7 @@ export function createBankHarness(options: {
     tools,
     audits,
     ctx,
+    clock,
     async call(name, args = {}, callId = 'c-direct') {
       const tool = tools.get(name)
       if (tool === undefined) throw new Error(`测试里没有工具 ${name}`)

@@ -13,12 +13,17 @@
 
 import { el } from '../dom.js'
 
-/** 节点横向间距 / 纵向间距（px）。 */
-const DX = 156
-const DY = 56
+/**
+ * 纵向布局常量（px）。
+ *
+ * 这张图只出现在桌面右侧 400px 面板：横向铺层会直接把步数变成横向滚动条，
+ * 而面板本来就有富余高度。所以按 step 从上往下排，节点宽度吃满侧栏内容区，
+ * 不再随层数向右生长。
+ */
+const GAP_Y = 24
 const PAD = 16
-const NODE_W = 128
-const NODE_H = 36
+const NODE_W = 240
+const NODE_H = 40
 
 /** 状态 → 视觉（描边/填充/文案）。B2：plan 节点状态与 `PLAN_NODE_STATES` 对齐。 */
 const STATE = {
@@ -47,19 +52,24 @@ export function renderDag(frame) {
   const nodes = frame.nodes ?? []
   const edges = frame.edges ?? []
 
-  // 分层坐标：x 按 step，y 按同 step 内的出现顺序
-  const positions = new Map()
-  const perStep = new Map()
-  let maxStep = 0
-  for (const node of nodes) {
-    const index = perStep.get(node.step) ?? 0
-    perStep.set(node.step, index + 1)
-    positions.set(node.id, { x: PAD + node.step * DX, y: PAD + index * DY })
-    maxStep = Math.max(maxStep, node.step)
-  }
+  // 纵向坐标：按 step 从上往下排；同一 step 内保持原始顺序（并行节点也顺序下排，
+  // 因为 400px 侧栏放不下两列 240px 节点，硬分列又会回到横向滚动）。
+  const ordered = nodes
+    .map((node, index) => ({ node, index }))
+    .sort((a, b) => a.node.step - b.node.step || a.index - b.index)
+    .map((entry) => entry.node)
 
-  const width = PAD * 2 + (maxStep + 1) * DX
-  const height = PAD * 2 + Math.max(1, ...[...perStep.values()]) * DY
+  const positions = new Map()
+  ordered.forEach((node, index) => {
+    positions.set(node.id, {
+      x: PAD,
+      y: PAD + index * (NODE_H + GAP_Y),
+    })
+  })
+
+  const width = PAD * 2 + NODE_W
+  const height =
+    PAD * 2 + Math.max(1, ordered.length) * NODE_H + Math.max(0, ordered.length - 1) * GAP_Y
 
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('class', 'dag')
@@ -77,12 +87,14 @@ export function renderDag(frame) {
     const to = positions.get(edge.to)
     if (from === undefined || to === undefined) continue
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-    const x1 = from.x + NODE_W
-    const y1 = from.y + NODE_H / 2
-    const x2 = to.x
-    const y2 = to.y + NODE_H / 2
-    const mid = (x1 + x2) / 2
-    line.setAttribute('d', `M ${String(x1)} ${String(y1)} C ${String(mid)} ${String(y1)}, ${String(mid)} ${String(y2)}, ${String(x2)} ${String(y2)}`)
+    // 从上一节点底边中点连到下一节点顶边中点，垂直向下；中间控制点让跨节点连线
+    // 保持在同一列里，不会斜穿面板。
+    const x1 = from.x + NODE_W / 2
+    const y1 = from.y + NODE_H
+    const x2 = to.x + NODE_W / 2
+    const y2 = to.y
+    const midY = (y1 + y2) / 2
+    line.setAttribute('d', `M ${String(x1)} ${String(y1)} C ${String(x1)} ${String(midY)}, ${String(x2)} ${String(midY)}, ${String(x2)} ${String(y2)}`)
     line.setAttribute('class', 'dag__edge')
     svg.append(line)
   }
@@ -116,17 +128,17 @@ export function renderDag(frame) {
 
     const label = document.createElementNS('http://www.w3.org/2000/svg', 'text')
     label.setAttribute('class', 'dag__label')
-    label.setAttribute('x', String(position.x + 10))
-    label.setAttribute('y', String(position.y + 23))
+    label.setAttribute('x', String(position.x + 12))
+    label.setAttribute('y', String(position.y + 26))
     label.setAttribute('fill', visual.text)
     // 字号走 CSS 令牌（`--body-sm-font-size`）：硬编码 12px 与文档字阶脱钩。
-    label.textContent = truncate(node.label, 12)
+    label.textContent = truncate(node.label, 20)
     group.append(label)
 
     const badge = document.createElementNS('http://www.w3.org/2000/svg', 'text')
     badge.setAttribute('class', 'dag__badge')
-    badge.setAttribute('x', String(position.x + NODE_W - 10))
-    badge.setAttribute('y', String(position.y + 23))
+    badge.setAttribute('x', String(position.x + NODE_W - 12))
+    badge.setAttribute('y', String(position.y + 26))
     badge.setAttribute('text-anchor', 'end')
     badge.setAttribute('fill', 'var(--text-tertiary)')
     badge.textContent = node.kind === 'call' ? (TIER[node.tier] ?? '?') : ''

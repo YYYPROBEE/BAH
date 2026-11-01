@@ -8,7 +8,7 @@
  * 命令不会留下空会话文件。`create()` 对已存在的会话是排他失败（不覆写）。
  */
 
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 import { defineService } from '@bah/core'
 import { JsonlPersistence } from '@bah/persistence'
@@ -114,7 +114,13 @@ export const persistencePlugin: HostPlugin<PersistenceSettings> = {
         if (existing !== undefined) return existing
         let ids: readonly string[] = []
         try {
-          ids = backend.list(root).map((info) => String(info.sessionId))
+          // 归档目录（IM 子进程重启时 `<sessionId>-prev-<ts>`）里的 header 仍带原 sessionId；
+          // 直接按 header 收集会让新进程误判"会话已存在"，去 open 尚未创建的规范目录。
+          // 活动会话的目录名必须等于 sessionId，归档名带后缀，因此按目录名过滤。
+          ids = backend
+            .list(root)
+            .filter((info) => basename(info.dir) === String(info.sessionId))
+            .map((info) => String(info.sessionId))
         } catch {
           // 根目录还不存在 = 本次是全新部署；"列不出来"不等于"读坏了"
           ids = []

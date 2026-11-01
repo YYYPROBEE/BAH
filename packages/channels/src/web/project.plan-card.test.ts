@@ -105,10 +105,65 @@ describe('plan-card 投影', () => {
     ])
     const cards = frames.frames.filter((frame): frame is PlanCardFrame => frame.kind === 'plan-card')
     expect(cards).toHaveLength(1)
-    expect(cards[0]?.state).toBe('failed')
+    // 提示词 4-2：条件失守 = 「还来得及但要重新确认」，不是笼统的 failed
+    expect(cards[0]?.state).toBe('needs-reconfirm')
     expect(cards[0]?.lastVerdict?.code).toBe('condition-failed')
     expect(cards[0]?.conditions[0]).toMatchObject({ state: 'failed', actual: '60000' })
     expect(cards[0]?.conditions[1]?.state).toBe('unknown')
+  })
+
+  it('窗口过期 ⇒ expired（终止态，不显示成 failed）', () => {
+    cursor = 0
+    const cards = planCards([
+      toolResult('plan_arm', ARMED),
+      toolResult('plan_wake', {
+        at: ARMED.dueAt,
+        now: ARMED.dueAt,
+        source: 'tick',
+        ok: true,
+        entries: [
+          {
+            planId: 'plan-1',
+            windowId: 'w-call-1',
+            occurrence: 'once:1761300000000',
+            key: 'k',
+            status: 'downgraded',
+            code: 'window-expired',
+            digest: 'digest-x',
+          },
+        ],
+        notified: [],
+      }),
+    ])
+    expect(cards[0]?.state).toBe('expired')
+    expect(cards[0]?.lastVerdict?.code).toBe('window-expired')
+  })
+
+  it('明细被改 ⇒ needs-reconfirm（不是"已完成"，也不是"未达成"）', () => {
+    cursor = 0
+    const cards = planCards([
+      toolResult('plan_arm', ARMED),
+      toolResult('plan_wake', {
+        at: ARMED.dueAt,
+        now: ARMED.dueAt,
+        source: 'tick',
+        ok: true,
+        entries: [
+          {
+            planId: 'plan-1',
+            windowId: 'w-call-1',
+            occurrence: 'once:1761300000000',
+            key: 'k',
+            status: 'downgraded',
+            code: 'details-changed',
+            digest: 'digest-x',
+          },
+        ],
+        notified: [],
+      }),
+    ])
+    expect(cards[0]?.state).toBe('needs-reconfirm')
+    expect(cards[0]?.lastVerdict?.code).toBe('details-changed')
   })
 
   it('plan_wake 成功 ⇒ done（失败节点数>0 ⇒ failed）', () => {
@@ -144,6 +199,43 @@ describe('plan-card 投影', () => {
     ])
     expect(cards).toHaveLength(1)
     expect(cards[0]?.state).toBe('cancelled')
+  })
+
+  it('唤醒条目带 compensation ⇒ 计划卡投影该字段（ADR-0013）', () => {
+    cursor = 0
+    const cards = planCards([
+      toolResult('plan_arm', ARMED),
+      toolResult('plan_wake', {
+        at: ARMED.dueAt,
+        now: ARMED.dueAt,
+        source: 'tick',
+        ok: true,
+        entries: [
+          {
+            planId: 'plan-1',
+            windowId: 'w-call-1',
+            occurrence: 'once:1761300000000',
+            key: 'k',
+            status: 'executed',
+            summary: { status: 'succeeded', succeeded: 1, failed: 0, blocked: 0, durationMs: 10 },
+            compensation: {
+              kind: 'reversed',
+              txnId: 'txn-1',
+              reversalTxnId: 'txn-2',
+              amountCents: 15_900,
+            },
+          },
+        ],
+        notified: [],
+      }),
+    ])
+    expect(cards[0]?.compensation).toMatchObject({
+      kind: 'reversed',
+      txnId: 'txn-1',
+      amountCents: 15_900,
+    })
+    // 冲正过 = 这一腿没成：卡片不能显示"已完成"
+    expect(cards[0]?.state).toBe('failed')
   })
 
   it('失败调用 / 坏 JSON / 未知窗口的唤醒条目 ⇒ 不投影', () => {
