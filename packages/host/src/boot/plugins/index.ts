@@ -23,6 +23,8 @@ import { persistencePlugin } from './persistence.ts'
 import { planPlugin } from './plan.ts'
 // 策略外置 S2：外置规则 bundle 的载入/校验/灰度/热重载
 import { policyRulesPlugin } from './policy.ts'
+// ADR-0016：通用主动通知通道（订阅续费提醒是其第一个消费者；04 单复用）
+import { proactivePlugin } from './proactive.ts'
 import { promptAskPlugin } from './prompt-ask.ts'
 import { promptPlugin } from './prompt.ts'
 import { sagaPlugin } from './saga.ts'
@@ -85,6 +87,9 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   factPlugin,
   // G4：商户域（mock 商户；资金腿仍走银行工具）
   merchantPlugin,
+  // ADR-0016：订阅续费主动提醒 + 通用主动通知通道（`bah:proactive`）。
+  // 登记 = 可被 `use` 引用；装配由 profile 的行决定（im / desktop 刻意不加，见 ADR）
+  proactivePlugin,
   // C4：跨会话记忆。登记 = 可被 use 引用；真正装配由 profile 的 patch 决定
   // （默认不装：记忆会改变模型输入，不做静默开启）
   memoryPlugin,
@@ -121,6 +126,7 @@ export {
   persistencePlugin,
   planPlugin,
   policyRulesPlugin,
+  proactivePlugin,
   promptAskPlugin,
   promptPlugin,
   sagaPlugin,
@@ -157,6 +163,23 @@ export { DESKTOP_SERVER } from './desktop.ts'
 // 03 单：意图平面的会话状态服务键（`prompt:ask` 与诊断面按 key 取用）
 export { INTENT_STATE_SERVICE } from './intent.ts'
 export type { IntentStateApi } from './intent.ts'
+
+// ADR-0016：通用主动通知通道的服务键与接口（04 单照此调用，不另造一套）
+export {
+  DEFAULT_PROACTIVE,
+  PROACTIVE_SERVICE,
+  createProactiveService,
+  reminderCandidatesOf,
+  scanOnce,
+} from './proactive.ts'
+export type {
+  ProactiveCandidate,
+  ProactiveDelivery,
+  ProactiveScanDeps,
+  ProactiveService,
+  ProactiveSettings,
+  ProactiveSource,
+} from './proactive.ts'
 
 // W13：eval 的 S 族需要按场景替换编排配方（失败注入），供评测 harness 引用。
 // 生产代码不使用这个导出；它是测试接缝，不是配置面。

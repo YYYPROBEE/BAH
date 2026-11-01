@@ -11,8 +11,8 @@
  * ## 判据一览
  *
  * G1  窗口安全：四个硬值逐字 + 窗口必须用 `hardenedWebPreferences`
- * G2  preload 最小面：只 `contextBridge.exposeInMainWorld('bahDesktop', …)`，暴露键 ⊆ 四个方法
- * G3  IPC 四消息：名字精确、无第五个 `bah:` 通道、注入载荷不含凭证键
+ * G2  preload 最小面：只 `contextBridge.exposeInMainWorld('bahDesktop', …)`，暴露键 ⊆ 五个方法
+ * G3  IPC 五条消息：四条生命周期 + 零载荷重启；名字精确、无表外 `bah:` 通道、注入载荷不含凭证键
  * G4  导航拦截：`will-navigate` + `setWindowOpenHandler`→deny + `will-attach-webview` 拦
  * G5  只加载 loopback：`loadURL` 用 `DESKTOP_SERVER` 给的 `instance.url`，源码无远程/文件 URL
  * G6  无自动更新 / 无外链打开 / 无崩溃上报
@@ -54,15 +54,16 @@ const HARD_VALUES = [
   'webSecurity: true',
 ] as const
 
-/** G2 允许暴露的方法名（多一个就是多一条 IPC 面）。 */
-const ALLOWED_BRIDGE_KEYS = ['onInjections', 'onFatal', 'onShutdown', 'sendReady'] as const
+/** G2 允许暴露的方法名（多一个就是多一条 IPC 面；newConversation 是零载荷生命周期动作）。 */
+const ALLOWED_BRIDGE_KEYS = ['onInjections', 'onFatal', 'onShutdown', 'sendReady', 'newConversation'] as const
 
-/** G3 四条消息名（逐字）。 */
+/** G3 五条消息名（逐字）：四条生命周期 + 一条零载荷重启。 */
 const IPC_NAMES = [
   'bah:boot/injections',
   'bah:boot/ready',
   'bah:boot/fatal',
   'bah:boot/shutdown',
+  'bah:app/new-conversation',
 ] as const
 
 /** 读文件；不存在返回空串（缺文件由调用方判为 finding）。 */
@@ -137,7 +138,7 @@ const gate: Gate = {
     // `extraKeys` 为空而"通过"。这就是假绿：换个写法加方法就绕过。
     const apiKeys = [...apiBlock.matchAll(/^\s{2}(\w+)\s*[(:,]/gm)].map((match) => match[1] ?? '')
     const extraKeys = apiKeys.filter((key) => !(ALLOWED_BRIDGE_KEYS as readonly string[]).includes(key))
-    // 正向计数：暴露面**恰为四个**。解析失败（0 个）与少写一个都要红，
+    // 正向计数：暴露面**恰为五个**。解析失败（0 个）与少写一个都要红，
     // 否则"少暴露一个"或"正则又漏了"都不会被发现。
     if (apiKeys.length !== ALLOWED_BRIDGE_KEYS.length) {
       findings.push(
@@ -145,7 +146,7 @@ const gate: Gate = {
       )
     }
     if (extraKeys.length > 0) {
-      findings.push(`G2 ${FILES.preload} 暴露了表外方法 ${extraKeys.join(',')}（暴露面只能是四个）`)
+      findings.push(`G2 ${FILES.preload} 暴露了表外方法 ${extraKeys.join(',')}（暴露面只能是五个）`)
     }
     // 不许把 ipcRenderer / require / process 交出去
     for (const leaked of ['ipcRenderer,', 'ipcRenderer:', 'require,', 'process,']) {
@@ -159,20 +160,20 @@ const gate: Gate = {
       findings.push(`G2 ${FILES.tsdown} 的 preload 段必须是 format: ['cjs']（沙箱 preload 只认 CJS，ESM 会静默不执行）`)
     }
 
-    // ── G3 IPC 四消息 ─────────────────────────────────────────────────────
+    // ── G3 IPC 五条消息（四条生命周期 + 零载荷重启） ─────────────────────
     for (const name of IPC_NAMES) {
       const count = [...ipc.matchAll(new RegExp(`'${name.replace(/[/.:]/g, (ch) => `\\${ch}`)}'`, 'g'))].length
       if (count !== 1) {
         findings.push(`G3 ${FILES.ipc} 里 '${name}' 应恰出现 1 次（实际 ${String(count)}）`)
       }
     }
-    // 除 ipc.ts 之外，源码里不许再出现 `bah:` 字面量（第五条通道的入口）
+    // 除 ipc.ts 之外，源码里不许再出现 `bah:` 字面量（表外通道的入口）
     for (const file of sources) {
       const where = file.replace(/\\/g, '/').split('/').slice(-3).join('/')
       if (where.endsWith('ipc.ts')) continue
       const text = readFileSync(file, 'utf8')
       for (const match of text.matchAll(/['"](bah:[\w/]+)['"]/g)) {
-        findings.push(`G3 ${where} 出现表外 IPC 通道 '${String(match[1])}'（四消息之外不许加业务通道）`)
+        findings.push(`G3 ${where} 出现表外 IPC 通道 '${String(match[1])}'（五条之外不许加业务通道；新对话是零载荷重启）`)
       }
     }
     // 注入载荷不含凭证：键集常量必须存在且不含 token 字样

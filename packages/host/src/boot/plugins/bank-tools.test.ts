@@ -160,6 +160,12 @@ describe('bank:tools 配置（fail-loud）', () => {
     expect(settings.riskyCallThreshold).toBe(2)
   })
 
+  it('R-2 重测冷却：缺省 1 天，0 合法（关闭），其它非负整数原样透传', () => {
+    expect(bankToolsPlugin.validate({}).riskCooldownDays).toBe(1)
+    expect(bankToolsPlugin.validate({ riskCooldownDays: 0 }).riskCooldownDays).toBe(0)
+    expect(bankToolsPlugin.validate({ riskCooldownDays: 3 }).riskCooldownDays).toBe(3)
+  })
+
   it('未知键 / 非法类型 / 非法枚举全部拒绝', () => {
     const cases: readonly [string, Readonly<Record<string, unknown>>, string][] = [
       ['顶层未知键', { nope: 1 }, 'unknown-config-key'],
@@ -172,6 +178,9 @@ describe('bank:tools 配置（fail-loud）', () => {
       ['日限额非正整数', { dailyTransferLimit: 0 }, 'invalid-config'],
       ['风险名单含未知工具', { riskyOps: ['transfer_creat'] }, 'invalid-config'],
       ['风险次数非正整数', { riskyCallThreshold: 0 }, 'invalid-config'],
+      ['冷却天数非整数', { riskCooldownDays: 1.5 }, 'invalid-config'],
+      ['冷却天数为负', { riskCooldownDays: -1 }, 'invalid-config'],
+      ['冷却天数写成字符串', { riskCooldownDays: '1' }, 'invalid-config'],
     ]
     for (const [name, config, code] of cases) {
       const error = captureThrown(() => bankToolsPlugin.validate(config))
@@ -278,12 +287,12 @@ describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
     }
   })
 
-  it('T-IDN-001 21 个工具全部注册；不写 demoUserId 时业务工具 deny no-identity', async () => {
+  it('T-IDN-001 30 个工具全部注册；不写 demoUserId 时业务工具 deny no-identity', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bah-bank-noid-'))
     const app = await bootWith({}, 's-bank-noid', dir)
     try {
       const registry = app.ctx.get(TOOLS_SERVICE)
-      expect(registry.list()).toHaveLength(21)
+      expect(registry.list()).toHaveLength(30)
       expect(registry.has('account_balance')).toBe(true)
       expect(registry.has('transfer_create')).toBe(true)
       expect(registry.has('verify_face')).toBe(true)

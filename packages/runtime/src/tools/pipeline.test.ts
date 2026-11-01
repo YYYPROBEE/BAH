@@ -925,3 +925,90 @@ describe('isDenied', () => {
     })
   })
 })
+
+/**
+ * 审批明细（`TicketDraft.details`）的搬运链路。
+ *
+ * 三条断言对应三条纪律：
+ * 1. draft → TicketRef → `approval/asked` → `ApprovalInput.summary` **全链存在**，
+ *    且是同一份内容（渠道无论走帧还是走审批服务，看到的必须逐字一致）；
+ * 2. 明细**不参与指纹**：票据的 `fingerprint` 就是 draft 给的那个值，不会被明细改写；
+ * 3. 没有明细时回落原样：事件里不出现 `details` 键，摘要里也不出现（老票不受影响）。
+ */
+describe('审批明细搬运', () => {
+  /** 一条含明细的 ask 判决。 */
+  const DETAILS = [
+    { label: '金额', value: '¥800.00', emphasis: 'amount' as const },
+    { label: '收款人', value: '王建国（139****2222）' },
+  ]
+
+  it('draft.details → approval/asked.details 与 approval/request.summary.details 同源', async () => {
+    await withHarness(async (h) => {
+      h.registry.register(tool({ name: 'bank:probe' }))
+      h.test.ctx.events.on('tools/pre-execute', (input) => ({
+        ...input,
+        verdict: {
+          kind: 'ask',
+          ticket: { fingerprint: 'fp-details', amount: 800, ttlMs: 60_000, details: DETAILS },
+        },
+      }))
+      const seen: unknown[] = []
+      h.test.ctx.events.on('approval/request', (input) => {
+        seen.push(input.summary.details)
+        seen.push(input.ticket.details)
+        return { ...input, decision: { decision: 'rejected', reason: '用例拒绝' } }
+      })
+
+      await h.pipeline.execute(CALL)
+
+      const asked = h.log().find((event) => event.type === 'approval/asked')
+      expect((asked?.data as { details?: unknown }).details).toEqual(DETAILS)
+      // 审批服务拿到的两份（摘要 / 票据）与事件同源同值
+      expect(seen).toEqual([DETAILS, DETAILS])
+    })
+  })
+
+  it('明细不影响票据指纹：指纹逐字等于 draft 给的值', async () => {
+    await withHarness(async (h) => {
+      h.registry.register(tool({ name: 'bank:probe' }))
+      h.test.ctx.events.on('tools/pre-execute', (input) => ({
+        ...input,
+        verdict: {
+          kind: 'ask',
+          ticket: { fingerprint: 'fp-only-args', ttlMs: 60_000, details: DETAILS },
+        },
+      }))
+      const fingerprints: string[] = []
+      h.test.ctx.events.on('approval/request', (input) => {
+        fingerprints.push(input.ticket.fingerprint)
+        return { ...input, decision: { decision: 'rejected', reason: '用例拒绝' } }
+      })
+
+      await h.pipeline.execute(CALL)
+      const asked = h.log().find((event) => event.type === 'approval/asked')
+      expect(asked?.data).toMatchObject({ details: DETAILS })
+      // 票据指纹逐个字符都是 draft 给的：明细里那串金额/收款人没有参与计算
+      expect(fingerprints).toEqual(['fp-only-args'])
+    })
+  })
+
+  it('没有明细：事件与摘要都不出现 details 键（老票回落）', async () => {
+    await withHarness(async (h) => {
+      h.registry.register(tool({ name: 'bank:probe' }))
+      h.test.ctx.events.on('tools/pre-execute', (input) => ({
+        ...input,
+        verdict: { kind: 'ask', ticket: { fingerprint: 'fp-plain', ttlMs: 60_000 } },
+      }))
+      const summaries: unknown[] = []
+      h.test.ctx.events.on('approval/request', (input) => {
+        summaries.push(Object.keys(input.summary))
+        return { ...input, decision: { decision: 'rejected', reason: '用例拒绝' } }
+      })
+
+      await h.pipeline.execute(CALL)
+      const asked = h.log().find((event) => event.type === 'approval/asked')
+      expect(Object.keys(asked?.data as object)).not.toContain('details')
+      expect(summaries[0]).not.toContain('details')
+    })
+  })
+})

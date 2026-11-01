@@ -68,6 +68,8 @@ const REQUIRED_STYLES: Readonly<Record<string, readonly string[]>> = {
   'index.html': [...DS_STYLES, './styles/app.css'],
   'operator.html': [...DS_STYLES, './styles/app.css'],
   'm.html': [...DS_STYLES, './styles/mobile.css'],
+  // 交易密码安全页（ADR-0014）：复用 `app.css`（登录卡样式），不新开一份页面局部样式
+  'password.html': [...DS_STYLES, './styles/app.css'],
 }
 
 /** 读文件（失败返回 `undefined`）。 */
@@ -205,6 +207,16 @@ const gate: Gate = {
     //    这一条是它们的回归判据：改样式表时删掉兜底规则会立刻变红。
     if (!/\[hidden\]\s*\{[^}]*display:\s*none\s*!important/.test(read(appCssPath) ?? '')) {
       findings.push(`${WEB_DIR}/styles/app.css: 缺少 [hidden] { display: none !important } 兜底规则`)
+    }
+
+    // ④c 顶部横幅是可选节点（0–2 条）：`.app-shell` 的纵向排布不能依赖"子节点数固定"。
+    //     2026-10-30 走查：`grid-template-rows: auto auto minmax(0,1fr)` 在两条横幅都 hidden 时，
+    //     app-body 落进第二行 auto，底行 1fr 整块空着（1266×798 实测空 339px）。
+    const shellRule = /\.app-shell\s*\{[^}]*\}/.exec(read(appCssPath) ?? '')?.[0] ?? ''
+    if (!/display:\s*flex/.test(shellRule) || !/flex-direction:\s*column/.test(shellRule)) {
+      findings.push(
+        `${WEB_DIR}/styles/app.css: .app-shell 必须是 flex 纵向列（横幅 0–2 条可变，固定行数的 grid 会让主体挤进 auto 行、底部留白）`,
+      )
     }
 
     // ⑤ 入口页清单：apps/web 下每个 .html 都必须挂齐**该壳**的样式与一个模块入口，

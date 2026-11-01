@@ -1,10 +1,9 @@
-﻿# 部署与运行说明（M0）
+# 部署与运行说明（M0）
 
 > 读者：拿到仓库、要在自己机器上把演示跑起来的人。
 > 本文只写**能照着做**的步骤；所有默认值都回源码核过（`profiles/web/patch.yml`、
 > `packages/host/src/boot/`、`scripts/demo-web.mjs`）。
-> 最后核实：2026-10-24（默认值回源码核过）；数字口径 2026-10-31 对齐 `docs/facts-sources.md` 机器块。
-> Node 22 / pnpm 10.34.7，Windows 与 Linux 同一套命令。
+> 最后核实：2026-10-24（Node 22 / pnpm 10.34.7，Windows 与 Linux 同一套命令）。
 
 ---
 
@@ -15,7 +14,7 @@ git clone https://github.com/YYYPROBEE/bah-monorepo.git
 cd bah-monorepo
 ```
 
-仓库为公开仓；`main` 分支可直接 clone。不要把 token 写进 clone URL 或任何文件；`.env.local` 不入库。
+仓库访问需授权。不要把 token 写进 clone URL 或任何文件；`.env.local` 不入库。
 
 ---
 
@@ -34,7 +33,7 @@ pnpm install          # 同时把 core.hooksPath 指到 .githooks
 ```
 
 `pnpm install` 的 `prepare` 会执行 `git config core.hooksPath .githooks`；
-之后提交跑 `pnpm gate`（54 项），推送跑 `pnpm check`（14 步）。钩子只挡疏忽，不挡有意绕过。
+之后提交跑 `pnpm gate`（44 项），推送跑 `pnpm check`（14 步）。钩子挡疏忽，不挡 `--no-verify`。
 
 ---
 
@@ -189,9 +188,9 @@ headless 走 `provider: router`（读消息现规划，不是固定磁带），�
 ### 4.4 一键自证（不需要密钥）
 
 ```bash
-pnpm test              # 349 文件 / 4007 用例（2026-10-30 五线合流后实测；前端另有 409 例）
-pnpm test:snapshot     # 11 文件 / 48 例，录制↔回放逐条全等
-pnpm gate              # 54/54
+pnpm test              # 443 文件 / 5084 用例（2026-11-01 复审修复后全量实测，全绿；前端另有 550 例）
+pnpm test:snapshot     # 13 文件 60 用例全绿（含 03 单 subscription-reminder / 04 单 birthday-reminder 场景）
+pnpm gate              # 54 项静态与契约检查（并行线在途时可能有未跟踪源码红，见自评 §8）
 pnpm demo:verifier-fail # 判决件异常 → 结果被挡在模型之外（20 条断言）
 ```
 
@@ -304,8 +303,8 @@ pnpm desktop:pack      # → dist-desktop/BAH-desktop-0.1.0-win-x64.zip（约 13
 ## 6. 演示前 60 秒检查
 
 ```bash
-pnpm gate                 # 54/54（不需要 BAH_ALLOW_NO_SNAPSHOT）
-pnpm test:snapshot        # 11 文件 / 48 例（录制↔回放逐条全等）
+pnpm gate                 # 44/44（不需要 BAH_ALLOW_NO_SNAPSHOT）
+pnpm test:snapshot        # 13 文件 / 60 例（录制↔回放逐条全等）
 pnpm demo:verifier-fail   # 退出码 0
 pnpm demo:web             # 另开终端；记下打印的“本次会话目录”
 curl -s http://127.0.0.1:7331/api/health   # 返回 JSON，且不含票据 ID

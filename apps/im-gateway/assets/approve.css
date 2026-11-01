@@ -132,3 +132,24 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* 执行明细（服务端签发）：与摘要同网格，只靠字号/颜色区分强调，不画左侧色条 */
+.details-title {
+  margin: var(--space) 0 8px;
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.detail-amount {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-risk {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.detail-date {
+  font-variant-numeric: tabular-nums;
+}

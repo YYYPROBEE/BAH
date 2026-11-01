@@ -30,10 +30,16 @@ export function renderToolCatalog(specs: readonly BankToolSpec[], limit: number)
   ]
 
   specs.forEach((spec, index) => {
+    // 动作式工具有两条落账路径：只读分支（`readEvent`）必须与写分支并列显示，
+    // 否则目录会把「取问卷」说成「改等级」。
+    const events =
+      spec.readEvent === undefined
+        ? `\`${spec.event}\``
+        : `\`${spec.event}\`（读分支：\`${spec.readEvent}\`）`
     lines.push(
       `| ${index + 1} | \`${spec.name}\` | ${spec.tier.level} | ${spec.scenario} | ${describeParams(
         spec.schema,
-      )} | \`${spec.event}\` | ${escapeCell(spec.description)} |`,
+      )} | ${events} | ${escapeCell(spec.description)} |`,
     )
   })
 

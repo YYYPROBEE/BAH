@@ -111,6 +111,7 @@ function snapshot() {
 
 beforeEach(() => {
   document.body.innerHTML = ''
+  delete globalThis.bahDesktop
 })
 
 describe('mountApp · 独立运行（T-WEB-008）', () => {
@@ -461,5 +462,153 @@ describe('mountApp · 交互细节', () => {
     await vi.waitFor(() => {
       expect(root.querySelector('.app-header__session').textContent).toContain('s-test')
     })
+  })
+})
+
+describe('mountApp · 对话收口与定位', () => {
+  it('安全提醒在顶栏（不占会话行、不与右侧审计面板并排），输入框提示统一', () => {
+    const { root } = mount()
+    const safety = root.querySelector('[data-role="safety"]')
+    expect(safety).not.toBeNull()
+    expect(safety.closest('.app-header')).not.toBeNull()
+    expect(safety.closest('.app-left')).toBeNull()
+    expect(safety.closest('.panel')).toBeNull()
+    expect(root.querySelector('.composer__input').placeholder).toBe('在这里输入消息')
+  })
+
+  it('对话完成后只在末尾出现一次反馈行 + 两条追问；新一轮开始即收起', async () => {
+    const api = fakeApi()
+    const { root, transport } = mount(api)
+    transport.push({
+      kind: 'snapshot',
+      sessionId: 's-test',
+      maxSeq: 5,
+      frames: [
+        { kind: 'turn', seq: 1, at: 1, turn: 1, phase: 'start' },
+        { kind: 'message', seq: 2, at: 2, role: 'user', blocks: [{ type: 'text', text: '看看理财产品' }] },
+        { kind: 'message', seq: 3, at: 3, role: 'assistant', blocks: [{ type: 'text', text: '我先查一下。' }] },
+        {
+          kind: 'message',
+          seq: 4,
+          at: 4,
+          role: 'assistant',
+          blocks: [{ type: 'text', text: '在售理财产品有稳盈90天等。' }],
+        },
+        { kind: 'turn', seq: 5, at: 5, turn: 1, phase: 'end', endKind: 'completed' },
+      ],
+    })
+
+    const conversation = root.querySelector('#conversation')
+    const footers = root.querySelectorAll('[data-role="answer-footer"]')
+    expect(footers).toHaveLength(1)
+    expect(conversation.lastElementChild).toBe(footers[0])
+    // 反馈不再挂在每一条助手消息里
+    expect(root.querySelectorAll('.message [data-role="feedback"]')).toHaveLength(0)
+    expect(root.querySelectorAll('[data-role="feedback"]')).toHaveLength(1)
+    const followUps = [...root.querySelectorAll('[data-role="follow-up"]')]
+    expect(followUps).toHaveLength(2)
+    expect(followUps.map((button) => button.textContent)).toEqual(['看看我的理财持仓', '看看在售的理财产品'])
+
+    followUps[0].click()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(api.calls).toEqual([['turn', '看看我的理财持仓']])
+
+    transport.push({ kind: 'turn', seq: 6, at: 6, turn: 2, phase: 'start' })
+    expect(root.querySelector('[data-role="answer-footer"]')).toBeNull()
+  })
+
+  it('运行中的一轮不提前出反馈；用户刚追问、助手未答时也不出', () => {
+    const { root, transport } = mount()
+    transport.push({ kind: 'turn', seq: 1, at: 1, turn: 1, phase: 'start' })
+    transport.push({
+      kind: 'message',
+      seq: 2,
+      at: 2,
+      role: 'assistant',
+      blocks: [{ type: 'text', text: '正在为您查询。' }],
+    })
+    expect(root.querySelector('[data-role="answer-footer"]')).toBeNull()
+
+    transport.push({ kind: 'turn', seq: 3, at: 3, turn: 1, phase: 'end', endKind: 'completed' })
+    expect(root.querySelector('[data-role="answer-footer"]')).not.toBeNull()
+
+    transport.push({ kind: 'message', seq: 4, at: 4, role: 'user', blocks: [{ type: 'text', text: '那理财呢' }] })
+    expect(root.querySelector('[data-role="answer-footer"]')).toBeNull()
+  })
+
+  it('新消息贴底；用户上翻后不抢滚动；发送动作强制回到底部', async () => {
+    const api = fakeApi()
+    const { root, transport } = mount(api)
+    const conversation = root.querySelector('#conversation')
+    Object.defineProperty(conversation, 'scrollHeight', { configurable: true, get: () => 1200 })
+    Object.defineProperty(conversation, 'clientHeight', { configurable: true, get: () => 400 })
+
+    transport.push({ kind: 'message', seq: 1, at: 1, role: 'user', blocks: [{ type: 'text', text: '你好' }] })
+    expect(conversation.scrollTop).toBe(1200)
+
+    conversation.scrollTop = 100
+    conversation.dispatchEvent(new Event('scroll'))
+    transport.push({ kind: 'message', seq: 2, at: 2, role: 'assistant', blocks: [{ type: 'text', text: '您好' }] })
+    expect(conversation.scrollTop).toBe(100)
+
+    const input = root.querySelector('.composer__input')
+    input.value = '查余额'
+    root.querySelector('#composer').dispatchEvent(new Event('submit', { cancelable: true }))
+    expect(conversation.scrollTop).toBe(1200)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(api.calls).toEqual([['turn', '查余额']])
+  })
+})
+
+describe('mountApp · 桌面壳新对话', () => {
+  it('普通 Web 不显示新对话按钮（没有真实新会话能力）', () => {
+    const { root } = mount()
+    expect(root.querySelector('[data-role="new-conversation"]')).toBeNull()
+  })
+
+  it('桌面桥存在时显示按钮；确认后只调用零载荷桥接', () => {
+    const newConversation = vi.fn()
+    globalThis.bahDesktop = { newConversation }
+    const originalWindowConfirm = window.confirm
+    const originalGlobalConfirm = globalThis.confirm
+    const confirm = vi.fn(() => true)
+    window.confirm = confirm
+    globalThis.confirm = confirm
+
+    try {
+      const { root } = mount()
+      const button = root.querySelector('[data-role="new-conversation"]')
+      expect(button).not.toBeNull()
+      expect(button.textContent).toContain('新对话')
+      button.click()
+      expect(confirm).toHaveBeenCalledTimes(1)
+      expect(newConversation).toHaveBeenCalledTimes(1)
+    } finally {
+      window.confirm = originalWindowConfirm
+      globalThis.confirm = originalGlobalConfirm
+      delete globalThis.bahDesktop
+    }
+  })
+
+  it('取消确认时不调用桥接', () => {
+    const newConversation = vi.fn()
+    globalThis.bahDesktop = { newConversation }
+    const originalWindowConfirm = window.confirm
+    const originalGlobalConfirm = globalThis.confirm
+    const decline = () => false
+    window.confirm = decline
+    globalThis.confirm = decline
+
+    try {
+      const { root } = mount()
+      root.querySelector('[data-role="new-conversation"]').click()
+      expect(newConversation).not.toHaveBeenCalled()
+    } finally {
+      window.confirm = originalWindowConfirm
+      globalThis.confirm = originalGlobalConfirm
+      delete globalThis.bahDesktop
+    }
   })
 })

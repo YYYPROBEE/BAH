@@ -4,6 +4,7 @@
  * 只显示"连接态 + 会话 + 待接管数"三件事：坐席第一眼要知道"我连上了吗 / 这是哪个会话"。
  */
 
+import { BRAND } from '../../brand.js'
 import { el, icon } from '../../dom.js'
 
 const STATUS = {
@@ -18,9 +19,9 @@ export function createStatusView() {
   const label = el('span', { class: 'seat-header__status-text', text: STATUS.connecting.label })
   const node = el('header', { class: 'seat-header' }, [
     el('div', { class: 'seat-header__brand' }, [
-      el('span', { class: 'seat-header__logo' }, [icon('ai', 20)]),
+      el('span', { class: 'seat-header__logo' }, [icon('bank', 20)]),
       el('div', {}, [
-        el('div', { class: 'seat-header__title', text: 'BAH · 坐席工作台' }),
+        el('div', { class: 'seat-header__title', text: BRAND.seat }),
         el('div', { class: 'seat-header__subtitle', text: '人工接管 · 单会话部署' }),
       ]),
     ]),

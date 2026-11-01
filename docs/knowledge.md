@@ -191,7 +191,7 @@ bah: 知识卡
 
 ```yaml
     signature:
-      enabled: true            # false = 关掉签名门（仅演示回滚；必须在提交说明里登记）
+      enabled: true            # false = 关掉签名门（仅演示回滚；必须在 PROGRESS 登记）
       manifestPath: packages/knowledge/fixtures/knowledge.manifest.json
       corpusPath: packages/knowledge/fixtures/corpus.json
 ```

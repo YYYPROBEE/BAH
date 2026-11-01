@@ -73,6 +73,55 @@
       breakerFailures: 3   # 连续失败几次开熔断
       breakerOpenMs: 10000 # 熔断窗口（毫秒）
 
+# ── 场景 6 / 定时计划（2026-11-01 补齐，与 mobile 同款）──────────────────────
+#
+# WHY 必须补：router 的生日分支会发 `goal_set` / `plan_propose` / `plan_execute`。
+# 这三行缺席时它们不在注册表，工具调用直接 `tool-missing`，但脚本仍会输出
+# "已生成计划"——那是当着评委面编造结果（违反赛题「幻觉防护」）。
+# 补齐后主演示（pnpm demo:web）与移动端能力一致：事实库 / 到点唤醒 / 商户腿全在。
+- id: plan:dag
+  use: plan:dag
+  config:
+    enabled: true
+    maxNodes: 16
+    maxEdges: 64
+    # 必须 < 票据 TTL（bank:tools.ticketTtlSeconds=120 → 120000ms）
+    planTimeoutMs: 30000
+    dryRunDefault: false
+    modelTools: true
+
+# G2/G3：生活事实库 + 到期唤醒驱动器（零新事件键：事实走 tool/call+tool/result）。
+- id: fact:store
+  use: fact:store
+  config: { enabled: true }
+
+- id: plan:scheduler
+  use: plan:scheduler
+  config: { enabled: true, catchUpOnBoot: true }
+
+# G4：mock 商户域。资金腿仍是 transfer_create，商户腿只回执货物。
+- id: bank:merchant
+  use: bank:merchant
+  config: { enabled: true, fault: none }
+
+# ADR-0016：订阅续费主动提醒（通用主动通知通道 `bah:proactive`）。
+# 规则写死在代码里，这里只开总开关；boot 补跑保留——启动即扫，不必等第一个 tick。
+- id: proactive:reminder
+  use: proactive:reminder
+  config: { enabled: true, catchUpOnBoot: true }
+
+# ★ saga-bridge 只保留 tick、不接管工具（复审 P1-2）：
+#   计划节点本身就是 preview → create 两步，接管会把 transfer_create 展开两次；
+#   但完全关掉连 `saga/tick` 也没了，AA 到期 / 订阅与生日提醒在常驻进程里只能靠启动补跑。
+#   `eligible: []` = 桥接不接管任何工具；`tickIntervalMs` 仍给到期 job 一个时钟源。
+#   代价不变：计划里的转账失去自动补偿（docs/mobile.md 的诚实边界同样适用）。
+- id: bank:saga-bridge
+  config:
+    enabled: true
+    eligible: []
+    tickIntervalMs: 60000
+    saga: { maxAttempts: 1 }
+
 # 知识平面（施工单 12）：base bundle **不含**此行，web 必须显式开。
 # 不开就没检索：`knowledge_answer` / `knowledge_query` 两个工具根本不存在于注册表，
 # 模型也看不到（工具 schema 按注册表装配）。

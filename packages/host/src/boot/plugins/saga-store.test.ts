@@ -7,7 +7,7 @@
  * - 未配 `dbPath` 时落到缺省文件名，而不是 `undefined` 让下游崩。
  */
 
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -16,7 +16,7 @@ import { SAGA_STORE, TARGET_REGISTRY } from '@bah/saga'
 import { describe, expect, it } from 'vitest'
 
 import { SESSION_FILES } from './persistence.ts'
-import { sagaStorePlugin } from './saga-store.ts'
+import { sagaStorePlugin, warnIfForeignSagaDb } from './saga-store.ts'
 import { DEFAULT_TENANT_ID, parseTenantId } from '@bah/util'
 
 describe('bank:saga-store 配置校验', () => {
@@ -107,6 +107,32 @@ describe('04 §1.1 · saga.sqlite 创建者标记', () => {
       const unmarked = warnings.join('\n')
       expect(unmarked).toContain('bank.saga-store-tenant-unmarked')
       expect(unmarked).toContain('"tenantId":"acme"')
+    } finally {
+      console.error = original
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  it('并发启动竞态：库未建但标记已被异租户写入 → tenant-race 告警且不覆盖所有权', () => {
+    const base = mkdtempSync(join(tmpdir(), 'bah-saga-marker-race-'))
+    const dbPath = join(base, 'saga.sqlite')
+    const marker = join(base, 'saga.tenant')
+    // 复现"输的一方"：标记已由 demo 落盘，但库还没创建
+    writeFileSync(marker, 'demo\n', 'utf8')
+    const warnings: string[] = []
+    const original = console.error
+    console.error = (...args: unknown[]) => {
+      warnings.push(args.map((arg) => String(arg)).join(' '))
+    }
+    try {
+      warnIfForeignSagaDb(dbPath, 'acme')
+      const out = warnings.join('\n')
+      expect(out).toContain('bank.saga-store-tenant-race')
+      expect(out).toContain('"tenantId":"acme"')
+      expect(out).toContain('"owner":"demo"')
+      // 独占创建失败后不得覆盖别人的所有权，也不得因此建出库文件
+      expect(readFileSync(marker, 'utf8').trim()).toBe('demo')
+      expect(existsSync(dbPath)).toBe(false)
     } finally {
       console.error = original
       rmSync(base, { recursive: true, force: true })

@@ -28,6 +28,24 @@ import type { AuthRuntime, RequestIdentity } from './auth/index.ts'
 /** 限流器实例类型（`createRateLimiter` 的返回，不另立接口）。 */
 export type RateLimiter = ReturnType<typeof createRateLimiter>
 
+/**
+ * 交易密码安全页端口（`@bah/bank` 的 `PasswordHandoffPort` 的结构化投影）。
+ *
+ * 为什么在本文件重复声明形状而不是 import：`handlers/` 只允许依赖 `deps.ts` 与叶子模块，
+ * 引入 `@bah/bank` 的具名类型会把"渠道层 → 银行包"的类型依赖钉进分层里（值依赖本来就有，
+ * 但类型面越窄越好）。两处形状由 `channel.ts` 的赋值处编译期对齐——写错即 `tsc` 红。
+ */
+export interface SecurePasswordPort {
+  submit(
+    sessionId: string,
+    req: {
+      readonly ticketId: string
+      readonly oldPassword: string
+      readonly newPassword: string
+    },
+  ): Promise<{ readonly changedAt: number }>
+}
+
 /** 处理一个请求需要的全部外部状态（构造于 `apply()`，生命周期 = 插件实例）。 */
 export interface WebDeps {
   /** 会话服务（读 `sessionId` / `lastSeq` / `events`）。 */
@@ -86,6 +104,14 @@ export interface WebDeps {
   readonly tryTelemetry: () => TelemetryHandle | undefined
   /** 惰性取 SLO 八项（没装 saga 时 `undefined`；`/api/metrics.slo` 显示 null）。 */
   readonly trySlo: () => Record<string, SloSample> | undefined
+  /**
+   * 惰性取交易密码安全页端口（ADR-0014）。
+   *
+   * 同样**不进** `inject`：没有 `bank:tools` 的 profile（headless / sdk）必须照常起，
+   * 那时 `POST /api/secure/password` 回 501「本部署没有装配交易密码能力」而不是 500。
+   * 类型用结构化接口（不用 `@bah/bank` 的具名类型）：渠道层不该为了一个方法把银行包拉进类型面。
+   */
+  readonly tryPassword: () => SecurePasswordPort | undefined
   /**
    * 人工接管状态机（C5）。状态落 `<root>/<sid>/handoff.json`；
    * 同 `--session` 重启恢复接管状态，但 boot 不重放历史会话（见 `handoff.ts`）。

@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "retrieval-golden.v1",
+  "note": "检索层判定题：证明「该选哪份文档」由谓词与产品归属决定，而不是由入库顺序决定。字段口径对齐 Bank RAG Benchmark 的「应命中文档」，但语料是本仓库演示库，不引用外部数据。",
+  "baseProps": {
+    "role": "retail",
+    "audience": "standard",
+    "channel": "headless",
+    "region": "CN-SH",
+    "full_scope": true,
+    "now": "2026-10-19T12:00:00+08:00"
+  },
+  "cases": [
+    {
+      "id": "R01-version-current-fee",
+      "kind": "版本更新",
+      "query": "稳盈90天持有不满7天赎回费率是多少？",
+      "expectDoc": "FEE-2025-v3",
+      "expectValue": "1.50%",
+      "forbidDocs": ["FEE-2024-v1"],
+      "note": "2024 版 status=superseded 且 valid_to=2024-12-31；新旧同题只能出新版，旧版 0.05% 不得出现在候选里"
+    },
+    {
+      "id": "R02-similar-faq-vs-fee",
+      "kind": "相似文档",
+      "query": "稳盈系列赎回流程是什么？",
+      "expectDoc": "FAQ-REDEEM",
+      "forbidDocs": ["FEE-2024-v1"],
+      "note": "「赎回」语义同时命中 FAQ / 费率表 / 说明书，流程题必须落到 FAQ"
+    },
+    {
+      "id": "R03-similar-variant-enhanced",
+      "kind": "相似文档",
+      "query": "稳盈90天增强版期限多久？",
+      "expectDoc": "PROD-W-003",
+      "expectValue": "180天",
+      "forbidDocs": ["PROD-W-001", "PROD-W-002"],
+      "note": "三份说明书都有 row_key=期限；未按产品归属扣分时曾错答 W-001 的 90 天"
+    },
+    {
+      "id": "R04-similar-variant-standard",
+      "kind": "相似文档",
+      "query": "稳盈90天风险等级是什么？",
+      "expectDoc": "PROD-W-001",
+      "expectValue": "R1",
+      "note": "未点名变体时默认标准版（R1），不取增强版/VIP 的 R2"
+    },
+    {
+      "id": "R05-audience-vip",
+      "kind": "客群隔离",
+      "query": "稳盈90天B起购金额是多少？",
+      "principal": { "audience": "vip" },
+      "expectDoc": "PROD-W-002",
+      "expectValue": "50000元",
+      "forbidDocs": ["PROD-W-001", "FEE-2025-v3"],
+      "note": "vip 主体问 VIP 产品，只能取 W-002；标准产品的 100 元不得借出"
+    },
+    {
+      "id": "R06-audience-deny",
+      "kind": "客群隔离",
+      "query": "稳盈90天B起购金额是多少？",
+      "expectEmpty": true,
+      "note": "标准主体问 VIP 产品必须拒答，不得退化成标准版的 100 元（这是串客群，比拒答严重）"
+    },
+    {
+      "id": "R07-channel-mobile",
+      "kind": "渠道隔离",
+      "query": "手机银行转账单笔限额是多少？",
+      "principal": { "channel": "mobile" },
+      "expectDoc": "RULE-TRANSFER-MOBILE",
+      "expectValue": "50000元",
+      "note": "mobile 渠道可见渠道规则"
+    },
+    {
+      "id": "R08-channel-deny",
+      "kind": "渠道隔离",
+      "query": "手机银行转账单笔限额是多少？",
+      "expectEmpty": true,
+      "note": "headless 渠道不可见移动端规则，必须空命中而不是借用其他限额"
+    }
+  ]
+}

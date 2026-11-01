@@ -147,6 +147,13 @@ function hasValue(
   value: string,
   values: ReadonlyMap<AssertionKind, ReadonlySet<string>>,
 ): boolean {
+  // 金额与余额共用一个钱值池。分类靠句子里的「余额/可用」字样，而表格回复的数据行
+  // （`| 定期 尾号 5678 | ¥50,000.00 | ¥0.00 |`）已经离表头，同一笔钱在回复里落
+  // `amount`、在工具出参里落 `balance`。核验的边界是「这个数字是否来自本 turn 的
+  // 权威出参」，不是字段名——分类只用于资金动作句的识别（那条走 actionValues）。
+  if (kind === 'amount' || kind === 'balance') {
+    return values.get('amount')?.has(value) === true || values.get('balance')?.has(value) === true
+  }
   const bucket = values.get(kind)
   if (bucket === undefined) return false
   // 日期允许回复省略年份：`10-26` 命中证据里的 `2026-10-26`。

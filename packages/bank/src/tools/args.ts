@@ -112,6 +112,20 @@ export function readOptionalPositiveInteger(
   return value
 }
 
+/** 读可选整数（**允许负数**：账期偏移 -1 = 上个月）。 */
+export function readOptionalInteger(
+  source: Readonly<Record<string, unknown>>,
+  key: string,
+  where: string,
+): number | undefined {
+  const value = source[key]
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw argsError(`${where}.${key} 必须是整数`, { key, where })
+  }
+  return value
+}
+
 /** 读枚举（大小写不敏感，返回小写）。 */
 export function readEnum<T extends string>(
   source: Readonly<Record<string, unknown>>,

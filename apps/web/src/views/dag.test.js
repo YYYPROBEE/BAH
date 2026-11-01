@@ -76,13 +76,29 @@ describe('DAG · 可访问性', () => {
       edges: [],
     })
     const text = svg.querySelector('[data-node-id="call:X"] text')
-    expect(text.textContent.length).toBeLessThanOrEqual(12)
+    expect(text.textContent.length).toBeLessThanOrEqual(20)
     expect(text.textContent).toContain('…')
   })
 
   it('没有节点也不崩（空图有 viewBox 与摘要）', () => {
     const svg = renderDag({ kind: 'dag', seq: 1, at: 1, turn: 1, nodes: [], edges: [], summary: '空' })
     expect(svg.getAttribute('viewBox')).toContain('0 0')
+  })
+
+  it('step 从上往下排、节点同列，图宽不超过侧栏（不再横向滚）', () => {
+    const svg = renderDag(dagFrame())
+    const rectOf = (id) => svg.querySelector(`[data-node-id="${id}"] rect`)
+    const xOf = (id) => Number(rectOf(id).getAttribute('x'))
+    const yOf = (id) => Number(rectOf(id).getAttribute('y'))
+
+    expect(xOf('step:1:1')).toBe(xOf('call:A'))
+    expect(xOf('call:A')).toBe(xOf('call:C'))
+    expect(yOf('step:1:1')).toBeLessThan(yOf('call:A'))
+    expect(yOf('call:A')).toBeLessThan(yOf('call:B'))
+    expect(yOf('call:B')).toBeLessThan(yOf('step:1:2'))
+    expect(yOf('step:1:2')).toBeLessThan(yOf('call:C'))
+    // 400px 侧栏 - 32px 内边距：图必须放得下，不产生横向滚动条
+    expect(Number(svg.getAttribute('width'))).toBeLessThanOrEqual(368)
   })
 
   it('按自然尺寸渲染（width/height 属性 = viewBox），不交给 CSS 等比缩放', () => {

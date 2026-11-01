@@ -151,6 +151,26 @@ describe('transfer_create（票据桥接）', () => {
     expect((await h.core.listCards(bankIds.user('u-1')))[0]?.status).toBe('normal')
   })
 
+  it('月限额：preview 与 create 对同一笔给出同一结论（边界通过 / +1 分拒绝）', async () => {
+    const h = createBankHarness()
+    // 虚拟卡 c-2 月限 8,000 元：本笔正好花满
+    const full = { amount: 8_000, payee: { name: '王建国', phone: '13900002222' }, viaCardId: 'c-2' }
+    const boundary = (await h.call('transfer_preview', full)) as TransferPreviewResult
+    expect(boundary.risks.some((risk) => risk.code === 'card-monthly-limit-exceeded')).toBe(false)
+    approveTicket(h, 'c-monthly-ok', full, 800_000)
+    await h.call('transfer_create', full, 'c-monthly-ok')
+
+    const over = { ...full, amount: 0.01 }
+    const preview = (await h.call('transfer_preview', over)) as TransferPreviewResult
+    expect(preview.verdict).toBe('block')
+    expect(preview.risks).toContainEqual(
+      expect.objectContaining({ severity: 'block', code: 'card-monthly-limit-exceeded' }),
+    )
+    approveTicket(h, 'c-monthly-over', over, 1)
+    const error = await captureRejection(() => h.call('transfer_create', over, 'c-monthly-over'))
+    expect(error.code).toBe('card-monthly-limit-exceeded')
+  })
+
   it('审批后改金额：票据绑定不一致，拒绝执行且不扣款', async () => {
     const h = createBankHarness()
     approveTicket(h, 'c-tamper', ARGS, 80_000)

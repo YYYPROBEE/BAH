@@ -312,7 +312,7 @@ describe('core:model 装配面：router 与自定义 deepseek 模型表', () => 
       if (chunk.kind === 'text-delta') pieces.push(chunk.text)
     }
     expect(pieces[0]).toHaveLength(5)
-    expect(pieces.join('')).toContain('我现在只会三件事')
+    expect(pieces.join('')).toContain('我现在能办')
 
     // ② 条件收尾步：会话里还没有 transfer_create 的结局 → 必须拒绝出话（mock-outcome-absent），
     //    而不是编一句"已完成"——这同时证明 toolOutcomes 读口真的被注入且每次现读。

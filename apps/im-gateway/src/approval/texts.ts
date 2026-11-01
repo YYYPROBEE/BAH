@@ -5,7 +5,7 @@
  * "已批准"的口径会分叉。文案里不出现 errcode、子进程地址、端口。
  */
 
-import { APPROVAL_LINK_MAX_TTL_MS, signApprovalLink, type ApprovalClosedFrame } from '@bah/channels'
+import { APPROVAL_LINK_MAX_TTL_MS, signApprovalLink, type ApprovalClosedFrame, type ApprovalDetail } from '@bah/channels'
 
 import type { PendingTicket } from './pending.ts'
 
@@ -46,6 +46,27 @@ export const QUEUED_FOR_OPERATOR_TEXT = '已记录，等坐席查看'
 /** 审批提示的回复行。 */
 const REPLY_HINT = '回复：1 批准一次 / 2 拒绝（附理由） / 3 查看详情'
 
+/** 明细在文本消息里的最多行数（超过就折叠）。 */
+export const DETAIL_LINES_MAX = 6
+
+/**
+ * 明细行（「标签：值」逐行）。
+ *
+ * 超过 6 行折成 5 行 + 一句「等 N 项，详情见审批页」：公众号是聊天流，
+ * 一条 15 行的审批消息会把人逼成"不看就点批准"，那比不给明细更糟。
+ * 值里的换行已在服务端折平（`approval-details.ts` / `project.ts` 各有一道），
+ * 这里再挡一次：一条值绝不能占两行，否则"行数"就失去意义。
+ */
+export function detailLinesOf(details: readonly ApprovalDetail[] | undefined): string[] {
+  if (details === undefined || details.length === 0) return []
+  const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim()
+  const rows = details
+    .filter((item) => oneLine(item.label).length > 0 && oneLine(item.value).length > 0)
+    .map((item) => `${oneLine(item.label)}：${oneLine(item.value)}`)
+  if (rows.length <= DETAIL_LINES_MAX) return rows
+  return [...rows.slice(0, DETAIL_LINES_MAX - 1), `等 ${String(rows.length)} 项，详情见审批页`]
+}
+
 /** 链接过期时刻：票据 TTL 与 5 分钟取小（票据没给 TTL 就按 5 分钟）。 */
 export function linkExpiryOf(ticket: PendingTicket, nowMs: number): number {
   return Math.min(ticket.expiresAt ?? nowMs + APPROVAL_LINK_MAX_TTL_MS, nowMs + APPROVAL_LINK_MAX_TTL_MS)
@@ -83,7 +104,7 @@ export function composeApprovalMessage(
     readonly nowMs: number
   },
 ): string {
-  const lines = [ticket.summary]
+  const lines = [ticket.summary, ...detailLinesOf(ticket.details)]
   lines.push('────')
   if (ticket.expiresAt === undefined) {
     lines.push(`票据 ${ticket.ticketId}`)
@@ -123,7 +144,8 @@ export function composeDetailMessage(
     options.publicBaseUrl,
     options.nowMs,
   )
-  return link === undefined ? ticket.summary : `${ticket.summary}\nH5：${link}`
+  const body = [ticket.summary, ...detailLinesOf(ticket.details)].join('\n')
+  return link === undefined ? body : `${body}\nH5：${link}`
 }
 
 /** 审批收尾文本（`unavailable` 也是拒绝，不写成"已批准"）。 */

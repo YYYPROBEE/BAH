@@ -378,6 +378,20 @@ describe('降级', () => {
     expect(resolution.view).toBeUndefined()
   })
 
+  it('即将扣款读失败 → 整体降级，不把"读不到"冒充成"没有即将扣款"', async () => {
+    const { source, calls } = harness({
+      overrides: {
+        upcomingCharges: async () => {
+          throw new Error('订阅服务不可用')
+        },
+      },
+    })
+    const resolution = await source.resolve(invocation())
+    expect(resolution).toEqual({ status: 'degraded', code: 'slots-unavailable' })
+    expect(resolution.view).toBeUndefined()
+    expect(calls.upcomingCharges).toBe(1)
+  })
+
   it('已 abort 的 signal → slots-aborted，核心 0 调用、不取钟', async () => {
     const { source, calls } = harness()
     const controller = new AbortController()

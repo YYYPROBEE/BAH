@@ -3,7 +3,7 @@
  * + 坐席入口（人机接管 02 · B1）。
  *
  * 这里不启服务：直接调 `handleStatic` 并检查响应头 / 响应体，速度更快也更容易造
- * "白名单外的 HTML"。
+ * "白名单外的 HTML"。**真实 curl 矩阵**另存 `docs/evidence/.../01-static-matrix.txt`。
  *
  * 坐席入口的三条安全性质：
  * 1. `seatEnabled=false`（未配 `BAH_OPERATOR_TOKEN` 或不是 web 渠道）⇒ `/operator` 与
@@ -70,7 +70,7 @@ const COMMENT_HTML =
 
 let root = ''
 
-/** 静态根：五个 HTML（index 在默认白名单，m/other/operator/comment 不在）。 */
+/** 静态根：六个 HTML（index/password 由用例按需放进白名单，m/other/operator/comment 不在）。 */
 function makeRoot(): string {
   const dir = mkdtempSync(join(tmpdir(), 'bah-static-'))
   writeFileSync(join(dir, 'index.html'), HTML)
@@ -78,6 +78,7 @@ function makeRoot(): string {
   writeFileSync(join(dir, 'other.html'), HTML)
   writeFileSync(join(dir, 'operator.html'), SEAT_HTML)
   writeFileSync(join(dir, 'comment.html'), COMMENT_HTML)
+  writeFileSync(join(dir, 'password.html'), HTML)
   writeFileSync(join(dir, 'package.json'), '{"name":"leak"}')
   return dir
 }
@@ -145,6 +146,33 @@ describe('静态入口：`/` 落点由 entry 决定（TC-MCH-12）', () => {
     expect(probe.status).toBe(200)
     expect(realTokenMeta(probe.body)).toBe(WEB_TOKEN)
     expect(probe.body).not.toContain('<!--')
+  })
+})
+
+describe('交接页别名：`/secure/password` 必须打开 password.html（01 复审 P0-1）', () => {
+  it('别名 200，且与 /password.html 同内容、同 token / CSRF 注入', async () => {
+    const tokenEntries = [join(root, 'password.html')]
+    const alias = await call(depsOf({ tokenEntries }), '/secure/password')
+    const direct = await call(depsOf({ tokenEntries }), '/password.html')
+    expect(alias.status).toBe(200)
+    expect(alias.headers['content-type']).toContain('text/html')
+    expect(alias.body).toBe(direct.body)
+    expect(realTokenMeta(alias.body)).toBe(WEB_TOKEN)
+    expect(alias.headers['set-cookie']).toContain('bah_csrf=')
+  })
+
+  it('password 模式别名页：无 token、有 mode meta + CSRF cookie（提交得出去）', async () => {
+    const probe = await call(
+      depsOf({
+        auth: { mode: 'password' } as WebDeps['auth'],
+        tokenEntries: [join(root, 'password.html')],
+      }),
+      '/secure/password',
+    )
+    expect(probe.status).toBe(200)
+    expect(probe.body).not.toContain('bah-web-token')
+    expect(probe.body).toContain('<meta name="bah-auth-mode" content="password"')
+    expect(probe.headers['set-cookie']).toContain('bah_csrf=')
   })
 })
 

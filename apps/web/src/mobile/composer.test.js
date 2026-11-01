@@ -232,3 +232,43 @@ describe('输入区', () => {
     expect(input().getAttribute('aria-label')).toBe('输入消息')
   })
 })
+
+describe('输入区 · 失败重试', () => {
+  let host
+  let submit
+  let composer
+
+  beforeEach(() => {
+    host = document.createElement('div')
+    document.body.append(host)
+    submit = vi.fn(async () => ({ ok: false, code: 'network-error', message: '网络不可达' }))
+    composer = createComposer(host, { submit, interrupt: vi.fn(async () => ({ ok: true })), imeDeps: { storage: undefined } })
+  })
+
+  afterEach(() => {
+    composer.dispose()
+    host.remove()
+  })
+
+  it('失败保留原话并出现重试钮；点重试原样再发同一条', async () => {
+    const input = host.querySelector('[data-role="composer-input"]')
+    input.value = '给王建国转 800 元'
+    host.querySelector('[data-role="send"]').click()
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+
+    const retry = host.querySelector('[data-role="composer-retry"]')
+    expect(host.querySelector('[data-role="composer-error"]').hidden).toBe(false)
+    expect(host.querySelector('[data-role="composer-error"]').textContent).toContain('网络不可达')
+    expect(retry.hidden).toBe(false)
+    expect(input.value).toBe('给王建国转 800 元')
+
+    submit.mockResolvedValueOnce({ ok: true, code: 'ok', message: '' })
+    retry.click()
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+
+    expect(submit).toHaveBeenCalledTimes(2)
+    expect(submit).toHaveBeenLastCalledWith('给王建国转 800 元')
+    expect(input.value).toBe('')
+    expect(host.querySelector('[data-role="composer-error"]').hidden).toBe(true)
+  })
+})

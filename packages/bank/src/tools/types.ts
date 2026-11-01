@@ -34,6 +34,14 @@ export interface BankToolsConfig {
   readonly riskyOps: readonly string[]
   /** 同一 turn 内允许的风险调用次数；超过后非绿调用一律 `ask`。 */
   readonly riskyCallThreshold: number
+  /**
+   * 风险测评重测冷却（**天**；R-2）。
+   *
+   * 保守缺省 1 天：一次落档后，同一用户在冷却窗口内再提交会被核心拒
+   * （`risk-retest-cooldown`），且不消耗新卷。演示可配 0 关闭。
+   * 冷却判定在核心（`RiskQuestionnaireBook`），本配置只是把毫秒数交给装配方。
+   */
+  readonly riskCooldownDays: number
 }
 
 /** 身份解析接缝：09 落地为会话绑定；08 的 headless 由 profile 显式配置演示用户。 */

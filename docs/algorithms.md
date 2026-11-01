@@ -1,6 +1,6 @@
 # 核心算法：权限分级、失败传播、检索与拒答
 
-> 三条算法各配**一条可执行命令与本次真实输出**（不是手写示意）。
+> W19 交付件之二。三条算法各配**一条可执行命令与本次真实输出**（不是手写示意）。
 > 事实口径见本文 §0 的表（与 [architecture.md](architecture.md)、[security-design.md](security-design.md) 共用同一块）。
 > 机制细节不在此重复：工具管线看 `docs/pipeline.md`，编排看 `docs/plan.md`，
 > 防护看 `docs/sentry.md`，知识看 `docs/knowledge.md`。
@@ -13,8 +13,8 @@
 | plan 节点态 | **9 态**（pending、ready、running、succeeded、failed、skipped、blocked、cancelled、incident） | packages/runtime/src/plan/types.ts 的 `PLAN_NODE_STATES` |
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
-| 工具数 | **21 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表条目（项） | **31** | `HOST_PLUGINS` 计数 |
+| 工具数 | **30 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
+| 注册表条目（项） | **32** | `HOST_PLUGINS` 计数 |
 | 门禁（项） | **54** | `scripts/verify-*.ts` 计数 |
 | 覆盖率 | **89.87%（行口径，49571/55161 行，实测 2026-10-30）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
@@ -34,13 +34,17 @@
 
 ## 2. ① 权限分级三级判定（`tier` + 票据 + lease）
 
-### 2.1 三级的定义与分布（21 个工具）
+### 2.1 三级的定义与分布（30 个工具）
 
 | 级别 | 数量 | 判定后果 | 工具 |
 |---|---|---|---|
-| `green` | 13 | 直接执行，**永不**因风险分/熔断被误伤 | `account_list`、`account_balance`、`txn_query`、`bill_analyze`、`bill_report`、`analysis_calc`、`transfer_preview`、`wealth_list`、`wealth_compare`、`verify_face`、`verify_sms`、`verify_ushield`、`sub_list` |
-| `yellow` | 4 | 必须审批（一次性票据），金额由 `amountPath` 绑定 | `transfer_create`、`sub_cancel`、`sub_watch`、`sub_authorize` |
-| `red` | 2 | 审批 **+ 强验证挑战**（人脸/短信/U 盾） | `wealth_purchase`、`card_report_lost` |
+| `green` | 14 | 直接执行，**永不**因风险分/熔断被误伤 | `account_list`、`account_balance`、`txn_query`、`bill_analyze`、`bill_report`、`analysis_calc`、`transfer_preview`、`wealth_list`、`wealth_compare`、`wealth_positions`、`verify_face`、`verify_sms`、`verify_ushield`、`sub_list` |
+| `yellow` | 10 | 必须审批（一次性票据），金额由 `amountPath` 绑定 | `transfer_create`、`aa_create`、`risk_assess`、`fund_lock`、`sub_cancel`、`sub_watch`、`sub_authorize`、`card_freeze`、`card_apply`、`card_restriction` |
+| `red` | 6 | 审批 **+ 强验证挑战**（人脸/短信/U 盾） | `wealth_purchase`、`wealth_redeem`、`card_report_lost`、`card_unfreeze`、`card_limit_set`、`password_change` |
+
+> 分布以 `packages/bank/src/tools/specs.ts` 的 `tier.level` 为准（`verify-tiers` 逐条校验）；
+> `fund_lock` / `risk_assess` / `password_change` 的 `status` 分支另在 `READ_ONLY_ACTIONS`
+> 登记为只读动作——**动作级**豁免不改工具级声明。
 
 `tier` 声明写在工具 spec 里（packages/bank/src/tools/specs.ts），**不在 `execute()` 里**——
 `verify-tiers` 门禁会扫，写进实现里就红。
@@ -216,7 +220,7 @@ npx vitest run packages/safety/src/verify
 
 端到端的检索能力另有两处证据（不在这条命令里）：评测平面 **K 族 10/10**
 （`.ci-artifacts/eval/summary.md`），对抗集幻觉族 **12/15**（3 条未拦，见
-[security-design.md](security-design.md) §4 的已知边界——不藏）。
+[security-design.md](security-design.md) §4 的未实现清单——不藏）。
 
 ## 5. 三条算法的共同边界（讲清楚比讲漂亮重要）
 

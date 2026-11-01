@@ -241,10 +241,7 @@ const ITEMS = [
       const sha = createHash('sha256').update(bytes).digest('hex')
       const record = read('docs/evidence/2026-10-30-desktop/desktop-sha256.txt')
       const recorded = /sha256=([0-9a-f]{64})/.exec(record)?.[1]
-      if (recorded === undefined) {
-        if (record === '') return [null, '证据原件已撤出仓库（desktop-sha256.txt 不在树里）—— 跳过 sha256 比对']
-        return bad('证据文件里没有 sha256')
-      }
+      if (recorded === undefined) return bad('证据文件里没有 sha256')
       if (recorded !== sha) return bad(`记录 ${recorded.slice(0, 12)}… ≠ 实际 ${sha.slice(0, 12)}…（重新打包后要更新记录）`)
       return ok(`${String(Math.round(bytes.byteLength / 1024 / 1024))} MB，sha256 一致 ${sha.slice(0, 12)}…`)
     },

@@ -53,7 +53,7 @@ export function clear(node) {
  * 规格来自自研 BAH DS 图标规范：默认 16×16、密集控件 14×14、大图标 24×24；
  * 纯装饰图标带 `aria-hidden`，语义由相邻文本承担。
  *
- * @param {'send'|'stop'|'close'|'check'|'error'|'clock'|'branch'|'ai'|'agent'|'doc'|'refresh'|'user'|'search'|'up'} name
+ * @param {'send'|'stop'|'close'|'check'|'error'|'clock'|'doc'|'refresh'|'user'|'search'|'up'|'bank'|'message'|'right'|'back'|'person'|'login'|'logout'} name
  * @param {14|16|24} [size]
  */
 export function icon(name, size = 16) {

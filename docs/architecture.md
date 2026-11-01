@@ -1,6 +1,6 @@
 # 架构：注册表、装配与数据流
 
-> **本文的图与事实表由脚本生成**（`scripts/gen-architecture.ts`），
+> W19 交付件之一。**本文的图与事实表由脚本生成**（`scripts/gen-architecture.ts`），
 > 块外文字手写；生成块过期会让门禁 `verify-architecture` 直接红。
 > 配套两份：[algorithms.md](algorithms.md)（三条核心算法）、[security-design.md](security-design.md)（威胁模型与缺口）。
 >
@@ -29,8 +29,17 @@
 
 `enabled: false` 的区别是真金白银的：`bank:saga-bridge` 关掉时，它的 tick 定时器、补偿依赖
 全都不接管，但插件实例仍在（`ctx.get` 得到的是"什么都不做"的实现）。把它画成"没装"，
-答辩时被问"那 plan 里的转账谁补偿"就会答错——正确答案是**没有补偿，只有前向执行**，
-要补偿得让 plan 去编排一整笔 saga。
+答辩时被问"那 plan 里的转账谁补偿"就会答错——正确答案是**plan 本身没有整图补偿，只有前向执行**，
+要整图补偿得让 plan 去编排一整笔 saga。
+
+**第三种形态：tick-only**（`enabled: true, eligible: []`）。`web` / `mobile` / `web-plan`
+用这一形态：桥接不接管任何工具（`transfer_create` 不会被双层展开），但 `saga/tick` 的
+定时器仍在，AA 到期、订阅与生日提醒在常驻进程里有派发源。它和"生效"的区别只在
+`eligible`，和"关闭"的区别只在 tick 是否运行——答辩时不要把它说成"关了"。
+
+**唯一的例外是生日计划（ADR-0013）**：`birthday_plan` 的商户腿在"银行腿已扣款、商户 commit 失败"
+时会调用 `bank:compensation` 冲正**那一条腿**的银行流水，entry 记 `compensation.kind='reversed'`。
+这是逐腿对冲，不是分布式事务；部分成功仍是合法终态。
 
 ## 2. 事实表（三份文档共用同一块）
 
@@ -43,8 +52,8 @@
 | plan 节点态 | **9 态**（pending、ready、running、succeeded、failed、skipped、blocked、cancelled、incident） | packages/runtime/src/plan/types.ts 的 `PLAN_NODE_STATES` |
 | saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
-| 工具数 | **21 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
-| 注册表条目（项） | **31** | `HOST_PLUGINS` 计数 |
+| 工具数 | **30 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
+| 注册表条目（项） | **32** | `HOST_PLUGINS` 计数 |
 | 门禁（项） | **54** | `scripts/verify-*.ts` 计数 |
 | 覆盖率 | **89.87%（行口径，49571/55161 行，实测 2026-10-30）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
@@ -68,7 +77,7 @@
 | ⑥ 编排原语（plan） | `plan:dag`、`plan:scheduler` | 2 |
 | ⑦ 渠道（channel） | `channel:web`、`channel:mobile`、`channel:desktop`、`channel:im` | 4 |
 | ⑧ 演示件（demo） | `demo:echo` | 1 |
-| **合计** | — | **31** |
+| **合计** | — | **32** |
 <!-- END GENERATED:layers -->
 
 ### 3.1 依赖图（谁向谁要服务）
@@ -100,13 +109,14 @@ graph LR
   p21["plan:scheduler"]
   p22["fact:store"]
   p23["bank:merchant"]
-  p24["bah:memory-store"]
-  p25["intent:plane"]
-  p26["prompt:ask"]
-  p27["channel:web"]
-  p28["channel:mobile"]
-  p29["channel:desktop"]
-  p30["channel:im"]
+  p24["proactive:reminder"]
+  p25["bah:memory-store"]
+  p26["intent:plane"]
+  p27["prompt:ask"]
+  p28["channel:web"]
+  p29["channel:mobile"]
+  p30["channel:desktop"]
+  p31["channel:im"]
   p0 --> host["宿主运行时 boot()"]
   p1 --> host["宿主运行时 boot()"]
   p1 --> p0
@@ -137,12 +147,10 @@ graph LR
   p23 --> host["宿主运行时 boot()"]
   p24 --> host["宿主运行时 boot()"]
   p24 --> p0
-  p24 --> p3
-  p24 --> p6
-  p27 --> host["宿主运行时 boot()"]
-  p27 --> p0
-  p27 --> p12
-  p27 --> p5
+  p25 --> host["宿主运行时 boot()"]
+  p25 --> p0
+  p25 --> p3
+  p25 --> p6
   p28 --> host["宿主运行时 boot()"]
   p28 --> p0
   p28 --> p12
@@ -154,8 +162,12 @@ graph LR
   p30 --> host["宿主运行时 boot()"]
   p30 --> p0
   p30 --> p12
-  p30 --> p3
   p30 --> p5
+  p31 --> host["宿主运行时 boot()"]
+  p31 --> p0
+  p31 --> p12
+  p31 --> p3
+  p31 --> p5
   p5 --> host["宿主运行时 boot()"]
   p5 --> p0
   p5 --> p4
@@ -204,6 +216,7 @@ graph LR
 | plan:scheduler | `bah:run` | 宿主运行时 boot() |
 | fact:store | `bah:run`、`runtime:session` | 宿主运行时 boot()、`core:session` |
 | bank:merchant | `bah:run` | 宿主运行时 boot() |
+| proactive:reminder | `bah:run`、`runtime:session` | 宿主运行时 boot()、`core:session` |
 | bah:memory-store | `bah:run`、`runtime:session`、`runtime:system-prompt`、`bah:session-files` | 宿主运行时 boot()、`core:session`、`core:prompt`、`core:persistence` |
 | intent:plane | —（无依赖） | — |
 | prompt:ask | —（无依赖） | — |
@@ -229,10 +242,11 @@ graph TB
     p21_headless["plan:scheduler（未装配）"]
     p22_headless["fact:store（未装配）"]
     p23_headless["bank:merchant（未装配）"]
-    p24_headless["bah:memory-store（未装配）"]
-    p27_headless["channel:web（未装配）"]
-    p28_headless["channel:mobile（未装配）"]
-    p30_headless["channel:im（未装配）"]
+    p24_headless["proactive:reminder（未装配）"]
+    p25_headless["bah:memory-store（未装配）"]
+    p28_headless["channel:web（未装配）"]
+    p29_headless["channel:mobile（未装配）"]
+    p31_headless["channel:im（未装配）"]
   end
   subgraph P_plan["profiles/plan"]
     p8_plan["demo:echo（未装配）"]
@@ -242,49 +256,53 @@ graph TB
     p21_plan["plan:scheduler"]
     p22_plan["fact:store"]
     p23_plan["bank:merchant"]
-    p24_plan["bah:memory-store（未装配）"]
-    p27_plan["channel:web（未装配）"]
-    p28_plan["channel:mobile（未装配）"]
-    p30_plan["channel:im（未装配）"]
+    p24_plan["proactive:reminder"]
+    p25_plan["bah:memory-store（未装配）"]
+    p28_plan["channel:web（未装配）"]
+    p29_plan["channel:mobile（未装配）"]
+    p31_plan["channel:im（未装配）"]
   end
   subgraph P_web["profiles/web"]
     p8_web["demo:echo"]
     p11_web["bank:knowledge"]
     p19_web["bank:saga-bridge"]
-    p20_web["plan:dag（未装配）"]
-    p21_web["plan:scheduler（未装配）"]
-    p22_web["fact:store（未装配）"]
-    p23_web["bank:merchant（未装配）"]
-    p24_web["bah:memory-store"]
-    p27_web["channel:web"]
-    p28_web["channel:mobile（未装配）"]
-    p30_web["channel:im（未装配）"]
+    p20_web["plan:dag"]
+    p21_web["plan:scheduler"]
+    p22_web["fact:store"]
+    p23_web["bank:merchant"]
+    p24_web["proactive:reminder"]
+    p25_web["bah:memory-store"]
+    p28_web["channel:web"]
+    p29_web["channel:mobile（未装配）"]
+    p31_web["channel:im（未装配）"]
   end
   subgraph P_web-plan["profiles/web-plan"]
     p8_web-plan["demo:echo"]
     p11_web-plan["bank:knowledge"]
-    p19_web-plan["bank:saga-bridge（enabled: false）"]
+    p19_web-plan["bank:saga-bridge"]
     p20_web-plan["plan:dag"]
     p21_web-plan["plan:scheduler"]
     p22_web-plan["fact:store"]
     p23_web-plan["bank:merchant"]
-    p24_web-plan["bah:memory-store（未装配）"]
-    p27_web-plan["channel:web"]
-    p28_web-plan["channel:mobile（未装配）"]
-    p30_web-plan["channel:im（未装配）"]
+    p24_web-plan["proactive:reminder"]
+    p25_web-plan["bah:memory-store（未装配）"]
+    p28_web-plan["channel:web"]
+    p29_web-plan["channel:mobile（未装配）"]
+    p31_web-plan["channel:im（未装配）"]
   end
   subgraph P_mobile["profiles/mobile"]
     p8_mobile["demo:echo"]
     p11_mobile["bank:knowledge"]
-    p19_mobile["bank:saga-bridge（enabled: false）"]
+    p19_mobile["bank:saga-bridge"]
     p20_mobile["plan:dag"]
     p21_mobile["plan:scheduler"]
     p22_mobile["fact:store"]
     p23_mobile["bank:merchant"]
-    p24_mobile["bah:memory-store"]
-    p27_mobile["channel:web（未装配）"]
-    p28_mobile["channel:mobile"]
-    p30_mobile["channel:im（未装配）"]
+    p24_mobile["proactive:reminder"]
+    p25_mobile["bah:memory-store"]
+    p28_mobile["channel:web（未装配）"]
+    p29_mobile["channel:mobile"]
+    p31_mobile["channel:im（未装配）"]
   end
   subgraph P_im["profiles/im"]
     p8_im["demo:echo"]
@@ -294,15 +312,16 @@ graph TB
     p21_im["plan:scheduler（未装配）"]
     p22_im["fact:store（未装配）"]
     p23_im["bank:merchant（未装配）"]
-    p24_im["bah:memory-store"]
-    p27_im["channel:web（未装配）"]
-    p28_im["channel:mobile（未装配）"]
-    p30_im["channel:im"]
+    p24_im["proactive:reminder（未装配）"]
+    p25_im["bah:memory-store"]
+    p28_im["channel:web（未装配）"]
+    p29_im["channel:mobile（未装配）"]
+    p31_im["channel:im"]
   end
   classDef ghost stroke-dasharray: 5 5,stroke:#9aa4b2,color:#9aa4b2
   classDef off stroke-dasharray: 3 3,stroke:#c9822f,color:#c9822f
-  class p11_headless,p20_headless,p21_headless,p22_headless,p23_headless,p24_headless,p27_headless,p28_headless,p30_headless,p8_plan,p11_plan,p24_plan,p27_plan,p28_plan,p30_plan,p20_web,p21_web,p22_web,p23_web,p28_web,p30_web,p24_web-plan,p28_web-plan,p30_web-plan,p27_mobile,p30_mobile,p20_im,p21_im,p22_im,p23_im,p27_im,p28_im ghost
-  class p19_plan,p19_web-plan,p19_mobile off
+  class p11_headless,p20_headless,p21_headless,p22_headless,p23_headless,p24_headless,p25_headless,p28_headless,p29_headless,p31_headless,p8_plan,p11_plan,p25_plan,p28_plan,p29_plan,p31_plan,p29_web,p31_web,p25_web-plan,p29_web-plan,p31_web-plan,p28_mobile,p31_mobile,p20_im,p21_im,p22_im,p23_im,p24_im,p28_im,p29_im ghost
+  class p19_plan off
 ```
 <!-- END GENERATED:assembly -->
 
@@ -335,11 +354,12 @@ graph TB
 | bank:saga-store | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | bank:saga | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | bank:saga-audit | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
-| bank:saga-bridge | ● 生效 | ○ 关闭 | ● 生效 | ○ 关闭 | ○ 关闭 | ● 生效 |
-| plan:dag | · 未装配 | ● 生效 | · 未装配 | ● 生效 | ● 生效 | · 未装配 |
-| plan:scheduler | · 未装配 | ● 生效 | · 未装配 | ● 生效 | ● 生效 | · 未装配 |
-| fact:store | · 未装配 | ● 生效 | · 未装配 | ● 生效 | ● 生效 | · 未装配 |
-| bank:merchant | · 未装配 | ● 生效 | · 未装配 | ● 生效 | ● 生效 | · 未装配 |
+| bank:saga-bridge | ● 生效 | ○ 关闭 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| plan:dag | · 未装配 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | · 未装配 |
+| plan:scheduler | · 未装配 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | · 未装配 |
+| fact:store | · 未装配 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | · 未装配 |
+| bank:merchant | · 未装配 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | · 未装配 |
+| proactive:reminder | · 未装配 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | · 未装配 |
 | bah:memory-store | · 未装配 | · 未装配 | ● 生效 | · 未装配 | ● 生效 | ● 生效 |
 | intent:plane | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
 | prompt:ask | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
@@ -354,9 +374,9 @@ graph TB
 | 差异 | 为什么 |
 |---|---|
 | `channel:web` 只在 web / web-plan | 渠道是入口，headless/plan 不需要 HTTP 端口；装上会白占端口并让 `main.smoke` 撞端口 |
-| `plan:dag` 在 plan 与 web-plan | 默认 web **不装** plan——不让主演示路径的模型自己画 DAG；要演示"模型可见的规划 + DAG 节点图"用 `web-plan`（B1/B2）：`modelTools: true` 显式打开，且 saga-bridge 显式关闭 |
+| `plan:dag` 在 plan 与 web-plan | 默认 web **不装** plan——不让主演示路径的模型自己画 DAG；要演示"模型可见的规划 + DAG 节点图"用 `web-plan`（B1/B2）：`modelTools: true` 显式打开，且 saga-bridge 只保留 tick（`eligible: []`） |
 | `bank:knowledge` 只在 web / web-plan | 它要 `mode: http` 连 RAG sidecar；headless/plan 不联网、零依赖是硬约束 |
-| `bank:saga-bridge` 在 plan / web-plan 关闭 | 否则 `transfer_create` 被再展开成一笔 saga，一条 `plan/node-result` 会对上两条 `tool/call`，plan 的计数断言全部失真 |
+| `bank:saga-bridge` 在 plan 关闭、在 web/mobile/web-plan 为 tick-only | 接管工具会让 `transfer_create` 被再展开成一笔 saga，一条 `plan/node-result` 会对上两条 `tool/call`，plan 的计数断言全部失真；常驻 profile 又需要 `saga/tick` 驱动 AA 到期与主动提醒，所以只关接管、不关时钟 |
 | `interaction:approval.responder` | headless/plan 用自动应答者（无人值守），web/web-plan 用 `none` + 真人点——**默认结论都是拒绝**，绝不默认放行 |
 | `bah:memory-store` 只在 web | 记忆会改变模型输入，不做静默开启；由 web profile 显式写（单租户 demo，诚实边界见插件注释） |
 

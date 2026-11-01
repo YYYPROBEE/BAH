@@ -26,6 +26,14 @@ export interface BankToolSpec {
   readonly tier: ToolTier
   /** 该工具成功执行时落账的领域事件。 */
   readonly event: BankSessionEventType
+  /**
+   * 只读分支额外落的领域事件（可选）。
+   *
+   * 动作式工具（`action=…`）会有两条路径，只有一条是写：`risk_assess` 的 `questions`
+   * 分支只下发问卷却会更新「用户看到了什么」，必须落账；但把它塞进 `event` 会让目录
+   * 把「取问卷」误写成「改等级」。这里**显式**写出来，目录与门禁一起核对。
+   */
+  readonly readEvent?: BankSessionEventType
   /** 批次（08 只做 P0）。 */
   readonly batch: 'P0'
   /** 场景分组（目录展示用）。 */
@@ -115,7 +123,7 @@ export const BANK_TOOL_SPECS = [
   {
     name: 'bill_analyze',
     description:
-      '按月度/季度/年度汇总收支、分类占比、环比与异常（大额 / 夜间 / 重复扣费）。用户问“这个月钱花哪了/帮我分析账单”时用；不要用它列单笔明细（用 txn_query）。',
+      '按月度/季度/年度汇总收支、分类占比、环比与异常（大额 / 夜间 / 重复扣费）。用户问“这个月钱花哪了/帮我分析账单”时用；要看历史某个月或某个自然年时用 month / year 指定；不要用它列单笔明细（用 txn_query）。',
     schema: {
       type: 'object',
       properties: {
@@ -127,6 +135,26 @@ export const BANK_TOOL_SPECS = [
           type: 'string',
           description:
             '汇总维度：category（账务分类，缺省）/ payee（收款人）/ merchant（商户品类：餐饮/咖啡/通勤等）',
+        },
+        month: {
+          type: 'string',
+          description:
+            '指定历史月份（YYYY-MM，如 2026-09）。用户说“上个月/9 月的账单”时用；给定时按 month 口径算那个月。与 year 互斥。',
+        },
+        year: {
+          type: 'string',
+          description:
+            '指定自然年（YYYY，如 2025）。用户说“2025 年花了多少”时用；给定时按 year 口径算该年 12 个账期。与 month 互斥。',
+        },
+        monthOffset: {
+          type: 'integer',
+          description:
+            '相对当前月的偏移（0 = 本月，-1 = 上个月，-3 = 三个月前）。脚本/无法换算日期时用；与 month / year 互斥。',
+        },
+        monthOfYear: {
+          type: 'integer',
+          description:
+            '只给月份（1–12）：如“9 月的账单”。年份由系统按“不晚于当前月”补齐；与 month / year 互斥。',
         },
       },
       required: ['period'],
@@ -148,6 +176,25 @@ export const BANK_TOOL_SPECS = [
           description: '统计口径：month（本月）/ quarter（近三个月）/ year（近十二个月）',
         },
         format: { type: 'string', description: '报告形态：summary（摘要，缺省）/ detail（含异常与收款人明细）' },
+        month: {
+          type: 'string',
+          description:
+            '指定历史月份（YYYY-MM，如 2026-09）。用户说“上个月/9 月的报告”时用；与 year 互斥。',
+        },
+        year: {
+          type: 'string',
+          description:
+            '指定自然年（YYYY，如 2025）。用户说“2025 年度报告”时用；与 month 互斥。',
+        },
+        monthOffset: {
+          type: 'integer',
+          description:
+            '相对当前月的偏移（0 = 本月，-1 = 上个月）。脚本/无法换算日期时用；与 month / year 互斥。',
+        },
+        monthOfYear: {
+          type: 'integer',
+          description: '只给月份（1–12）：如“9 月的报告”；与 month / year 互斥。',
+        },
       },
       required: ['period'],
     },
@@ -238,6 +285,59 @@ export const BANK_TOOL_SPECS = [
     batch: 'P0',
     scenario: '转账',
   },
+  {
+    name: 'aa_create',
+    description:
+      'AA 拆分收款（动作式）：`action="create"` 按人数均分或自定义份额建组（黄档写操作）；' +
+      '`action="status"` 按 groupId 查询（只读查询，不签票）；' +
+      '`action="collect"` 是**模拟代收**（demo 口径，本进程替某位参与人把份额记进组织者账户并写入账流水，黄档写操作）；' +
+      '`action="decline"` 记录某位参与人明确拒绝（黄档写操作）；' +
+      '`action="close"` 由组织者提前结束收款（剩余未付转过期并按收口规则定组状态，黄档写操作）。' +
+      '用户说“我们 AA/一共多少钱几个人分”时用；有人拒付用 decline，组织者不想再等用 close。' +
+      '不要用它直接扣款或伪造真实到账——跨人真实收款需要行内清算接口。',
+    schema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          description:
+            'create（缺省，建组）/ status（按 groupId 查询）/ collect（模拟代收某一位）/ ' +
+            'decline（某位参与人拒绝）/ close（提前结束，剩余未付转过期）',
+        },
+        groupId: { type: 'string', description: 'action=status / collect / decline / close 时的 AA 组 ID' },
+        participant: {
+          type: 'string',
+          description:
+            'action=collect / decline 时的参与人：姓名，或序号（0 起，写成 “0”/“1”）；不接受手机号',
+        },
+        expiresInHours: {
+          type: 'number',
+          description: '收款窗口（小时，1–168；create 可选，缺省 72）。到期未付自动转 expired',
+        },
+        title: { type: 'string', description: 'AA 标题（如“周末聚餐”）' },
+        totalYuan: { type: 'number', description: 'AA 总额（元；create 必填）' },
+        split: { type: 'string', description: 'equal（缺省，均分）/ custom（按 shareYuan 自定义）' },
+        participants: {
+          type: 'array',
+          description: '参与人（2–20 人；create 必填）',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: '姓名' },
+              phone: { type: 'string', description: '手机号（可选）' },
+              shareYuan: { type: 'number', description: 'custom 时的份额（元）' },
+            },
+            required: ['name'],
+          },
+        },
+      },
+    },
+    tier: { level: 'yellow' },
+    event: 'aa/created',
+    readEvent: 'read/aa',
+    batch: 'P0',
+    scenario: '转账',
+  },
 
   /* ── 理财（3） ───────────────────────────────────────────────────────── */
   {
@@ -302,6 +402,86 @@ export const BANK_TOOL_SPECS = [
     batch: 'P0',
     scenario: '理财',
   },
+  {
+    name: 'risk_assess',
+    description:
+      '风险测评（服务端问卷）：先 `action="questions"` 取服务端问卷，把题目原样交给用户逐题作答，再由用户确认后用 `action="submit"` 提交。' +
+      '用户明确要做风险测评 / 更新风险等级时用；**不得替用户作答或推测选项**，不提交合法问卷 ID 就落不了档，也不要用它直接指定等级或购买产品。',
+    schema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['questions', 'submit'],
+          description:
+            'questions=只取问卷（不改等级、不落档）；submit=提交用户逐题作答（需 questionnaireId + 5 条 answers）',
+        },
+        questionnaireId: {
+          type: 'string',
+          description: 'action="submit" 必填：questions 分支下发的问卷 ID（服务端签发，过期/跨用户一律拒绝）',
+        },
+        answers: {
+          type: 'array',
+          description:
+            'action="submit" 必填：5 条 {index, key}，必须是用户本人在问卷上选择的项（不是模型推测）',
+          items: {
+            type: 'object',
+            properties: {
+              index: { type: 'integer', minimum: 1, maximum: 5, description: '题号（1–5）' },
+              key: {
+                type: 'string',
+                enum: ['conservative', 'middle', 'aggressive'],
+                description: '所选项的键（每题的选项文本由问卷给出）',
+              },
+            },
+            required: ['index', 'key'],
+          },
+          minItems: 5,
+          maxItems: 5,
+        },
+      },
+      required: ['action'],
+    },
+    tier: { level: 'yellow' },
+    event: 'risk/assessed',
+    // 只读分支（action=questions）落的是这条：目录里必须两个都写，
+    // 否则文档会让读者以为取问卷也会改等级。
+    readEvent: 'read/risk-questions',
+    batch: 'P0',
+    scenario: '理财',
+  },
+  {
+    name: 'wealth_positions',
+    description:
+      '列出当前用户的理财持仓（份额/成本/市值/盈亏与合计）。用户问“我买了什么理财/持仓收益多少”时用；不要用它申购或赎回（申购用 wealth_purchase，赎回用 wealth_redeem）。',
+    schema: { type: 'object', properties: {} },
+    tier: { level: 'green' },
+    event: 'read/wealth-positions',
+    batch: 'P0',
+    scenario: '理财',
+  },
+  {
+    name: 'wealth_redeem',
+    description:
+      '赎回理财产品（红色写操作：必须强验证 + 审批后执行）。用户明确说“赎回/卖掉某笔理财”时用；holdingId 与 productId 二选一，amount 缺省=全部赎回；不要用它购买产品或查询持仓。',
+    schema: {
+      type: 'object',
+      properties: {
+        holdingId: { type: 'string', description: '持仓 ID（从 wealth_positions 取）' },
+        productId: { type: 'string', description: '产品 ID（按产品赎回时用；与 holdingId 二选一）' },
+        amountYuan: {
+          type: 'number',
+          description: '赎回金额（元；缺省=该持仓全部市值）',
+          exclusiveMinimum: 0,
+          multipleOf: 0.01,
+        },
+      },
+    },
+    tier: { level: 'red' },
+    event: 'wealth/redeemed',
+    batch: 'P0',
+    scenario: '理财',
+  },
 
   /* ── 强验证（3） ─────────────────────────────────────────────────────── */
   {
@@ -359,6 +539,35 @@ export const BANK_TOOL_SPECS = [
     },
     tier: { level: 'red' },
     event: 'card/reported-lost',
+    batch: 'P0',
+    scenario: '账户/账单',
+  },
+  {
+    name: 'fund_lock',
+    description:
+      '锁定 / 释放活期资金（写操作）：锁定 = 把活期余额划到**本人锁定账户**（earmark：可用余额减少、总资产不变）；' +
+      '释放 = 从锁定账户划回活期。用户说“先锁定 1000 元活期/这笔钱留着别花/解除锁定”时用；' +
+      '不要用它给他人转账（用 transfer_create），也不要把它当挂失（用 card_report_lost）。',
+    schema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['lock', 'release', 'status'],
+          description: 'lock=锁定 / release=释放 / status=只查当前锁定金额（只读，不签票）',
+        },
+        amountYuan: {
+          type: 'number',
+          description: '金额（元，最多两位小数；lock / release 必填）',
+          exclusiveMinimum: 0,
+          multipleOf: 0.01,
+        },
+      },
+      required: ['action'],
+    },
+    tier: { level: 'yellow' },
+    event: 'transfer/created',
+    readEvent: 'read/balance',
     batch: 'P0',
     scenario: '账户/账单',
   },
@@ -469,13 +678,126 @@ export const BANK_TOOL_SPECS = [
     batch: 'P0',
     scenario: '卡片',
   },
+  {
+    name: 'card_apply',
+    description:
+      '申请一张新卡（黄档写操作，缺省虚拟借记卡）。用户明确说“办一张虚拟卡/新卡”时用；说“信用卡/信用额度/授信额度”时传 kind=credit 并给 creditLimitYuan（此时两个限额缺省等于授信额度）；挂失后要补一张时用 replacesCardId 指定原卡（原卡必须已挂失）；不要用它挂失、冻结或调整已有卡额度。注意区分两种“额度”：creditLimitYuan 是**信用卡授信额度**（支付时真判"已用 + 本笔 ≤ 授信"），dailyLimitYuan/monthlyLimitYuan 是**交易限额**（防单日/近 30 天大额，按 min(卡日限额, Config 日限额) 与同卡滚动窗口判定）。',
+    schema: {
+      type: 'object',
+      properties: {
+        accountId: { type: 'string', description: '挂到哪个账户（缺省主活期账户）' },
+        type: { type: 'string', description: '卡类型（介质）：virtual（缺省）/ physical' },
+        kind: {
+          type: 'string',
+          description:
+            '卡产品：debit（缺省，借记卡）/ credit（信用卡）。credit 时必须同时给 creditLimitYuan；借记卡传 creditLimitYuan 会被拒（tool-args-invalid）。',
+        },
+        creditLimitYuan: {
+          type: 'number',
+          description:
+            '授信额度（元；仅 kind=credit 必填）：信用卡的总额度，支付时按"已用 + 本笔 ≤ 授信"硬判定。借记卡不要传。',
+        },
+        dailyLimitYuan: { type: 'number', description: '交易日限额（元；缺省 2000/1000，信用卡缺省 = 授信额度）' },
+        monthlyLimitYuan: { type: 'number', description: '交易月限额（元；缺省 8000/20000，信用卡缺省 = 授信额度）' },
+        replacesCardId: {
+          type: 'string',
+          description:
+            '补发场景填原卡 ID：该卡必须已挂失，新卡自动挂到同一账户。用户说“挂失了给我补一张/补卡”时用；普通新开卡不要填。',
+        },
+      },
+    },
+    tier: { level: 'yellow' },
+    event: 'card/issued',
+    batch: 'P0',
+    scenario: '卡片',
+  },
+  {
+    name: 'card_limit_set',
+    description:
+      '调整银行卡额度（红档写操作：必须强验证 + 审批）。两种额度都从这里调，但语义不同：creditLimitYuan 是**信用卡授信额度**（仅 kind=credit 的卡接受；降额不得低于已用，否则报 credit-in-use），dailyLimitYuan/monthlyLimitYuan 是**交易限额**（日限额生效值取 min(卡日限额, Config 日限额)；月限额按同卡近 30 天滚动窗口判定，不是自然月）。三项可同时给，均校验；日限额不得高于月限额。不要用它冻结/挂失卡片。',
+    schema: {
+      type: 'object',
+      properties: {
+        cardId: { type: 'string', description: '要调整的卡片 ID（从 account_list 取）' },
+        creditLimitYuan: {
+          type: 'number',
+          description:
+            '新的授信额度（元；仅信用卡）：降额不得低于已用额度（已用多少见 account_list 的「已用」）。不传 = 不动授信额度。',
+        },
+        dailyLimitYuan: { type: 'number', description: '新的交易日限额（元；至少给一项额度）' },
+        monthlyLimitYuan: { type: 'number', description: '新的交易月限额（元；至少给一项额度）' },
+      },
+      required: ['cardId'],
+    },
+    tier: { level: 'red' },
+    event: 'card/limits-changed',
+    batch: 'P0',
+    scenario: '卡片',
+  },
+  {
+    name: 'card_restriction',
+    description:
+      '设置或解除卡片的交易限制（黄档写操作）：online=线上交易、overseas=境外交易、category=指定商户品类。online/overseas 对以卡转账硬阻断；category 在本系统的 mock 卡消费通道上拦截对应品类（品类值必须是已知键：dining/coffee/grocery/transit/shopping/digital/other）。用户说“关掉这张卡的线上支付/境外支付/某类消费”或“恢复”时用；整卡停用请用 card_freeze，不要用本工具代替冻结/挂失。',
+    schema: {
+      type: 'object',
+      properties: {
+        cardId: { type: 'string', description: '卡片 ID（从 account_list 取）' },
+        mode: { type: 'string', description: 'set=设置限制 / clear=解除限制（必填）' },
+        kind: {
+          type: 'string',
+          description: '限制范围：online / overseas / category（set 必填；clear 缺省=清空全部）',
+        },
+        value: {
+          type: 'string',
+          description: 'category 时的品类键（dining / coffee / grocery / transit / shopping / digital / other）',
+        },
+        note: { type: 'string', description: '备注（仅落审计）' },
+      },
+      required: ['cardId', 'mode'],
+    },
+    tier: { level: 'yellow' },
+    event: 'card/restrictions-changed',
+    batch: 'P0',
+    scenario: '卡片',
+  },
+  {
+    name: 'password_change',
+    description:
+      '发起/查询交易密码修改（红档写操作，ADR-0014）：action=request 签一张一次性交接票据并给出安全页路径，action=status 只读上次改密时刻与剩余尝试次数。用户说“改交易密码/忘记交易密码想重设/看看密码还能试几次”时用；不要用它接收或转述任何密码明文（本工具的参数里只有 action，密码只能在安全页表单里填），也不要用它改登录密码（登录密码走登录页）。',
+    schema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          description: 'request=发起改密（签发安全页交接票据）/ status=只读查询（不签票）',
+        },
+      },
+      required: ['action'],
+    },
+    tier: { level: 'red' },
+    event: 'security/password-changed',
+    readEvent: 'read/password-status',
+    batch: 'P0',
+    scenario: '强验证',
+  },
 ] as const satisfies readonly BankToolSpec[]
 
 /** 工具名联合（18 个字面量）。 */
 export type BankToolName = (typeof BANK_TOOL_SPECS)[number]['name']
 
-/** 工具数量上限（施工单 08 §2）。 */
-export const BANK_TOOL_LIMIT = 28
+/**
+ * 工具数量上限。
+ *
+ * 2026-11-01 由 28 提到 30：新增 `fund_lock`（资金锁定/释放）与
+ * `password_change`（密码修改）——两者都是赛题权限谱系点名、但**不能**用既有工具
+ * 表达的动作（`transfer_create` 表达不了 earmark 的回收，`card_*` 表达不了凭据变更）。
+ * 上限仍是硬约束：再新增必须先删旧或先改本节。
+ *
+ * 2026-11-01（ADR-0014 同批）30 → **31**：`password_change` 立项时占用第 30 个名额，
+ * 落地时目录确实是 30 个；按"新增先改本节"的纪律把上限同步到 31，留一个空位给
+ * 下一单（若先到的是删旧，就把本节改回去——常量只跟着目录走）。
+ */
+export const BANK_TOOL_LIMIT = 31
 
 /** 按名字取 spec（工厂与门禁共用；名字只来自上面的联合，不会 miss）。 */
 export function specOf(name: BankToolName): BankToolSpec {

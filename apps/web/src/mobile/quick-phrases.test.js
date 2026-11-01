@@ -68,7 +68,7 @@ describe('快捷短语 chips', () => {
   it('装饰图标 aria-hidden（语义由 chip 文本承担）', () => {
     chips([{ text: '甲', intent: 'x' }])
 
-    expect(buttons()[0].querySelector('.icon--chat').getAttribute('aria-hidden')).toBe('true')
+    expect(buttons()[0].querySelector('.icon--message').getAttribute('aria-hidden')).toBe('true')
   })
 
   it('render() 可重入：重复调用不叠加 chip', () => {

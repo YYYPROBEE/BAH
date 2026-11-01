@@ -2,7 +2,7 @@
 
 > **冻结版本号**：`v1.0.1-frozen-2026-10-26`（v1.0.0 的自审修正，见 §2.5）
 > **冻结单**：W02（三件冻结）· **实现单**：W03（运行时校验 + 两个新工具）
-> **当前实现面**：21 个银行工具（13 绿 / 5 黄 / 3 红），见 `facts.md` §2。
+> **当前实现面**：30 个银行工具（14 绿 / 10 黄 / 6 红），见 `facts.md` §2。
 > **代码真相源**：`packages/util/src/tool-contract.ts`（纯类型，无运行时代码）
 > **变更流程**：见 §5。改签要 ADR + L1 owner 签字。
 
@@ -94,7 +94,7 @@ const transferCreateContract: ToolContract<ToolSchema, ToolSchema> = {
     required: ['toAccount', 'amount'],
     properties: {
       toAccount: { type: 'string', minLength: 8 },
-      // 入参金额是 number，单位「元」—— 21 个工具现状如此，见 W03 的口径
+      // 入参金额是 number，单位「元」—— 30 个工具现状如此，见 W03 的口径
       amount: { type: 'number', exclusiveMinimum: 0 },
       remark: { type: 'string', maxLength: 140 },
     },
@@ -119,7 +119,7 @@ const transferCreateContract: ToolContract<ToolSchema, ToolSchema> = {
 > `dailyUsedCents` / `dailyLimitCents` / `remainingCents`。**没有 `balance`，也没有 `amount`。**
 > W03 写出参边界时若按「元」写，阈值会差 100 倍。
 
-**金额类型提示**：21 个工具当前 `amount` 是 `{ type: 'number' }`（元）。
+**金额类型提示**：30 个工具当前 `amount` 是 `{ type: 'number' }`（元）。
 W03 **只做边界校验**（非有限数 / 负数 / 精度越界 / 超安全整数），
 换算复用既有的 `yuanToCents`（已防 `1.005 * 100` 陷阱），**不要自己写 `Math.round(x * 100)`**。
 
@@ -133,9 +133,9 @@ W03 **只做边界校验**（非有限数 / 负数 / 精度越界 / 超安全整
 ## 5. 变更流程
 
 1. 写 ADR（`docs/adr/`，半页即可）：改什么、为什么现在改、影响哪几个单；
-2. **维护者签字**；涉及事件表改动的，另需该事件的消费方会签；
+2. **L1 owner 签字**（`docs/owners-2026-10-25.md` 的 `L1-A`）；
 3. 版本号升位：加字段 = minor，改字段语义 = major；
-4. **冻结后只允许一次改签**，之后冻结到期。
+4. **W03 开工后 1 天内只允许一次改签**（W02 §5 风险表），之后冻结到期。
 
 ## 6. 自检（TC-W02-01 / 02 / 07）
 

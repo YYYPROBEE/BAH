@@ -30,25 +30,46 @@ export const MAX_INPUT_HEIGHT_PX = 100
  * @param {{ items: ReadonlyArray<{ text: string, intent?: string }> }} [deps.phrases]
  *        chips 配置（**由 shell 注入**，视图层零硬编码文案）；缺省不渲染 chips 行
  * @param {{ storage?: Storage }} [deps.imeDeps] 测试注入假 storage
+ * @param {() => void} [deps.onOpenServices] 打开“服务与帮助”抽屉；缺省不渲染入口
  * @param {(info: { code: string, message: string }) => void} [deps.onError]
  */
 export function createComposer(host, deps) {
   const chipsRow = el('div', { dataset: { role: 'chips-row' } })
   const hintRow = el('div', { dataset: { role: 'ime-row' } })
-  const errorNode = el('p', {
+  const errorText = el('span', {
+    class: 'm-composer__error-text',
+    dataset: { role: 'composer-error-text' },
+  })
+  const retryButton = el('button', {
+    class: 'm-composer__retry',
+    type: 'button',
+    'aria-label': '重试发送',
+    title: '重试发送',
+    dataset: { role: 'composer-retry' },
+    hidden: true,
+  }, [icon('refresh', 14)])
+  const errorNode = el('div', {
     class: 'm-composer__error',
     role: 'alert',
     dataset: { role: 'composer-error' },
     hidden: true,
-  })
+  }, [errorText, retryButton])
 
   const input = el('textarea', {
     class: 'ds-textarea m-composer__input',
     rows: 1,
     dataset: { role: 'composer-input' },
-    placeholder: '说点什么，例如「给王建国转 800 元」',
+    placeholder: '在这里输入消息',
     'aria-label': '输入消息',
   })
+  const servicesButton = el('button', {
+    class: 'ds-btn ds-btn--secondary ds-btn--md m-composer__services',
+    type: 'button',
+    dataset: { role: 'services' },
+    'aria-label': '服务与帮助',
+    title: '服务与帮助',
+    hidden: deps.onOpenServices === undefined,
+  }, [icon('menu', 24)])
   const sendButton = el('button', {
     class: 'ds-btn ds-btn--primary ds-btn--lg m-composer__send',
     type: 'button',
@@ -65,7 +86,7 @@ export function createComposer(host, deps) {
 
   const row = el('div', { class: 'm-composer__row' }, [
     input,
-    el('div', { class: 'm-composer__actions' }, [stopButton, sendButton]),
+    el('div', { class: 'm-composer__actions' }, [servicesButton, stopButton, sendButton]),
   ])
   const node = el('div', { class: 'm-composer', dataset: { role: 'composer' } }, [
     chipsRow,
@@ -82,16 +103,27 @@ export function createComposer(host, deps) {
   let inFlight = false
   let blockTimer = null
   let running = false
+  /** 上一次失败、可原样重发的文本；成功后清空。 */
+  let lastFailedText = null
 
-  function showError(message, info = false) {
+  /**
+   * @param {string} message
+   * @param {boolean} [info] 中性提示（不标红）
+   * @param {string} [retryText] 传了才出现重试钮：错误必须可恢复，不能只让用户重打
+   */
+  function showError(message, info = false, retryText) {
+    lastFailedText = retryText ?? null
     errorNode.hidden = false
-    errorNode.textContent = message
+    errorText.textContent = message
     errorNode.classList.toggle('m-composer__error--info', info)
+    retryButton.hidden = retryText === undefined
   }
 
   function clearError() {
+    lastFailedText = null
     errorNode.hidden = true
-    errorNode.textContent = ''
+    errorText.textContent = ''
+    retryButton.hidden = true
   }
 
   function autoGrow() {
@@ -163,11 +195,23 @@ export function createComposer(host, deps) {
       deps.onError?.({ code, message: String(result?.message ?? code) })
       return
     }
-    showError(String(result?.message ?? code))
-    deps.onError?.({ code, message: String(result?.message ?? code) })
+    const message = String(result?.message ?? code)
+    showError(message, false, text)
+    deps.onError?.({ code, message })
   }
 
   sendButton.addEventListener('click', () => void send())
+  servicesButton.addEventListener('click', () => deps.onOpenServices?.())
+  // 重试 = 原样再发同一条。输入框里还是这句话时先清空，避免成功后留下"已发出"的假草稿。
+  retryButton.addEventListener('click', () => {
+    const text = lastFailedText
+    if (text === null) return
+    if (input.value.trim() === text) {
+      input.value = ''
+      autoGrow()
+    }
+    void send(text)
+  })
 
   stopButton.addEventListener('click', () => {
     void deps.interrupt('用户点击"算了"').then((result) => {

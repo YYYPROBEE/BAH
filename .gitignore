@@ -35,3 +35,36 @@ auth/*.local.yml
 
 # 桌面端 03：便携打包产物（解压即用的目录与 zip，132 MB，不入库）
 dist-desktop/
+
+# 本地临时目录与一次性日志：只在施工机上存在，不入库
+temp/
+temp-*.log
+
+# 设计系统生成物：playwright 截图等由脚本产出，不入库
+design/bah-ds/output/
+
+# 过程件与内部材料不随仓库分发（见 AGENTS.md「文档边界」）：
+# 原件放仓库外归档目录，不要放回 docs/
+PROGRESS.md
+DECISIONS.md
+docs/evidence/
+docs/review/
+docs/plans/
+docs/progress-archive-*.md
+docs/handoff-*
+docs/next-*
+docs/drill-*
+docs/preflight-*
+docs/tech-debt-review-*
+docs/web-frontend-review.md
+docs/security-self-assessment.md
+docs/release-baseline-*.md
+docs/snapshot-sandbox-scenario-*
+docs/audit-command-16.md
+docs/gate-expansion-07.md
+docs/hp-0-fail-closed.md
+docs/capacity-plan-*.md
+docs/one-person-plan-*.md
+docs/owners-*.md
+docs/staffing-plan-*.md
+docs/02-solution-prompts.md

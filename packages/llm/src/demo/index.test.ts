@@ -75,6 +75,13 @@ describe('createDemoRouter 按请求现算步骤（不当磁带）', () => {
       text: expect.stringContaining('查账户余额'),
     })
   })
+
+  it('跨轮 tool callId 不重复（会话投影按 callId 配对，重复会吞掉本轮 assistant）', async () => {
+    const adapter = createDemoRouter()
+    const first = await runOnce(adapter, [user('转 500 给他')])
+    const second = await runOnce(adapter, [user('转 500 给他')])
+    expect(first.toolCalls[0]?.callId).not.toBe(second.toolCalls[0]?.callId)
+  })
 })
 
 describe('createDemoRouter 的可选参数两条路径', () => {

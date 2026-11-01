@@ -737,6 +737,23 @@ describe('channel:web 静态资源安全', () => {
     }
   })
 
+  it('交接页语义地址 /secure/password 真的打开 password.html（复审 P0-1 端到端）', async () => {
+    const harness = await boot()
+    try {
+      const response = await authedFetch(`${harness.url}secure/password`)
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toContain('text/html')
+      const html = await response.text()
+      // 命中的是真实安全页，不是 404 兜底；它仍在入口白名单里（token + no-store）
+      expect(html).toContain('id="secure-password"')
+      expect(html).toContain(`name="bah-web-token" content="${WEB_TOKEN}"`)
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      expect(response.headers.get('set-cookie') ?? '').toContain('bah_csrf=')
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
   it('password 模式下 index 不注入口令（缺口 1），但仍下发 CSRF cookie 供登录用', async () => {
     const harness = await boot({
       auth: { ...DEFAULT_WEB.auth, mode: 'password', directory: { path: 'auth/users.example.yml' } },

@@ -41,6 +41,8 @@ export const IM_LOG_CODES = [
   'im-handoff-request',
   'im-seat-forward',
   'im-seat-denied',
+  // 文本帮助菜单（无按钮平台的“常用业务宫格”等价物）
+  'im-help',
 ] as const
 
 /** 日志码类型。 */

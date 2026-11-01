@@ -12,7 +12,7 @@
  * （施工单 03 §1.2「每个工具/插件在自己的包 README 中声明其 durable 事件」）。
  */
 
-import type { ContentBlock, SessionEvent, SessionEventMap, TicketId } from '@bah/core'
+import type { ContentBlock, SessionEvent, SessionEventMap, TicketDetail, TicketId } from '@bah/core'
 
 /** 当前逻辑格式版本。reader 遇到更高版本必须拒绝打开（施工单 03 §1.5）。 */
 export const SESSION_FORMAT_VERSION = 1
@@ -99,6 +99,13 @@ declare module '@bah/core' {
       name: string
       amount?: number
       challenge?: ApprovalChallenge
+      /**
+       * 服务端签发的结构化操作明细（**可选、只展示**）。
+       *
+       * 由治理面随 `TicketDraft.details` 一起给出；落账后渠道只做原样投影。
+       * 不参与指纹，也不参与任何判定——回放时要能回答「用户当时看到了什么」。
+       */
+      details?: readonly TicketDetail[]
     }
     /** 审批已有结论（含 `unavailable`：无人值守直接拒绝）。 */
     'approval/decided': {
@@ -106,6 +113,13 @@ declare module '@bah/core' {
       decision: ApprovalDecision
       reason?: string
       code?: string
+      /**
+       * 采纳者（ADR-0010；`window-responder` = 授权窗口代签）。
+       *
+       * **只在窗口代签时出现**：人工票据的签署人由渠道自己记，多一个字段会让
+       * 历史日志与全部快照抖动。它只追加，不改既有字段，属载荷扩展而非改签。
+       */
+      by?: string
     }
     /**
      * 断言核验门的一次判决（W05；载荷与事件表 v1.0.1 逐字一致）。

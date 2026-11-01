@@ -180,13 +180,14 @@ describe('对话流 · 帧分发', () => {
     expect(node.dataset.state).toBe('picked')
   })
 
-  it('对话流收七类帧（审计 / DAG 各归各的面板；goal/todo 桌面不产生；G7 计划卡进对话流）', () => {
+  it('对话流收八类帧（审计 / DAG 各归各的面板；goal/todo 桌面不产生；G7 计划卡 / 风险问卷进对话流）', () => {
     expect([...CONVERSATION_KINDS].sort()).toEqual([
       'choice',
       'effects',
       'message',
       'notice',
       'plan-card',
+      'risk-questionnaire',
       'tool',
       'turn',
     ])
@@ -247,5 +248,37 @@ describe('renderMessage · operator / handover', () => {
       blocks: [{ type: 'text', text: '你好' }],
     })
     expect(assistant.className).toContain('message--assistant')
+  })
+})
+
+describe('对话流 · 助手正文表格', () => {
+  it('GFM 管道表格渲染成带对齐的真表格，不再是一段竖线文本', () => {
+    const node = renderMessage(
+      message({
+        role: 'assistant',
+        blocks: [
+          {
+            type: 'text',
+            text: ['本月收支：', '', '| 项目 | 金额 |', '| --- | ---: |', '| 收入 | ¥8,000.00 |', '| 支出 | ¥3,200.00 |'].join(
+              '\n',
+            ),
+          },
+        ],
+      }),
+    )
+    expect(node.querySelector('table.md-table')).not.toBeNull()
+    expect(node.querySelectorAll('th')).toHaveLength(2)
+    expect(node.querySelectorAll('td')).toHaveLength(4)
+    expect(node.textContent).toContain('¥8,000.00')
+    expect(node.textContent).not.toContain('| --- |')
+  })
+
+  it('每条消息都不再挂反馈行（反馈只在对话末尾出现一次）', () => {
+    const node = renderMessage(
+      message({ role: 'assistant', blocks: [{ type: 'text', text: '余额 100 元' }] }),
+      { feedback: { value: () => null, rate: () => null } },
+    )
+    expect(node.querySelector('[data-role="feedback"]')).toBeNull()
+    expect(node.textContent).toContain('余额 100 元')
   })
 })

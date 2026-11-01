@@ -14,6 +14,8 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { validateAgainstSchema } from '@bah/util'
+
 import type {
   CutoffFindingView,
   SpendSplitView,
@@ -29,7 +31,7 @@ import { BANK_RESULT_SCHEMAS } from './result-schemas.ts'
 import { BANK_TOOL_NAMES } from './specs.ts'
 
 describe('出参契约表完备性', () => {
-  it('19 个工具一个不少（漏写 = 静默不校验）', () => {
+  it('28 个工具一个不少（漏写 = 静默不校验）', () => {
     const missing = BANK_TOOL_NAMES.filter((name) => BANK_RESULT_SCHEMAS[name] === undefined)
     expect(missing, `这些工具没有出参契约：${missing.join(', ')}`).toEqual([])
   })
@@ -47,10 +49,17 @@ describe('出参契约表完备性', () => {
     expect(extra, `表里有非工具名键：${extra.join(', ')}`).toEqual([])
   })
 
-  it('每份契约都至少声明一个 required（空契约等于没校验，属自欺）', () => {
+  it('每份契约都声明了必填约束（required，或 oneOf 的分支各自 required）', () => {
     for (const name of BANK_TOOL_NAMES) {
-      const required = BANK_RESULT_SCHEMAS[name]?.required
-      expect(Array.isArray(required) && required.length > 0, `${name} 没有 required`).toBe(true)
+      const schema = BANK_RESULT_SCHEMAS[name]
+      const required = schema?.required
+      const branches = schema?.oneOf
+      const hasRequired = Array.isArray(required) && required.length > 0
+      const branchRequired =
+        Array.isArray(branches) &&
+        branches.length > 0 &&
+        branches.every((branch) => Array.isArray(branch.required) && branch.required.length > 0)
+      expect(hasRequired || branchRequired, `${name} 没有 required，也没有带必填的分支`).toBe(true)
     }
   })
 })
@@ -178,5 +187,75 @@ describe('D-18 新工具 DTO ↔ schema 字段逐项', () => {
 
   it('sub_authorize：字段逐项对齐', () => {
     expectKeys(BANK_RESULT_SCHEMAS.sub_authorize, AUTHORIZE_KEYS, 'sub_authorize')
+  })
+})
+
+/* ── R-8：risk_assess 的 questions / submit 两个分支（旧写法缺 answers 也能过） ── */
+
+const QUESTIONS_OK: Readonly<Record<string, unknown>> = {
+  action: 'questions',
+  questionnaireId: 'rq-1',
+  version: 'risk-q-v1',
+  issuedAt: 1_792_000_000_000,
+  expiresAt: 1_792_000_600_000,
+  questions: [
+    {
+      index: 1,
+      title: '您的投资经验？',
+      options: [
+        { key: 'conservative', text: '没有经验', score: 1 },
+        { key: 'middle', text: '有一些', score: 3 },
+        { key: 'aggressive', text: '很丰富', score: 5 },
+      ],
+    },
+  ],
+  at: 1_792_000_000_000,
+}
+
+const SUBMIT_OK: Readonly<Record<string, unknown>> = {
+  action: 'submit',
+  questionnaireId: 'rq-1',
+  version: 'risk-q-v1',
+  answers: [{ index: 1, key: 'middle' }],
+  score: 3,
+  from: 'R1',
+  to: 'R2',
+  at: 1_792_000_000_000,
+}
+
+/** 去掉一个键（负控造坏形状用；不改原 fixture）。 */
+function omit(value: Readonly<Record<string, unknown>>, key: string): Record<string, unknown> {
+  const copy: Record<string, unknown> = { ...value }
+  delete copy[key]
+  return copy
+}
+
+describe('risk_assess 判别式联合（R-8）', () => {
+  const check = (value: unknown) =>
+    validateAgainstSchema(BANK_RESULT_SCHEMAS.risk_assess, value, 'result')
+
+  it('正例：questions 分支出参通过', () => {
+    expect(check(QUESTIONS_OK)).toBeUndefined()
+  })
+
+  it('正例：submit 分支出参通过', () => {
+    expect(check(SUBMIT_OK)).toBeUndefined()
+  })
+
+  it('负控：submit 缺 answers → 契约红（旧的单对象写法会静默通过）', () => {
+    const found = check(omit(SUBMIT_OK, 'answers'))
+    expect(found?.code).toBe('oneOf')
+    expect(found?.detail).toContain('/answers(required)')
+  })
+
+  it('负控：questions 缺 questions → 契约红', () => {
+    const found = check(omit(QUESTIONS_OK, 'questions'))
+    expect(found?.code).toBe('oneOf')
+    expect(found?.detail).toContain('/questions(required)')
+  })
+
+  it('负控：action=questions 却只带 submit 载荷 → 契约红（action 字面量不能蒙过分支）', () => {
+    const found = check({ ...SUBMIT_OK, action: 'questions' })
+    expect(found?.code).toBe('oneOf')
   })
 })

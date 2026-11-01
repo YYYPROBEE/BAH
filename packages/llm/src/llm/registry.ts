@@ -137,7 +137,7 @@ export const LLM_ADAPTERS: ServiceKey<LlmAdapterRegistry> = defineService<LlmAda
  *
  * 施工单 05 §2 原文写的是 `ctx.llm.registerAdapter(...)`：本仓 `api.ts` 已冻结、
  * `Context` 上没有也不会长出 `llm` 成员，故按施工单 00 §9「按键寻址」用服务键落地
- * （语义等价：注册返回 disposer、重名需显式 replace）。偏离已在施工台账 §11 记录（台账已撤下）。
+ * （语义等价：注册返回 disposer、重名需显式 replace）。偏离已在 PROGRESS §11 记录。
  */
 export function provideLlm(ctx: Context, registry = new LlmAdapterRegistry()): Disposer {
   return ctx.provide(LLM_ADAPTERS, registry)

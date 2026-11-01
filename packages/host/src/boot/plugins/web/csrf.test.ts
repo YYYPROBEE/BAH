@@ -42,6 +42,16 @@ describe('TA-52 · sameOriginHost', () => {
     expect(sameOriginHost('http://x', undefined)).toBe(false)
     expect(sameOriginHost('ftp://x', 'x')).toBe(false)
   })
+
+  it('畸形 **Host** 头（Origin 本身合法）→ 不同源：解析不了就 fail-closed', () => {
+    // Host 是外部可控头：`[::1`（IPv6 字面量没闭合）、多冒号端口都会让 URL 解析抛错。
+    // 抛错必须落成 `false`（→ 403），既不能冒出异常打断整条请求，也不能当同源放行。
+    expect(sameOriginHost('http://x', '[::1')).toBe(false)
+    expect(sameOriginHost('http://x', 'x:7331:80')).toBe(false)
+    expect(sameOriginHost('https://x', '[::1', { allowHttps: true })).toBe(false)
+    // 同一个畸形 Host 走 csrfVerdict：Origin 在场时不做同源判定就直接判 mismatch
+    expect(csrfVerdict(req({ origin: 'http://x', host: '[::1' }), 'tok', {})).toBe('mismatch')
+  })
 })
 
 describe('TA-52 · csrfVerdict 走 Origin 路径', () => {

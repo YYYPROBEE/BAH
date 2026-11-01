@@ -33,7 +33,14 @@ export interface MockToolOutcome {
 export interface MockOutcome {
   /** 绑定哪个工具（缺省 = 取本 turn 最后一条工具结局）。 */
   readonly tool?: string
-  /** 成功文案。 */
+  /**
+   * 成功时改用工具结果的正文（`MockToolOutcome.text`）。
+   *
+   * 用于结果里带着**必须逐字转述**的字段（例如改密交办票据号与安全页地址）。
+   * 把这些字段再抄进 `ok` 等于造第二真相源，复制品迟早与工具结果漂移。
+   */
+  readonly okFromResult?: boolean
+  /** 成功文案（`okFromResult` 为 true 且结果有正文时被结果正文取代）。 */
   readonly ok: string
   /** 失败文案；`{reason}` 占位符替换成工具给的理由（无理由则退到理由码）。 */
   readonly failed: string
@@ -151,7 +158,13 @@ export function resolveOutcome(
       { tool: outcome.tool ?? null, results: results.length },
     )
   }
-  if (!last.isError) return [{ kind: 'text', text: outcome.ok }]
+  if (!last.isError) {
+    const text =
+      outcome.okFromResult === true && last.text !== undefined && last.text.trim() !== ''
+        ? last.text
+        : outcome.ok
+    return [{ kind: 'text', text }]
+  }
   const reason = last.reason ?? last.code ?? '工具未执行'
   return [{ kind: 'text', text: outcome.failed.replace(/\{reason\}/g, () => reason) }]
 }

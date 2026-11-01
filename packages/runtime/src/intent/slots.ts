@@ -77,10 +77,24 @@ export function accountTail(account: string): string {
 
 const AMOUNT_WITH_UNIT = /(\d[\d,]*(?:\.\d{1,2})?)\s*(?:元|块|rmb|RMB)/
 const AMOUNT_PLAIN = /(\d[\d,]*(?:\.\d{1,2})?)/
+/**
+ * 数字后面跟这些字就是日期/时刻，不是金额（「每月 1 号转 3500」里的 1）。
+ *
+ * `-`/`/`/`.` 后跟数字按 ISO 形态的日期处理（`2023-11-19`），否则 2023 会被当金额。
+ */
+const DATE_UNIT_AFTER = /^\s*(?:号|日|月|年|时|点|分|天|周|星期|个月|[-/.]\s*\d)/
+/** 数字前面是这些字/符号就是序数、周几或 ISO 日期的中段（「第 1 期」「周 2」「2023-11-19」的 19）。 */
+const ORDINAL_BEFORE = /(?:第|周|星期|[-/.])\s*$/
 const PAYEE_PATTERNS: readonly RegExp[] = [
   /给\s*([^\s，。！？,、]{1,8}?)\s*(?:转|汇款|打款|打钱)/,
   /转给\s*([^\s，。！？,、]{1,8})/,
   /收款人[:：]?\s*([^\s，。！？,、]{1,8})/,
+]
+/** 手机号本身可以当收款人（赛题 §二「按手机号转账」）；姓名模式会把纯数字挡掉。 */
+const PHONE_PAYEE_PATTERNS: readonly RegExp[] = [
+  /给\s*(1\d{10})\s*(?:转|汇款|打款|打钱)/,
+  /转给\s*(1\d{10})/,
+  /(?:收款人|对方)[:：]?\s*(1\d{10})/,
 ]
 /** 时间线索 → 天数（相对今天）。演示只用「今天/最近/上个月」三档，别的一律不猜。 */
 const RELATIVE_DAYS: readonly (readonly [RegExp, number])[] = [
@@ -150,15 +164,28 @@ export function extractAmountCents(text: string): { cents: number; span: string 
     const cents = yuanToCents(withUnit[1].replace(/,/g, ''))
     return { cents, span: withUnit[0] }
   }
-  const plain = AMOUNT_PLAIN.exec(text)
-  if (plain?.[1] === undefined) return undefined
-  // 明显是卡号/尾号的（≥8 位）不当金额：与 memory-store 的实体抽取同口径
-  if (plain[1].replace(/[,.]/g, '').length >= 8) return undefined
-  return { cents: yuanToCents(plain[1].replace(/,/g, '')), span: plain[0] }
+  // 无单位时逐个候选看上下文：日期/时刻/序数上的数字跳过，继续往后找。
+  // 「每月 1 号给我妈转 3500」曾经取到 1（¥1.00）——第一个数字不一定是金额。
+  const candidates = new RegExp(AMOUNT_PLAIN.source, 'g')
+  for (let match = candidates.exec(text); match !== null; match = candidates.exec(text)) {
+    const digits = match[1]
+    if (digits === undefined) continue
+    // 明显是卡号/尾号的（≥8 位）不当金额：与 memory-store 的实体抽取同口径
+    if (digits.replace(/[,.]/g, '').length >= 8) continue
+    if (DATE_UNIT_AFTER.test(text.slice(match.index + match[0].length))) continue
+    if (ORDINAL_BEFORE.test(text.slice(0, match.index))) continue
+    return { cents: yuanToCents(digits.replace(/,/g, '')), span: match[0] }
+  }
+  return undefined
 }
 
 /** 收款人抽取：`给X转` / `转给X` / `收款人:X`。代词不入槽位（那是 R-VAGUE-3 的事）。 */
 export function extractPayee(text: string): string | undefined {
+  // 手机号优先：姓名模式的上限是 8 字符，11 位号码永远匹配不到。
+  for (const pattern of PHONE_PAYEE_PATTERNS) {
+    const phone = pattern.exec(text)?.[1]?.trim()
+    if (phone !== undefined && /^1\d{10}$/.test(phone)) return phone
+  }
   for (const pattern of PAYEE_PATTERNS) {
     const name = pattern.exec(text)?.[1]?.trim()
     if (name !== undefined && name.length > 0 && !/^\d+$/.test(name) && !PRONOUN_SET.has(name)) {

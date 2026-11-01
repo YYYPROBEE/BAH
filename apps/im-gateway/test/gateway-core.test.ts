@@ -255,6 +255,14 @@ describe('ratelimit（T-IM-018）', () => {
     if (denied.ok) return
     expect(denied.scope).toBe('global')
   })
+
+  it('用户窗口超过 maxUsers ⇒ 淘汰最久未用（内存有上限）', () => {
+    const limiter = createRateLimiter({ userLimit: 1, userWindowMs: 60_000, maxUsers: 1 })
+    expect(limiter.check('u1', 0)).toEqual({ ok: true })
+    expect(limiter.check('u2', 0)).toEqual({ ok: true })
+    // u1 已被淘汰：若未淘汰，这里会因 userLimit=1 被拒。
+    expect(limiter.check('u1', 0)).toEqual({ ok: true })
+  })
 })
 
 describe('token（T-IM-021 的缓存面）', () => {

@@ -122,4 +122,36 @@ describe('signApprovalLink / verifyApprovalLink', () => {
       })
     }
   })
+
+  // 载荷尺寸闸门（768）与整体长度闸门（1024）是两道独立的门：
+  // 只测 1024 那条，768 这条写错或删掉都不会有人发现——而它才是"别拿超长 JSON 打爆解析"的那道。
+  it('签名通过但载荷段超过 768 ⇒ malformed（内层闸门独立生效，不靠外层 1024 兜）', () => {
+    const json = JSON.stringify({
+      v: 1,
+      s: SESSION,
+      t: 'ticket:abc',
+      e: NOW + 1,
+      pad: 'x'.repeat(620),
+    })
+    const token = signRaw(json)
+    const dot = token.indexOf('.')
+    // 前置条件自证：这次确实越过 768、且仍在 1024 之内（否则测的是另一道门）
+    expect(dot).toBeGreaterThan(768)
+    expect(token.length).toBeLessThanOrEqual(1024)
+    expect(verifyApprovalLink(token, SECRET, NOW)).toEqual({ ok: false, code: 'malformed' })
+  })
+
+  it('签名通过但载荷是 JSON 标量 ⇒ malformed；数组按未知版本拒（都不放行）', () => {
+    for (const json of ['null', '123', '"ticket:abc"', 'true']) {
+      expect(verifyApprovalLink(signRaw(json), SECRET, NOW)).toEqual({
+        ok: false,
+        code: 'malformed',
+      })
+    }
+    // 数组是 object 且非 null，字段判定取不到 v ⇒ 落 unsupported；结论仍是拒
+    expect(verifyApprovalLink(signRaw('[1,2,3]'), SECRET, NOW)).toEqual({
+      ok: false,
+      code: 'unsupported',
+    })
+  })
 })

@@ -41,6 +41,7 @@ export type HoldingId = Branded<'holding-id'>
 export type SubscriptionId = Branded<'subscription-id'>
 export type AuthorizationId = Branded<'authorization-id'>
 export type CancelRequestId = Branded<'cancel-request-id'>
+export type AaGroupId = Branded<'aa-group-id'>
 
 /**
  * 品牌 ID 的铸造点。
@@ -59,6 +60,7 @@ export const bankIds = {
   subscription: (raw: string): SubscriptionId => raw as SubscriptionId,
   authorization: (raw: string): AuthorizationId => raw as AuthorizationId,
   cancelRequest: (raw: string): CancelRequestId => raw as CancelRequestId,
+  aa: (raw: string): AaGroupId => raw as AaGroupId,
 }
 
 /** 本包会用到但由 `@bah/core` 铸造的两个 ID（这里只做类型转出口，便于使用方少 import 一行）。 */
@@ -112,6 +114,17 @@ export function formatYuan(cents: number): string {
 /** 风险等级 R1–R5（用户与理财产品共用一套词汇）。 */
 export type RiskGrade = 'R1' | 'R2' | 'R3' | 'R4' | 'R5'
 
+/**
+ * 五题总分（5–25）→ 客户风险等级。
+ *
+ * **唯一实现**：`MockBankCore.assessRisk` 与审批明细（`tools/approval-details.ts`）
+ * 都调这里。审批卡要提前告诉用户"批完会变成几级"，但它不能另抄一份分段阈值——
+ * 那就成了第二份真相源，改一处必漏另一处。
+ */
+export function riskGradeOfScore(score: number): RiskGrade {
+  return score <= 8 ? 'R1' : score <= 12 ? 'R2' : score <= 16 ? 'R3' : score <= 20 ? 'R4' : 'R5'
+}
+
 /** 强验证方式（红级工具挑战渠道）。 */
 export type StrongAuth = 'face' | 'sms' | 'ushield'
 
@@ -161,6 +174,21 @@ export function accountDisplayName(account: Account): string {
 export type CardType = 'physical' | 'virtual'
 export type CardStatus = 'normal' | 'frozen' | 'lost'
 
+/** 交易限制的范围：线上 / 境外 / 指定商户品类。 */
+export type CardRestrictionKind = 'online' | 'overseas' | 'category'
+
+/** 一条卡片交易限制（与卡片状态 `frozen` 不同：这是规则层，不是整卡停用）。 */
+export interface CardRestriction {
+  readonly kind: CardRestrictionKind
+  /**
+   * `category` 时的品类值（对齐 `MerchantCategory` 的键：dining / coffee / …）；
+   * 其余 kind 缺省。只在 `spendOnCard` 的卡消费路径上判定，转账路径没有品类语义。
+   */
+  readonly value?: string
+  readonly note?: string
+  readonly at: number
+}
+
 export interface Card {
   readonly id: CardId
   readonly accountId: AccountId
@@ -170,7 +198,23 @@ export interface Card {
   readonly status: CardStatus
   readonly dailyLimitCents: number
   readonly monthlyLimitCents: number
+  /**
+   * 卡产品：借记（缺省）/ 信用（ADR-0015）。信用产品才有授信额度。
+   *
+   * **不是 `type`**：`type` 是**介质**（实体/虚拟），与"借记/信用"正交；
+   * 把 `'credit'` 塞进 `type` 会让"虚拟信用卡"无法表达。
+   */
+  readonly kind?: CardKind
+  /** 授信额度（分）；仅 `kind='credit'` 有意义。 */
+  readonly creditLimitCents?: number
+  /** 已用额度（分）；仅 `kind='credit'` 有意义。可用额度是它的派生值，不落字段。 */
+  readonly usedCreditCents?: number
+  /** 交易限制规则（可选；空数组/缺省 = 无限制）。 */
+  readonly restrictions?: readonly CardRestriction[]
 }
+
+/** 卡产品（缺省 = 借记：老造数/老快照里的卡没有 `kind`，按借记解释）。 */
+export type CardKind = 'debit' | 'credit'
 
 export type TxnDirection = 'in' | 'out'
 export type TxnCategory =
@@ -202,6 +246,13 @@ export interface Transaction {
   readonly category: TxnCategory
   readonly channel: TxnChannel
   readonly status: TxnStatus
+  /**
+   * 本笔以哪张卡支付（可选）。
+   *
+   * 月限额按卡归集，没有这个字段就无法区分"两张卡各刷一半"；冲正流水继承原值
+   * （否则月累计的减法永远减不掉）。老造数与账户级转账不填。
+   */
+  readonly viaCardId?: CardId
   /** 冲正流水指向的原交易（W12）：只有冲正流水带这个字段，原交易永不被删改。 */
   readonly reversalOf?: TxnId
 }
@@ -240,6 +291,8 @@ export interface Holding {
   readonly id: HoldingId
   readonly userId: UserId
   readonly productId: ProductId
+  /** 购买时使用的账户（缺省 = 主活期；赎回退回该账户）。 */
+  readonly accountId?: AccountId
   /** 份额（演示口径：按 1 元/份，允许两位小数）。 */
   readonly shares: number
   readonly costCents: number
@@ -274,9 +327,49 @@ export interface Subscription {
   readonly pauseUntil?: number
 }
 
+/**
+ * AA 收款参与人的状态。
+ *
+ * `pending` 待表态 / `paid` 已代收 / `declined` 明确拒绝 / `expired` 到期未付。
+ * 后两态是 ADR-0017 新增：**钱没进来**，与 `paid` 不是同一回事——对账时必须分得开。
+ */
+export type AaParticipantStatus = 'pending' | 'paid' | 'declined' | 'expired'
+export type AaGroupStatus = 'collecting' | 'completed' | 'cancelled'
+
+/** 建组缺省收款窗口（小时）；到期 job 按 `expiresAt` 收口。 */
+export const AA_DEFAULT_EXPIRY_HOURS = 72
+
+/** 建组收款窗口上限（小时）。更长就该走"授权窗口"，不是 AA 组。 */
+export const AA_MAX_EXPIRY_HOURS = 168
+
+/** AA 收款参与人。 */
+export interface AaParticipant {
+  readonly name: string
+  readonly phone?: string
+  readonly shareCents: number
+  readonly status: AaParticipantStatus
+  readonly paidAt?: number
+}
+
+/** AA 收款请求（组织者 + 参与人份额）。 */
+export interface AaGroup {
+  readonly id: AaGroupId
+  readonly userId: UserId
+  readonly title: string
+  readonly totalCents: number
+  readonly participants: readonly AaParticipant[]
+  readonly status: AaGroupStatus
+  readonly createdAt: number
+  /**
+   * 收款截止时刻（epoch ms）。缺省 = 建组时 + {@link AA_DEFAULT_EXPIRY_HOURS} 小时。
+   *
+   * 可选是为了兼容本次改动之前落在内存里的组（它们没有截止时间，到期 job 跳过）。
+   */
+  readonly expiresAt?: number
+}
+
 /** 周期扣款三分法（只影响展示与取消路径建议，不影响是否检出）。 */
-export type RecurringKind = 'subscription' | 'bill' | 'installment'
-/** 检测置信度分层。 */
+export type RecurringKind = 'subscription' | 'bill' | 'installment'/** 检测置信度分层。 */
 export type Confidence = 'high' | 'medium' | 'low'
 /** 代扣协议状态（**只关不开**：恢复扣款要商户侧重新签约）。 */
 export type AuthorizationStatus = 'active' | 'revoked'

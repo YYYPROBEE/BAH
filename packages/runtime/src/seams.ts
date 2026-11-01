@@ -9,7 +9,7 @@
  * 五种模式的分工（施工单 02 §3）：判决/环绕用 waterfall，记账/通知用 emit。
  */
 
-import type { ContentBlock, SessionId, TicketAuthorization, TicketRef } from '@bah/core'
+import type { ContentBlock, SessionId, TicketAuthorization, TicketDetail, TicketRef } from '@bah/core'
 
 import type {
   AgentPreStepInput,
@@ -95,10 +95,23 @@ export interface ApprovalInput {
     readonly title: string
     readonly amount?: number
     readonly tier: string
+    /**
+     * 结构化操作明细（服务端签发，**只展示**）。
+     *
+     * 与 `approval/asked.details` 同一份引用；渠道不得重算金额。
+     */
+    readonly details?: readonly TicketDetail[]
   }
   readonly challenge?: ApprovalChallenge
   /** 授权来源（ADR-0008；缺省 = 人工点击）。由 `tools/pre-execute` 的 ask 判决透传。 */
   readonly authorization?: TicketAuthorization
+  /**
+   * 采纳者（ADR-0010；**只有窗口代签才会被审批服务写回**）。
+   *
+   * 管线把它原样落进 `approval/decided.by`：这是"这一笔是 `window-responder`
+   * 代签的"唯一 durable 证据，人工票据不带这个字段。
+   */
+  readonly by?: string
   readonly decision: ApprovalResponse
 }
 

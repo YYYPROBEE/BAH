@@ -142,4 +142,50 @@ describe('卡片构造', () => {
     })
     expect(card.body).toContain('[图片 image/png]')
   })
+
+  it('未知内容块不被静默丢弃（留"非文本内容"这一事实）', () => {
+    const card = buildCard({
+      name: 'analysis_calc',
+      args: {},
+      content: [{ type: 'audio' }],
+      isError: false,
+      amountConfirmed: true,
+    })
+    expect(card.body).toBe('[非文本内容]')
+  })
+
+  it('知识卡必须带「知识校验」徽标与 knowledge 模板（合规标识不能只留在正文里）', () => {
+    const card = buildCard({
+      name: 'knowledge_answer',
+      args: {},
+      content: [{ type: 'text', text: '年费按卡等级收取' }],
+      isError: false,
+      amountConfirmed: true,
+    })
+
+    expect(card.template).toBe('knowledge')
+    expect(card.title).toBe('知识问答')
+    expect(card.tags.map((tag) => tag.text)).toContain('知识校验')
+  })
+
+  it('订阅卡片的「即将扣款」没有明细时不出空表，但摘要与依据行仍要在', () => {
+    const card = buildCard({
+      name: 'sub_list',
+      args: {},
+      content: [{ type: 'text', text: '共 0 项订阅' }],
+      isError: false,
+      amountConfirmed: true,
+      upcoming: {
+        summary: '7 天内没有即将扣款',
+        headers: ['即将扣款', '金额', '扣款日'],
+        rows: [],
+        basisNote: '基于近 30 天 42 笔流水 · 生成于 2023-11-14',
+      },
+    })
+
+    expect(card.template).toBe('ledger')
+    expect(card.fields.find((field) => field.label === '即将扣款')?.value).toBe('7 天内没有即将扣款')
+    expect(card.table).toBeUndefined()
+    expect(card.note).toBe('基于近 30 天 42 笔流水 · 生成于 2023-11-14')
+  })
 })

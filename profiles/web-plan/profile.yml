@@ -1,7 +1,7 @@
 # web-plan（B2）：plan DAG + Web 渠道同一个 profile。
 #
 # - bundles: [base] —— 与 web / plan 同底座
-# - patch: web 的全部装配 + plan:dag（modelTools）+ saga-bridge 显式关闭
+# - patch: web 的全部装配 + plan:dag（modelTools）+ saga-bridge tick-only（eligible: []）
 # - hmr: false —— 计划执行是同步长事务，热重载没有收益
 #
 # 演示口径：模型经 plan_propose 提出受约束 DAG（只校验不执行），用户确认后

@@ -25,3 +25,14 @@
     host: 127.0.0.1
     staticRoot: apps/web
     heartbeatMs: 15000
+
+# 本场景的转账要真的走完（证明 Web 渠道 + 审批 + 落账整条链路），
+# 所以录制夹具必须有一个显式放行的应答者。ADR-0010 之后 headless base 是
+# `responder: none`：没有这一行，录制会停在 `approval-no-responder` 并超时。
+# 放行只写进本快照的 rows（scenario.json），不回写 profile。
+- id: interaction:approval
+  config:
+    responder: headless
+    autoDecision: allow
+    autoVerify: true
+    windowResponder: false

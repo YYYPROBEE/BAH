@@ -430,13 +430,21 @@ export class ToolPipeline {
       name: call.name,
       amount: ticket.amount,
       challenge,
+      ...(ticket.details === undefined ? {} : { details: ticket.details }),
     })
 
     const input: ApprovalInput = {
       ticket,
       callId: call.callId,
       name: call.name,
-      summary: { title: `执行 ${call.name}`, amount: ticket.amount, tier: definition.tier.level },
+      summary: {
+        title: `执行 ${call.name}`,
+        amount: ticket.amount,
+        tier: definition.tier.level,
+        // 摘要与事件是同一份明细：渠道无论走帧还是走 `approval/request`，
+        // 看到的内容必须逐字一致（IM 的 H5 页就读这一份）。
+        ...(ticket.details === undefined ? {} : { details: ticket.details }),
+      },
       challenge,
       // 授权来源（ADR-0008）：ask 判决自带的优先；否则用执行器为整次 run 注入的那一份
       ...(ask.authorization === undefined && this.authorization === undefined
@@ -458,6 +466,8 @@ export class ToolPipeline {
       decision: decision.decision,
       reason: decision.reason,
       code: decision.decision === 'allowed-once' ? undefined : `approval-${decision.decision}`,
+      // ADR-0010：窗口代签的采纳者落在这一条上（人工票据不带 `by`，见 session/types.ts）
+      ...(answered.by === undefined ? {} : { by: answered.by }),
     })
 
     if (decision.decision === 'allowed-once')
@@ -564,6 +574,9 @@ export class ToolPipeline {
       fingerprint: draft.fingerprint,
       amount: draft.amount,
       expiresAt: this.now() + draft.ttlMs,
+      // 明细只做**搬运**：同一份引用进 TicketRef 与 `approval/asked`。
+      // 管线不重算、不格式化、不排序——一旦在这里加工，审批卡与票据就是两份口径。
+      ...(draft.details === undefined ? {} : { details: draft.details }),
     }
   }
 

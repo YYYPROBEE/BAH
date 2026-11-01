@@ -35,6 +35,7 @@ export type RouteHandler =
   | 'interrupt'
   | 'approval'
   | 'verify'
+  | 'secure-password'
   | 'handoff'
   | 'handoff-message'
   | 'handoff-claim'
@@ -321,6 +322,24 @@ export const ROUTES: readonly RouteSpec[] = [
     scope: 'self',
     note: '红级票据的强验证（挑战由 VerifyService 签发）；客户专属',
     display: '/api/verify/:ticketId',
+  },
+  {
+    // 安全页提交端点（ADR-0014）。**明文只在这里提交一次**：工具 `password_change`
+    // 只签一次性交接票据，密码永远不进模型上下文、不进 `tool/call.args`、不进会话日志。
+    // 走既有四道闸（限流 → 身份 401 → 角色 403 → CSRF 403），handler 不再自己判权。
+    methods: ['POST'],
+    path: '/api/secure/password',
+    kind: 'exact',
+    auth: 'web',
+    csrf: true,
+    // 400 = 新密码不合规 / 旧密码不对；404 = 票据未知或不属于本会话（不暴露存在性）；
+    // 409 = 票据已用 / 已过期；423 = 连续失败锁定中（与 HALT 同码：现在不许做）
+    statuses: [200, 400, 401, 403, 404, 409, 423],
+    handler: 'secure-password',
+    roles: ['customer'],
+    // 票据归属由核心按"会话绑定的银行用户"再核一次（`password-ticket-foreign`）
+    scope: 'self',
+    note: '安全页改密 `{ ticketId, oldPassword, newPassword }` → `{ ok, changedAt }`；**绝不回显**任何密码字段',
   },
   {
     methods: ['GET'],

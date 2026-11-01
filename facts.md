@@ -1,6 +1,6 @@
-﻿# BAH 事实表（演示材料的唯一数字来源）
+# BAH 事实表（演示材料的唯一数字来源）
 
-> 更新：2026-10-30（桌面端 01+02+03 收口：`channel:desktop` + `profiles/desktop`（`port:0`）+ `apps/desktop`（Electron 私有 host）；IM 网关 02 收口：通用网关 + 微信适配器 + 门禁 `verify-im-gateway`。门禁 52、注册表 28；用例数在全部支线合流后重测，见 `docs/facts-sources.md`）。任何 PPT / 视频 / 自评里的数字先查这里；
+> 更新：2026-11-01（05 单：AA 参与人状态机 + 到期收口，新增 `aa/participant-updated` 一个事件键，ADR-0017；工具仍 30 个、事件键 **38** 个。门禁 54；用例数按当前工作树实测，见 `docs/facts-sources.md`）。任何 PPT / 视频 / 自评里的数字先查这里；
 > 改代码后重跑对应命令再改本表。**不要把三行测试数相加成一个"总用例数"**。
 > 数字的取值命令与原始输出见 `docs/facts-sources.md`；门禁 `verify-facts` 逐项比对，不一致即红。
 > ⚠ 本表上一版停在 2026-10-24，被 W03–W17 甩在后面（门禁还写 27/27、工具还写 14 个、
@@ -10,17 +10,17 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **349 文件 / 4007 用例** |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **443 文件 / 5084 用例**（2026-11-01 全量实测，零红；较 442/5073 新增 `endpoints.contract.test.ts` 4 例与测试缺口补测 7 例） |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
-| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **30 文件 / 409 用例** |
+| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **47 文件 / 550 用例**（全绿；新增交接票预填 2 例） |
 
 其他口径：
 
 | 命令 | 结果 | 说明 |
 |---|---|---|
-| `pnpm gate` | **54/54** | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；**不需要** `BAH_ALLOW_NO_SNAPSHOT` |
+| `pnpm gate` | **54/54** 项已发现（本次 **54 全绿**） | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；D-03 收口后 `assertions` / `saga-wiring` / `snapshot-fresh` / `tracked-sources` 四项全部转绿 |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
-| `pnpm test:snapshot` | 11 文件 / 48 用例（48/48 绿） | 录制回放；`pnpm snapshot:record` 重录（新增 `snapshots/proactive` 场景） |
+| `pnpm test:snapshot` | 13 文件 / 60 用例（**60 全绿**） | 04 单新增 `birthday-reminder`（事实库驱动：3 天窗口 / 同日幂等 / 生日当天不重复 / 通知帧回放 / 负控 6 例）；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 用夹具 overlay 显式放行审批（ADR-0010 后 profile 是 `responder: none`），重录只写快照产物，未改生产 profile |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
 | `pnpm test:coverage:all` | **行口径 89.87%**（49571/55161）/ **包口径 16/18** | 两个口径必须一起说；未达 80% 的是 `memory-store` 72.68% 与 `eval` 46.93%（均为评测/记忆 harness 面，见台账注记） |
 评测平面（`pnpm eval`）：
@@ -31,37 +31,48 @@
 | 任务成功率 / 越权拦截率 / 拒答正确率 | 78/78 · 6/6 · 7/7，平均 1.44 步 |
 | 对抗集 | 45 例（分母 44，排除 1 例 `[unverified]` 来源），总拦截 42/44；注入 14/14、越权 15/15、幻觉 13/15 |
 
-## 2. 工具：21 个（13 绿 / 5 黄 / 3 红）
+## 2. 工具：30 个（14 绿 / 10 黄 / 6 红）
 
 > 口径注脚：`goal_set` / `todo_write`（04 单）与 `intent_resolve` / `prompt_ask`（03 单）是
-> **runtime / interaction 内置绿级工具**，不在"银行工具目录 21 个"里——工具目录由
+> **runtime / interaction 内置绿级工具**，不在"银行工具目录 30 个"里——工具目录由
 > `pnpm tool-catalog` 生成、门禁逐字比对，本套单一个银行工具都没加（D9）。
 
 | # | 工具 | 级别 | 职责 |
 |---|---|---|---|
-| 1 | `account_list` | green | 列出账户与卡片（账户尾号/类型/余额；卡 ID/尾号/状态/限额） |
+| 1 | `account_list` | green | 列出账户与卡片（账户尾号/类型/余额；卡 ID/尾号/状态/限额；信用产品另有额度/已用/可用） |
 | 2 | `account_balance` | green | 查账户余额与可用余额 |
 | 3 | `txn_query` | green | 按时间/分类/方向分页查流水 |
-| 4 | `bill_analyze` | green | 月度/季度汇总、分类占比、环比、异常 |
+| 4 | `bill_analyze` | green | 月度/季度/年度汇总、分类占比、环比、异常 |
 | 5 | `bill_report` | green | 生成可读账单报告 |
 | 6 | `analysis_calc` | green | 受限算术语言（无网络/文件/循环） |
 | 7 | `transfer_preview` | green | 转账试算 + 风控预检 |
 | 8 | `transfer_create` | **yellow** | 发起转账，必进审批；超限/新收款人升红 |
-| 9 | `wealth_list` | green | 按风险/类型/期限筛理财 |
-| 10 | `wealth_compare` | green | 2–4 个产品并列对比 |
-| 11 | `wealth_purchase` | **red** | 购买理财：适当性闸门 + 强验证 + 审批 |
-| 12 | `verify_face` | green | 人脸挑战 |
-| 13 | `verify_sms` | green | 短信挑战 |
-| 14 | `verify_ushield` | green | U 盾挑战 |
-| 15 | `card_report_lost` | **red** | 挂失银行卡（不可逆，必进审批 + 强验证） |
-| 16 | `sub_cancel` | **yellow** | 取消自动扣款订阅（可逆；合约期硬拦，支持到期即断） |
-| 17 | `sub_list` | green | 订阅清单 + 周期扣款检测（三分法/涨价/断供核验；推断不落账） |
-| 18 | `sub_watch` | **yellow** | 订阅提醒/标注（写事实账本字段，绿档会豁免四道闸所以归黄） |
-| 19 | `sub_authorize` | **yellow** | 关闭商户代扣协议（只关不开，影响该商户全部订阅） |
+| 9 | `aa_create` | **yellow** | AA 拆分收款请求（均分/自定义份额；`decline` 拒绝 / `close` 提前结束；不伪造到账） |
+| 10 | `wealth_list` | green | 按风险/类型/期限筛理财 |
+| 11 | `wealth_compare` | green | 2–4 个产品并列对比 |
+| 12 | `wealth_purchase` | **red** | 购买理财：适当性闸门 + 强验证 + 审批 |
+| 13 | `risk_assess` | **yellow**（`action=questions` 只读豁免） | 服务端问卷：取卷 / 提交用户逐题作答；卷 15 分钟有效、一次性核销，题干与分值不进模型 |
+| 14 | `wealth_positions` | green | 持仓/成本/市值/盈亏 |
+| 15 | `wealth_redeem` | **red** | 赎回理财：强验证 + 审批 |
+| 16 | `verify_face` | green | 人脸挑战 |
+| 17 | `verify_sms` | green | 短信挑战 |
+| 18 | `verify_ushield` | green | U 盾挑战 |
+| 19 | `card_report_lost` | **red** | 挂失银行卡（不可逆，必进审批 + 强验证） |
+| 20 | `fund_lock` | **yellow**（`action=status` 只读豁免） | 资金锁定/释放（活期 ↔ 本人锁定户；`status` 只读不签票） |
+| 21 | `sub_cancel` | **yellow** | 取消自动扣款订阅（可逆；合约期硬拦，支持到期即断） |
+| 22 | `sub_list` | green | 订阅清单 + 周期扣款检测（三分法/涨价/断供核验；推断不落账） |
+| 23 | `sub_watch` | **yellow** | 订阅提醒/标注（写事实账本字段，绿档会豁免四道闸所以归黄） |
+| 24 | `sub_authorize` | **yellow** | 关闭商户代扣协议（只关不开，影响该商户全部订阅） |
+| 25 | `card_freeze` | **yellow** | 冻结银行卡（可逆止损） |
+| 26 | `card_unfreeze` | **red** | 解冻银行卡（强验证 + 审批） |
+| 27 | `card_apply` | **yellow** | 申请新卡（虚拟卡缺省）；`kind='credit'` 时给授信额度（信用产品，ADR-0015） |
+| 28 | `card_limit_set` | **red** | 调整日/月限额或**授信额度**（降额不得低于已用；强验证 + 审批） |
+| 29 | `card_restriction` | **yellow** | 设置/解除交易限制（线上/境外/品类） |
+| 30 | `password_change` | **red**（`action=status` 只读豁免） | 交易密码交办：签一次性交接票据送安全页（ADR-0014）；参数里**没有**密码字段 |
 
 口径：
 
-- 上限 28，当前 21（`docs/tool-catalog.md` 由 `pnpm tool-catalog` 生成，门禁逐字比对）。
+- 上限 31（2026-11-01 由 30 扩容，同批落地 `password_change`），当前 30（`docs/tool-catalog.md` 由 `pnpm tool-catalog` 生成，门禁逐字比对）。
 - `verify_*` 虽为 green，但 `sideEffect: write`，不参与并行读批。
 - 模型参数金额单位是**元**，核心与事件是**分**（字段带 `Cents`）。
 

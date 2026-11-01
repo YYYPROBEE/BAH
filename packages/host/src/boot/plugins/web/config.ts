@@ -65,7 +65,14 @@ export const DEFAULT_WEB: WebSettings = {
   rateLimit: { windowMs: 60_000, maxRequests: 120 },
   csrf: { enabled: true },
   entry: 'index.html',
-  entries: ['index.html'],
+  /**
+   * token / CSRF 注入白名单（**按绝对路径精确等值**判定）。
+   *
+   * `password.html` 是 ADR-0014 的安全页：它必须拿到 CSRF cookie（password 模式）或
+   * Web token（static 模式），否则表单提交永远 403/401。它也**只能**渲染两个密码输入框，
+   * 不承载任何会话数据——这一点由 `verify-web` 的入口页清单与代码评审共同保证。
+   */
+  entries: ['index.html', 'password.html'],
   handoff: { slaMs: 180_000 },
   auth: DEFAULT_AUTH,
 }

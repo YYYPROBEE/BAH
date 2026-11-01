@@ -55,7 +55,7 @@ export const RATE_GLOBAL_LIMIT = 200
 export const RATE_GLOBAL_WINDOW_MS = 60_000
 
 /** 用户可见的文案（网关只说人话，不暴露 errcode / 内部码）。 */
-export const ACK_TEXT = '已收到，正在处理…（回复 0 获取最新结果）'
+export const ACK_TEXT = '已收到，正在处理…（回复 0 获取最新结果；银行不会索要密码/验证码）'
 export const BUSY_TEXT = '当前咨询人数较多，请稍后再试'
 export const RATE_LIMITED_TEXT = '操作太频繁，请稍后再试'
 export const QUEUE_FULL_TEXT = '请等上一条处理完再发'

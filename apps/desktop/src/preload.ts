@@ -10,8 +10,9 @@
  *
  * 判据落在**产物**上（门禁 G2 检查 `dist/preload.cjs` 存在且不是 ESM），不落在源文件后缀上。
  *
- * 暴露面只有四个方法，**不暴露** `ipcRenderer` / `require` / `process`：
+ * 暴露面只有五个方法，**不暴露** `ipcRenderer` / `require` / `process`：
  * 一旦把 `ipcRenderer` 交出去，页面就能对任意通道发消息（等于把主进程的 IPC 面全部开放）。
+ * `newConversation` 是零载荷生命周期动作（重启进程 = 新会话），不接受页面参数。
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
@@ -69,6 +70,11 @@ const api = {
 
   /** 上报"首屏完成"（幂等；`DOMContentLoaded` 已自动调用一次）。 */
   sendReady,
+
+  /** 请求开始新对话（重启桌面进程；零载荷，不接受页面传入的会话/身份）。 */
+  newConversation(): void {
+    ipcRenderer.send(IPC.newConversation)
+  },
 } as const
 
 contextBridge.exposeInMainWorld('bahDesktop', api)

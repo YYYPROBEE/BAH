@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { asSessionId, asTicketId, captureThrown } from '@bah/test-support'
+import { asSessionId, asTicketId, captureRejection, captureThrown } from '@bah/test-support'
 
 import { buildBankDataset, DEFAULT_LIMITS, DEMO_NOW, type BankDataset } from '../forge/index.ts'
 import { MockBankCore } from './mock.ts'
@@ -302,6 +302,17 @@ describe('createTransfer 的校验顺序（全部在核销之前）', () => {
     const byName = await core.previewTransfer(transfer({ amountCents: 1_000, name: '王建国' }))
     expect(byName.payee.binding).toBe('whitelist')
   })
+
+  it('11 位手机号命中联系人库：预览返回联系人姓名，不按新收款人处理', async () => {
+    const core = setup()
+    const byPhone = await core.previewTransfer(transfer({ amountCents: 1_000, name: '13900002222' }))
+    expect(byPhone.payee).toMatchObject({
+      name: '王建国',
+      phone: '13900002222',
+      binding: 'whitelist',
+      payeeId: bankIds.payee('p-1'),
+    })
+  })
 })
 
 /* ── 理财购买 ─────────────────────────────────────────────────────────────── */
@@ -371,6 +382,140 @@ describe('purchaseWealth（写操作同样过票据）', () => {
     )
     expect(error.code).toBe('account-inactive')
     expect(core.tickets.status(ref.ticketId)).toBe('approved')
+  })
+})
+
+/* ── 理财赎回 / 风险测评 ─────────────────────────────────────────────────── */
+
+describe('redeemWealth / assessRisk（场景 3 补齐）', () => {
+  it('全额赎回：持仓移除、余额增加、流水入账、票据核销', async () => {
+    const core = setup()
+    const ref = ticket(core, { tool: 'redeem_wealth', amountCents: 50_800 })
+    const before = await core.balance(ACCOUNT)
+    const holding = (await core.listHoldings(USER))[0]!
+    expect(holding.marketValueCents).toBe(50_800)
+
+    const result = await core.redeemWealth(
+      { userId: USER, holdingId: holding.id, amountCents: 50_800 },
+      ref,
+    )
+    expect(result).toMatchObject({
+      holdingId: holding.id,
+      productId: bankIds.product('w-1'),
+      amountCents: 50_800,
+      shares: 508,
+    })
+    expect((await core.listHoldings(USER))).toEqual([])
+    expect((await core.balance(ACCOUNT)).balanceCents).toBe(before.balanceCents + 50_800)
+    expect(core.tickets.status(ref.ticketId)).toBe('redeemed')
+    const txn = (await core.queryTransactions({ userId: USER, category: 'wealth' })).items.find(
+      (item) => item.id === result.txnId,
+    )
+    expect(txn).toMatchObject({ direction: 'in', amountCents: 50_800, status: 'success' })
+  })
+
+  it('部分赎回：份额/成本/市值按比例保留', async () => {
+    const core = setup()
+    const holding = (await core.listHoldings(USER))[0]!
+    const result = await core.redeemWealth(
+      { userId: USER, holdingId: holding.id, amountCents: 25_400 },
+      ticket(core, { tool: 'redeem_wealth', amountCents: 25_400 }),
+    )
+    expect(result.amountCents).toBe(25_400)
+    const remaining = (await core.listHoldings(USER))[0]!
+    expect(remaining).toMatchObject({
+      shares: 250,
+      costCents: 25_000,
+      marketValueCents: 25_400,
+      profitCents: 400,
+    })
+  })
+
+  it('未知持仓 / 超市值 / 非正整数金额 → 结构化拒绝', async () => {
+    const core = setup()
+    expect(
+      (
+        await rejection(() =>
+          core.redeemWealth(
+            { userId: USER, holdingId: bankIds.holding('h-missing') },
+            ticket(core),
+          ),
+        )
+      ).code,
+    ).toBe('holding-unknown')
+
+    const holding = (await core.listHoldings(USER))[0]!
+    expect(
+      (
+        await rejection(() =>
+          core.redeemWealth(
+            { userId: USER, holdingId: holding.id, amountCents: 50_801 },
+            ticket(core, { amountCents: 50_801 }),
+          ),
+        )
+      ).code,
+    ).toBe('holding-amount-invalid')
+    expect(
+      (
+        await rejection(() =>
+          core.redeemWealth(
+            { userId: USER, holdingId: holding.id, amountCents: 0 },
+            ticket(core, { amountCents: 1 }),
+          ),
+        )
+      ).code,
+    ).toBe('holding-amount-invalid')
+  })
+
+  it('风险测评：服务端发卷 + 用户逐题作答 → 更新客户等级；非法卷/答案拒绝', async () => {
+    const core = setup()
+    const before = await core.getUser(USER)
+    const questionnaire = await core.issueRiskQuestions(USER)
+    // 5 题全选最激进 → 25 分 → R5（分值来自服务端常量表，不由调用方给分）
+    const answers = questionnaire.questions.map((question) => ({
+      index: question.index,
+      key: 'aggressive' as const,
+    }))
+    const result = await core.assessRisk({
+      userId: USER,
+      questionnaireId: questionnaire.id,
+      answers,
+    })
+    expect(result).toMatchObject({ score: 25, from: before?.riskGrade, to: 'R5' })
+    expect((await core.getUser(USER))?.riskGrade).toBe('R5')
+
+    // 一次性凭证：同一张卷不能再提交一次（否则同一份"用户确认"可以被重放）
+    expect(
+      (
+        await rejection(() =>
+          core.assessRisk({ userId: USER, questionnaireId: questionnaire.id, answers }),
+        )
+      ).code,
+    ).toBe('risk-questionnaire-unknown')
+
+    const second = await core.issueRiskQuestions(USER)
+    expect(
+      (
+        await rejection(() =>
+          core.assessRisk({
+            userId: USER,
+            questionnaireId: second.id,
+            answers: [{ index: 1, key: 'middle' }],
+          }),
+        )
+      ).code,
+    ).toBe('risk-questionnaire-incomplete')
+    expect(
+      (
+        await rejection(() =>
+          core.assessRisk({
+            userId: USER,
+            questionnaireId: second.id,
+            answers: second.questions.map((question) => ({ index: question.index, key: 'radical' })),
+          }),
+        )
+      ).code,
+    ).toBe('risk-questionnaire-option-invalid')
   })
 })
 
@@ -759,11 +904,34 @@ describe('内部划转：本人账户命中与方向约束', () => {
     expect(preview.risks.some((risk) => risk.code === 'new-payee')).toBe(false)
   })
 
-  it('锁定账户作转出方 → transfer-locked-source（票据未核销）', async () => {
+  it('锁定账户 → 本人活期 = 释放（earmark 回收），票据核销、双流水', async () => {
+    const core = setup()
+    const ref = ticket(core, { amountCents: 50_000 })
+    const beforeLocked = await core.balance(LOCKED)
+    const beforeCurrent = await core.balance(ACCOUNT)
+    const result = await core.createTransfer(
+      {
+        ...selfTransfer(),
+        fromAccountId: LOCKED,
+        payee: { name: '活期账户(1234)' },
+        amountCents: 50_000,
+      },
+      ref,
+    )
+    expect(result.amountCents).toBe(50_000)
+    expect((await core.balance(LOCKED)).balanceCents).toBe(beforeLocked.balanceCents - 50_000)
+    expect((await core.balance(ACCOUNT)).balanceCents).toBe(beforeCurrent.balanceCents + 50_000)
+    expect(core.tickets.status(ref.ticketId)).toBe('redeemed')
+  })
+
+  it('锁定账户对外转出仍拒 → transfer-locked-source（票据未核销）', async () => {
     const core = setup()
     const ref = ticket(core)
     const error = await captureThrownAsync(() =>
-      core.createTransfer({ ...selfTransfer(), fromAccountId: LOCKED, payee: { name: '活期账户(1234)' } }, ref),
+      core.createTransfer(
+        { ...selfTransfer(), fromAccountId: LOCKED, payee: { name: '王建国' } },
+        ref,
+      ),
     )
     expect(error.code).toBe('transfer-locked-source')
     expect(core.tickets.status(ref.ticketId)).toBe('approved')
@@ -1204,5 +1372,172 @@ describe('卡片冻结 / 解冻（core）', () => {
         }),
       )).code,
     ).toBe('card-not-owned')
+  })
+})
+
+/* ── 信用额度（ADR-0015 · 02 单：额度必须真的约束支付） ───────────────────── */
+
+const CARD_3 = bankIds.card('c-3')
+
+/** 一次卡消费（商户报价是分；`merchantCategory` 用 shopping 避开品类限制噪声）。 */
+function spend(
+  amountCents: number,
+  cardId: Parameters<MockBankCore['spendOnCard']>[0]['cardId'] = CARD_3,
+): Parameters<MockBankCore['spendOnCard']>[0] {
+  return { userId: USER, cardId, merchantCategory: 'shopping', amountCents }
+}
+
+describe('授信额度：申请与额度调整的硬约束', () => {
+  it('信用卡不给额度 / 借记卡给额度 / 0 额度 → 各自的结构化拒绝', async () => {
+    const core = setup()
+    expect((await captureRejection(() => core.applyCard({ userId: USER, kind: 'credit' }))).code).toBe(
+      'credit-limit-required',
+    )
+    expect(
+      (await captureRejection(() =>
+        core.applyCard({ userId: USER, kind: 'debit', creditLimitCents: 500_000 }),
+      )).code,
+    ).toBe('credit-not-applicable')
+    expect(
+      (await captureRejection(() =>
+        core.applyCard({ userId: USER, kind: 'credit', creditLimitCents: 0 }),
+      )).code,
+    ).toBe('credit-limit-invalid')
+  })
+
+  it('信用卡的日/月限额缺省 = 授信额度；显式给限额时按给的来', async () => {
+    const core = setup()
+    const issued = await core.applyCard({ userId: USER, kind: 'credit', creditLimitCents: 300_000 })
+    expect(issued).toMatchObject({
+      kind: 'credit',
+      creditLimitCents: 300_000,
+      usedCreditCents: 0,
+      dailyLimitCents: 300_000,
+      monthlyLimitCents: 300_000,
+    })
+
+    const explicit = await core.applyCard({
+      userId: USER,
+      kind: 'credit',
+      creditLimitCents: 300_000,
+      dailyLimitCents: 100_000,
+      monthlyLimitCents: 900_000,
+    })
+    expect(explicit).toMatchObject({ dailyLimitCents: 100_000, monthlyLimitCents: 900_000 })
+  })
+
+  it('借记卡的授信额度：申请与调整都拒（不把交易限额冒充授信额度）', async () => {
+    const core = setup()
+    expect(
+      (await captureRejection(() =>
+        core.setCardLimits(USER, bankIds.card('c-1'), { creditLimitCents: 900_000 }),
+      )).code,
+    ).toBe('credit-not-applicable')
+    // 三项一项都没给：仍然报"至少给一项"（错误码不变）
+    expect(
+      (await captureRejection(() => core.setCardLimits(USER, bankIds.card('c-1'), {}))).code,
+    ).toBe('card-limit-invalid')
+  })
+})
+
+describe('授信额度：支付时真的生效（ADR-0015 §2.3）', () => {
+  it('刷 1200 元成功并占用额度；再刷 4000 元 → credit-limit-exceeded，已用额度一分不动', async () => {
+    const core = setup()
+    const first = await core.spendOnCard(spend(120_000))
+    expect(first.amountCents).toBe(120_000)
+    expect((await core.listCards(USER)).find((card) => card.id === CARD_3)?.usedCreditCents).toBe(
+      120_000,
+    )
+
+    const balanceBefore = await core.balance(ACCOUNT)
+    const error = await captureRejection(() => core.spendOnCard(spend(400_000)))
+    expect(error.code).toBe('credit-limit-exceeded')
+    // detail 三件套：额度 / 已用 / 本笔需要多少（可读文案另说，detail 是机器口径）
+    expect(error.detail).toMatchObject({
+      creditLimitCents: 500_000,
+      usedCreditCents: 120_000,
+      neededCents: 400_000,
+    })
+    expect(error.message).toContain('已用 ¥1,200.00')
+    expect(error.message).toContain('可用 ¥3,800.00')
+
+    // 失败不占用、不记账（"扣了钱才发现超额度"是不允许的）
+    expect((await core.listCards(USER)).find((card) => card.id === CARD_3)?.usedCreditCents).toBe(
+      120_000,
+    )
+    expect(await core.balance(ACCOUNT)).toEqual(balanceBefore)
+  })
+
+  it('边界：正好用满授信额度通过；多 1 分就拒（判定是 ≤ 不是 <）', async () => {
+    const core = setup()
+    await core.spendOnCard(spend(120_000))
+    await core.spendOnCard(spend(380_000)) // 1200 + 3800 = 5000 = 额度
+    expect((await core.listCards(USER)).find((card) => card.id === CARD_3)?.usedCreditCents).toBe(
+      500_000,
+    )
+    expect((await captureRejection(() => core.spendOnCard(spend(1)))).code).toBe(
+      'credit-limit-exceeded',
+    )
+  })
+
+  it('降额不得低于已用：调 3000 成功，调 1000 失败（credit-in-use 说清已用多少）', async () => {
+    const core = setup()
+    await core.spendOnCard(spend(120_000))
+
+    const changed = await core.setCardLimits(USER, CARD_3, { creditLimitCents: 300_000 })
+    expect(changed).toMatchObject({
+      kind: 'credit',
+      creditLimitCents: 300_000,
+      usedCreditCents: 120_000,
+      changed: true,
+    })
+    // 额度调低不改日/月交易限额（两者语义不同，改一项不动另一项）
+    expect(changed.dailyLimitCents).toBe(500_000)
+
+    const error = await captureRejection(() =>
+      core.setCardLimits(USER, CARD_3, { creditLimitCents: 100_000 }),
+    )
+    expect(error.code).toBe('credit-in-use')
+    expect(error.detail).toMatchObject({
+      creditLimitCents: 100_000,
+      usedCreditCents: 120_000,
+      minimumCents: 120_000,
+    })
+    // 拒绝后额度不变（不是"先改再回滚"）
+    expect((await core.listCards(USER)).find((card) => card.id === CARD_3)?.creditLimitCents).toBe(
+      300_000,
+    )
+  })
+
+  it('已用额度是账本事实：幂等重放不重复占用，返回值是副本', async () => {
+    const core = setup()
+    const req = { ...spend(120_000), idempotencyKey: 'idem-1' }
+    const first = await core.spendOnCard(req)
+    const replay = await core.spendOnCard(req)
+    expect(replay.txnId).toBe(first.txnId)
+    expect((await core.listCards(USER)).find((card) => card.id === CARD_3)?.usedCreditCents).toBe(
+      120_000,
+    )
+
+    const cards = await core.listCards(USER)
+    const mutable = cards.find((card) => card.id === CARD_3) as unknown as {
+      usedCreditCents: number
+    }
+    mutable.usedCreditCents = 0
+    expect((await core.listCards(USER)).find((card) => card.id === CARD_3)?.usedCreditCents).toBe(
+      120_000,
+    )
+  })
+
+  it('借记卡零回归：没有 kind 的卡不判授信额度，仍走原来的日/月限额路径', async () => {
+    const core = setup()
+    // c-1：日限 1,000 元。刷 1,200 元被**日限额**拒（错误码必须还是原来那个）
+    expect((await captureRejection(() => core.spendOnCard(spend(120_000, bankIds.card('c-1'))))).code).toBe(
+      'card-daily-limit-exceeded',
+    )
+    // 1,000 元整正好用满日限：与改动前同语义
+    const ok = await core.spendOnCard(spend(100_000, bankIds.card('c-1')))
+    expect(ok.amountCents).toBe(100_000)
+    expect((await core.listCards(USER)).find((card) => card.id === bankIds.card('c-1'))?.usedCreditCents).toBeUndefined()
   })
 })

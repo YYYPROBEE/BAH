@@ -22,6 +22,7 @@ import { join, resolve } from 'node:path'
 
 import { WebProjector, type ChannelId, type HttpChannelAdapter } from '@bah/channels'
 import { describeThrown, type Context, type ServiceKey } from '@bah/core'
+import { PASSWORD_HANDOFF } from '@bah/bank'
 import { APPROVAL_SERVICE } from '@bah/interaction'
 import { HALT_SERVICE, SENTRY_SERVICE } from '@bah/safety'
 import { AGENTS_SERVICE, SESSION_SERVICE, TOOLS_SERVICE, type Agent, type AnySessionEvent } from '@bah/runtime'
@@ -184,6 +185,8 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
     tryAudit: () => tryService(ctx, DECISION_AUDIT),
     tryTelemetry: () => tryService(ctx, TELEMETRY),
     trySlo: sloReader(ctx),
+    // 交易密码安全页端口（ADR-0014）：没装 `bank:tools` 的 profile 取不到 ⇒ 端点回 501
+    tryPassword: () => tryService(ctx, PASSWORD_HANDOFF),
     staticRoot,
     // 施工单 01 / 00 D3：`/` 的落点与 token 白名单都由配置驱动（绝对路径精确等值）
     defaultEntry: join(staticRoot, config.entry),

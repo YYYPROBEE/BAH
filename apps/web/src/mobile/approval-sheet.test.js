@@ -125,7 +125,7 @@ describe('底部抽屉审批', () => {
     expect(q('sheet').dataset.name).toBe('transfer_create')
   })
 
-  it('TC-MOB-01 amountConfirmed=false ⇒ 金额挂"待核实"警告标签（审批帧恒为 false 是口径不是漏推导）', () => {
+  it('TC-MOB-01 amountConfirmed=false ⇒ 金额挂"待核实"警告标签（无预演时的降级口径）', () => {
     mount()
     const pending = host.querySelector('.field__pending')
 
@@ -133,6 +133,18 @@ describe('底部抽屉审批', () => {
     expect(pending.textContent).toBe('待核实')
     expect(pending.classList.contains('ds-tag--warning')).toBe(true)
     expect(host.querySelector('[data-label="金额"] .field__value').classList.contains('field__value--unconfirmed')).toBe(true)
+  })
+
+  it('TC-MOB-01 非金额操作不渲染金额行与收款人行（两者缺省）', () => {
+    mount(approvalFrame({
+      name: 'card_freeze',
+      operation: '冻结银行卡',
+      amountText: undefined,
+      payeeName: undefined,
+    }))
+    expect(host.querySelector('[data-label="金额"]')).toBeNull()
+    expect(host.querySelector('[data-label="收款人"]')).toBeNull()
+    expect(host.querySelector('.field__pending')).toBeNull()
   })
 
   it('TC-MOB-01 可选字段缺席时不渲染空行（payeePhone/feeText 为 undefined）', () => {

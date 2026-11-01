@@ -157,11 +157,17 @@ export class ApprovalService {
     }
 
     // 默认拒绝：没有应答者就没有「等满 TTL 再拒」的意义
-    if (this.responders.size === 0) {
+    //
+    // `accepts()` 用来排除"注册了但不认领这类票据"的渠道（如只签窗口票据的
+    // 窗口代签者）：它们不认领就等于不存在，不能把立即拒绝拖成 120s 假等待。
+    const eligible = [...this.responders.values()].filter(
+      (responder) => responder.accepts?.(input) ?? true,
+    )
+    if (eligible.length === 0) {
       return this.settleNow(input, { decision: 'unavailable', reason: 'approval-no-responder' }, 'no-responder')
     }
 
-    return this.arbitrate(input, issued)
+    return this.arbitrate(input, issued, eligible)
   }
 
   /**
@@ -178,6 +184,7 @@ export class ApprovalService {
   private arbitrate<T extends ApprovalInputLike>(
     input: T,
     challenge: ChallengeView | undefined,
+    responders: readonly ApprovalResponder[],
   ): Promise<T> {
     return new Promise<T>((resolve) => {
       const startedAt = this.now()
@@ -198,7 +205,13 @@ export class ApprovalService {
           by,
           waitedMs: this.now() - startedAt,
         })
-        resolve({ ...input, decision: answer })
+        resolve({
+          ...input,
+          decision: answer,
+          // ADR-0010：窗口代签必须留下"谁签的"。人工票据不写这个字段——
+          // 人工签署人由渠道自己记，多一个字段只会让历史日志与快照全部抖动。
+          ...(input.authorization?.kind === 'window' ? { by } : {}),
+        })
         return true
       }
 
@@ -259,7 +272,7 @@ export class ApprovalService {
         return { accepted: true }
       }
 
-      for (const responder of [...this.responders.values()]) {
+      for (const responder of responders) {
         const view = this.viewFor(responder, input, challenge, controller.signal, answer)
         try {
           const attached = responder.attach(view)
@@ -300,6 +313,8 @@ export class ApprovalService {
       name: input.name,
       summary: input.summary,
       ...(challenge === undefined ? {} : { challenge }),
+      // 授权来源必须**原样**进视图：窗口应答者只认 kind==='window'（ADR-0010）
+      ...(input.authorization === undefined ? {} : { authorization: input.authorization }),
       signal,
       answer: (reply) => answer(responder.id, reply),
     }

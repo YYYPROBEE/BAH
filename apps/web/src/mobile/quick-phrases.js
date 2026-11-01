@@ -40,7 +40,7 @@ export function createQuickPhrases(host, opts) {
         class: 'm-chip',
         type: 'button',
         dataset: { role: 'chip', intent: item.intent ?? '' },
-      }, [icon('chat', 16), el('span', { text: item.text })])
+      }, [icon('message', 16), el('span', { text: item.text })])
       chip.addEventListener('click', () => opts.onPick(item.text))
       row.append(chip)
     }

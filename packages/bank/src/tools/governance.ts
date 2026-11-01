@@ -14,14 +14,16 @@
 
 import { BahError, assertNever, errorCodeOf, logJson, reasonOf } from '@bah/util'
 
-import type { Context, SessionId, TicketAuthorization, TicketDraft, TicketId, ToolTierLevel } from '@bah/core'
+import type { Context, SessionId, TicketAuthorization, TicketDetail, TicketDraft, TicketId, ToolTierLevel } from '@bah/core'
 import type { BankTierInput } from '@bah/policy'
 import type { PolicyDecision, PolicyEngine } from '@bah/runtime'
 
 import type { TransferPreview } from '../core/provider.ts'
+import type { AaGroupId } from '../core/model.ts'
 import { bankIds, checkSuitability, yuanToCents } from '../core/index.ts'
 import { requireAccount } from './accounts.ts'
-import { readString } from './args.ts'
+import { detailsForCall } from './approval-details.ts'
+import { readNumber, readOptionalString, readString } from './args.ts'
 import { fingerprintOf } from './fingerprint.ts'
 import { assertExecutableNow, parsePurchaseAmount, parseTransferInput } from './inputs.ts'
 import {
@@ -34,7 +36,7 @@ import {
   type PolicyEvidence,
 } from './policy.ts'
 import { BANK_TOOL_NAME_SET, specOf, type BankToolName, type BankToolSpec } from './specs.ts'
-import { decide, isRiskyOp, TIER_REASONS, type TierConfig, type TierDecision, type TierReason } from './tier.ts'
+import { decide, isReadOnlyAction, isRiskyOp, TIER_REASONS, type TierConfig, type TierDecision, type TierReason } from './tier.ts'
 import type { BankToolDeps } from './types.ts'
 import { clockOf } from './types.ts'
 import type { BankSessionEventMap } from './events.ts'
@@ -605,7 +607,36 @@ async function evaluateCall(args: EvaluateArgs): Promise<DecisionAudit> {
     amountCents = checked.amountCents
   }
 
+  if (spec.name === 'wealth_redeem') {
+    const checked = await checkWealthRedeem(deps, call, userId)
+    if ('deny' in checked) return early(checked.deny, spec.tier.level)
+    amountCents = checked.amountCents
+  }
+
+  // B-05：代收的票据金额 = **该参与人的份额**。不先算出来，审批卡上就只剩一个
+  // 没有金额的"执行 aa_create"，用户批准的东西和真正入账的金额对不上。
+  // 这里只做只读预览（`getAa`）；执行期的完整五道校验仍在 core。
+  //
+  // ADR-0017：`decline` 走同一套定位校验（票面金额为 0，它不动钱）；
+  // `close` 只校验组存在且仍在收款，不挑参与人。
+  const aaAction = call.args['action']
+  if (spec.name === 'aa_create' && (aaAction === 'collect' || aaAction === 'decline')) {
+    const checked = await checkAaParticipant(deps, call, userId, aaAction)
+    if ('deny' in checked) return early(checked.deny, spec.tier.level)
+    amountCents = checked.amountCents
+  }
+  if (spec.name === 'aa_create' && aaAction === 'close') {
+    const checked = await checkAaClose(deps, call, userId)
+    if ('deny' in checked) return early(checked.deny, spec.tier.level)
+  }
+
   const verifyLocked = deps.verify.isLocked(sessionId)
+  /**
+   * 只读动作（`READ_ONLY_ACTIONS` 封闭表）：`risk_assess(action="questions")` 取问卷
+   * 不写库，因此既不问策略、也不签票据。判定本身仍在 `tier.ts`——这里只把事实传下去，
+   * **不在治理面另写一遍"哪些 action 是只读"**。
+   */
+  const readOnlyAction = isReadOnlyAction(spec.name, call.args)
 
   // 第 3 步：生效上限。数据只能**收紧** Config——`min` 的方向不可交换。
   const dailyLimitCents =
@@ -623,7 +654,7 @@ async function evaluateCall(args: EvaluateArgs): Promise<DecisionAudit> {
   let policyVersion = args.activeVersion()
   let ruleIds: readonly string[] = []
 
-  if (spec.tier.level !== 'green') {
+  if (spec.tier.level !== 'green' && !readOnlyAction) {
     const engine = args.lookupPolicy()
     if (engine === undefined) {
       // 运行期兜底：启动期本应 `policy-service-missing`（I15 的"没有静默回退"）。
@@ -719,6 +750,7 @@ async function evaluateCall(args: EvaluateArgs): Promise<DecisionAudit> {
       config,
       state: { userId, riskyCallsInTurn, verifyLocked },
       ...(preview === undefined ? {} : { preview }),
+      ...(readOnlyAction ? { readOnlyAction: true } : {}),
     },
     escalation,
   )
@@ -747,7 +779,17 @@ async function evaluateCall(args: EvaluateArgs): Promise<DecisionAudit> {
   switch (decision.kind) {
     case 'allow':
       return { verdict: { kind: 'allow' }, ...auditOf(decision.level, decision.reason) }
-    case 'ask':
+    case 'ask': {
+      /**
+       * 审批明细：只在**真要签发**的分支构造（allow/deny 不读账本，省一次往返）。
+       *
+       * `detailsForCall` 自带"不抛错"契约；这里再兜一层 `catch` 是因为它站在
+       * 安全边界上——明细构造失败必须降级成"没有明细"，不是"审批发不出去"。
+       * 传 `preview`：transfer_create 的试算上面已经算过，不重复读账本。
+       */
+      const details = await detailsForCall(deps, userId, spec, call.args, {
+        ...(preview === undefined ? {} : { preview }),
+      }).catch(() => [])
       return {
         verdict: {
           kind: 'ask',
@@ -755,11 +797,13 @@ async function evaluateCall(args: EvaluateArgs): Promise<DecisionAudit> {
             fingerprint: fingerprintOf(call.name, call.args),
             amount: amountCents / 100,
             ttlMs: deps.config.ticketTtlSeconds * 1000,
+            ...(details.length === 0 ? {} : { details }),
           },
           ...(decision.challenge ? { challenge: deps.config.redChallenge } : {}),
         },
         ...auditOf(decision.level, decision.reason),
       }
+    }
     case 'deny':
       return {
         verdict: { kind: 'deny', code: decision.code, reason: decision.reason },
@@ -859,8 +903,179 @@ async function transferPreview(
 }
 
 /**
- * 理财购买预检：产品存在性 / 起投额 / **适当性**（任一不满足直接拒绝，不签票据）。
+ * AA 参与人动作的票前预览（B-05 / ADR-0017）：只读定位参与人。
  *
+ * 与 core 的 `collectAa` / `declineAa` 同一套定位规则（序号 `"0"…"9"` / 姓名精确、
+ * 同名多位歧义）；这里**只做金额预览**，不写库。执行期 core 会按完整顺序再校一遍——
+ * 预览与执行分开是既有模式（transfer preview 同样先算一次）。
+ *
+ * `decline` 的票面金额是 0：拒绝不产生入账，审批卡不该显示一个会被"收"的金额。
+ */
+async function checkAaParticipant(
+  deps: BankToolDeps,
+  call: ToolCallLike,
+  userId: string,
+  action: 'collect' | 'decline',
+): Promise<{ readonly amountCents: number } | { readonly deny: DenyVerdict }> {
+  try {
+    const groupId = readOptionalString(call.args, 'groupId', 'aa_create')
+    if (groupId === undefined) {
+      return {
+        deny: {
+          kind: 'deny',
+          code: 'tool-args-invalid',
+          reason: `aa_create.${action} 需要 groupId`,
+        },
+      }
+    }
+    const raw = readOptionalString(call.args, 'participant', 'aa_create')
+    if (raw === undefined) {
+      return {
+        deny: {
+          kind: 'deny',
+          code: 'tool-args-invalid',
+          reason: `aa_create.${action} 需要 participant（姓名或序号）`,
+        },
+      }
+    }
+    const group = await deps.core.getAa(bankIds.user(userId), groupId as AaGroupId)
+    if (group === undefined) {
+      return { deny: { kind: 'deny', code: 'aa-unknown', reason: `找不到 AA 组 ${groupId}` } }
+    }
+    if (group.status !== 'collecting') {
+      // completed 组对已付参与人的重复 collect 与 collecting 分支同口径（复审 P1-3）：
+      // 执行期 core 也返回 `aa-participant-paid`，票前预览不能先报另一个码。
+      if (group.status === 'completed') {
+        const paid = resolveAaParticipant(group.participants, raw)
+        if (typeof paid === 'number' && group.participants[paid]?.status === 'paid') {
+          return {
+            deny: {
+              kind: 'deny',
+              code: 'aa-participant-paid',
+              reason: `${group.participants[paid]!.name} 的份额已经收过`,
+            },
+          }
+        }
+      }
+      return {
+        deny: {
+          kind: 'deny',
+          code: 'aa-group-closed',
+          reason: `AA 组状态为 ${group.status}，不能再${action === 'collect' ? '代收' : '改状态'}`,
+        },
+      }
+    }
+    // 到期 job 还没跑 ≠ 还能代收：窗口是事实，job 只是收口动作（复审 P1-2）。
+    if (action === 'collect' && group.expiresAt !== undefined && group.expiresAt < clockOf(deps)()) {
+      return {
+        deny: {
+          kind: 'deny',
+          code: 'aa-group-closed',
+          reason: 'AA 组已过收款截止时间，不能再代收',
+        },
+      }
+    }
+    const resolved = resolveAaParticipant(group.participants, raw)
+    if (typeof resolved !== 'number') {
+      return { deny: { kind: 'deny', code: resolved.code, reason: resolved.reason } }
+    }
+    const participant = group.participants[resolved]!
+    if (participant.status === 'paid') {
+      return {
+        deny: {
+          kind: 'deny',
+          code: 'aa-participant-paid',
+          reason: `${participant.name} 的份额已经收过`,
+        },
+      }
+    }
+    if (participant.status === 'declined' || participant.status === 'expired') {
+      return {
+        deny: {
+          kind: 'deny',
+          code: 'aa-participant-closed',
+          reason: `${participant.name} 已${participant.status === 'declined' ? '拒绝' : '过期'}`,
+        },
+      }
+    }
+    return { amountCents: action === 'decline' ? 0 : participant.shareCents }
+  } catch (error) {
+    return { deny: { kind: 'deny', code: errorCodeOf(error, 'tool-failed'), reason: reasonOf(error) } }
+  }
+}
+
+/** `close` 的票前预览：只校验组存在且仍在 `collecting`（结束一个已收口的组没有意义）。 */
+async function checkAaClose(
+  deps: BankToolDeps,
+  call: ToolCallLike,
+  userId: string,
+): Promise<{ readonly ok: true } | { readonly deny: DenyVerdict }> {
+  try {
+    const groupId = readOptionalString(call.args, 'groupId', 'aa_create')
+    if (groupId === undefined) {
+      return {
+        deny: {
+          kind: 'deny',
+          code: 'tool-args-invalid',
+          reason: 'aa_create.close 需要 groupId',
+        },
+      }
+    }
+    const group = await deps.core.getAa(bankIds.user(userId), groupId as AaGroupId)
+    if (group === undefined) {
+      return { deny: { kind: 'deny', code: 'aa-unknown', reason: `找不到 AA 组 ${groupId}` } }
+    }
+    if (group.status !== 'collecting') {
+      return {
+        deny: {
+          kind: 'deny',
+          code: 'aa-group-closed',
+          reason: `AA 组状态为 ${group.status}，不能再结束`,
+        },
+      }
+    }
+    return { ok: true }
+  } catch (error) {
+    return { deny: { kind: 'deny', code: errorCodeOf(error, 'tool-failed'), reason: reasonOf(error) } }
+  }
+}
+
+/**
+ * 参与人定位（票前预览用）：纯数字串按序号，其余按姓名精确匹配。
+ *
+ * **不把手机号当键**：它既不是姓名也不是序号，只会落到 `aa-participant-unknown`。
+ */
+function resolveAaParticipant(
+  participants: readonly { readonly name: string }[],
+  raw: string,
+): number | { readonly code: string; readonly reason: string } {
+  if (/^\d+$/.test(raw)) {
+    const index = Number(raw)
+    if (index >= participants.length) {
+      return { code: 'aa-participant-unknown', reason: `AA 参与人序号越界：${raw}` }
+    }
+    return index
+  }
+  const name = raw.trim()
+  if (name.length === 0) {
+    return { code: 'aa-participant-unknown', reason: 'AA 参与人不能为空' }
+  }
+  const matches = participants
+    .map((participant, index) => ({ participant, index }))
+    .filter((item) => item.participant.name === name)
+  if (matches.length === 0) {
+    return { code: 'aa-participant-unknown', reason: `AA 组里没有参与人「${name}」` }
+  }
+  if (matches.length > 1) {
+    return {
+      code: 'aa-participant-ambiguous',
+      reason: `AA 组里有 ${String(matches.length)} 位「${name}」，请改用序号`,
+    }
+  }
+  return matches[0]!.index
+}
+
+/**
  * 顺序有意固定：金额边界（`below-minimum`）先于适当性。既有用例
  * `wealth.test.ts`「低于起投额」考的是金额边界，不该被适当性改写语义；
  * 反过来，适当性判断不依赖金额，后判不会漏拦。
@@ -904,6 +1119,65 @@ async function checkWealthPurchase(
   } catch (error) {
     // 参数错误自带 `tool-args-invalid`；取数失败（provider / 主体读取）不能伪装成参数错，
     // 否则审计上会把"系统故障"记成"模型传错参数"。
+    return { deny: { kind: 'deny', code: errorCodeOf(error, 'tool-failed'), reason: reasonOf(error) } }
+  }
+}
+
+/**
+ * 赎回金额的**票前**解析：票据金额必须等于本次赎回额，否则 bank-core 的
+ * `TicketStore.redeem` 会在执行时以 `ticket-binding-mismatch` 拒绝。
+ *
+ * `amountYuan` 缺省 = 全额赎回，所以不能在 spec 上用静态 `amountPath` 解决；
+ * 必须在治理面读一次持仓（与工具 execute 读的是同一份 `listHoldings`）。
+ */
+async function checkWealthRedeem(
+  deps: BankToolDeps,
+  call: ToolCallLike,
+  userId: string,
+): Promise<{ readonly amountCents: number } | { readonly deny: DenyVerdict }> {
+  try {
+    const holdingId = readOptionalString(call.args, 'holdingId', 'wealth_redeem')
+    const productId = readOptionalString(call.args, 'productId', 'wealth_redeem')
+    if (holdingId === undefined && productId === undefined) {
+      return {
+        deny: {
+          kind: 'deny',
+          code: 'tool-args-invalid',
+          reason: 'wealth_redeem 需要 holdingId 或 productId',
+        },
+      }
+    }
+    const holdings = await deps.core.listHoldings(bankIds.user(userId))
+    const holding = holdings.find(
+      (item) =>
+        (holdingId !== undefined && item.id === holdingId) ||
+        (holdingId === undefined && productId !== undefined && item.productId === productId),
+    )
+    if (holding === undefined) {
+      return {
+        deny: { kind: 'deny', code: 'holding-unknown', reason: '找不到可赎回的持仓' },
+      }
+    }
+    const amountCents =
+      call.args['amountYuan'] === undefined
+        ? holding.marketValueCents
+        : yuanToCents(readNumber(call.args, 'amountYuan', 'wealth_redeem'))
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+      return {
+        deny: { kind: 'deny', code: 'holding-amount-invalid', reason: '赎回金额必须是正整数分' },
+      }
+    }
+    if (amountCents > holding.marketValueCents) {
+      return {
+        deny: {
+          kind: 'deny',
+          code: 'holding-amount-invalid',
+          reason: '赎回金额超过持仓市值',
+        },
+      }
+    }
+    return { amountCents }
+  } catch (error) {
     return { deny: { kind: 'deny', code: errorCodeOf(error, 'tool-failed'), reason: reasonOf(error) } }
   }
 }

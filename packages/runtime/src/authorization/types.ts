@@ -37,6 +37,18 @@ export interface ArmedPlan {
   readonly windowId: string
   /** 计划内容摘要（`planDigest`）；唤醒时与当前计划比对，防"武装的是 A，跑的是 B"。 */
   readonly planDigest: string
+  /**
+   * 审批明细摘要（对明细数组做稳定序列化后的 sha256 前 16 位）。
+   *
+   * 为什么要有它：`planDigest` 只覆盖**计划本体**（节点与入参），覆盖不到
+   * 用户在审批卡上看到的那些行——商户报价、条件快照、授权档。用户批准的是
+   * 「¥129 的鲜花」，不是「一朵花」；唤醒时商户涨价、条件被改写，摘要就对不上，
+   * 此时必须降级为人工确认，**不许按旧授权自动放行**。
+   *
+   * 缺省 `undefined` = 该窗口不是本版本武装的（旧回放数据）：唤醒照旧，
+   * 但没有"用户看过明细"这条背书——计划卡据此显示"无明细快照"。
+   */
+  readonly detailsDigest?: string
   readonly title: string
   readonly tier: AuthorizationTier
   readonly conditions: readonly WindowCondition[]
@@ -54,10 +66,45 @@ export interface ArmedPlan {
   /**
    * 商户腿（G4）：银行腿成功后由执行器串行履约（**不进 DAG**）。
    * `offerId` 必须来自本会话 `merchant_search` 的结果（引用闭包由商户服务校验）。
+   *
+   * `priceCents` / `merchantName` 是**武装时刻**的报价事实（ADR-0013）：
+   * 唤醒时预占报价若与之不同，说明涨价了——此时不得按新价自动支付，
+   * 而是释放预占并降级成 `price-changed`。旧数据缺省这两项（只认 offerId）。
    */
-  readonly merchant?: { readonly offerId: string }
+  readonly merchant?: {
+    readonly offerId: string
+    readonly merchantName?: string
+    readonly priceCents?: number
+  }
+  /**
+   * 父计划（ADR-0013）：`birthday_plan` 一次武装三张子窗口，三张都指向同一个父 id。
+   * 旧数据缺省（独立窗口）。
+   */
+  readonly parentPlanId?: string
+  /** 本窗口在父计划里的腿别（锁预算 / 鲜花 / 蛋糕）。旧数据缺省。 */
+  readonly legKind?: 'lock' | 'flower' | 'cake'
+  /** 父计划总预算（分）：三条腿合计，唤醒时按已成功腿累计判定是否耗尽。旧数据缺省。 */
+  readonly parentBudgetCents?: number
   /** `armed` 才会被 `duePlans` 选中；`cancelled` 只能通过 `plan_disarm` 进入。 */
   readonly state: 'armed' | 'cancelled'
+  /**
+   * 武装时刻的强验证时刻（epoch ms；ADR-0010）。
+   *
+   * 只有「宽档」或「计划含红级节点」的窗口才要求它：用户当场做一次人脸/短信，
+   * 这一次验证就是**后续无人值守代签红级的凭据**。
+   * 缺省 = 没做过预授权 ⇒ 红级一律不代签（fail-closed，不是"默认可信"）。
+   */
+  readonly verifiedAt?: number
+  /**
+   * 预授权凭据（挑战渠道 + 挑战 ID）。
+   *
+   * 与 `approval/challenge-issued` 逐字对齐，回放时能追到"哪一次验证"；
+   * 它不参与 `checkWindow` 的摘要计算（摘要只覆盖判决输入）。
+   */
+  readonly challenge?: {
+    readonly channel: 'face' | 'sms' | 'ushield'
+    readonly challengeId: string
+  }
 }
 
 /** 复验时看到的世界（**必须由调用方快照**，本目录不去查任何服务）。 */

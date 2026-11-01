@@ -110,11 +110,17 @@ describe('帧路由 dispatchFrame', () => {
     ['turn', 'feed'],
     ['message', 'feed'],
     ['notice', 'feed'],
-    ['audit', 'feed'],
   ])('%s 帧进会话流', (kind, sink) => {
     const ctx = spyCtx()
     dispatchFrame({ kind, seq: 1 }, ctx)
     expect(ctx[sink].append).toHaveBeenCalledTimes(1)
+  })
+
+  it('audit 帧不逐条进会话流（收进「过程记录」模块）', () => {
+    const ctx = spyCtx()
+    expect(dispatchFrame({ kind: 'audit', seq: 1 }, ctx)).toBeUndefined()
+    expect(ctx.feed.append).toHaveBeenCalledTimes(0)
+    expect(ctx.feed.appendUnknown).toHaveBeenCalledTimes(0)
   })
 
   it('delta 是显式 no-op（不落进"未知帧"兜底，把正常流式增量误报成异常）', () => {
@@ -621,5 +627,174 @@ describe('createMobileShell（装配与重连）', () => {
     document.dispatchEvent(new Event('visibilitychange'))
     expect(connect.connections.length).toBe(1)
     shell = null
+  })
+})
+
+/** 内存存储（偏好用例不碰真实 localStorage，避免跨用例串状态）。 */
+function memoryStorage(initial = {}) {
+  const map = new Map(Object.entries(initial))
+  return {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => map.set(key, String(value)),
+    removeItem: (key) => map.delete(key),
+  }
+}
+
+describe('客户侧信任件（移动壳）', () => {
+  let root
+  let api
+  let connect
+  let shell
+  let storage
+
+  beforeEach(() => {
+    root = document.createElement('div')
+    root.id = 'app'
+    root.className = 'm-shell'
+    document.body.append(root)
+    api = fakeApi()
+    connect = fakeConnect()
+    storage = memoryStorage()
+    document.documentElement.removeAttribute('data-bah-font')
+  })
+
+  afterEach(() => {
+    shell?.stop()
+    shell = null
+    root.remove()
+    document.documentElement.removeAttribute('data-bah-font')
+  })
+
+  async function start() {
+    shell = createMobileShell({
+      root,
+      api,
+      connect,
+      storage,
+      gestureDeps: { trackWidth: () => 100 },
+      tuning: { random: () => 0.5 },
+    })
+    await shell.start()
+    return shell
+  }
+
+  const push = (frame) => connect.last().options.onFrame(frame)
+
+  it('空会话显示常用业务宫格；出现第一条消息后收起', async () => {
+    await start()
+    expect(root.querySelectorAll('[data-role="quick-action"]').length).toBe(6)
+    expect(root.querySelector('[data-role="quick-entry"]').hidden).toBe(false)
+
+    push({ kind: 'message', seq: 1, at: 1, role: 'user', blocks: [{ type: 'text', text: '你好' }] })
+    expect(root.querySelector('[data-role="quick-entry"]').hidden).toBe(true)
+  })
+
+  it('安全提醒可收起，且偏好落存储', async () => {
+    await start()
+    expect(root.querySelector('[data-role="safety-banner"]')).not.toBeNull()
+
+    root.querySelector('[data-role="safety-dismiss"]').click()
+    expect(root.querySelector('[data-role="safety"]').hidden).toBe(true)
+    expect(storage.getItem('bah-ui-safety-dismissed')).toBe('1')
+  })
+
+  it('「服务与帮助」抽屉：业务入口 + 服务边界 + 大字开关', async () => {
+    await start()
+    root.querySelector('[data-role="services"]').click()
+
+    const dialog = root.querySelector('[role="dialog"]')
+    expect(dialog).not.toBeNull()
+    expect(dialog.textContent).toContain('服务范围与免责声明')
+    expect(dialog.textContent).toContain('信用卡还款')
+    expect(dialog.textContent).toContain('大字模式')
+
+    root.querySelector('[data-role="toggle-font"]').click()
+    expect(document.documentElement.getAttribute('data-bah-font')).toBe('large')
+    expect(storage.getItem('bah-ui-font-scale')).toBe('large')
+    root.querySelector('[data-role="toggle-font"]').click()
+    expect(document.documentElement.hasAttribute('data-bah-font')).toBe(false)
+  })
+
+  it('对话完成才在末尾出唯一反馈行 + 两条追问；点👍后写明"仅本机"并落存储', async () => {
+    await start()
+    push({ kind: 'turn', seq: 4, at: 4, turn: 1, phase: 'start' })
+    push({ kind: 'message', seq: 5, at: 5, role: 'user', blocks: [{ type: 'text', text: '看看理财产品' }] })
+    push({
+      kind: 'message',
+      seq: 6,
+      at: 6,
+      role: 'assistant',
+      blocks: [{ type: 'text', text: '在售理财产品有稳盈90天等。' }],
+    })
+    expect(root.querySelector('[data-role="answer-footer"]')).toBeNull()
+
+    push({ kind: 'turn', seq: 7, at: 7, turn: 1, phase: 'end', endKind: 'completed' })
+    const footer = root.querySelector('[data-role="answer-footer"]')
+    expect(footer).not.toBeNull()
+    expect(root.querySelectorAll('[data-role="feedback"]')).toHaveLength(1)
+    expect(root.querySelectorAll('.message [data-role="feedback"]')).toHaveLength(0)
+    const followUps = [...footer.querySelectorAll('[data-role="follow-up"]')]
+    expect(followUps).toHaveLength(2)
+    expect(followUps.map((button) => button.textContent)).toEqual(['看看我的理财持仓', '看看在售的理财产品'])
+
+    footer.querySelector('[data-role="feedback-up"]').click()
+    expect(footer.querySelector('[data-role="feedback-note"]').hidden).toBe(false)
+    expect(footer.textContent).toContain('仅本机')
+    expect(storage.getItem('bah-ui-feedback')).toContain('"up"')
+
+    followUps[0].click()
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+    expect(api.turn).toHaveBeenCalledWith('看看我的理财持仓')
+  })
+
+  it('输入框占位统一；安全提醒在对话流内', async () => {
+    await start()
+    expect(root.querySelector('[data-role="composer-input"]').placeholder).toBe('在这里输入消息')
+    expect(root.querySelector('[data-role="safety"]').closest('.m-feed')).not.toBeNull()
+  })
+
+  it('新消息贴底；上翻后不抢滚动；发送动作强制回到底部', async () => {
+    await start()
+    const feed = root.querySelector('#m-feed')
+    Object.defineProperty(feed, 'scrollHeight', { configurable: true, get: () => 1200 })
+    Object.defineProperty(feed, 'clientHeight', { configurable: true, get: () => 400 })
+
+    push({ kind: 'message', seq: 1, at: 1, role: 'user', blocks: [{ type: 'text', text: '你好' }] })
+    expect(feed.scrollTop).toBe(1200)
+
+    feed.scrollTop = 100
+    feed.dispatchEvent(new Event('scroll'))
+    push({ kind: 'message', seq: 2, at: 2, role: 'assistant', blocks: [{ type: 'text', text: '您好' }] })
+    expect(feed.scrollTop).toBe(100)
+
+    const input = root.querySelector('[data-role="composer-input"]')
+    input.value = '查余额'
+    root.querySelector('[data-role="send"]').click()
+    expect(feed.scrollTop).toBe(1200)
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+    expect(api.turn).toHaveBeenCalledWith('查余额')
+  })
+
+  it('快捷入口发送失败 ⇒ 回显标"发送失败"并可重试；成功后恢复"发送中"', async () => {
+    api.turn.mockResolvedValueOnce({ ok: false, status: 0, code: 'network-error', reason: '网络不可达' })
+    await start()
+
+    root.querySelector('[data-role="quick-action"]').click()
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+
+    const echo = root.querySelector('[data-role="echo"]')
+    expect(echo.dataset.failed).toBe('true')
+    expect(echo.textContent).toContain('发送失败')
+    const retry = echo.querySelector('[data-role="echo-retry"]')
+    expect(retry.hidden).toBe(false)
+
+    api.turn.mockResolvedValueOnce({ ok: true, status: 202, data: { ok: true } })
+    retry.click()
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+
+    expect(api.turn).toHaveBeenCalledTimes(2)
+    expect(echo.dataset.failed).toBe('false')
+    expect(echo.textContent).toContain('发送中')
+    expect(retry.hidden).toBe(true)
   })
 })

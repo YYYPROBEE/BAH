@@ -327,6 +327,16 @@ function overlayFor(group: Group, keyPath: string, knowledgeUrl: string | undefi
     )
   } else if (group.approval === 'unavailable') {
     rows.push('- id: interaction:approval\n  config: { responder: none }')
+  } else {
+    // ★ ADR-0010：`allow` 必须**显式**写在这里。
+    //
+    // 以前它靠 `profiles/headless|plan` 的 `autoDecision: allow` 兜着——
+    // 于是"评测全绿"实际依赖了 profile 里一条无差别放行的配置。
+    // profile 现在只装窗口代签应答者（`responder: none + windowResponder: true`），
+    // 评测要的"自动批准"是**夹具语义**，就该由夹具自己声明，不再借生产 profile 的默认值。
+    rows.push(
+      '- id: interaction:approval\n  config: { responder: headless, autoDecision: allow, autoVerify: true }',
+    )
   }
   if (group.family === 'T' || group.family === 'Q' || group.family === 'U') {
     // 03 单：意图平面需要历史记忆才能演示「复现」与「实体歧义」。

@@ -1,5 +1,6 @@
 /**
- * IPC 四消息（T-DTB-002）。四条消息是**固定契约**：名字、载荷形状、以及"不许有第五条"。
+ * IPC 五条消息（T-DTB-002）。消息名是**固定契约**：名字、载荷形状、以及"不许有表外通道"。
+ * 第五条 `newConversation` 是零载荷生命周期动作（重启进程 = 新会话），不是业务通道。
  */
 
 import { describe, expect, it } from 'vitest'
@@ -15,17 +16,18 @@ import {
 } from './ipc.ts'
 
 describe('IPC 常量（T-DTB-002）', () => {
-  it('四个名字逐字精确（改一个就是改协议）', () => {
+  it('五个名字逐字精确（改一个就是改协议）', () => {
     expect(IPC).toEqual({
       injections: 'bah:boot/injections',
       ready: 'bah:boot/ready',
       fatal: 'bah:boot/fatal',
       shutdown: 'bah:boot/shutdown',
+      newConversation: 'bah:app/new-conversation',
     })
   })
 
-  it('恰有四条，没有第五条业务通道', () => {
-    expect(Object.keys(IPC)).toHaveLength(4)
+  it('恰有五条：四条生命周期 + 一条零载荷重启', () => {
+    expect(Object.keys(IPC)).toHaveLength(5)
   })
 })
 

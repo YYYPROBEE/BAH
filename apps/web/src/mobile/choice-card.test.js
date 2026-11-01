@@ -110,6 +110,17 @@ describe('选择题卡片', () => {
     expect(focusComposer).toHaveBeenCalledTimes(1)
   })
 
+  it('open 只在等用户点选时为 true（选完把视口交还后续消息）', async () => {
+    expect(card.open).toBe(false)
+    card.show(choiceFrame())
+    expect(card.open).toBe(true)
+
+    submit.mockResolvedValue({ ok: true, code: 'ok', message: '' })
+    options()[0].dispatchEvent(new Event('click'))
+    await flush()
+    expect(card.open).toBe(false)
+  })
+
   it('TC-MOB-26 提交失败 ⇒ 按钮恢复可点 + inline 错误（不静默吞错）', async () => {
     submit.mockResolvedValue({ ok: false, code: 'turn-conflict-handoff', message: '会话已交人工接管' })
     card.show(choiceFrame())
@@ -128,6 +139,29 @@ describe('选择题卡片', () => {
     options()[0].dispatchEvent(new Event('click'))
     await flush()
     expect(submit).toHaveBeenCalledTimes(2)
+  })
+
+  it('失败后「重试发送」重发同一条选项（不猜别的候选）', async () => {
+    submit.mockResolvedValueOnce({ ok: false, code: 'turn-failed', message: '网络中断' })
+    submit.mockResolvedValue({ ok: true, code: 'ok', message: '' })
+    card.show(choiceFrame())
+
+    expect(host.querySelector('[data-role="choice-retry"]').hidden).toBe(true)
+
+    options()[1].dispatchEvent(new Event('click'))
+    await flush()
+
+    const retry = host.querySelector('[data-role="choice-retry"]')
+    expect(retry.hidden).toBe(false)
+    expect(retry.getAttribute('aria-label')).toBe('重试发送')
+
+    retry.dispatchEvent(new Event('click'))
+    await flush()
+
+    expect(submit).toHaveBeenCalledTimes(2)
+    expect(submit).toHaveBeenLastCalledWith('李雷')
+    expect(host.querySelector('[data-role="choice"]').dataset.state).toBe('picked')
+    expect(host.textContent).toContain('已选择：李雷')
   })
 
   it('在飞期间连点只发一次（防双击的第二道闸，不只靠 disabled）', async () => {

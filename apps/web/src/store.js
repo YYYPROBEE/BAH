@@ -48,6 +48,10 @@ export function frameKey(frame) {
       return 'handoff-warn'
     case 'snapshot':
       return 'snapshot'
+    case 'plan-card':
+      // 与 @bah/channels/web 的 frameKey 一致：一个窗口一张卡，撤销/唤醒都是替换。
+      // 少了这条会掉进 default 的 `unknown:<seq>`，同一窗口每次状态变化都多一张卡。
+      return `plan-card:${frame.windowId}`
     default:
       return `unknown:${String(frame.seq ?? frame.at)}`
   }

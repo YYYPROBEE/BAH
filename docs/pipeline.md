@@ -185,6 +185,12 @@ try {
 `properties` / `items` / `additionalProperties: false`。`amount` 的"必须 > 0、最多两位小数"
 就是靠 `exclusiveMinimum: 0` + `multipleOf: 0.01` 表达（TC-W03-02）。
 
+**`oneOf`（R-8）**：只做**根级一层 object 分支**（`risk_assess` 的 questions / submit 出参）。
+**恰好命中 1 个分支**才算通过：0 个报 `oneOf`（文案列出每个分支的首个错误路径，只拼
+`path + code`，不回显值本体），≥2 个报 `oneOf-ambiguous`；分支不是 object 报
+`oneOf-non-object`，分支内嵌套 `oneOf` 报 `oneOf-nested`——不支持就明确失败，不静默放过。
+**不做** `anyOf` / `allOf` / `not` / 递归求值；`additionalProperties` 仍不参与出参校验（既有口径）。
+
 ## 9. 铁律
 
 1. 七段顺序不可重排（改 = 破坏性变更）；

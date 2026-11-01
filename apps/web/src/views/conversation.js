@@ -1,20 +1,32 @@
 /**
  * 对话流（施工单 13 §2.1 第一行 + §5.1）。
  *
- * 六种节点：轮次分割、消息气泡、行内提示、工具卡（`tool-card.js`）、
- * 选择题卡（`choice-card.js`）、已发生操作清单（`effects.js`）。
+ * 七种节点：轮次分割、消息气泡、行内提示、工具卡（`tool-card.js`）、
+ * 选择题卡（`choice-card.js`）、风险问卷卡（`risk-form.js`）、已发生操作清单（`effects.js`）。
  * 全部从帧生成，没有"输入框回显"这类平行状态——POST 成功不插入气泡，
  * 用户消息一律等 `user/message` 帧（避免双份，`docs/web-frontend.md` §7 末条）。
  */
 
+import { BRAND } from '../brand.js'
 import { el, icon } from '../dom.js'
 import { renderChoiceCard } from './choice-card.js'
+import { renderMarkdown } from './markdown.js'
 import { renderEffects } from './effects.js'
 import { renderPlanCard } from './plan-card.js'
+import { renderRiskQuestionnaire } from './risk-form.js'
 import { renderTool } from './tool-card.js'
 
 /** 对话流收纳的帧类型（`choice`/`effects`/`plan-card` 不在旧版白名单里时会整帧静默丢弃）。 */
-export const CONVERSATION_KINDS = new Set(['turn', 'message', 'notice', 'tool', 'choice', 'effects', 'plan-card'])
+export const CONVERSATION_KINDS = new Set([
+  'turn',
+  'message',
+  'notice',
+  'tool',
+  'choice',
+  'risk-questionnaire',
+  'effects',
+  'plan-card',
+])
 
 /** 轮次结束原因的文案（`guard-stopped` 与 `failed` 必须区分）。 */
 const END_LABEL = {
@@ -30,8 +42,10 @@ const END_LABEL = {
  * 一条帧 → 节点。
  *
  * @param {Record<string, any>} frame
- * @param {{ submit?: (text: string) => Promise<{ok: boolean, code?: string, message?: string, reason?: string}>, focusComposer?: () => void }} [deps]
- *        仅 `choice` 用到；其余帧忽略
+ * @param {{
+ *   submit?: (text: string) => Promise<{ok: boolean, code?: string, message?: string, reason?: string}>,
+ *   focusComposer?: () => void,
+ * }} [deps] `choice` 用 submit/focusComposer；其余帧忽略
  * @returns {HTMLElement}
  */
 export function renderFrame(frame, deps = {}) {
@@ -39,13 +53,15 @@ export function renderFrame(frame, deps = {}) {
     case 'turn':
       return renderTurn(frame)
     case 'message':
-      return renderMessage(frame)
+      return renderMessage(frame, deps)
     case 'notice':
       return renderNotice(frame)
     case 'tool':
       return renderTool(frame)
     case 'choice':
       return renderChoiceCard(frame, deps)
+    case 'risk-questionnaire':
+      return renderRiskQuestionnaire(frame, deps)
     case 'effects':
       return renderEffects(frame)
     case 'plan-card':
@@ -68,7 +84,7 @@ export function renderTurn(frame) {
 }
 
 /** 消息气泡。 */
-export function renderMessage(frame) {
+export function renderMessage(frame, deps = {}) {
   const role = frame.role === 'operator' ? 'operator' : frame.role === 'user' ? 'user' : 'assistant'
   // 接管期客户留言（`handoff-waiting`）是**真人说的话**：必须画成 user 气泡并标注
   // "等待坐席处理"，不能混进下面的上下文样式，否则客户会以为"消息石沉大海"。
@@ -117,7 +133,7 @@ export function renderMessage(frame) {
       : null
     if (collapsible) body.hidden = true
     return el('div', { class: 'message message--correction', dataset: { seq: String(frame.seq), source: contextSource } }, [
-      el('div', { class: 'message__meta' }, [icon('ai', 14), contextLabel, ...(toggle === null ? [] : [toggle])]),
+      el('div', { class: 'message__meta' }, [icon('doc', 14), contextLabel, ...(toggle === null ? [] : [toggle])]),
       body,
     ])
   }
@@ -130,14 +146,17 @@ export function renderMessage(frame) {
   )
   if (role === 'assistant' && !hasText) {
     return el('div', { class: 'message message--assistant message--tool-only', dataset: { seq: String(frame.seq) } }, [
-      el('div', { class: 'message__meta' }, [icon('agent', 14), 'BAH', el('span', { class: 'message__seq', text: '发起工具调用' })]),
+      el('div', { class: 'message__meta' }, [icon('bank', 14), BRAND.speaker, el('span', { class: 'message__seq', text: '发起工具调用' })]),
     ])
   }
 
-  const label = role === 'operator' ? (frame.operator ?? '人工坐席') : role === 'user' ? '你' : 'BAH'
-  // 图标：坐席与客户共用 `UserCheck.svg`（没有"耳机/坐席"图标），
+  const label = role === 'operator' ? (frame.operator ?? '人工坐席') : role === 'user' ? '你' : BRAND.speaker
+  // 图标：坐席与客户共用 `user-small.svg`（没有"耳机/坐席"图标），
   // 区分靠 `.message--operator` 的品牌底色 + meta 文案，不靠图标。
-  const iconName = role === 'assistant' ? 'agent' : 'user'
+  const iconName = role === 'assistant' ? 'bank' : 'person'
+  // 坐席头像：真人发言给一个头像位，客户一眼能分清"机器说的"与"人说的"。
+  // 头像里只有图标，不生成/不使用任何真实人像。
+  const avatar = role === 'operator' ? el('span', { class: 'message__avatar', 'aria-hidden': 'true' }, [icon('person', 14)]) : null
 
   return el(
     'article',
@@ -147,7 +166,7 @@ export function renderMessage(frame) {
     },
     [
       el('div', { class: 'message__meta' }, [
-        icon(iconName, 14),
+        ...(avatar === null ? [icon(iconName, 14)] : [avatar]),
         label,
         el('span', { class: 'message__seq', text: `#${String(frame.seq)}` }),
         ...(handoffWaiting
@@ -170,9 +189,16 @@ export function renderMessage(frame) {
   )
 }
 
-/** 一个内容块。 */
+/**
+ * 一个内容块。
+ *
+ * 文本走轻量 Markdown（表格 / 列表 / 代码块）：模型返回的并列表格不再被压成
+ * 一整段带竖线的纯文本。非文本块保持原样。
+ *
+ * @returns {HTMLElement | HTMLElement[]}
+ */
 export function renderBlock(block) {
-  if (block.type === 'text') return el('p', { class: 'bubble__text', text: block.text })
+  if (block.type === 'text') return renderMarkdown(block.text)
   if (block.type === 'image') {
     return el('img', {
       class: 'bubble__image',
@@ -208,8 +234,23 @@ export function renderNotice(frame) {
 
 /** 流式草稿（`delta` 累积；权威消息到达即被替换）。 */
 export function renderDraft(text) {
-  return el('article', { class: 'message message--assistant message--draft', dataset: { draft: 'true' } }, [
-    el('div', { class: 'message__meta' }, [icon('agent', 14), 'BAH', el('span', { class: 'message__seq', text: '生成中…' })]),
+  return el('article', {
+    class: 'message message--assistant message--draft',
+    dataset: { draft: 'true' },
+    'aria-label': '助手正在输入',
+  }, [
+    el('div', { class: 'message__meta' }, [
+      icon('bank', 14),
+      BRAND.speaker,
+      el('span', { class: 'message__seq' }, [
+        el('span', { text: '生成中' }),
+        el('span', { class: 'typing-dots', 'aria-hidden': 'true' }, [
+          el('span', { class: 'typing-dots__dot' }),
+          el('span', { class: 'typing-dots__dot' }),
+          el('span', { class: 'typing-dots__dot' }),
+        ]),
+      ]),
+    ]),
     el('div', { class: 'bubble__body' }, [el('p', { class: 'bubble__text', text })]),
   ])
 }
@@ -217,7 +258,7 @@ export function renderDraft(text) {
 /** 空态（三幕演示提示）。 */
 export function renderEmptyState() {
   return el('div', { class: 'ds-empty conversation__empty' }, [
-    el('div', { class: 'ds-empty__icon' }, [icon('ai', 24)]),
+    el('div', { class: 'ds-empty__icon' }, [icon('bank', 24)]),
     el('p', { class: 'ds-empty__title', text: '还没有对话' }),
     el('p', {
       class: 'ds-empty__desc',
