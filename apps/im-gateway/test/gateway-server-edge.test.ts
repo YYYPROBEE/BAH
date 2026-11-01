@@ -16,6 +16,7 @@ import type { PlatformAdapter, PlatformParseResult, PlatformRequest } from '@bah
 import { createImLogger } from '../src/log.ts'
 import { createRegistry } from '../src/platform/registry.ts'
 import { createGatewayServer, type GatewayServerDeps } from '../src/server.ts'
+import { listenOnSafePort } from './safe-port.ts'
 
 const NOW = 1_793_000_000_000
 const log = createImLogger('error', () => undefined)
@@ -57,11 +58,7 @@ async function start(input: {
     ...(input.seat === undefined ? {} : { seat: input.seat }),
     seatEnabled: input.seatEnabled ?? false,
   })
-  await new Promise<void>((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve())
-  })
-  const address = server.address()
-  const port = typeof address === 'object' && address !== null ? address.port : 0
+  const port = await listenOnSafePort(server)
   return {
     base: `http://127.0.0.1:${String(port)}`,
     close: () =>

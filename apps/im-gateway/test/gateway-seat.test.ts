@@ -11,6 +11,7 @@ import { createRegistry } from '../src/platform/registry.ts'
 import { createGatewayServer } from '../src/server.ts'
 import { createSessionHub } from '../src/session/hub.ts'
 import { configFor, fakeChild, fakeSupervisor, recordOf } from './harness-03.ts'
+import { listenOnSafePort } from './safe-port.ts'
 
 const NOW = 1_793_000_000_000
 const SESSION = 'im-0123456789abcdef'
@@ -59,11 +60,7 @@ async function startServer(input: {
     seat: (request, res) =>
       handleSeatRequest({ config, log, supervisor, hub }, request, res),
   })
-  await new Promise<void>((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve())
-  })
-  const address = server.address()
-  const port = typeof address === 'object' && address !== null ? address.port : 0
+  const port = await listenOnSafePort(server)
   return {
     base: `http://127.0.0.1:${String(port)}`,
     supervisor,
