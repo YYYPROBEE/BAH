@@ -4,7 +4,8 @@
 - 关联：全能力审查 B-02 / B-03、全能力复审提示词 1（路线 B，原件留仓库外归档）、`docs/contracts/event-table.md` §5、`docs/bank-tools.md` §2/§6/§10
 - 影响面：`packages/bank/src/core/{model,provider,mock,merchant}.ts`、`packages/bank/src/tools/{specs,account-ops,queries,approval-details,dto,events}.ts`、`packages/host/src/boot/plugins/{bank-tools,merchant}.ts`、`packages/llm/src/demo/router.ts`
 
-> 编号说明：ADR-0010 已被并行线的授权窗口（`windowResponder`）占用，0011 预留给 AA 收口单；
+> 编号说明：ADR-0010 已被并行线的授权窗口（`windowResponder`）占用
+> （`docs/adr/0010-window-sign-authorization.md`），0011 预留给 AA 收口单；
 > 本设计按顺序取 0012，避免与在途编号相撞。
 
 ---

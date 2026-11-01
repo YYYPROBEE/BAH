@@ -90,4 +90,13 @@ describe('fund_lock', () => {
     )
     expect((error as { code?: string }).code).toBe('ticket-missing')
   })
+
+  it('amountYuan = 0 ⇒ tool-args-invalid（不产生转账流水）', async () => {
+    const h = createBankHarness()
+    const error = await captureRejection(() =>
+      h.call('fund_lock', { action: 'lock', amountYuan: 0 }, 'c-fund-zero'),
+    )
+    expect((error as { code?: string }).code).toBe('tool-args-invalid')
+    expect(h.auditsOf('transfer/created')).toHaveLength(0)
+  })
 })

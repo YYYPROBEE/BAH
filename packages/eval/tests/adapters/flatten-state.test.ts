@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { flattenSagaProjection, flattenState } from '../../src/adapters/flattenState.ts'
+import { flattenSagaProjection, flattenState } from '../../src/adapters/flatten-state.ts'
 
 describe('嵌套状态展平', () => {
   it('SagaProjection 展平为可写进金标的点分键', () => {
