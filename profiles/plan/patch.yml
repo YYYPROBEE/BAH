@@ -45,7 +45,7 @@
 
 - id: safety:sentry
   config:
-    # W08：plan 是答辩主演示，trace 必须显式落 durable 会话事件；
+    # W08：plan 是对外说明主演示，trace 必须显式落 durable 会话事件；
     # 漏写这一行会让 plan profile 在载入期 fail-loud（TC-W08-07 专门钉它）。
     trace:
       sink: session

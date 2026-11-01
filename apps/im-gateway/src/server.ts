@@ -1,5 +1,5 @@
 /**
- * 公网 HTTP 服务（施工单 02 §2.3）。
+ * 公网 HTTP 服务。
  *
  * 只认三件事：`GET /healthz`、`GET|POST /im/:platform/:accountKey`、其它 404。
  *

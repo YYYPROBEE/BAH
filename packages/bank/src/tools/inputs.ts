@@ -192,7 +192,7 @@ const YEAR_KEY = /^\d{4}$/
  *
  * WHY 要有相对口径：用户最自然的话术是"上个月账单""9 月花了多少"。
  * 只支持相对 period 时，"2025 年" 会被算成"近 12 个月"——数字与用户预期不符，
- * 在评委眼里就是报告编数。**换算留在调用方**：本函数是纯函数，不碰时钟。
+ * 在审阅者眼里就是报告编数。**换算留在调用方**：本函数是纯函数，不碰时钟。
  */
 export function parseBillScope(args: Readonly<Record<string, unknown>>): BillScope {
   const period = parsePeriod(args)

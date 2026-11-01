@@ -1,5 +1,5 @@
 /**
- * 三级权限的**判定矩阵**（施工单 09 §1 / §1.1；入口留在本包，见 PROGRESS R89）。
+ * 三级权限的**判定矩阵**。
  *
  * 语义：**取高不取低**——`effectiveTier = max(声明级别, 升级规则结果)`。
  * 升级只上调、永不降级：重试、超时、渠道切换都不能把红变黄。
@@ -159,7 +159,7 @@ export function higherTier(left: ToolTierLevel, right: ToolTierLevel): ToolTierL
 }
 
 /**
- * 转账类的升级规则（施工单 08 §3.8 / 施工单 09 §1.1 第 1、4 条）。
+ * 转账类的升级规则。
  *
  * - 当日累计**含本笔** > 生效上限 → 红（`daily-limit`）；
  * - 收款人未登记 / `binding = 'new'` → 红（`new-payee`，防"小额试探 + 大额收割"）；
@@ -199,7 +199,7 @@ export function isRiskyOp(config: Pick<TierConfig, 'riskyOps'>, name: string): b
 }
 
 /**
- * 判定矩阵（施工单 09 §1 的三行表 + §1.1 的五条附加规则）。
+ * 判定矩阵。
  *
  * 判定顺序（顺序即安全边界，不可重排）：
  * 1. **未绑定身份 → deny**（绝不用"默认账户"兜底）；

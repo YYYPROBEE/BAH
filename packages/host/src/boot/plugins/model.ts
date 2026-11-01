@@ -1,11 +1,11 @@
 /**
- * base bundle · `core:model`：模型适配层（施工单 05 §2）。
+ * base bundle · `core:model`：模型适配层。
  *
  * 一行只装**一个 provider**：`provider: mock` 或 `provider: deepseek`。
  * headless profile 用 patch 把 base 的 deepseek 整块换成 mock —— 这就是"渠道差异用 patch 表达"，
- * 代码里没有任何 `if (profile === 'headless')`（施工单 06 硬约束 2）。
+ * 代码里没有任何 `if (profile === 'headless')`。
  *
- * 密钥只从环境变量读（施工单 05 硬约束 2：仓库任何文件不得出现硬编码 key）。
+ * 密钥只从环境变量读（仓库任何文件不得出现硬编码 key）。
  */
 
 import { defineService, describeThrown } from '@bah/core'

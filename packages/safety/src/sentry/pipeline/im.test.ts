@@ -1,5 +1,5 @@
 /**
- * IM 不可信来源标记（施工单 10 §3 第 5 行；渠道侧只留接缝，不接真实 IM）。
+ * IM 不可信来源标记。
  */
 
 import { describe, expect, it } from 'vitest'
@@ -25,7 +25,7 @@ describe('IM 不可信来源（T-SNT-005 的接缝侧）', () => {
     expect(parseUntrustedMark('查余额')).toEqual({ untrusted: false, text: '查余额' })
   })
 
-  it('降权提示词段只提供内容，不注册（冻结装配序留给施工单 15）', () => {
+  it('降权提示词段只提供内容，不注册（冻结装配序留给）', () => {
     expect(IM_UNTRUSTED_SECTION.id).toBe(IM_UNTRUSTED_SECTION_ID)
     expect(IM_UNTRUSTED_SECTION.target).toBe('header')
     expect(IM_UNTRUSTED_SECTION.render(undefined)).toBe(IM_UNTRUSTED_SECTION_TEXT)

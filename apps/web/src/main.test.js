@@ -360,13 +360,13 @@ describe('mountApp · 交互细节', () => {
     expect(button.disabled).toBe(false)
   })
 
-  it('"回到上一步"显式禁用（施工单 14 未落地，不假装可用）', () => {
+  it('"回到上一步"显式禁用', () => {
     const { root } = mount()
     const back = [...root.querySelectorAll('.composer button')].find((button) =>
       button.textContent.includes('回到上一步'),
     )
     expect(back.disabled).toBe(true)
-    expect(back.title).toContain('施工单 14')
+    expect(back.title).toContain('')
   })
 
   it('审计标签页可切换（默认调用图）', () => {

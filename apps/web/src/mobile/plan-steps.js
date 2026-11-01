@@ -1,5 +1,5 @@
 /**
- * DAG → 单列分步清单（`dagView: 'steps'`，施工单 02 §3.7）。
+ * DAG → 单列分步清单（`dagView: 'steps'`）。
  *
  * 三条口径：
  * 1. **排序真相源在后端**：`flattenDag` 不重排、不拓扑——帧里的 `nodes` 顺序已经是
@@ -69,7 +69,7 @@ export function flattenDag(dag) {
 /**
  * "第 n/m 步"的 n：**已了结**口径 = `ok + skipped + cancelled`。
  *
- * ⚠ 待核（施工单 02 §3.7 与 04 单的口径对齐点）：`denied / failed / incident` 也是终态，
+ * ⚠ 待核：`denied / failed / incident` 也是终态，
  * 但它们是"没走完"，算进"第 n 步"会让人以为进度在推进。04 单若定别的口径，改这一个函数。
  */
 export function countSettled(steps) {
@@ -255,7 +255,7 @@ export function createPlanSteps(host, deps) {
       body.replaceWith(fresh)
       return toolNodes.get(toolFrame.callId)?.node ?? null
     },
-    /** 会话级目标条（04 单语义，本单只渲染；跨 turn 存续靠帧键 `goal` 的替换语义）。 */
+    /** 会话级目标条（04 单语义，本设计只渲染；跨 turn 存续靠帧键 `goal` 的替换语义）。 */
     setGoal(goalFrame) {
       clear(goalSlot)
       goalSlot.append(
@@ -277,7 +277,7 @@ export function createPlanSteps(host, deps) {
     },
     /**
      * 待办渲染位（04 单派生帧，D8 不落账）。
-     * 本单只呈现**只读列表**：勾选交互语义归 04，这里不实现，也不假装可点。
+     * 本设计只呈现**只读列表**：勾选交互语义归 04，这里不实现，也不假装可点。
      */
     setTodos(todoFrame) {
       clear(todoSlot)

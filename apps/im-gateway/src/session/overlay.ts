@@ -1,5 +1,5 @@
 /**
- * 每子进程的 overlay YAML（施工单 02 §2.11）。
+ * 每子进程的 overlay YAML。
  *
  * WHY 生成文件而不是 `--set`：CLI 的四层层序里 overlay 是**整块替换**语义
  * （每一行的 `config` 一出现就完全取代 base 的值）。用 `--set` 逐个改字段会

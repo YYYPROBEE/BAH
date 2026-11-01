@@ -1,8 +1,8 @@
 /**
- * 门禁调度器（施工单 01 §6）。
+ * 门禁调度器。
  *
  * 顺序执行 `scripts/` 下存在的全部 `verify-*.ts`，任一失败即退出码 1。
- * 全部 TypeScript + tsx 直跑，不写 shell（施工单 00 §10）。
+ * 全部 TypeScript + tsx 直跑，不写 shell。
  */
 
 import { readdirSync } from 'node:fs'

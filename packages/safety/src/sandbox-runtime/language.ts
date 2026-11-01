@@ -1,5 +1,5 @@
 /**
- * 沙箱受限表达式语言（施工单 11 §3 的执行内容；从 `@bah/bank` 的 `tools/compute.ts` 收口到安全平面）。
+ * 沙箱受限表达式语言。
  *
  * 为什么语言属主在这里：模型生成的程序文本只能在**安全平面**定义的语言里跑，
  * 工具面（`@bah/bank`）只负责把调用交给沙箱。语言留在业务包里会让"谁能执行模型代码"
@@ -16,7 +16,7 @@
  * `sum / avg / min / max / round / abs` 六个纯函数、常量 `PI` / `E`。
  */
 
-/** 程序级失败码（沙箱运行时把它们映射成 `sandbox/*` 上报；施工单 11 §3.1）。 */
+/** 程序级失败码（沙箱运行时把它们映射成 `sandbox/*` 上报）。 */
 export type ProgramErrorCode =
   | 'program-invalid'
   | 'program-data-missing'

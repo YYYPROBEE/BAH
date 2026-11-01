@@ -1,5 +1,5 @@
 /**
- * CLI 入口的进程级冒烟（施工单 01 §5 的 unit 面 + 06 §0 出口标准 1/2）。
+ * CLI 入口的进程级冒烟。
  *
  * 为什么放在 unit 面而不是 e2e 面：e2e 面的语义是「真实 DeepSeek API，无密钥整面 skip」，
  * 而这条用例**不需要密钥**、也不打外网——它只验证「入口进程起得来、能加载真实
@@ -109,7 +109,7 @@ describe('CLI 入口（进程级冒烟）', () => {
   })
 
   // W08 TC-08：headless 的 patch-*.yml 变体都必须能载入，且继承基础 patch 的 trace.sink。
-  // 施工单写“7 个 patch-*.yml”；实测 6 个变体（第 7 份是基础 patch.yml，不是变体），
+  // 设计说明写“7 个 patch-*.yml”；实测 6 个变体（第 7 份是基础 patch.yml，不是变体），
   // 数字差异记在 W08 回执里。
   it('W08 TC-08：6 个 headless patch 变体全部可载入（trace.sink 继承）', { timeout: 120_000 }, () => {
     const dir = join(repoRoot, 'profiles/headless')

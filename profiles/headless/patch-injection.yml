@@ -12,7 +12,7 @@
 # 3. `tools/pre-execute` 的 scanToolArgs 先归一化（base64 解码）再匹配 13 条规则，
 #    命中 PRV-002 → deny（sentry/tool-denied）——工具体一次都不执行。
 #
-# 语义同其它 patch：整块替换（施工单 06 §0 第 3 条）。
+# 语义同其它 patch：整块替换。
 
 - id: core:model
   config:

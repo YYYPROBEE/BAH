@@ -33,13 +33,13 @@ tests_main_cases=5084
 | 门禁数 | **54** | `ls scripts/verify-*.ts \| grep -v '\.test\.ts$' \| wc -l` | 34 → `verify-facts.ts` 后 35 → … → 移动 H5 03 后 46；租户与鉴权 01–04 新增 `verify-tenant-scope.ts` / `verify-tenant-isolation.ts` / `verify-authz-coverage.ts` 后 49；人机接管 01 新增 `verify-handoff-wiring.ts` 后 50；桌面端 02 新增 `verify-desktop-shell.ts` 后 51；IM 网关 02 新增 `verify-im-gateway.ts` 后 52；主动能力线新增 `verify-proactive.ts` / `verify-audit-cli.ts` / `verify-frame-closure.ts` 后 54 |
 | 工具数 | **30** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 30（与 `result-schemas.ts` 30 个出参键一一对应；官方子能力补齐新增 7 个；2026-11-01 新增 `fund_lock` 与 `password_change`） |
 | plan 非测试行数 | **2,260** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,260（2026-10-30 合流后重算） |
-| 快照文件 / 用例 | **13 / 60** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 13 文件 / 60 例（`pnpm test:snapshot` 同值；04 单新增 `birthday-reminder` 场景 1 文件 6 例：3 天窗口 / 同日幂等 / 生日当天不重复 / 通知帧回放 / 负控） |
+| 快照文件 / 用例 | **13 / 60** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 13 文件 / 60 例（`pnpm test:snapshot` 同值；实现方新增 `birthday-reminder` 场景 1 文件 6 例：3 天窗口 / 同日幂等 / 生日当天不重复 / 通知帧回放 / 负控） |
 | 覆盖率（行） | **89.87%** | `pnpm test:coverage:all`（本机汇总口径） | 覆盖 49571 行 / 参与统计 55161 行（2026-10-30 五线合流后复跑） |
 | 覆盖率（包） | **16/18** | 同上 | 只有 `memory-store` 72.68% 与 `eval` 46.93% 未达 80% |
 | 主仓测试 | **443 文件 / 5084 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 443 文件 / 5084 例，**全绿**（2026-11-01 全量实测；较 442/5073 新增 `endpoints.contract.test.ts` 4 例与测试缺口补测 7 例） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
 | web 测试 | **47 文件 / 550 例** | `pnpm test:web` | 47 文件 / 550 例，**全绿**（2026-11-01 复审修复后实测；新增 `apps/web/src/password.test.js` 2 例，覆盖交接票 `?ticket=` 预填与地址栏清理） |
-| 快照跑批 | **13 文件 / 60 例** | `pnpm test:snapshot` | **60 passed / 0 failed**（2026-11-01 04/05 单重录后回放；新增 `birthday-reminder` 6 例；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 的录制夹具用 overlay 显式放行审批，生产 profile 仍 `responder: none`） |
+| 快照跑批 | **13 文件 / 60 例** | `pnpm test:snapshot` | **60 passed / 0 failed**（2026-11-01 04/实现方重录后回放；新增 `birthday-reminder` 6 例；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 的录制夹具用 overlay 显式放行审批，生产 profile 仍 `responder: none`） |
 
 ## 3. 覆盖率为什么只有一个值
 
@@ -54,4 +54,4 @@ tests_main_cases=5084
 
 | 文件 | 原因 |
 |---|---|
-| `文档归档/**`（含已撤下的历史件：决策记录、开工前体检、交接件、施工台账与证据原件） | 归档稿，改数会让复核者失去时间线 |
+| `文档归档/**`（含已撤下的历史件：决策记录、开工前体检、交接件、过程台账与证据原件） | 归档稿，改数会让复核者失去时间线 |

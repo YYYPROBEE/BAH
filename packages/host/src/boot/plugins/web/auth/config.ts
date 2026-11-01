@@ -10,7 +10,7 @@
  * ## 硬约束（A3）
  *
  * **`auth.mode` 不写 = `static` = 现行为**。8 个 profile 与 7 个快照不写任何 auth 配置时
- * 必须一字不变。默认值是本单能否合入的唯一硬门槛，所以 `DEFAULT_AUTH` 只在这里定义一次。
+ * 必须一字不变。默认值是本设计能否合入的唯一硬门槛，所以 `DEFAULT_AUTH` 只在这里定义一次。
  */
 
 import { BahError } from '@bah/util'

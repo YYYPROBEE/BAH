@@ -1,5 +1,5 @@
 /**
- * 系统提示词装配入口（施工单 05 §4）。
+ * 系统提示词装配入口。
  *
  * 实现在 `types.ts` / `sections.ts` / `registry.ts` / `reconcile.ts`；
  * 本文件只做 re-export 与「注册 `runtime:system-prompt` 服务」这一处装配。

@@ -1,5 +1,5 @@
 /**
- * 转账工具（施工单 08 §3.7–§3.8）。
+ * 转账工具。
  *
  * - `transfer_preview` 绿级只读：试算 + 风控预检，结果里直接给出「执行时会是黄还是红」；
  * - `transfer_create` 黄级写：票据由 pre-execute 的 `ask` 判决签发，执行时在工具边界
@@ -119,7 +119,7 @@ export function createTransferCreateTool(
  *
  * 生效级别以 **transfer_create 的声明下限（黄）** 为基线：
  * 试算卡片的用途就是告诉用户"执行时会发生什么"，按绿级展示会低估确认成本。
- * 生效日限额 = `min(core 账本的卡/账户限额, Config 的 dailyTransferLimit)`（施工单 09 §1.1 第 2 条）。
+ * 生效日限额 = `min(core 账本的卡/账户限额, Config 的 dailyTransferLimit)`。
  */
 export async function previewTransfer(
   deps: BankToolDeps,

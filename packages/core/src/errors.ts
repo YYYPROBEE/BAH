@@ -1,5 +1,5 @@
 /**
- * 内核错误形态（施工单 00 §10、02 §0 第 4 条）。
+ * 内核错误形态。
  *
  * 全仓错误形态统一为 `@bah/util` 的 `BahError`（`code` + `detail`）；内核只负责两件事：
  * 给 message 补 `bah-core: ` 前缀，并把任意抛出物归一成可读理由（禁止静默吞错）。
@@ -30,6 +30,6 @@ export function coreError(code: string, message: string, detail?: unknown): BahE
  * 是为了让"全仓只有一份实现"在 AST 上也成立（`verify-single-error-normalization`）。
  *
  * `throw 'x'` 这种非 Error 抛出物也必须留下文本——否则日志里只剩 `undefined`，
- * 等于静默吞错（施工单 00 §9 第 5 条）。
+ * 等于静默吞错。
  */
 export { reasonOf as describeThrown } from '@bah/util'

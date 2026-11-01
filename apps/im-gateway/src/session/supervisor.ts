@@ -1,5 +1,5 @@
 /**
- * 子进程监督者（施工单 02 §2.11 / §2.11 的崩溃与回收）。
+ * 子进程监督者。
  *
  * 一次"确保某用户有子进程"的流程：
  * `sessionKey → 查表 → 预分配端口 → 写 overlay → spawn → health 轮询 → /m.html 取 CSRF → 就绪`。
@@ -189,7 +189,7 @@ export function createSupervisor(deps: SupervisorDeps): Supervisor {
       '--jsonl',
       jsonl,
       // CLI 只有带 `--serve` 才常驻；缺它会在 boot 期要求 `--prompt`（真机部署才发现，
-      // 施工单 §2.11 的 spawn 形状漏写了这一项）
+      // 设计说明 §2.11 的 spawn 形状漏写了这一项）
       '--serve',
     ]
   }

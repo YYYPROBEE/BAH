@@ -1,6 +1,6 @@
-# desktop profile patch（层 2）。施工单 15 §2 / 桌面端 01。
+# desktop profile patch（层 2）。 / 桌面端 01。
 #
-# 语义是**整块替换**（施工单 06 §0 第 3 条）：每行 config 一出现就完全取代 base 的值。
+# 语义是**整块替换**：每行 config 一出现就完全取代 base 的值。
 # 与 profiles/web/patch.yml 的差异**只有四处**：
 #   ① `core:agent.config.channel` = desktop；
 #   ② 渠道行 id/use = `channel:desktop`，且 port / entry / entries 不同；
@@ -119,7 +119,7 @@
   use: demo:echo
   config: { prefix: '[desktop] ' }
 
-# 渠道行（施工单 15 §2）：必须放在 interaction:approval 之后——本行 inject 审批服务，
+# 渠道行：必须放在 interaction:approval 之后——本行 inject 审批服务，
 # 直接注册桌面渠道应答者。
 #
 # ⚠ `port: 0` 是桌面内嵌的**唯一正确值**（I-DT-02）：端口随每次启动变化，
@@ -154,6 +154,6 @@
 #   · im：`apps/im-gateway` 只做"收到消息 → 回消息"，没有服务端主动外呼的通道；
 #     要开就得先有 IM 侧的主动发送 API（飞书/企微的机器人消息），否则开关只是摆设。
 #   · desktop：与 web 共用同一个 host 装配，但它有独立的 profile 行；
-#     桌面窗口要主动提醒同样走 SSE（与 web 一致），本单先把行留在 web/mobile/web-plan/plan，
+#     桌面窗口要主动提醒同样走 SSE（与 web 一致），本设计先把行留在 web/mobile/web-plan/plan，
 #     桌面端待"内嵌 host 的页面生命周期"复核后再加上（避免打开就弹一条没人看的提醒）。
 # 加行前先确认：`PROACTIVE_SERVICE.push` 的投递渠道已覆盖该渠道（见 ADR-0016 §投递目标）。

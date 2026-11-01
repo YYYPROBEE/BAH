@@ -1,10 +1,10 @@
 /**
- * 强验证的服务接缝（施工单 09 §6）：把 `VerifyService` 收成审批服务需要的三个动作。
+ * 强验证的服务接缝：把 `VerifyService` 收成审批服务需要的三个动作。
  *
  * 为什么要有这一层：
  * 1. `@bah/interaction` 不认识银行领域（只认「签发 / 验证 / 是否通过」）；
  * 2. 宿主把本端口注册成服务键 `bank:challenge`，审批服务按需取用；
- * 3. 验证尝试与锁定仍按施工单 08 的事件族落账（`verify/face|sms|ushield|locked`），
+ * 3. 验证尝试与锁定仍按 的事件族落账（`verify/face|sms|ushield|locked`），
  *    这样「审批弹窗里做的强验证」与「模型直接调 verify_* 工具」在审计上同构。
  */
 

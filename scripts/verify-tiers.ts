@@ -1,5 +1,5 @@
 /**
- * 门禁：三级权限声明完整性（施工单 01 §6 / §8 第 ⑥ 项；施工单 09 §9 收紧）。
+ * 门禁：三级权限声明完整性。
  *
  * 四条规则（前三条为 09 的"逐条校验"要求）：
  * 1. **每个工具都声明了 `tier`**：词法扫描 `satisfies ToolDefinition` / `: ToolDefinition = {`
@@ -128,7 +128,7 @@ function checkDeclarationSites(root: string, findings: string[]): number {
       const objectLines = objectLinesAt(lines, index)
       if (objectLines === undefined || !objectLines.some((item) => /\btier\s*:/.test(item))) {
         findings.push(
-          `${relative(root, file)}:${index + 1} 工具定义缺少 tier 声明（施工单 00 §11 领域扩展 / 施工单 09 三级权限）`,
+          `${relative(root, file)}:${index + 1} 工具定义缺少 tier 声明`,
         )
         continue
       }
@@ -141,7 +141,7 @@ function checkDeclarationSites(root: string, findings: string[]): number {
         }
         if (/\btier\s*:\s*\{[^}]*\d/.test(item)) {
           findings.push(
-            `${relative(root, file)}:${index + 1} tier 声明里出现数字字面量（阈值只许来自 Config，施工单 09 §1.1 第 2 条）`,
+            `${relative(root, file)}:${index + 1} tier 声明里出现数字字面量（阈值只许来自 Config， 第 2 条）`,
           )
         }
       }
@@ -177,7 +177,7 @@ function checkThresholdsOnlyInConfig(root: string, findings: string[]): number {
 
     const report = (node: ts.Node, reason: string): void => {
       const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
-      findings.push(`${where}:${line} ${reason}（阈值只许来自 bank:tools 配置；施工单 09 §1.1 第 2 条）`)
+      findings.push(`${where}:${line} ${reason}（阈值只许来自 bank:tools 配置； 第 2 条）`)
     }
 
     const walkNode = (node: ts.Node): void => {

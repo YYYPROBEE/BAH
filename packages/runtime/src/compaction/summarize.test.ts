@@ -1,5 +1,5 @@
 /**
- * 上下文压缩单测（施工单 05 §5；T-CMP-001 / 003）。
+ * 上下文压缩单测。
  */
 
 import { asSessionId, captureThrown, withTestContext } from '@bah/test-support'
@@ -202,7 +202,7 @@ describe('度量（阈值判定用）', () => {
   })
 })
 
-describe('planCompaction（施工单 05 §5 折叠计划）', () => {
+describe('planCompaction', () => {
   it('T-CMP-001 token 阈值触发：更早的 turn 折叠为摘要，最近 N 轮保留原文', async () => {
     await withSession((session) => {
       seedTurns(session)

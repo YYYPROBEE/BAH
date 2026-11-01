@@ -1,8 +1,8 @@
 /**
- * 门禁：工具目录 ↔ 源码一致（施工单 08 §0 第 4 条 / §6 T-TOOLS-010）。
+ * 门禁：工具目录 ↔ 源码一致。
  *
  * 五条校验：
- * 1. 数量 ≤ `BANK_TOOL_LIMIT`（施工单 08 §2 的上限；2026-11-01 由 28 提到 30）；
+ * 1. 数量 ≤ `BANK_TOOL_LIMIT`；
  * 2. 名字唯一、tier 合法、落账事件在 `BANK_SESSION_EVENT_TYPES` 内；
  * 3. 工厂表与目录一致（少实现即红；多实现由 `Record<BankToolName, …>` 在编译期兜住）；
  * 4. `docs/tool-catalog.md` 与 `renderToolCatalog()` 逐字一致（改了源码不重新生成 → 红）；
@@ -41,7 +41,7 @@ const gate: Gate = {
 
     if (specs.length > BANK_TOOL_LIMIT) {
       findings.push(
-        `工具总数 ${specs.length} 超过上限 ${BANK_TOOL_LIMIT}（施工单 08 §2：新增先删旧的）`,
+        `工具总数 ${specs.length} 超过上限 ${BANK_TOOL_LIMIT}（新增先删旧的）`,
       )
     }
 

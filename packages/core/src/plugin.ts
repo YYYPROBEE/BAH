@@ -1,5 +1,5 @@
 /**
- * 插件装配：配置校验 + `inject` 等待图（施工单 02 §7 / §5）。
+ * 插件装配：配置校验 + `inject` 等待图。
  *
  * - **配置校验在 `apply` 之前执行**：未知键、类型错误、阈值越界、正则编译失败一律
  *   `bah-core: invalid config for <name>: ...` 载入即抛，绝不静默回退；
@@ -79,7 +79,7 @@ function isErasedPlugin(plugin: PluginV2<unknown> | ErasedPlugin): plugin is Era
 /**
  * 找出配置里 schema 未声明的**顶层**键。
  *
- * `schemastery` 对未知键是「原样保留」而非报错，而施工单 00 §9 要求未知配置键载入即抛：
+ * `schemastery` 对未知键是「原样保留」而非报错，而 要求未知配置键载入即抛：
  * 这里用 schema 自带的 `dict`（对象类 schema 的公开字段）做顶层键比对，补上这一层严格性。
  * 非对象类 schema（`union` / `transform` / 标量）没有 `dict`，交给 schema 自己判定。
  */
@@ -93,7 +93,7 @@ export function findUnknownKeys(
   return Object.keys(input).filter((key) => !(key in dict))
 }
 
-/** 装上 `bah-core: ` 前缀的配置错误（模板取自施工单 02 §7）。 */
+/** 装上 `bah-core: ` 前缀的配置错误（模板取自）。 */
 function invalidConfig(pluginName: string, reason: string, detail?: unknown): BahError {
   return coreError('invalid-config', `invalid config for ${pluginName}: ${reason}`, detail)
 }
@@ -102,7 +102,7 @@ function invalidConfig(pluginName: string, reason: string, detail?: unknown): Ba
  * 在等待中的插件里找 `inject` 环，返回环路径（首尾同名），无环返回 `undefined`。
  *
  * 依赖边的判据：插件名即它提供的服务名（`ServiceKey.id` 与插件名同属一个命名空间，
- * 见 api.ts「插件名，全仓唯一，形如 `bank:tools`」与施工单 02 §5 的 `inject: ['bah:model']`）。
+ * 见 api.ts「插件名，全仓唯一，形如 `bank:tools`」与 的 `inject: ['bah:model']`）。
  *
  * @param records 本轮无法推进的插件
  */

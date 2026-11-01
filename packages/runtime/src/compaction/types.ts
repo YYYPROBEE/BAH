@@ -1,9 +1,9 @@
 /**
- * 上下文压缩的配置与计划（施工单 05 §5）。
+ * 上下文压缩的配置与计划。
  *
  * 三条设计约束（都写进了类型）：
  * 1. **阈值全部配置化**：`CompactionThresholds` 里没有一个是硬编码常量，装配期由
- *    `resolveCompactionConfig` fail-loud 校验（施工单 05 §5「无硬编码常量」）；
+ *    `resolveCompactionConfig` fail-loud 校验；
  * 2. **压缩不改写历史**：append-only 是不变量，所以"折叠"只发生在投影层
  *    （`collapseEvents` + `system-prompt/reconcile.buildModelHistory`）；
  * 3. **金融特例字段结构化保留**：`FinancialSummaryEntry` 是摘要载荷的一部分，

@@ -1,5 +1,5 @@
 /**
- * `safety:sentry` 宿主行（施工单 10 批次 B 的出口）。
+ * `safety:sentry` 宿主行。
  *
  * 覆盖四件事：
  * 1. 配置 fail-loud（错误消息带 `bah-sentry: ` 前缀）；

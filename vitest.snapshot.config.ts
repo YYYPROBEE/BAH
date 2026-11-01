@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config'
 import { bahSourceAlias } from './vitest.shared.ts'
 
 /**
- * snapshot 面（施工单 01 §5 / 施工单 12 §3–§4）：会话快照的**无密钥回放**。
+ * snapshot 面：会话快照的**无密钥回放**。
  *
  * 用例住在仓库根的 `snapshots/`，与 `packages/**` 的单测物理分离——
  * 回放是"验收证据"，不是包内部实现细节。

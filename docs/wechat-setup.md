@@ -39,7 +39,7 @@ pnpm im:gateway
 
 - URL：`https://<你的域名>/im/wechat/default`
 - Token：与 `BAH_WECHAT_TOKEN` 一致
-- 消息加解密方式：**明文模式**（本单不做 AES 安全模式）
+- 消息加解密方式：**明文模式**（本设计不做 AES 安全模式）
 
 点「提交」后观察网关日志：应出现 `im-gateway-start`，且**没有** `im-sig-invalid`。
 若微信提示「配置失败」，按 §4 排查。

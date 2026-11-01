@@ -1,16 +1,16 @@
 /**
- * 回退分叉：以会话日志为唯一真相，在 turn 边界分叉新会话（施工单 04 §3「回退」）。
+ * 回退分叉：以会话日志为唯一真相，在 turn 边界分叉新会话。
  *
  * 语义三条：
  * 1. **原会话只读**：分叉不改写原日志一个字节——它是审计与回放的锚点；
  * 2. **种子 = 前缀**：新会话拿到 `seq` 连续的日志前缀（到指定 turn 的 `turn/end` 为止），
- *    `restore` 会校验连续性（断代即抛，施工单 03 §1.3）；
+ *    `restore` 会校验连续性（断代即抛）；
  * 3. **分叉元数据**：`{ parentSession, seedLength }` 由 `ForkInfo` 暴露给宿主
  *    （`agents.create({ sessionId, seed, meta: { parentSession, seedLength } })` 的
  *    `meta` 部分；`SessionApi` 上没有 meta 字段，故由 agent 侧持有）。
  *
  * 为什么新会话需要一个**新的 Context**：`runtime:session` 是服务键，一个应用只承载一个会话
- * （施工单 03 的会话服务就是按会话装配的）。分叉 = 新会话 = 新宿主上下文，
+ * 。分叉 = 新会话 = 新宿主上下文，
  * 这样 `provideSession` 不会与父会话的服务键冲突。多渠道 / 多会话共存的收敛方式
  * 属阶段 6 的 profile 组合，不在本阶段展开。
  */

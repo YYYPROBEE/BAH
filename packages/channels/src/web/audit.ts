@@ -1,5 +1,5 @@
 /**
- * 审计时间线（施工单 13 §2.1「决策链 + 理由码 + 票据生命周期」，答辩演示用）。
+ * 审计时间线。
  *
  * 口径：**只挑有判决含义的事件**。`user/message`、`request/*`、`system/message` 不进时间线
  * （它们不是"决定"，混进来会把最关键的三行理由码淹掉）。
@@ -315,7 +315,7 @@ export function auditOf(event: LooseEvent): AuditFrame | undefined {
     }
     // R-6：风险测评的两条业务事件进时间线。
     // 分类复用 `tool`（它们确实是工具产出的），不新增分类——新增分类会带出一条新的
-    // CSS 类别色，而施工单明确不许为这个面板加左竖色条。
+    // CSS 类别色，而设计说明明确不许为这个面板加左竖色条。
     case 'read/risk-questions': {
       const questions = data['questions']
       // 0 题是异常下发，不写成「0 题」（把异常当事实）

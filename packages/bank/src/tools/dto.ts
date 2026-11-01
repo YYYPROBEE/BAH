@@ -1,11 +1,11 @@
 /**
- * 银行工具族的结果 DTO（施工单 08 §3）。
+ * 银行工具族的结果 DTO。
  *
  * 这一层是 **presenter / 会话事件 / 渠道** 共用的纯数据形状：
  * - 工具体返回它；
  * - `presentResult` 只把它转成 `UiCard.data`（纯函数，不查 ctx）；
  * - `read/*` / `transfer/*` / `wealth/*` 会话事件把它整块落账，
- *   渠道按「卡片 = f(事件, 持久化结果)」重建（施工单 08 §4）。
+ *   渠道按「卡片 = f(事件, 持久化结果)」重建。
  *
  * 金额一律**整数分**（字段名带 `Cents`）：模型参数里的「元」在 `inputs.ts` 转一次。
  */
@@ -249,7 +249,7 @@ export interface WealthCatalogResult {
   /** 当前客户的风险承受能力（来自 `User.riskGrade` 静态画像）。 */
   readonly customerRisk: RiskGrade
   /**
-   * 风险提示 ID（施工单 08 §0 第 5 条：`wealth.*` 必带）。
+   * 风险提示 ID（`wealth.*` 必带）。
    * 前端必须按它渲染风险提示，不得省略。
    */
   readonly disclaimerId: string
@@ -271,7 +271,7 @@ export type WealthCompareResult = WealthCatalogResult
  * `wealth_purchase` 的结果。
  *
  * `riskMatch` 是**轻量匹配留痕**（本轮不建 MatchRecord 实体）：成交时按什么客户等级
- * 匹配了什么产品等级。它随 `wealth/purchased` 载荷整块落审计链，回放时可见。
+ * 匹配了什么产品等级。它随 `wealth/purchased` 载荷整块落审计链，回放时可。
  */
 export interface WealthPurchaseResult {
   readonly holdingId: HoldingId

@@ -1,4 +1,4 @@
-# mobile profile patch（层 2）。施工单 01。
+# mobile profile patch（层 2）。
 #
 # 语义是**整块替换**：每行 config 一出现就完全取代 base 的值。
 # 与 profiles/web/patch.yml 的差异**只有三处**（00 D2 原文）：
@@ -167,7 +167,7 @@
   use: demo:echo
   config: { prefix: '[mobile] ' }
 
-# 渠道行（施工单 01）：必须放在 interaction:approval 之后——本行 inject 审批服务，
+# 渠道行：必须放在 interaction:approval 之后——本行 inject 审批服务，
 # 直接注册移动渠道应答者。
 #
 # ⚠ 部署纪律：**不要**给移动端进程设 BAH_ADMIN_TOKEN（admin 面只服务本机 CLI，未设即 404，

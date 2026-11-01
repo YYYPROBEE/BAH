@@ -1,5 +1,5 @@
 /**
- * 会话事件 → 帧 的**唯一归约器**（施工单 13 §2「前端只消费事件与卡片数据」）。
+ * 会话事件 → 帧 的**唯一归约器**。
  *
  * 三条不变量（测试按此断言）：
  * 1. **纯**：不读时钟、不读随机、不读 DOM；同一串事件两次归约必须深度相等（T-WEB-007）；
@@ -296,7 +296,7 @@ function noticeTitle(end: TurnEndReason): string {
 /**
  * `DagNode.state` → 待办项的 `done` / `tone`（穷尽 9 态，`frames.ts` 的联合）。
  *
- * 映射口径（施工单 01 §3.5）：
+ * 映射口径：
  *   ok → 完成 · success
  *   pending / running → 未完成 · default
  *   blocked → 未完成 · warning（等前置，不是错）
@@ -432,7 +432,7 @@ export function projectTodo(input: {
 /**
  * 影响面派生：纯函数（不读时钟 / 随机 / IO）。
  *
- * 写操作用**双判据**（施工单 01 §9 V3：`tool/result` 载荷里没有 `sideEffect`，而
+ * 写操作用**双判据**（`tool/result` 载荷里没有 `sideEffect`，而
  * `@bah/channels` 不得反向依赖 bank）：
  *
  * ① `tier === 'yellow' || tier === 'red'` —— 追溯 `tool/call.tier.level`（需审批 = 有资金或状态写）；
@@ -500,7 +500,7 @@ interface EffectCandidate {
   readonly ticketId?: string
 }
 
-/** `WebProjector` 的可选注入口（施工单 01 §3.5）。 */
+/** `WebProjector` 的可选注入口。 */
 export interface WebProjectorOptions {
   /**
    * 写侧工具名单（权威来源 = 宿主的工具注册表 `sideEffect === 'write'`）。
@@ -757,7 +757,7 @@ export class WebProjector {
         if (!data.isError && data.name === 'prompt_ask' && record !== undefined) {
           frames.push(this.choiceFrame(data.callId, event.seq, event.at, asArgs(record.args)))
         }
-        // 施工单 01 §3.5：成功的写操作 → effects 帧（一轮一张清单，累积替换）。
+        // ：成功的写操作 → effects 帧（一轮一张清单，累积替换）。
         // 失败（isError）不产：那是"被判停/出错"，不是"已发生的影响"。
         if (!data.isError && record !== undefined) {
           const ticketId = this.ticketOfCall.get(data.callId)
@@ -813,7 +813,7 @@ export class WebProjector {
         const tier: FrameTier = data.challenge === undefined ? (record?.tier ?? 'unknown') : 'red'
         const payee = payeeFromArgs(record?.args)
         const payeePhone = maskedPayeePhoneFromArgs(record?.args)
-        // 金额口径：工具参数里的 `amount` 是**元**（施工单 08）；`approval/asked.amount`
+        // 金额口径：工具参数里的 `amount` 是**元**；`approval/asked.amount`
         // 同为元（bank governance 用 `amountCents / 100` 填票据）。参数缺金额时才退回事件值，
         // 绝不把两种单位混着格式化——￥8.00 与 ￥800.00 的差别就是一次事故。
         const cents =
@@ -1029,7 +1029,7 @@ export class WebProjector {
       case 'plan/node-blocked': {
         const raw = data['blockedBy']
         const blockedBy = Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []
-        // `DagNode` 没有该字段（本单不改它），但 todo 帧要带 ⇒ 在这里留一份，
+        // `DagNode` 没有该字段（本设计不改它），但 todo 帧要带 ⇒ 在这里留一份，
         // 键与 `dag.ts` 的 `planNodeId`（`plan:<planId>:<nodeId>`）同构。
         this.blockedBy.set(`plan:${planId}:${nodeId}`, blockedBy)
         this.dag.planSettle(this.turn, planId, nodeId, 'blocked', undefined, blockedBy)
@@ -1045,7 +1045,7 @@ export class WebProjector {
     }
     const dag = this.dagFrame(this.turn, event.at, event.seq)
     const frames: WebFrame[] = [dag]
-    // 施工单 01 §3.5：本 turn 有 plan 节点时同步产出 todo 帧（派生，不落账，D8）。
+    // ：本 turn 有 plan 节点时同步产出 todo 帧（派生，不落账，D8）。
     // 无节点 ⇒ projectTodo 返回 null ⇒ 不产空清单（不造假清单）。
     const todo = projectTodo({
       turn: this.turn,

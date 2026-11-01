@@ -1,8 +1,7 @@
-# 银行工具族 bank-tools（施工单 08 落地说明）
+# 银行工具族 bank-tools
 
-> 读者：写审批 / 强验证接线的人（09）、写渠道卡片的人（13–15）、做演示脚本与验收的人。
-> 规格权威仍是 `BAH-施工文档集/08-银行工具族.md`；本文只讲**本仓怎么落地**、**接缝在哪**、
-> 以及**哪些部分刻意留给后续施工单**。
+> 读者：写审批 / 强验证接线的人、写渠道卡片的人、做演示脚本与验收的人。
+> 本文只讲**本仓怎么落地**、**接缝在哪**，以及**哪些部分刻意留给后续迭代**。
 
 ## 1. 模块图
 
@@ -15,7 +14,7 @@ packages/bank/src/
 │  ├─ dto.ts          结果视图（工具 / 事件 / 卡片三方共用）
 │  ├─ events.ts       领域 durable 事件（模块增强 SessionEventMap）
 │  ├─ presenters.ts   纯函数卡片（presentCall / presentResult）
-│  ├─ tier.ts         三级权限判定（取高不取低；施工单 09 §1 的 08 段）
+│  ├─ tier.ts         三级权限判定（取高不取低）
 │  ├─ identity.ts     会话身份（BANK_IDENTITY 服务 + identity/bound 回放恢复）
 │  ├─ governance.ts   pre-execute 判决 + approval/request 票据桥接
 │  ├─ queries.ts      account_list / account_balance / txn_query / bill_* / analysis_calc
@@ -108,7 +107,7 @@ tools/result → ticket/redeemed + ticket/consumed（成功）或 ticket/blocked
 指纹由 `fingerprintOf(tool, args)`（键序无关）重算，审批后改参数会在
 `TicketStore.redeem()` 处被拒（`ticket-binding-mismatch`），不是靠工具自觉。
 
-### 3.1 可替换的策略引擎（W04）
+### 3.1 可替换的策略引擎
 
 判定矩阵的**接口**在 `packages/runtime/src/policy/index.ts`（`PolicyEngine` +
 `POLICY_ENGINE` 服务键），**默认实现**在 `packages/bank/src/tools/policy.ts`
@@ -125,7 +124,7 @@ tools/result → ticket/redeemed + ticket/consumed（成功）或 ticket/blocked
 | `ask` | 不额外加码（黄/红本来就要审批） | 不咨询 |
 | `allow` | **不能**把黄/红降成免审批 | — |
 
-> 绿级不咨询策略是刻意的：读操作不该被写策略误伤（TC-W04-06）。
+> 绿级不咨询策略是刻意的：读操作不该被写策略误伤（TC-06）。
 > 策略若想拒绝读操作，属于新的需求，必须改接口语义并出 ADR。
 
 ### 09 的落地情况
@@ -169,7 +168,7 @@ session.append('identity/bound', { userId, method: 'mock-login', at: now }, { ig
     seed: 7                  # 造数种子（与快照 randomSeed 同源）
     datasetTier: demo        # demo / stress / adversarial
     disclaimerId: wealth-risk-v1
-    ticketTtlSeconds: 120    # 票据 TTL = 审批超时（同源，施工单 09 §10）
+    ticketTtlSeconds: 120    # 票据 TTL = 审批超时（同源）
     computeTimeoutMs: 5000
     redChallenge: sms
     dailyTransferLimit: 5000 # 元；生效值 = min(账本日限额, 本值)
@@ -177,22 +176,22 @@ session.append('identity/bound', { userId, method: 'mock-login', at: now }, { ig
     riskyCallThreshold: 3    # 同 turn 风险调用上限；超过后非绿一律 ask
     riskCooldownDays: 1      # 风险测评重测冷却（天）；0 = 关闭（演示档）
     verify: { provider: gateway, successAfter: 1, maxAttempts: 3, lockMinutes: 30 }
-    ticketLease: { enforce: true, ttlSeconds: 120 }  # W12；缺省 = ticketTtlSeconds
+    ticketLease: { enforce: true, ttlSeconds: 120 }  # 缺省 = ticketTtlSeconds
 ```
 
-W09：`verify.provider=gateway`（默认）是**测试网关适配器**，接口与 mock 一致但保留
+`verify.provider=gateway`（默认）是**测试网关适配器**，接口与 mock 一致但保留
 `VerifyGatewayClient` 注入点；`mock` 是回滚开关。失败计数/锁定仍在 `VerifyService` 内存，
 **重启丢失**；未接真实短信/人脸/U 盾供应商。
 
-W12：`ticketLease.ttlSeconds` 是票据 TTL 内的**执行 lease** 窗口，缺省等于 `ticketTtlSeconds`
-（行为与 W12 之前等价）；`ttlSeconds > ticketTtlSeconds` 启动即 `invalid-config`；
+`ticketLease.ttlSeconds` 是票据 TTL 内的**执行 lease** 窗口，缺省等于 `ticketTtlSeconds`
+（行为与 此前等价）；`ttlSeconds > ticketTtlSeconds` 启动即 `invalid-config`；
 `enforce: false` 回滚到"只用票据 TTL"。lease 到期时刻会写进 bank-core 五绑定的 `expiresAt`，
 过期后核销直接 `ticket-expired`，不产生转账。`bank:tools` 同时提供 `bank:compensation`
 窄端口（`reverse` / `reversalOf`），供 `bank:saga-bridge` 的补偿通道调用。
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `ticketLease.enforce` | `true` | `false` = 回滚到只用票据 TTL（W12 的第一刀） |
+| `ticketLease.enforce` | `true` | `false` = 回滚到只用票据 TTL（第一刀） |
 | `ticketLease.ttlSeconds` | `ticketTtlSeconds` | lease 窗口；必须 ≤ 票据 TTL，否则启动即 `invalid-config` |
 
 R-2（2026-11-01）：`riskCooldownDays` 是风险测评的**重测冷却**（天，缺省 1，`0` = 关闭）。

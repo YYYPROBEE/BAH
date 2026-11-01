@@ -3,7 +3,7 @@
  *
  * 为什么单独一个文件：配置解析与 `apply()` 的装配是**两种变化原因**——前者随部署变化
  * （端口、静态目录、限流、CSRF 开关），后者随路由变化。混在一起，`apply()` 永远降不到
- * 120 行以下（施工单 §2.1 的实测结论），而配置校验塞进 handler 又会让 handler 反过来
+ * 120 行以下，而配置校验塞进 handler 又会让 handler 反过来
  * 依赖配置面。
  */
 
@@ -33,7 +33,7 @@ export interface WebSettings {
   }
   /**
    * `/` 的落点（静态根下的相对文件名，默认 `index.html`）。
-   * 施工单 01 / 00 D3：移动壳是第二个 HTML 壳 ⇒ `/` 打开哪个壳由渠道自己声明。
+   *  D3：移动壳是第二个 HTML 壳 ⇒ `/` 打开哪个壳由渠道自己声明。
    */
   readonly entry: string
   /**
@@ -51,7 +51,7 @@ export interface WebSettings {
   /**
    * 认证面（02）。**整个块可选：不写 = `mode: 'static'` = 改动前的行为**（A3）。
    *
-   * 这一条是本单能否合入的硬门槛：8 个 profile 与 7 个快照不写 auth 时必须一字不变。
+   * 这一条是本设计能否合入的硬门槛：8 个 profile 与 7 个快照不写 auth 时必须一字不变。
    */
   readonly auth: AuthSettings
 }

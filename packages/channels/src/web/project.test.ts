@@ -1,5 +1,5 @@
 /**
- * 投影器用例（施工单 13 §5 T-WEB-002 / 005 / 006 / 007 + 审批六要素 / 审计 / 幂等）。
+ * 投影器用例。
  *
  * 纪律：这里只喂**事件**，断言**帧**。不碰 DOM、不碰 HTTP、不读时钟——
  * 一旦某条断言需要真实时间，说明投影层混进了副作用。
@@ -779,7 +779,7 @@ function planNode(id: string, state: DagNode['state'], overrides: Partial<DagNod
   }
 }
 
-describe('projectTodo · 待办派生（TC-MCH-22..24，施工单 01 §3.5）', () => {
+describe('projectTodo · 待办派生（TC-MCH-22..24）', () => {
   it('同输入连调两次逐字节相同；nodes 逆序后仍相同（确定性）', () => {
     const nodes = [planNode('b', 'running'), planNode('a', 'ok'), planNode('c', 'blocked')]
     const input = { turn: 1, seq: 9, at: 9, planId: 'p-1', nodes }
@@ -889,7 +889,7 @@ describe('projectTodo · 待办派生（TC-MCH-22..24，施工单 01 §3.5）', 
   })
 })
 
-describe('projectEffects · 影响面派生（TC-MCH-25..26，施工单 01 §3.5 / V3）', () => {
+describe('projectEffects · 影响面派生（TC-MCH-25..26， / V3）', () => {
   const base = { turn: 1, seq: 4, at: 4 }
 
   it('黄级成功 ⇒ 产出；红级 ⇒ 产出', () => {

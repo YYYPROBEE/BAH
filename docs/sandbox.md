@@ -1,6 +1,6 @@
 # 沙箱（`@bah/safety` 的 sandbox-policy / sandbox-runtime）
 
-> 施工单 11。代码：`packages/safety/src/sandbox-policy/`、`packages/safety/src/sandbox-runtime/`。
+> 设计说明。代码：`packages/safety/src/sandbox-policy/`、`packages/safety/src/sandbox-runtime/`。
 > 用例：`policy.test.ts`（22 例，行覆盖 100%，已进强制名单）、`runner.test.ts`（11 例，含 worker 硬杀）。
 > 门禁：`pnpm gate` 的 `sandbox` 项。
 
@@ -12,7 +12,7 @@
 沙箱把这层收在安全平面：`sandbox-policy` 只裁决档位，`sandbox-runtime` 只负责执行与失败上报。
 业务包（`@bah/bank`）不决定自己能进哪一档，也不决定自己能跑多久。
 
-## 2. 三档位（施工单 11 §1）
+## 2. 三档位（§1）
 
 | 档位 | 用途 | 执行位置 | 硬约束 |
 |---|---|---|---|
@@ -33,12 +33,12 @@
 
 两条不可配置的恒等规则：
 
-1. `codeSource: 'model'` 解析到 `none` → 抛 `bah-sandbox: model-code-to-none`（施工单 11 §2 硬规则）；
+1. `codeSource: 'model'` 解析到 `none` → 抛 `bah-sandbox: model-code-to-none`（§2 硬规则）；
 2. 会话 override 只能收紧。想放宽必须有一条人签过的批准，而且批准也买不到 `none`。
 
 批准的一次性核销与票据同构：命中即从表里摘掉，过期条目在解析时清扫，不留无界增长的表。
 
-## 4. 执行与三态失败（施工单 11 §3.1）
+## 4. 执行与三态失败（§3.1）
 
 | 结局 | 触发 | 上报事件 |
 |---|---|---|
@@ -69,7 +69,7 @@ worker 入口按运行位置解析：调用者是 `.ts` 就用 `src/sandbox-runt
 
 - `none` 档没有硬杀：它的存在意义就是"仓内代码进程内直调"，模型代码买不到它。
 - 能力剥离是**逻辑隔离**（无 IO 原语 + 能力白名单 + 堆/时限 + 硬杀），不是 OS/容器隔离；
-  native addon 加固按施工单 11 §3 明示不在交付主线。
+  native addon 加固按§3 明示不在交付主线。
 - `maxPayloadBytes` 按序列化后的字符数计，不是 UTF-8 字节数（对 256KB / 1MB 量级的判定足够，
   但别把它当精确计费口径）。
 - 演示通道 `analysis_calc` → `compute-bounded` 已由宿主行 `safety:sandbox` 接线

@@ -1,7 +1,7 @@
 /**
  * 评测平面核心类型（M0 §4.1）。
  *
- * 施工单给的签名**逐字保留**：`TrajectoryEvent` / `Verdict` / `VerdictComponent` /
+ * 设计说明给的签名**逐字保留**：`TrajectoryEvent` / `Verdict` / `VerdictComponent` /
  * `CheckpointKind` 的字段名与取值域一个不改。新增的 `TrajectoryRecord` 是**信封**，
  * 用来在 JSONL 里承载 episode 的起止标记——它不修改 `TrajectoryEvent` 本身，
  * 因为 §4.1 的签名里没有 phase 字段，硬加字段会破坏「以约定为准」的一致性。

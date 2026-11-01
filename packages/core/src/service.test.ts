@@ -1,5 +1,5 @@
 /**
- * 服务接缝单测（施工单 02 §5 / §10）。
+ * 服务接缝单测。
  *
  * 覆盖：按键寻址、`get` fail-loud、`whenReady` waiting 队列、重复 provide 的 misconfiguration。
  */

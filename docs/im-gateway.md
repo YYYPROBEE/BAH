@@ -1,6 +1,6 @@
 # IM 网关（通用网关 + 微信适配器 + 审批 / 接管）
 
-> 施工单 02 / 03 的对外口径页。数字以 `facts.md` 为准；本文不重复门禁数与用例数。
+> 设计说明/ 03 的对外口径页。数字以 `facts.md` 为准；本文不重复门禁数与用例数。
 
 ## 1. 分层
 
@@ -118,7 +118,7 @@
 能力降级：`asyncPush=false` → `auto/push` 退化为 `passive` + 拉取；`passiveReply=false` →
 只能 push（两者都为 false 时启动期 fail-loud）。
 
-### 4.1 审批与接管（03 单）
+### 4.1 审批与接管
 
 - 每条会话有一条**常驻 SSE**（与 per-turn 订阅并行）：快照重建待审批与接管状态，
   增量 `approval` / `approval-closed` / `handoff` / 坐席 `message` 由它主动推送；
@@ -134,7 +134,7 @@
   未配公网 token 一律 404；错 token 401；响应原样回传状态码与 JSON。
 - 日志：审批/运营面只记 sessionKey / ticketId / code / 理由长度，**不记理由原文**（门禁 G15）。
 
-## 5. 与施工单的偏差（如实登记）
+## 5. 与设计说明的偏差（如实登记）
 
 | # | 偏差 | 理由 |
 |---|---|---|
@@ -145,9 +145,9 @@
 | 5 | 新增日志码 `im-gateway-start` | §2.15 的表没有"网关启动"事件；没有它，部署排障只能靠进程退出码 |
 | 6 | 订阅 SSE 后最多等 500ms 连接建立 | turn 一入队就可能产帧；先 turn 后订阅会丢第一条回复。500ms 远小于 5 秒窗口 |
 | 7 | 崩溃重启上限按"首次启动后 10 分钟内 ≤3 次" | §2.11 的原文；重启窗口以 `firstStartAt` 为起点，不随重启重置 |
-| 8 | 就绪探针文件名是 `ready.ts`（施工单写 `handshake.ts`） | 说明符 `'./handshake.ts'` 含子串 `dsh`，会被既有门禁 `verify-no-upstream-imports` 的正则误判为"指向上游源码"；改名是零语义的规避，接口名仍叫 `HandshakeDeps` |
+| 8 | 就绪探针文件名是 `ready.ts`（设计说明写 `handshake.ts`） | 说明符 `'./handshake.ts'` 含子串 `dsh`，会被既有门禁 `verify-no-upstream-imports` 的正则误判为"指向上游源码"；改名是零语义的规避，接口名仍叫 `HandshakeDeps` |
 | 9 | 宿主 `WebDeps` 拆出 `seatApiEnabled` | 原 `seatEnabled` 同时管 `/operator` 页面与 5 条坐席 API，且只对 `channel:web` 为真；IM 子进程没有坐席 UI，但运营桥必须转发坐席动作——绑成一个布尔会让"没页面就不能有 API" |
-| 10 | 03 新增 `session/hub.ts` / `handoff/bridge.ts` / `approval/texts.ts`（施工单文件清单未列） | 审批/接管需要**常驻 SSE**与跨轮状态；塞进 `bridge/outbound.ts` 会把"一轮投递"与"会话运行态"混成一份闭包，测试也无法只测其中一半 |
+| 10 | 03 新增 `session/hub.ts` / `handoff/bridge.ts` / `approval/texts.ts`（设计说明文件清单未列） | 审批/接管需要**常驻 SSE**与跨轮状态；塞进 `bridge/outbound.ts` 会把"一轮投递"与"会话运行态"混成一份闭包，测试也无法只测其中一半 |
 | 11 | 03 §6 的两条门禁编号顺延为 **G14 / G15** | 02 已占用 G10–G13（server import / Mock / Mock 开关 / 契约定义点）；复用编号会让负控表指向两条不同的判据 |
 | 12 | 新增 `BAH_OPERATOR_NAME`（03 §1 未列） | 网关注入子进程的坐席显示名是部署项；写死"坐席"会让多坐席部署在 IM 气泡里无法区分（显示名不是凭证） |
 | 13 | H5 一次性在"解析成功且通过红级前置"之后才 claim | 先 claim 会让"空理由 / 红级未验证"这类可修正的提交烧掉链接（T-H5-002 会变成 409）；claim 放在转发前仍能挡住并发双击 |

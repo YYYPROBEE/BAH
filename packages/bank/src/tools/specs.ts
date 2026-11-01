@@ -1,5 +1,5 @@
 /**
- * 银行工具目录的**唯一元数据来源**（施工单 08 §2 / §3）。
+ * 银行工具目录的**唯一元数据来源**。
  *
  * 这里只放模型可见的静态契约：名字、描述、参数 schema、tier、落账事件。
  * 执行体与 presenter 在各自模块里按 `name` 取本表（`specOf`），因此：
@@ -7,7 +7,7 @@
  * - `verify-tool-catalog` 能把「文档 ↔ 源码」逐行比对；
  * - `tier` 声明不会散落到 `execute()` 里（`verify-tiers` 门禁 + 评审双保险）。
  *
- * 数量上限 28（施工单 08 §2）：新增先删旧的，`verify-tool-catalog` 强制。
+ * 数量上限 28：新增先删旧的，`verify-tool-catalog` 强制。
  */
 
 import type { ToolSchema, ToolTier } from '@bah/core'

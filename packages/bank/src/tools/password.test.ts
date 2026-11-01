@@ -300,7 +300,7 @@ describe('password_change：交接票据是一次性的', () => {
   })
 })
 
-describe('password_change：落账不含密码材料（本单最重要的一条）', () => {
+describe('password_change：落账不含密码材料（本设计最重要的一条）', () => {
   it('改密成功 → 落 security/password-changed，且事件/入参 JSON 里没有明文', async () => {
     const h = createPipelineHarness({ approval: 'allowed-once' })
     try {

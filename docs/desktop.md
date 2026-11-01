@@ -1,6 +1,5 @@
 # 桌面端（Electron）
 
-> 施工单：[15 §2](../../BAH-桌面端施工方案-2026-10-29/00-总施工文档.md) · 分步 01/02/03
 > 一句话：**Electron 主进程内嵌私有 host，窗口加载 `http://127.0.0.1:<随机端口>/`，UI 与 Web 完全同源。**
 
 ## 1. 它是什么 / 不是什么
@@ -186,4 +185,4 @@ node scripts/desktop-acceptance.mjs I-DT-02   # 只跑一条
 | 权限 | 请求与查询两个处理器都全拒（摄像头/麦克风/通知/剪贴板/地理位置） | G1 |
 | 加载面 | 只 `loadURL(instance.url)`；源码里没有远程/`file://` 字面量 | G5 |
 | 供应链 | 无自动更新、无外链打开、无崩溃上报 | G6 |
-| 落盘 | 会话/记忆/saga 只在 `%APPDATA%\bah-desktop`，`resources/app` 只读 | 03 单 T-DTB-012 |
+| 落盘 | 会话/记忆/saga 只在 `%APPDATA%\bah-desktop`，`resources/app` 只读 | T-DTB-012 |

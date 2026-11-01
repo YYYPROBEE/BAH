@@ -1,18 +1,18 @@
 /**
- * 渠道侧注入的**接口占位**（施工单 10 §3 第 5 行 + §「接缝预留」）。
+ * 渠道侧注入的**接口占位**。
  *
- * 本批次不接真实 IM 网关（施工单 15）：这里只提供两样东西——
+ * 本批次不接真实 IM 网关：这里只提供两样东西——
  * 1. 来源标记的编码/解码（渠道适配层把第三方转发文本打上标记后放进消息）；
- * 2. 一段**降权提示词**的 section 描述（渠道插件落地时注册，施工单 15）。
+ * 2. 一段**降权提示词**的 section 描述（渠道插件落地时注册）。
  *
- * 为什么不在 sentry 里直接注册 section：`SECTION_ORDERS` 是冻结的装配序（施工单 05 §4），
+ * 为什么不在 sentry 里直接注册 section：`SECTION_ORDERS` 是冻结的装配序，
  * 新增段属破坏性变更；sentry 只交付出"该说什么"，注册权留给真正的渠道包。
  */
 
 /** 不可信来源标记前缀（`IM_UNTRUSTED_PREFIX + '原文'`）。 */
 export const IM_UNTRUSTED_PREFIX = '⟦UNTRUSTED:im⟧'
 
-/** 降权提示词段 id（施工单 15 注册时用；不在冻结的 `SECTION_ORDERS` 里）。 */
+/** 降权提示词段 id。 */
 export const IM_UNTRUSTED_SECTION_ID = 'im.untrusted'
 
 /**
@@ -32,7 +32,7 @@ export interface UntrustedPromptSection {
   render(context: unknown): string
 }
 
-/** IM 不可信来源的提示词段（施工单 15 注册；本单只交付占位）。 */
+/** IM 不可信来源的提示词段。 */
 export const IM_UNTRUSTED_SECTION: UntrustedPromptSection = {
   id: IM_UNTRUSTED_SECTION_ID,
   target: 'header',

@@ -1,5 +1,5 @@
 /**
- * 理财工具（施工单 08 §3.9–§3.11）：`disclaimerId` 是硬约束。
+ * 理财工具：`disclaimerId` 是硬约束。
  */
 
 import { describe, expect, it } from 'vitest'

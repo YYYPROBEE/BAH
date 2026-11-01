@@ -1,12 +1,12 @@
 /**
- * HTTP 系渠道（web / mobile）的**唯一适配器实现**（施工单 01 §3.2 / 00 D2）。
+ * HTTP 系渠道（web / mobile）的**唯一适配器实现**。
  *
  * 抽取原则：与传输无关、与渠道身份无关的逻辑全部在这里；渠道差异**只**允许通过
  * `{ id, capabilities }` 表达，`sessionId` 原样透传。
  *
  * WHY 不允许在 `mobile/adapter.ts` 写第二份 `decide`/`verify`：审批是安全面，语义一旦分叉，
  * 移动端就成了"绕过桌面端加固"的旁路（00 D2 的理由原文）。本文件的函数体是从
- * `web/adapter.ts`（施工单 13）**整段平移**，不是重写——六码、文案、归属校验顺序一字未改。
+ * `web/adapter.ts`**整段平移**，不是重写——六码、文案、归属校验顺序一字未改。
  *
  * 不做的事（与 `web/adapter.ts` 原先的分工一致）：
  * - 不碰 HTTP / SSE（宿主插件 `channel:web` / `channel:mobile`）；
@@ -33,13 +33,13 @@ export interface ChannelMessage {
 /** 内核输入（适配器 → 主循环）。 */
 export interface InboundInput {
   readonly text: string
-  /** 第三方转发文本一律视为不可信（施工单 13 §1）。 */
+  /** 第三方转发文本一律视为不可信。 */
   readonly untrusted: boolean
   readonly at?: number
   readonly from?: string
 }
 
-/** 渠道适配器契约（施工单 13 §1 的落地版）。 */
+/** 渠道适配器契约。 */
 export interface ChannelAdapter {
   /** 渠道 id。类型是 `ChannelKind`（六渠道权威定义），不是第二份字面量联合（01 §9 V2）。 */
   readonly id: ChannelKind

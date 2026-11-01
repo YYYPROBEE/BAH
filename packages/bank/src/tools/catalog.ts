@@ -1,5 +1,5 @@
 /**
- * 工具工厂装配（施工单 08 §5 第 1–5 步）。
+ * 工具工厂装配。
  *
  * `specs.ts` 是元数据唯一来源；本文件按 `BankToolName` 建一个**穷尽**的工厂表
  * （`Record<BankToolName, …>` 会在漏实现时编译失败）。`createBankTools` 按目录顺序返回，

@@ -1,5 +1,5 @@
 /**
- * HTTP 渠道的**唯一装配实现**（施工单 01 §3.6 / 00 D2）。
+ * HTTP 渠道的**唯一装配实现**。
  *
  * `channel:web` 与 `channel:mobile` 都调它；差异只有三项（D2 原文）：**适配器**（能力位）、
  * **入口 HTML**、**默认端口**。路由表、闸序、安全头、限流、CSRF、SSE、审批与 verify 端点
@@ -7,7 +7,7 @@
  * "绕过桌面端加固"的旁路。
  *
  * 本文件是 `plugins/web.ts` 原 `apply()` 体的**整体平移**，不是重写：七个 `ctx.effect(...)`
- * 的顺序、`bindPort` 的位置、注释里的 W16/W04/W09 编号全部保留（施工单 01 §10 R1 的判据是
+ * 的顺序、`bindPort` 的位置、注释里的 W16/W04/W09 编号全部保留（ R1 的判据是
  * `dispatch.test.ts` / `contract.test.ts` / `sse.test.ts` / `listen.test.ts` / `handoff.test.ts`
  * 全绿 + `/api/session` 逐字段相同）。
  *
@@ -94,7 +94,7 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
     // 归属校验（W04）：票据只能由它所属的会话应答；与 ApprovalService 的 sessionId 必须同源
     sessionId: String(session.sessionId),
   })
-  // 施工单 01 §3.5 的注入口在 04 单接线：effects 帧的"写侧工具"权威名单来自
+  //  的注入口在 04 单接线：effects 帧的"写侧工具"权威名单来自
   // 宿主的工具注册表（`sideEffect==='write'`）。绿色但 write 的 `verify_*` 由此进入清单——
   // 只靠 tier 双判据会漏掉它们。
   const writeToolNames = tryService(ctx, TOOLS_SERVICE)
@@ -188,7 +188,7 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
     // 交易密码安全页端口（ADR-0014）：没装 `bank:tools` 的 profile 取不到 ⇒ 端点回 501
     tryPassword: () => tryService(ctx, PASSWORD_HANDOFF),
     staticRoot,
-    // 施工单 01 / 00 D3：`/` 的落点与 token 白名单都由配置驱动（绝对路径精确等值）
+    //  D3：`/` 的落点与 token 白名单都由配置驱动（绝对路径精确等值）
     defaultEntry: join(staticRoot, config.entry),
     tokenEntries: config.entries.map((entry) => join(staticRoot, entry)),
     operatorEntry: join(staticRoot, 'operator.html'),

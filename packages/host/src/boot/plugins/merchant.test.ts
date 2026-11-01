@@ -89,7 +89,7 @@ describe('bank:merchant 配置面', () => {
 })
 
 describe('merchant_search / merchant_order 工具面', () => {
-  it('注册一绿一黄：搜索只读可见，下单对模型可见且可只给品类', async () => {
+  it('注册一绿一黄：搜索只读可，下单对模型可见且可只给品类', async () => {
     await withMerchant({}, ({ ctx, registry, service }) => {
       expect(ctx.get(TOOLS_SERVICE).names()).toEqual(['merchant_search', 'merchant_order'])
       const search = toolOf({ ctx, registry, service }, 'merchant_search')
@@ -99,7 +99,7 @@ describe('merchant_search / merchant_order 工具面', () => {
       expect(order.tier).toEqual({ level: 'yellow' })
       expect(order.sideEffect).toBe('write')
       /**
-       * 2026-11-01：`merchant_order` 从 `exposure:'internal'` 改为模型可见。
+       * 2026-11-01：`merchant_order` 从 `exposure:'internal'` 改为模型可。
        *
        * 理由：用户说"帮我订一束花"时手里没有 offerId，内部工具等于这条意图永远不可达。
        * 引用闭包（搜过才可下单）没有放开——只是把"搜"与"订"两步合到一次调用里。

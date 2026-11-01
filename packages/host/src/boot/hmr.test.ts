@@ -1,5 +1,5 @@
 /**
- * config-only HMR（施工单 06 §6 的 T-PRF-007 / T-PRF-008）。
+ * config-only HMR。
  *
  * 两件事必须同时成立：
  * 1. **配置真的换了**（patch 文件变化 → 校验 → 应用 → 通知）；

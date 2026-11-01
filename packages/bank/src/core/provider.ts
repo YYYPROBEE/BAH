@@ -1,7 +1,7 @@
 /**
- * Provider seam（施工单 07 §2）：业务能力面与实现解耦。
+ * Provider seam：业务能力面与实现解耦。
  *
- * 真实对接只换 Provider——工具族（施工单 08）、审批（09）与渠道（13–15）都只依赖本接口。
+ * 真实对接只换 Provider——工具族、审批（09）与渠道（13–15）都只依赖本接口。
  * mock 实现（`mock.ts`）不做任何 I/O：全部状态在内存，重启即回到造数初始态。
  */
 
@@ -61,7 +61,7 @@ export interface Page<T> {
   readonly nextCursor?: string
 }
 
-/** 交易查询条件（施工单 08 的 `query_transactions` 工具会映射到这里）。 */
+/** 交易查询条件。 */
 export interface TxnQuery {
   readonly userId: UserId
   readonly accountId?: AccountId
@@ -86,7 +86,7 @@ export interface BillQuery {
   readonly period?: string
 }
 
-/** 账单报告（施工单 08 的 `analyze_bill` 工具的结果面）。 */
+/** 账单报告。 */
 export interface BillReport {
   readonly period: string
   readonly totalInCents: number
@@ -99,7 +99,7 @@ export interface BillReport {
   readonly comparedPeriod: string
 }
 
-/** 风控规则名（施工单 07 §4.3；月限额为卡消费/以卡转账补充）。 */
+/** 风控规则名。 */
 export type RiskRule =
   | 'insufficient-balance'
   | 'daily-limit'
@@ -158,7 +158,7 @@ export interface TransferReq {
   readonly viaCardId?: CardId
 }
 
-/** 试算 + 风控预检结果（施工单 07 §0 第 4 条：当日已累计与剩余额度是权威口径）。 */
+/** 试算 + 风控预检结果（当日已累计与剩余额度是权威口径）。 */
 export interface TransferPreview {
   readonly amountCents: number
   readonly feeCents: number
@@ -309,7 +309,7 @@ export interface AaSettlementResult {
 }
 
 /**
- * 业务能力面（施工单 07 §2）。
+ * 业务能力面。
  *
  * 读操作不需要票据；**写操作全部强制 `TicketRef`**（授权进领域边界）。
  * card：list / reportLost 已接；申请/提额/限额未加。subscription：只有 cancel。

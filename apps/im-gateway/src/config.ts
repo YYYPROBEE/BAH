@@ -1,5 +1,5 @@
 /**
- * 网关配置面（施工单 02 §2.4）：**只从环境变量读**，必填缺失即启动失败。
+ * 网关配置面：**只从环境变量读**，必填缺失即启动失败。
  *
  * WHY 不读 profile / `bah.yml`：网关是公网进程，它的配置属于**部署**（端口、盐、
  * 平台密钥），不属于"业务装配"。把它写进 profile 会让"同一份 profile 在开发机起不来"，
@@ -20,7 +20,7 @@ export const DEFAULT_GATEWAY_PORT = 8080
 /** 会话盐最小长度（与会话键派生同口径）。 */
 export const MIN_SESSION_SALT = 16
 
-/** 链接密钥最小长度（施工单 03 §1：H5 审批链接的 HMAC 密钥）。 */
+/** 链接密钥最小长度（H5 审批链接的 HMAC 密钥）。 */
 export const MIN_LINK_SECRET = 32
 
 /** 坐席显示名缺省值（网关注入子进程 `BAH_OPERATOR_NAME`）。 */

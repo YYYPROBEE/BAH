@@ -1,7 +1,7 @@
 /**
- * 沙箱档位词汇表（施工单 11 §1）。
+ * 沙箱档位词汇表。
  *
- * 三档位是**执行环境**的隔离强度，不是权限级别（绿/黄/红属 `@bah/bank` 的治理平面，施工单 09）。
+ * 三档位是**执行环境**的隔离强度，不是权限级别（绿/黄/红属 `@bah/bank` 的治理平面）。
  * 一次工具调用先由三级权限决定"能不能执行"，再由本模块决定"在什么环境里执行"。
  *
  * `rank` 只用来回答"这个 override 是收紧还是放宽"：`none` 最宽（进程内直调，无隔离），
@@ -18,12 +18,12 @@ export const TIER_RANK: Readonly<Record<SandboxTier, number>> = {
   none: 2,
 }
 
-/** 沙箱能力的封闭联合（`none` 之外的档位一律全部拒绝；施工单 11 §3 的能力剥离清单）。 */
+/** 沙箱能力的封闭联合（`none` 之外的档位一律全部拒绝； 的能力剥离清单）。 */
 export type SandboxCapability = 'network' | 'filesystem' | 'process' | 'external-io'
 
 /** 一个档位的执行限制（数值全部来自 Config，本模块只定义形状与缺省）。 */
 export interface TierLimits {
-  /** 墙钟上限（ms）；超时即 `worker.terminate()`（施工单 11 §3）。 */
+  /** 墙钟上限（ms）；超时即 `worker.terminate()`。 */
   readonly timeoutMs: number
   /** 运算数上限（确定性预算，与超时无关）。 */
   readonly maxOperations: number
@@ -40,7 +40,7 @@ export interface TierSpec extends TierLimits {
 }
 
 /**
- * 缺省档位规格（施工单 11 §1 表格：query-only 2s / compute-bounded 5s）。
+ * 缺省档位规格（query-only 2s / compute-bounded 5s）。
  *
  * `none` 的 `timeoutMs` 只是**进程内**环绕用的兜底值——它不经 worker，因此没有
  * `resourceLimits` 与硬杀；这正是"模型生成的代码一律不得进入 none"的原因（§2 硬规则）。

@@ -1,12 +1,12 @@
 /**
  * 门禁：Saga 领域类型的两个定义点不得静默分叉（门禁扩容 07 §2-6，**方案已改，见下**）。
  *
- * ## 为什么不是施工单写的"只允许一份真源"
+ * ## 为什么不是设计说明写的"只允许一份真源"
  *
- * 施工单 §2-6 要求"`SideEffectClass`/`CompKind` 的唯一真源在 `@bah/saga`，
+ * 设计说明 §2-6 要求"`SideEffectClass`/`CompKind` 的唯一真源在 `@bah/saga`，
  * `persistence/src/saga-store/types.ts` 只允许 `import type`"。该方案的**前提不成立**：
  *
- * - 施工单的取证只看了 `package.json`（pnpm 依赖图），那里确实无环；
+ * - 设计说明的取证只看了 `package.json`（pnpm 依赖图），那里确实无环；
  * - 但 `saga/tsconfig.json` 为了给自己的 `src/*.test.ts` 提供类型，**已经** reference 了
  *   `../persistence`；一旦 persistence 反向 reference saga，`tsc -b` 直接报
  *   `TS6202: Project references may not form a circular graph`（实测，非推断）。

@@ -1,5 +1,5 @@
 /**
- * 会话存储单测（施工单 03 §1.3 / §4 的 T-SESS-001）。
+ * 会话存储单测。
  */
 
 import { describe, expect, it } from 'vitest'

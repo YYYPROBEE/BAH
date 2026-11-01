@@ -1,11 +1,11 @@
 /**
- * 适配器注册表（施工单 05 §2「注册：返回 disposer；重复注册需显式 replace 语义」）。
+ * 适配器注册表（返回 disposer；重复注册需显式 replace 语义」）。
  *
  * 纪律：
  * - **注册即可逆**：`register` 返回 disposer（幂等），注销后该 provider 立即不可解析；
  * - 重名**默认抛错**（fail-loud），要覆盖必须显式 `{ replace: true }`——静默覆盖会让
  *   "谁最后装的谁生效"变成隐藏行为，排障时无从下手；
- * - 跨包只认服务键 `llm:adapters`（施工单 00 §9 补充纪律「按键寻址」）。
+ * - 跨包只认服务键 `llm:adapters`。
  */
 
 import { defineService } from '@bah/core'
@@ -135,9 +135,9 @@ export const LLM_ADAPTERS: ServiceKey<LlmAdapterRegistry> = defineService<LlmAda
 /**
  * 注册 `llm:adapters` 服务。
  *
- * 施工单 05 §2 原文写的是 `ctx.llm.registerAdapter(...)`：本仓 `api.ts` 已冻结、
- * `Context` 上没有也不会长出 `llm` 成员，故按施工单 00 §9「按键寻址」用服务键落地
- * （语义等价：注册返回 disposer、重名需显式 replace）。偏离已在 PROGRESS §11 记录。
+ *  原文写的是 `ctx.llm.registerAdapter(...)`：本仓 `api.ts` 已冻结、
+ * `Context` 上没有也不会长出 `llm` 成员，故按「按键寻址」用服务键落地
+ * （语义等价：注册返回 disposer、重名需显式 replace）。偏离已在  记录。
  */
 export function provideLlm(ctx: Context, registry = new LlmAdapterRegistry()): Disposer {
   return ctx.provide(LLM_ADAPTERS, registry)

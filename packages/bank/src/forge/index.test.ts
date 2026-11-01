@@ -1,5 +1,5 @@
 /**
- * 造数确定性（施工单 07 §4 / §6 的 T-BANK-001、009、010）。
+ * 造数确定性。
  */
 
 import { describe, expect, it } from 'vitest'

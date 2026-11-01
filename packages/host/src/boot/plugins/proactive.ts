@@ -71,7 +71,7 @@ export interface ProactiveCandidate {
   /**
    * 更长的说明（可选）。
    *
-   * ⚠ 本单**不渲染**它：事件契约 `proactive/reminder` 冻结的字段里没有 `text`，
+   * ⚠ 本设计**不渲染**它：事件契约 `proactive/reminder` 冻结的字段里没有 `text`，
    * 而帧由事件投影而来——若实时推 `text`、回放只剩 `title`，同一件事会有两个样子。
    * 保留字段是给 04 单留的：等 `text` 进契约（另开 ADR）时再一起渲染。
    */

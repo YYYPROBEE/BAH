@@ -1,5 +1,5 @@
 /**
- * 门禁：渠道能力位与移动渠道装配的自研不变量（施工单 01 §6.1 / 00 D14）。
+ * 门禁：渠道能力位与移动渠道装配的自研不变量。
  *
  * 为什么不做「禁用词清单」：清单要把被禁字面量写进脚本，脚本自身永远是一次命中
  * （`verify-visual-line.ts:1-13` 已把这条论证写死）。本门禁一律**正向断言**——
@@ -251,7 +251,7 @@ const gate: Gate = {
 
     // ── I4 每个 HTTP 渠道 profile 存在且装配自己的渠道行 ──────────────────
     // 行集合由 `HTTP_CHANNELS` 唯一给出：新增渠道必须同时补门禁判据，
-    // 否则"新渠道没被校验"这件事本身不会被任何地方发现（这正是本单要堵的洞）。
+    // 否则"新渠道没被校验"这件事本身不会被任何地方发现（这正是本设计要堵的洞）。
     const channelRows = new Map<string, readonly Row[]>()
     for (const spec of HTTP_CHANNELS) {
       const profileRel = `profiles/${spec.id}/profile.yml`

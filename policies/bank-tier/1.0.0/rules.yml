@@ -1,6 +1,6 @@
 # bank-tier 1.0.0 · 规则表
 #
-# 与 packages/bank/src/tools/tier.ts 的 legacy 判定逐条等价（施工方案 01 §11）。
+# 与 packages/bank/src/tools/tier.ts 的 legacy 判定逐条等价（设计方案 01 §11）。
 # 表顺序是语义：金额优先于收款人（同时命中时理由取更具体的 daily-limit）。
 
 tables:

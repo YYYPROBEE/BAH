@@ -1,10 +1,10 @@
 /**
- * 控制平面（施工单 10 §1 映射表第 2 行）：`tools/pre-execute`（waterfall）。
+ * 控制平面：`tools/pre-execute`（waterfall）。
  *
  * **唯一阻断点**（铁律二）：危险规则 / 参数 blob / 预算 / 断路器 / 降级模式 → `deny`，
  * 其余一律把下游判决原样交还（`allow` / `ask` 都可能是 `bank:tools` 或审批服务的结论）。
  *
- * 判决顺序（施工单 03 §2.2 的 ③a–e；c 为 W09 新增）：
+ * 判决顺序：
  * ```
  * a. 危险规则（13 条确定性正则 + 部署追加规则；命中即 deny 短路）
  * b. PII 参数检测（**仅审计**，不阻断）
@@ -423,7 +423,7 @@ interface DenyDecision {
   readonly recordReason?: string
 }
 
-/** 规则命中 → 拒绝内容（理由里带规则 ID 与命中片段，便于答辩复盘）。 */
+/** 规则命中 → 拒绝内容（理由里带规则 ID 与命中片段，便于对外说明复盘）。 */
 function ruleDeny(findings: readonly RuleFinding[]): DenyDecision {
   const detail = findings.map((finding) => `${finding.id}(${finding.family}): ${finding.hit}`).join('；')
   return {

@@ -1,6 +1,6 @@
 # apps/desktop
 
-Electron 桌面端（施工单 15 §2，已实装）。主进程内嵌**私有 host**（`port: 0`，只绑
+Electron 桌面端。主进程内嵌**私有 host**（`port: 0`，只绑
 `127.0.0.1`），窗口加载同一份 `apps/web`——没有第二套前端，也没有专用桌面布局。
 
 ```bash
@@ -23,7 +23,7 @@ pnpm desktop:accept                # 逐项验收（16 条，每条独立）
 普通 Web 版是单进程单会话，没有这个能力，因此不渲染该按钮；需要新对话请重启 web 进程。
 
 完整说明（启动 / 离线演示 / 打包 / 排障 / 安全边界）见 [docs/desktop.md](../../docs/desktop.md)；
-逐项验收记录见 [docs/evidence/2026-10-30-desktop/](../../docs/evidence/2026-10-30-desktop/)。
+逐项验收记录见 [仓库外归档](../../仓库外归档)。
 
 ⚠ 纯模块**不得 import electron**（`main.ts` / `window.ts` / `menu.ts` 例外）——
 Electron 依赖会让 vitest 拿到一个需要 GUI 运行时的壳。门禁 `verify-desktop-shell` 会拦。

@@ -1,5 +1,5 @@
 /**
- * `@bah/llm` · 逻辑模块 llm（施工单 05 §1–§3）。
+ * `@bah/llm` · 逻辑模块 llm。
  *
  * 本文件只做 re-export（覆盖率按文件统计，re-export 不算可执行行）：
  * - `types.ts`：provider-neutral 词汇表（冻结面）

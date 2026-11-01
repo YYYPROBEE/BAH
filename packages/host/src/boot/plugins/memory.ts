@@ -14,7 +14,7 @@
  * |---|---|---|
  * | 写入 | `session/event` 的 `turn/end`（emit） | turn 边界是"这一轮说完了"的唯一确定信号；`assistant/message` 逐条写会把同一轮切碎。运行时只广播 `session/event`，没有独立的 `turn/end` 主题 |
  * | 读取 | `agent/pre-step`（waterfall，`step === 1`） | 只在**本轮第一步**检索：多步里同一段记忆会重复注入，而且 step 中途的用户意图还没成型 |
- * | 注入 | `PromptSection`（`target: 'context'`，order 35） | 记忆是**运行时上下文**，按施工单 05 §4.1 不许拼进 system 头；35 落在 `runtime.context`(30) 与 `policy.approval`(40) 之间 |
+ * | 注入 | `PromptSection`（`target: 'context'`，order 35） | 记忆是**运行时上下文**，按 不许拼进 system 头；35 落在 `runtime.context`(30) 与 `policy.approval`(40) 之间 |
  *
  * ## 诚实边界（写进文档，也写进这里）
  *

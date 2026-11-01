@@ -1,11 +1,11 @@
 /**
- * 系统提示词装配的运行期形状（施工单 05 §4）。
+ * 系统提示词装配的运行期形状。
  *
  * 三个正交的概念，别混：
  * 1. `PromptSection`：一段提示词 + 一个**冻结的序**（`SECTION_ORDERS`）；
  * 2. `PromptContext`：本次装配的输入（能力位 / 工具 / 运行时视图 / 渠道）；
  * 3. `ComposedPrompt`：装配结果，**分成两半**——`header` 进 system 头，
- *    `context` 以 user 角色落历史（施工单 05 §4.1：运行时上下文**不拼进 system 头**）。
+ *    `context` 以 user 角色落历史（运行时上下文**不拼进 system 头**）。
  *
  * 能力位（`PromptCapabilities`）来自 `LlmAdapter.resolveModel()`，是裁剪 section 的唯一依据：
  * 模型不支持 function calling，就不许把工具 schema 塞给它——塞了它只会照着编。
@@ -28,7 +28,7 @@ export interface ToolDescriptor {
   readonly tier: ToolTier
 }
 
-/** 渠道（语气与长度适配，施工单 05 §4 的 `style` 段）。 */
+/** 渠道（语气与长度适配， 的 `style` 段）。 */
 export type ChannelKind = 'web' | 'mobile' | 'im' | 'desktop' | 'headless' | 'sdk'
 
 /** 账户槽位（展示用；金额已由边界格式化，运行时不做任何金额运算）。 */
@@ -96,7 +96,7 @@ export interface PromptSection {
 }
 
 /**
- * 六段装配序（施工单 05 §4，**顺序冻结**）。
+ * 六段装配序。
  *
  * 改这张表 = 破坏性变更（模型行为会整体漂移）：必须同步更新架构文档并跑全量快照。
  */

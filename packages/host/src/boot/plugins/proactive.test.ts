@@ -111,7 +111,7 @@ async function withPlugin(options: Options, run: (harness: Harness) => Promise<v
   }
   ctx.provide(BANK_AUDIT, audit)
   if (options.withIdentity !== false) {
-    // 只要 `resolve` 一个方法：提醒的口径是"从会话解析出用户"，其余方法与本单无关
+    // 只要 `resolve` 一个方法：提醒的口径是"从会话解析出用户"，其余方法与本设计无关
     ctx.provide(BANK_IDENTITY, {
       resolve: (sessionId: SessionId) => (String(sessionId) === 's-proactive' ? 'u-1' : undefined),
     } as unknown as BankIdentityStore)

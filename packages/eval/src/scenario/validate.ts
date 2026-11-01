@@ -8,7 +8,7 @@
 import type { ScenarioFamily } from './spec.ts'
 import type { EvalScenario } from './types.ts'
 
-/** 七族的固定例数（W13 §1；少一条或多一条都算本单失败）。 */
+/** 七族的固定例数（W13 §1；少一条或多一条都算本设计失败）。 */
 export const FAMILY_COUNTS: Readonly<Record<ScenarioFamily, number>> = {
   Q: 14,
   T: 16,

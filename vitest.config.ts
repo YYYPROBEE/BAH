@@ -5,7 +5,7 @@ import { COVERAGE_ALLOWLIST } from './scripts/coverage-allowlist.ts'
 import { bahSourceAlias } from './vitest.shared.ts'
 
 /**
- * 强制 100% 名单 → coverage include 模式（施工单 01 §7：CI 读取名单，
+ * 强制 100% 名单 → coverage include 模式（CI 读取名单，
  * 不把包名写死在配置里；名单扩容时覆盖率门禁自动跟着扩容）。
  *
  * `scope` 形如 `'agent-loop/'`（包内目录）或 `'tools/tier.ts'`（单文件）：
@@ -16,11 +16,11 @@ const allowlistedSources = COVERAGE_ALLOWLIST.map(({ package: pkg, scope }) =>
 )
 
 /**
- * unit / 集成面（施工单 01 §5）。
+ * unit / 集成面。
  *
  * 覆盖纯函数内核与四接缝集成（最小 ctx 模拟器）。
  * 覆盖率只统计「强制名单」里的文件：那是"确定性组件可信"的证据，不是全仓指标
- * （施工单 00 §11：每文件 100% 只对内核与治理平面强制）。
+ * （每文件 100% 只对内核与治理平面强制）。
  */
 export default defineConfig({
   resolve: { alias: bahSourceAlias },
@@ -106,7 +106,7 @@ export default defineConfig({
         branches: 80,
         perFile: true,
       },
-      // text 给人看；lcov 给 CI / 答辩材料；json-summary 给脚本读
+      // text 给人看；lcov 给 CI / 对外说明材料；json-summary 给脚本读
       reporter: ['text', 'lcov', 'json-summary'],
       reportsDirectory: '.ci-artifacts/coverage',
       // 不清理报表目录：本机沙箱的 safe-delete 会拦 vitest 的 cleanAfterRun

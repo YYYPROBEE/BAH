@@ -1,5 +1,5 @@
 /**
- * 工具模块入口（施工单 03 Part B）。
+ * 工具模块入口。
  *
  * 实现分散在 `types.ts`（运行期形状）/ `registry.ts` / `guard.ts` / `recovery.ts` / `pipeline.ts`；
  * 本文件只做 re-export 与「注册 `tools` 服务」这一处装配。
@@ -22,7 +22,7 @@ export * from './types.ts'
 export const TOOLS_SERVICE: ServiceKey<ToolRegistry> = defineService<ToolRegistry>('runtime:tools')
 
 /**
- * 注册 `tools` 服务（施工单 03 §3 第 9 步）。
+ * 注册 `tools` 服务。
  *
  * @param ctx 内核上下文
  * @param registry 复用外部注册表（默认新建）

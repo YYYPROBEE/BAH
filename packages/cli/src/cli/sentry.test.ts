@@ -1,5 +1,5 @@
 /**
- * `bah sentry unfreeze`（施工单 HP-0 §3.3 的 HP0-12…15）。
+ * `bah sentry unfreeze`。
  *
  * 三件必须被钉住的事：
  * 1. **用法错误 = 退出码 2**，运行期失败 = 1，成功（含幂等 no-op）= 0；

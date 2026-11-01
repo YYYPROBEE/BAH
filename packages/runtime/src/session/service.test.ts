@@ -1,11 +1,12 @@
 /**
- * 会话服务单测（施工单 03 §1.3 / §3 第 9 步的会话侧）。
+ * 会话服务单测。
  */
 
 import { describe, expect, it, vi } from 'vitest'
 
 import { asSessionId, fixedClock, withTestContext } from '@bah/test-support'
 
+import { SessionEventBuffer, withSessionBuffer } from './buffer.ts'
 import { SESSION_SERVICE, provideSession } from './service.ts'
 import { SessionStore } from './store.ts'
 
@@ -123,6 +124,43 @@ describe('provideSession', () => {
       // 嵌套那条也要真的落账，不能"为了排序把事件丢了"
       expect(session.lastSeq()).toBe(2)
       expect(session.events().map((event) => event.type)).toEqual(['turn/start', 'sentry/trace'])
+    })
+  })
+
+  /**
+   * 并行读批次（`agent.runParallelBatch`）走缓冲：执行期的 append / appendDomain
+   * 只记账、不分配真实 seq，也不广播；批次结束 flush 时才按记录顺序落账并派发。
+   * 判据是"执行期零广播 + flush 后顺序等于记录顺序"——顺序错位会让投影器丢帧。
+   */
+  it('缓冲期 append/appendDomain 只记账（seq=0）不广播；flush 后按记录顺序落账并广播', async () => {
+    await withTestContext(async (test) => {
+      provideSession(test.ctx, {
+        sessionId: asSessionId('s-buffered'),
+        now: fixedClock({ start: 100 }).now,
+      })
+      const session = test.ctx.get(SESSION_SERVICE)
+      const seen: number[] = []
+      test.ctx.events.on('session/event', ({ event }) => {
+        seen.push(event.seq)
+      })
+
+      const buffer = new SessionEventBuffer()
+      const placeholders = await withSessionBuffer(buffer, async () => [
+        session.append('user/message', { content: '并行读' }),
+        session.appendDomain('sentry/trace', { kind: 'read' }),
+      ])
+
+      // 缓冲期：占位事件不暴露真实 seq，落账面未增长，监听器一条都收不到
+      expect(placeholders.map((event) => event.seq)).toEqual([0, 0])
+      // 领域事件缺省按 ignorable 落账（旧 reader 跳过，不当成日志空洞）
+      expect(placeholders[1]?.ignorable).toBe(true)
+      expect(session.lastSeq()).toBe(0)
+      expect(seen).toEqual([])
+
+      buffer.flush(session, () => undefined)
+
+      expect(seen).toEqual([1, 2])
+      expect(session.events().map((event) => event.type)).toEqual(['user/message', 'sentry/trace'])
     })
   })
 

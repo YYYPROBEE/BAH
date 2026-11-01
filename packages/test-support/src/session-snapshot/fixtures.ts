@@ -1,5 +1,5 @@
 /**
- * 快照 fixture 的命名解析与代次选择（施工单 12 §3）。
+ * 快照 fixture 的命名解析与代次选择。
  *
  * 命名规则：`session[.序号][.vN].jsonl`
  * - 缺省序号 = **parent**（会话主线）；带序号 = **child**（子会话 / 分支，如 `session.1.jsonl`）
@@ -7,7 +7,7 @@
  * - 同一组内取**最高代**；同组同代出现多个文件 = fixture 冲突（fail-loud，不许随手挑一个）
  *
  * 为什么先做这块：它是纯文件逻辑、不依赖会话日志，所以能在阶段 3 之前落地并被测试；
- * record / replay harness 本身见施工单 12 §4 第 4 步（阶段 7）。
+ * record / replay harness 本身见 第 4 步（阶段 7）。
  */
 
 import { readdirSync } from 'node:fs'

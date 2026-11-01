@@ -1,5 +1,5 @@
 /**
- * 移动 H5 壳的页面局部样式（施工单 02 §3.10）。
+ * 移动 H5 壳的页面局部样式。
  *
  * 三条纪律，全部门禁可判：
  * 1. **零裸色值**：每个颜色都解析到 DS 令牌 `var(--…)`，连 fallback 形态 `var(--x, 值)` 也不写
@@ -193,7 +193,7 @@ body {
 .icon--doc { --icon-url: url('../assets/icons/doc.svg'); }
 .icon--search { --icon-url: url('../assets/icons/Search.svg'); }
 .icon--up { --icon-url: url('../assets/icons/arrow_up.svg'); }
-/* 本单新增（逐个从 design/bah-ds/assets/icons/ 逐字节复制，I9 双向 sha256 校验） */
+/* 本设计新增（逐个从 design/bah-ds/assets/icons/ 逐字节复制，I9 双向 sha256 校验） */
 .icon--mic { --icon-url: url('../assets/icons/microphone.svg'); }
 .icon--lock { --icon-url: url('../assets/icons/Lock.svg'); }
 .icon--chevron-down { --icon-url: url('../assets/icons/chevron_down_large.svg'); }
@@ -562,7 +562,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* ────────────────────────────── 目标条 / 待办渲染位（04 单语义，本单只呈现） */
+/* ────────────────────────────── 目标条 / 待办渲染位（04 单语义，本设计只呈现） */
 
 .m-goal {
   display: flex;
@@ -675,7 +675,7 @@ body {
   padding: 0 var(--spacer-12) var(--spacer-12);
 }
 
-/* 阻塞原因：显式可见，不折进"更多"（TC-MOB-23）。用行背景 + 标签表达，不用左竖条。 */
+/* 阻塞原因：显式可，不折进"更多"（TC-MOB-23）。用行背景 + 标签表达，不用左竖条。 */
 .m-step__blocked {
   display: flex;
   align-items: center;
@@ -733,7 +733,7 @@ body {
   border-radius: var(--radius-12) var(--radius-12) var(--radius-0) var(--radius-0);
   border-bottom: none;
   /* 入场：opacity + 4px 微位移，300ms 内完成（00 §5.8 明文抽屉同受 ≤4px 约束；
-     被否决的"translateY(100%)→0 大位移滑入"见施工单 02 §3.4） */
+     被否决的"translateY(100%)→0 大位移滑入"见） */
   opacity: 0;
   transform: translateY(4px);
   transition: opacity 200ms ease-out, transform 200ms ease-out;
@@ -869,7 +869,7 @@ body {
 .m-sheet-result--cancelled { color: var(--text-secondary); }
 
 /* 半途关闭后的"仍有一笔待确认"提醒条：零 decision 的代价是票据还活着，
-   不给回收口就等于把待办藏起来（施工单 02 §3.4 状态机 closed 分支） */
+   不给回收口就等于把待办藏起来 */
 .m-sheet-reminder {
   display: flex;
   align-items: center;

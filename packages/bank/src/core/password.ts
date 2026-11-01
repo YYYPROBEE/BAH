@@ -17,7 +17,7 @@
  * - 明文只在 HTTP handler 的栈帧里存在一次，交给 `MockBankCore` 后立刻变成
  *   `sha256(salt + password)`，且该 Map 与盐都**只在内存**，进程退出即消失。
  *
- * 这也是本单选择"交办"而不是"代改"的原因：模型不接触密码，日志就不可能沾上。
+ * 这也是本设计选择"交办"而不是"代改"的原因：模型不接触密码，日志就不可能沾上。
  */
 
 import { BahError, sha256Hex } from '@bah/util'

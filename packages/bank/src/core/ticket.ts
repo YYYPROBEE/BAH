@@ -1,5 +1,5 @@
 /**
- * 票据状态机与核销属主（施工单 07 §3）。
+ * 票据状态机与核销属主。
  *
  * ```text
  * issued(pending) ──批准──▶ approved(allowed-once) ──bank-core 执行──▶ redeemed(consumed)
@@ -10,12 +10,12 @@
  * 三条铁律：
  * 1. **核销唯一属主 = bank-core**：`redeem()` 校验「已签发 + 已审批 + 未过期 + 未使用 + 五绑定一致」，
  *    通过后**同步**转 `redeemed`（单线程事件循环内先查后转，中间没有 await，天然防并发重放）。
- * 2. `tools/result` 侧只记账（成功 → consumed、失败 → blocked），不承担状态转移（施工单 09）。
+ * 2. `tools/result` 侧只记账（成功 → consumed、失败 → blocked），不承担状态转移。
  * 3. `TicketRef` 是**写入领域边界**的授权载体：模型绕过工具直连核心，也拿不到 approved 的票据。
  *
- * 五绑定（施工单 07 §3）：会话 / 工具 / 参数指纹 / 金额 / 时效 TTL。
+ * 五绑定：会话 / 工具 / 参数指纹 / 金额 / 时效 TTL。
  * 与 `@bah/core` 冻结的 `TicketRef`（只有 ticketId + 指纹 + 金额 + 过期时刻）的关系：
- * 会话与工具名由工具执行上下文补全（`ToolExecContext.sessionId` + 工具名），在施工单 08/09 的
+ * 会话与工具名由工具执行上下文补全（`ToolExecContext.sessionId` + 工具名），在 的
  * 工具边界完成映射；本包的五绑定是核销时的**权威比对材料**。
  */
 
@@ -41,7 +41,7 @@ export interface TicketBinding {
   readonly expiresAt: number
 }
 
-/** 写操作必须携带的票据引用（领域边界形状，施工单 07 §1）。 */
+/** 写操作必须携带的票据引用（领域边界形状）。 */
 export interface TicketRef {
   readonly ticketId: TicketId
   readonly binding: TicketBinding
@@ -76,7 +76,7 @@ export class TicketStore {
   }
 
   /**
-   * 签发（`issued`）。由治理平面的 `ask` 判决调用（施工单 09）。
+   * 签发（`issued`）。由治理平面的 `ask` 判决调用。
    *
    * @throws `ticket-duplicate` 同一票据 ID 重复签发
    * @throws `ticket-expired` 签发时就已经过期
@@ -238,7 +238,7 @@ export class TicketStore {
   /**
    * 吊销全部**在途**票据（`issued` / `approved` → `blocked`）。
    *
-   * 施工单 10 §5 的熔断动作：冻结时让旧票据不可执行。属主仍是本类——
+   *  的熔断动作：冻结时让旧票据不可执行。属主仍是本类——
    * 断路器只调用它，不自己改票据状态；`redeemed` / `blocked` 是终态，不受影响。
    *
    * @param reason 阻断理由（审计用；如 `sentry-breaker-frozen`）
@@ -275,7 +275,7 @@ export class TicketStore {
  *
  * 宿主以这个结构暴露给安全层，而不是直接暴露 `TicketStore`——后者还带着
  * `issue` / `approve` / `block` / `redeem`，任何能 `ctx.get` 的插件都能拿到核销入口。
- * 核销仍只在工具体内经 `TicketRef` 完成（施工单 07 §3：核销唯一属主）。
+ * 核销仍只在工具体内经 `TicketRef` 完成（核销唯一属主）。
  */
 export interface TicketGuard {
   /** 读取票据状态（不存在返回 `undefined`）。 */

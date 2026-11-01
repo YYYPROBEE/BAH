@@ -70,7 +70,7 @@ const gate: Gate = {
           continue
         }
         findings.push(
-          `${definition.file}:${definition.line} 重复实现 ${definition.name}（唯一真源在 @bah/util；施工单 07 §2-5 / P1-1）`,
+          `${definition.file}:${definition.line} 重复实现 ${definition.name}（唯一真源在 @bah/util；-5 / P1-1）`,
         )
       }
     }

@@ -1,5 +1,5 @@
 /**
- * P0 查询类工具（施工单 08 §3.1–§3.6，6 个，全部绿级）。
+ * P0 查询类工具。
  *
  * 这些工具只读：`account_list` / `account_balance` / `txn_query` / `bill_analyze` /
  * `bill_report` / `analysis_calc`。写操作一个都不在这里。
@@ -480,7 +480,7 @@ function billMonths(current: string, period: BillPeriod): string[] {
 /**
  * 环比基线账期。
  *
- * 年度**不做同比**：需要去年同 12 个月的数据（本单只有 12 个月），
+ * 年度**不做同比**：需要去年同 12 个月的数据（本设计只有 12 个月），
  * 返回空数组让 `momChangePct` 缺省——宁可少一个指标，不编一个数字。
  */
 function baselineFor(current: string, period: BillPeriod): string[] {

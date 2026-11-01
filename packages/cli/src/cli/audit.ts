@@ -1,5 +1,5 @@
 /**
- * `bah audit` 子命令（施工单 16）。
+ * `bah audit` 子命令。
  *
  * 只读：不建库、不迁移、不修链。链连续性/签名来自 `@bah/persistence` 的只读报告，
  * 投影与锚定由本层装配（见 `audit-projection.ts` / `audit-anchors.ts`）。
@@ -29,7 +29,7 @@ import type { ChainAudit, ChainRecord } from '@bah/persistence'
 export const AUDIT_USAGE = '用法：bah audit --dir <path> [--saga <id>] [选项]（-h 看完整帮助）'
 
 export const AUDIT_HELP = [
-  'bah audit —— 对落盘目录做一次只读证据链核验（施工单 16）',
+  'bah audit —— 对落盘目录做一次只读证据链核验',
   '',
   AUDIT_USAGE,
   '',

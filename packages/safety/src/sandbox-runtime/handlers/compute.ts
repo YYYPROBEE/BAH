@@ -1,5 +1,5 @@
 /**
- * 计算类执行体（施工单 11 §0 第 5 条的演示通道：`analysis_calc` 的受限表达式）。
+ * 计算类执行体（`analysis_calc` 的受限表达式）。
  *
  * 载荷形状：`{ code: string, data?: object, limits: { timeoutMs, maxOperations } }`。
  * 与 worker 入口同样受"零包名 import + 可擦除语法"约束（它自己就在 worker 的加载链里）。

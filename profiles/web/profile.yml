@@ -1,4 +1,4 @@
-# web（施工单 13）：唯一带 UI 的 profile。
+# web：唯一带 UI 的 profile。
 #
 # 与 headless 的差别只有三处：
 # 1. `core:agent.channel = web`（系统提示词的语气/长度段按 Web 裁剪）；

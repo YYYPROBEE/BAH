@@ -153,7 +153,7 @@ function readFlag(name: string): string | undefined {
  * 读取抽样叶子：`.jsonl` 每行一条（真实会话与判决链就是这种形态），
  * `.json` 取顶层数组或 `snapshots` 数组字段。
  *
- * 形状不符时返回 `error` 而不是抛栈：这条命令是给监管方与评委手敲的，
+ * 形状不符时返回 `error` 而不是抛栈：这条命令是给监管方与审阅者手敲的，
  * 输出必须是一句能照着改的话。
  */
 function readLeafValues(file: string): { readonly values: unknown[]; readonly error?: string } {

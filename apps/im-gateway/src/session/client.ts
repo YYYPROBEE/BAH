@@ -1,5 +1,5 @@
 /**
- * 子进程 HTTP 客户端（施工单 02 §2.12）。
+ * 子进程 HTTP 客户端。
  *
  * 与子进程的三次交互：
  * - `POST /api/turn`：带 Bearer + CSRF（cookie + 头都要，double-submit）；

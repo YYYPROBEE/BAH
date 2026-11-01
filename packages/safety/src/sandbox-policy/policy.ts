@@ -1,5 +1,5 @@
 /**
- * 沙箱档位解析（施工单 11 §2）。
+ * 沙箱档位解析。
  *
  * 解析是**按调用**的，三层输入按"后层只能覆盖前层的结果"叠合：
  *
@@ -218,7 +218,7 @@ export class SandboxPolicy {
   }
 }
 
-/** 带 `bah-sandbox: ` 前缀的结构化错误（施工单 11 §2 fail-loud）。 */
+/** 带 `bah-sandbox: ` 前缀的结构化错误。 */
 export function sandboxError(code: string, message: string, detail?: unknown): BahError {
   return new BahError(code, `bah-sandbox: ${message}`, detail)
 }

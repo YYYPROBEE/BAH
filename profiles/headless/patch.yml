@@ -1,6 +1,6 @@
 # headless profile patch（层 2：profile patch）。
 #
-# 语义是**整块替换**（施工单 06 §0 第 3 条）：下面每行的 config 一旦出现，
+# 语义是**整块替换**：下面每行的 config 一旦出现，
 # 就完全取代 base 那一行的 config——没写的字段走插件默认值，而不是与旧值深合并。
 # 所以 `core:model` 从 deepseek 换成 mock 只需重写这一行，不会有"残留的 deepseek 字段"。
 
@@ -53,7 +53,7 @@
     loop:
       model: router:router-chat
       maxSteps: 8
-      # 上下文压缩（施工单 05 §5）：超过 8 个完整 turn 折叠更早的历史，保留最近 3 个原文。
+      # 上下文压缩：超过 8 个完整 turn 折叠更早的历史，保留最近 3 个原文。
       # 缺省（不写 compaction）= 本 agent 永不压缩（`config.ts` 里 `compaction?:` 可缺省），
       # 所以这一行是"压缩是否通电"的唯一开关；演示效果用 patch-compaction.yml 把阈值压到 2。
       compaction: { maxTurns: 8, keepRecentTurns: 3 }

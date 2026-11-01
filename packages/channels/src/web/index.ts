@@ -1,5 +1,5 @@
 /**
- * `@bah/channels` · 逻辑模块 web（施工单 13）。
+ * `@bah/channels` · 逻辑模块 web。
  *
  * 这里只有**渠道无关的投影与转换**：帧模型、归约器、session-follow、审批翻译、渠道适配器。
  * HTTP / SSE / 静态资源在宿主插件（`@bah/host` 的 `channel:web`），DOM 在 `apps/web`。
@@ -44,7 +44,7 @@ export { blocksToText, buildCard, toolTitle } from './cards.ts'
 export type { FollowDecision, FollowOptions } from './follow.ts'
 export { DEFAULT_FOLLOW_BUFFER_LIMIT, SessionFollow } from './follow.ts'
 
-// 施工单 01：适配器实现平移到 ../http-adapter.ts、能力位定义平移到 ../capabilities.ts。
+// ：适配器实现平移到 ../http-adapter.ts、能力位定义平移到 ../capabilities.ts。
 // 这里从**新源头**再导出（不是从 ./adapter.ts），否则同一符号会经两条路径进顶层 barrel。
 export type {
   ApprovalViewLike,

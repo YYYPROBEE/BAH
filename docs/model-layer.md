@@ -1,7 +1,7 @@
-# 模型层与提示词装配（施工单 05 落地说明）
+# 模型层与提示词装配
 
 > 读者：接主循环（阶段 5）、接 provider、写提示词段（插件线）的人。
-> 规格权威仍是 `BAH-施工文档集/05-模型层与提示词装配.md`；本文只讲**本仓怎么落地**与**容易写错的点**。
+> 本文只讲**本仓怎么落地**与**容易写错的点**。
 
 ## 1. 一张图
 
@@ -67,7 +67,7 @@ registry.resolve('deepseek:deepseek-chat')          // provider:model，或裸 m
 ctx.provide(LLM_ADAPTERS, registry)                 // provideLlm(ctx) 是它的快捷方式
 ```
 
-- 施工单原文写 `ctx.llm.registerAdapter`；`api.ts` 已冻结、`Context` 上没有 `llm`，故按 00 §9「按键寻址」用服务键 `llm:adapters` 落地（语义等价）。
+- 设计说明原文写 `ctx.llm.registerAdapter`；`api.ts` 已冻结、`Context` 上没有 `llm`，故按 00 §9「按键寻址」用服务键 `llm:adapters` 落地（语义等价）。
 - `resolveModel()` 是**能力位的唯一来源**：模型不支持 function calling，就必须裁掉工具段（否则模型照着编工具名）。
 - `prepareCall()` 返回 `Object.freeze` 的 `PreparedCall`：请求到这里就冻结，后续 listener 不许改写。
 

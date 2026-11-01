@@ -66,7 +66,7 @@ const gate: Gate = {
         if (ts.isIdentifier(node.expression) && node.expression.text === 'deriveMessages') {
           if (!DERIVE_WHITELIST.some((prefix) => where.startsWith(prefix))) {
             findings.push(
-              `${where}:${lineOf(source, node)} deriveMessages 只允许在 session / agent-loop / system-prompt / llm 内调用（施工单 03 §1.4 硬门禁）`,
+              `${where}:${lineOf(source, node)} deriveMessages 只允许在 session / agent-loop / system-prompt / llm 内调用`,
             )
           }
         }
@@ -90,7 +90,7 @@ const gate: Gate = {
         if (!declared.has(first.text)) {
           findings.push(
             `${where}:${line} 事件 "${first.text}" 未在 ${SESSION_TYPES} / 领域 ` +
-              `*SessionEventMap 里声明（施工单 03 §1.2）`,
+              `*SessionEventMap 里声明`,
           )
         }
       })

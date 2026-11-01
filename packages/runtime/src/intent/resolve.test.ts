@@ -158,7 +158,7 @@ describe('elliptical（TC-INT-05～08）', () => {
     const resolution = resolveIntent(input('800'), ctx())
     expect(resolution.kind).toBe('explicit')
     expect(resolution.decision).toBe('ask')
-    // 「800」本身已抽出金额，缺的只有收款人；施工单的「missing 全量」按此口径理解（§9 偏差 6）
+    // 「800」本身已抽出金额，缺的只有收款人；设计说明的「missing 全量」按此口径理解（§9 偏差 6）
     expect(resolution.missing).toEqual(['payee'])
   })
 

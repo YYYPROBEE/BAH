@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config'
 import { bahSourceAlias } from './vitest.shared.ts'
 
 /**
- * e2e 面（施工单 01 §5）：真实 DeepSeek API。
+ * e2e 面：真实 DeepSeek API。
  *
  * **无 `DEEPSEEK_API_KEY` 时必须全部自动 skip**，绝不能让缺密钥把 CI 跑红。
  * 实现方式：没有密钥时不收集任何用例（include 置空 + passWithNoTests），

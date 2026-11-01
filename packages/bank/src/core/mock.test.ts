@@ -154,7 +154,7 @@ describe('T-BANK-008 换会话不重置', () => {
   })
 })
 
-describe('票据核销的并发安全（施工单 07 §7 验收清单）', () => {
+describe('票据核销的并发安全', () => {
   it('同一票据两个并发 createTransfer：只有一个成功，余额只扣一次', async () => {
     const core = setup()
     const ref = ticket(core, { amountCents: 10_000 })

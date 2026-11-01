@@ -64,7 +64,7 @@ const SCAN_DIRS = [
   'tests',
 ]
 
-/** 根级单文件（施工台账不随仓库分发，不在面内）。 */
+/** 根级单文件（归档记录不随仓库分发，不在面内）。 */
 const ROOT_FILES = ['NOTICE.md', 'README.md', 'AGENTS.md', 'package.json']
 
 /**

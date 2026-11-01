@@ -1,5 +1,5 @@
 /**
- * 领域原语（施工单 07 §1）：金额换算与品牌 ID 铸造点。
+ * 领域原语：金额换算与品牌 ID 铸造点。
  */
 
 import { describe, expect, it } from 'vitest'

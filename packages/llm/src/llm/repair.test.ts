@@ -27,7 +27,7 @@ function call(name: string, args: unknown, argsText = JSON.stringify(args)): Ass
   }
 }
 
-describe('repairToolCall（施工单 05 §2.3 三级防线 ②③）', () => {
+describe('repairToolCall', () => {
   it('T-LLM-003 增量拼接坏 JSON：结构化回灌 + 修复重试 1 次后成功', async () => {
     const feedbacks: string[] = []
     const outcome = await repairToolCall({

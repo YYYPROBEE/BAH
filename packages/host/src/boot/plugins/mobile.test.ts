@@ -1,5 +1,5 @@
 /**
- * `channel:mobile` 宿主行：插件形状 + 真装配（施工单 01 §5 TC-MCH-19 / §8 B5）。
+ * `channel:mobile` 宿主行：插件形状 + 真装配。
  *
  * 为什么不止断言形状：`verify-saga-wiring` 的存在说明"装好了没人调"是本项目的常客。
  * 这里真 boot 一个 ctx、真监听端口、真打 `/api/session` 与 `/`——"移动渠道能用"必须由

@@ -1,20 +1,20 @@
 /**
- * 会话事件的**唯一格式**与其耐久事件表（施工单 03 §1.1 / §1.2）。
+ * 会话事件的**唯一格式**与其耐久事件表。
  *
  * envelope 本身由 `@bah/core` 的 `api.ts` 冻结（阶段 1 签审），本文件只做两件事：
  * 1. 用**模块增强**把 `SessionEventMap` 从索引签名补成逐键声明（不修改冻结文件；
  *    `api.ts` 的注释本身就把「逐键声明」列为阶段 3 的扩展动作）；
  * 2. 给出运行时侧的 `SessionEventType` 联合与判别联合视图 `AnySessionEvent`，
- *    让消费方 switch 时 `event.data` 自动收窄、并以 `assertNever` 收尾（施工单 00 §9 第 6 条）。
+ *    让消费方 switch 时 `event.data` 自动收窄、并以 `assertNever` 收尾。
  *
  * 族级索引 vs 领域事件：本文件只声明**平台族**（turn/step、请求、消息、工具、审批）；
  * `transfer/*`、`card/*`、`wealth/*` 等**领域事件由各自插件包用同一个增强机制追加**
- * （施工单 03 §1.2「每个工具/插件在自己的包 README 中声明其 durable 事件」）。
+ * 。
  */
 
 import type { ContentBlock, SessionEvent, SessionEventMap, TicketDetail, TicketId } from '@bah/core'
 
-/** 当前逻辑格式版本。reader 遇到更高版本必须拒绝打开（施工单 03 §1.5）。 */
+/** 当前逻辑格式版本。reader 遇到更高版本必须拒绝打开。 */
 export const SESSION_FORMAT_VERSION = 1
 
 /**
@@ -48,7 +48,7 @@ declare module '@bah/core' {
   interface SessionEventMap {
     /** 一个 turn 开始（`turn` 自 1 递增）。 */
     'turn/start': { turn: number }
-    /** 一个 turn 结束；`reason` 是粘性结束原因（施工单 04 §2.1）。 */
+    /** 一个 turn 结束；`reason` 是粘性结束原因。 */
     'turn/end': { turn: number; reason: TurnEndReason }
     /** 一个 step 开始（turn 内自 1 递增）。 */
     'step/start': { turn: number; step: number }
@@ -72,7 +72,7 @@ declare module '@bah/core' {
       content: readonly ContentBlock[]
       toolCalls?: readonly ToolCallRecord[]
     }
-    /** 失败/重试/取消的沉淀（模型不可见，但必须留痕：取消就是没发生，失败要能复盘）。 */
+    /** 失败/重试/取消的沉淀（模型不可，但必须留痕：取消就是没发生，失败要能复盘）。 */
     'assistant/attempt': { status: 'failed' | 'retried' | 'cancelled'; reason?: string }
     /** 工具调用（**执行前**落账）。 */
     'tool/call': ToolCallData
@@ -137,13 +137,13 @@ declare module '@bah/core' {
       readonly at: number
     }
     /**
-     * 一个 turn 的成本汇总（施工单 05 §3：按 turn 汇总 tokens，进审计导出）。
+     * 一个 turn 的成本汇总（按 turn 汇总 tokens，进审计导出）。
      *
      * 不产生模型消息，但**必须**落账——否则"资源可控"没有可出示的证据。
      */
     'usage/summary': UsageSummaryData
     /**
-     * 上下文压缩摘要（施工单 05 §5：摘要本身作为会话事件落账，可回放、可审计）。
+     * 上下文压缩摘要（摘要本身作为会话事件落账，可回放、可审计）。
      *
      * 压缩不改写历史（append-only 是不变量）：摘要落账 + 投影时折叠，两者配合还原"当时模型看到什么"。
      */
@@ -156,12 +156,12 @@ declare module '@bah/core' {
  *
  * `runtime-context` 与 `context` 必须分开：前者是**每次 attempt 重新渲染的运行时上下文**
  * （下次装配时按 reconcile 撤回），后者是工具后置阶段追加的一次性纠正文本（要留在历史里）。
- * 混用会让"撤回旧上下文"顺手把纠正文本也撤掉（施工单 05 §4.1）。
+ * 混用会让"撤回旧上下文"顺手把纠正文本也撤掉。
  */
 export type UserMessageSource = 'user' | 'context' | 'tool-recovery' | 'runtime-context' | 'handoff-waiting' | 'handoff-handover'
 
 /**
- * 压缩后保留的金融结构化字段（施工单 05 §5：涉及金额/收款人/审批的条目不得只留摘要）。
+ * 压缩后保留的金融结构化字段（涉及金额/收款人/审批的条目不得只留摘要）。
  *
  * **审批结论 ≠ 执行结果**：`decision` 只回答"批没批"，`execution` 只认 `tool/result`。
  * 二者混写会让压缩后的模型把"只批准了"当成"已转账成功"。
@@ -240,7 +240,7 @@ export interface UsageSummaryData {
 }
 
 /**
- * turn 结束原因（施工单 04 §2.1 的粘性原因）。
+ * turn 结束原因。
  *
  * `guard-stopped` 与 `failed` 的区别：前者是 `agent/turn-stopping` 的主动判停
  * （循环 guard、预算耗尽等），属于治理决策而不是故障；审计与渠道文案必须能区分
@@ -287,7 +287,7 @@ export interface ToolResultData {
 /** 强验证挑战渠道（红级工具）。 */
 export type ApprovalChallenge = 'face' | 'sms' | 'ushield'
 
-/** 审批结论（施工单 04 §5 `approval/request` 的返回值）。 */
+/** 审批结论。 */
 export type ApprovalDecision = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 
 /** 本包认识的会话事件类型（`SessionEventMap` 的键，收窄掉了 core 的索引签名）。 */
@@ -320,7 +320,7 @@ export interface DeriveOptions {
   readonly known?: ReadonlySet<string>
 }
 
-/** 派生出的模型可见消息（施工单 03 §1.4）。 */
+/** 派生出的模型可见消息。 */
 export type DerivedMessage =
   | { readonly role: 'system'; readonly content: string }
   | { readonly role: 'user'; readonly content: string }

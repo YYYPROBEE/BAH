@@ -36,7 +36,7 @@ const TRANSFER_TOOL: ToolSpec = {
   schema: { type: 'object', properties: { amount: { type: 'number' } }, required: ['amount'] },
 }
 
-describe('wire 映射（施工单 05 §2.1）', () => {
+describe('wire 映射', () => {
   it('四种角色各自映射；assistant 带工具调用时 content 为 null', () => {
     const messages: LlmMessage[] = [
       { role: 'system', content: [{ kind: 'text', text: '身份' }] },

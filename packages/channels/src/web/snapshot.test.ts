@@ -21,7 +21,7 @@ import type { AnySessionEvent } from '@bah/runtime'
 import type { ApprovalClosedFrame, ApprovalFrame, AuditFrame, DagFrame, ToolFrame } from './frames.ts'
 import { projectSession } from './project.ts'
 
-/** 真实快照（`snapshots/web-channel`，施工单 13 的 T-WEB-010 场景）。 */
+/** 真实快照（`snapshots/web-channel`， 的 T-WEB-010 场景）。 */
 const SNAPSHOT = new URL('../../../../snapshots/web-channel/session.jsonl', import.meta.url)
 
 /** 读日志：首行是 header，其余是事件。 */
@@ -116,7 +116,7 @@ describe('真实日志投影（snapshots/web-channel）', () => {
 
     const { frames } = projectSession(events)
     // 只允许出现已知帧类型（未知领域事件不得被当成"未知帧"混进界面）。
-    // 施工单 01 §3.5：`effects` 是由成功写操作派生的已知帧（本快照里的 transfer_create
+    // ：`effects` 是由成功写操作派生的已知帧（本快照里的 transfer_create
     // 是黄级且成功 ⇒ 这里真的会产出），不是"未知帧"。
     const kinds = new Set(frames.map((frame) => frame.kind))
     for (const kind of kinds) {

@@ -1,5 +1,5 @@
 /**
- * 锚定台账比对（施工单 16 §10 / R167）。
+ * 锚定台账比对。
  *
  * 叶子集与 `anchor()` 同口径：对目录下**全部链**按 `(sagaId, seqInSaga)` 稳定排序，
  * 再按 `periodOf(recordedAt)` 分组取 `recordHash`。`--saga` 不改变叶子集。

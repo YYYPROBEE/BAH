@@ -1,5 +1,5 @@
 /**
- * 门禁：部署相关阈值不得硬编码（门禁扩容 07 §2-7，兑 `PROGRESS.md` R43 的欠票）。
+ * 门禁：部署相关阈值不得硬编码（门禁扩容 07 §2-7，兑 `` R43 的欠票）。
  *
  * R43 记的是"`verify-no-hardcoded-limits` 未实现，等配置落 `bah.yml` 时才有静态扫描面"。
  * 现在根 `bah.yml` 与 `profiles/` 六份就位，扫描面已具备，这条欠账到期可兑。
@@ -54,7 +54,7 @@ const gate: Gate = {
       const report = (node: ts.Node, name: string): void => {
         const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1
         findings.push(
-          `${where}:${line} 阈值 ${name} 被赋了数字字面量（阈值只许来自 Config；R43 / 施工单 07 §2-7）`,
+          `${where}:${line} 阈值 ${name} 被赋了数字字面量（阈值只许来自 Config；R43 / -7）`,
         )
       }
 

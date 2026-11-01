@@ -1,5 +1,5 @@
 /**
- * 假微信 API（施工单 02 §2.16）——**仅测试**。
+ * 假微信 API——**仅测试**。
  *
  * 两个端点：`/cgi-bin/token`（换 token）与 `/cgi-bin/message/custom/send`（客服消息）。
  * 有了它，`token.ts` 的单飞/过期/40001 重试与 `transport.ts` 的错误码映射都能在

@@ -1,5 +1,5 @@
 /**
- * IM 渠道适配器（施工单 01 §2.2）。**薄工厂**：与 web/mobile 的差异只有 `id` 与 `capabilities`。
+ * IM 渠道适配器。**薄工厂**：与 web/mobile 的差异只有 `id` 与 `capabilities`。
  *
  * WHY 不允许在这里写第二份 `decide` / `verify`：审批语义只有 `http-adapter.ts` 一份实现
  * （总纲 I-IM-15）。IM 的审批走文本指令与 H5，但**结论的判定**仍然进同一个适配器——

@@ -4,8 +4,8 @@
  * 为什么它不是普通业务 handler：这四条路由**豁免 CSRF**，用独立的 admin token + 回环绑定，
  * 并且必须先于 Web 凭证检查（CLI 没有 Origin/cookie，`bah halt` 不能被 403）。
  *
- * 施工单管这一组叫 tools handler；仓内没有 `/api/tools` 路由，第四个逻辑组只能是管理面，
- * 故按语义命名为 admin（偏差已登记 PROGRESS W16）。
+ * 设计说明管这一组叫 tools handler；仓内没有 `/api/tools` 路由，第四个逻辑组只能是管理面，
+ * 故按语义命名为 admin（偏差已登记  W16）。
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'

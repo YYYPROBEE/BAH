@@ -169,7 +169,7 @@ describe('createPlanSteps（呈现）', () => {
     expect(rowOf('x').querySelector('.ds-tag--warning').textContent).toContain('未知状态')
   })
 
-  it('TC-MOB-23 三个连续 blocked 夹在 ok 之间 ⇒ 三行全部独立可见，不折进任何容器', () => {
+  it('TC-MOB-23 三个连续 blocked 夹在 ok 之间 ⇒ 三行全部独立可，不折进任何容器', () => {
     view.render(
       dagFrame(
         [node('A', 'ok'), node('B', 'blocked'), node('C', 'blocked'), node('D', 'blocked'), node('E', 'ok')],

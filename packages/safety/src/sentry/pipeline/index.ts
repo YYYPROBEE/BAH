@@ -1,5 +1,5 @@
 /**
- * sentry 四接缝装配（施工单 10 §1 的映射表；本文件只做接线，判决在 `control.ts`）。
+ * sentry 四接缝装配。
  *
  * ```text
  * agent/pre-step      ingress.ts   归一化 + 检测 + 审计 + 会话风险分（永不阻断）
@@ -12,7 +12,7 @@
  *                                  （外再包一层 fail-closed：核验崩溃 → 判停，不放行收尾）
  * ```
  *
- * 纪律（施工单 10 硬约束 4）：一切贡献走 `ctx.effect(...)` / `ctx.events.on(...)` 返回 disposer；
+ * 纪律：一切贡献走 `ctx.effect(...)` / `ctx.events.on(...)` 返回 disposer；
  * 本文件不 import 任何领域包（`@bah/bank` / `@bah/runtime` / `@bah/interaction`），
  * 外部世界只通过 `SentryPorts` 注入。
  */
@@ -59,7 +59,7 @@ export interface SentryPorts {
   readonly sessionId: SessionId
   /** 注入时钟（窗口 / 审计 / 纠正全部用它，禁止读真实时间）。 */
   readonly now: () => number
-  /** durable 事件出口；宿主必须按 `ignorable: true` 落账（施工单 10 硬约束 6）。 */
+  /** durable 事件出口；宿主必须按 `ignorable: true` 落账。 */
   readonly record: (type: SentrySessionEventType, data: unknown) => void
   /** 工具 tier 查询（控制平面的降级/冻结只绿判定；缺省视为红）。 */
   readonly toolTier: ToolTierLookup

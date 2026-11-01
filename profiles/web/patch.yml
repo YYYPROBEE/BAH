@@ -1,6 +1,6 @@
 # web profile patch（层 2）。
 #
-# 语义仍是**整块替换**（施工单 06 §0 第 3 条）：每行 config 一出现就完全取代 base 的值。
+# 语义仍是**整块替换**：每行 config 一出现就完全取代 base 的值。
 #
 # 演示主路径：内置 router（离线、确定性；只认查余额 / 转账两种意图）
 #   → 黄级 → Web 弹窗审批 → 核销 → 文本收尾。
@@ -77,7 +77,7 @@
 #
 # WHY 必须补：router 的生日分支会发 `goal_set` / `plan_propose` / `plan_execute`。
 # 这三行缺席时它们不在注册表，工具调用直接 `tool-missing`，但脚本仍会输出
-# "已生成计划"——那是当着评委面编造结果（违反赛题「幻觉防护」）。
+# "已生成计划"——那是当着审阅者面编造结果（违反赛题「幻觉防护」）。
 # 补齐后主演示（pnpm demo:web）与移动端能力一致：事实库 / 到点唤醒 / 商户腿全在。
 - id: plan:dag
   use: plan:dag
@@ -122,7 +122,7 @@
     tickIntervalMs: 60000
     saga: { maxAttempts: 1 }
 
-# 知识平面（施工单 12）：base bundle **不含**此行，web 必须显式开。
+# 知识平面：base bundle **不含**此行，web 必须显式开。
 # 不开就没检索：`knowledge_answer` / `knowledge_query` 两个工具根本不存在于注册表，
 # 模型也看不到（工具 schema 按注册表装配）。
 - id: bank:knowledge
@@ -210,7 +210,7 @@
   use: demo:echo
   config: { prefix: '[web] ' }
 
-# 渠道行（施工单 13）：前端作为插件模块接入。
+# 渠道行：前端作为插件模块接入。
 # 必须放在 interaction:approval 之后 —— 本行 inject 审批服务，直接注册 Web 应答者。
 - id: channel:web
   use: channel:web

@@ -1,12 +1,12 @@
 /**
- * 快照场景：headless 压缩演示（施工单 12 §3 / 施工单 05 §5）。
+ * 快照场景：headless 压缩演示。
  *
  * 与 `headless-basic` 共用同一套装配，只做两处改动：
  * - 叠 `profiles/headless/patch-compaction.yml`，把阈值压到 `maxTurns: 1, keepRecentTurns: 1`；
  * - 连发三轮，让第 2 轮 end 折叠第 1 轮、第 3 轮请求带上摘要（第 3 轮 end 再折叠第 2 轮）。
  *
  * 这个场景存在的唯一目的：让 `compaction/summary` 的**实际载荷**进入可回放快照，
- * 而不是只声明"代码被执行过"。摘要文案、refs、工具要点、金融字段的回归都能在这里看见。
+ * 而不是只声明"代码被执行过"。摘要文案、refs、工具要点、金融字段的回归都能在这里看。
  *
  * 三条确定性纪律（少一条"两次回放全等"就会偶发失败）：
  * 1. 时钟来自 `fixedClock`（不碰 `Date.now`）；

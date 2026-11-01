@@ -751,7 +751,7 @@ describe('W12 补偿回读：saga 真冲正', () => {
       await agent.run()
       const after = await readBalance('read-after')
 
-      // 本单最硬的证据：账户前后对比（扣了又退回来了）
+      // 本设计最硬的证据：账户前后对比（扣了又退回来了）
       expect(after.balanceCents).toBe(before.balanceCents)
       expect(after.availableCents).toBe(before.availableCents)
 

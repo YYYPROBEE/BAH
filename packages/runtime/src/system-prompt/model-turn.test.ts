@@ -51,7 +51,7 @@ function toSessionContent(content: readonly LlmContentBlock[]): ContentBlock[] {
 /**
  * 脚本化跑一个 turn（阶段 5 会被真实主循环替换）。
  *
- * 步骤与施工单 04 §2 伪代码同形：turn/start → preStep（装配提示词）→ step →
+ * 步骤与 伪代码同形：turn/start → preStep（装配提示词）→ step →
  * 模型流 → 工具调度 → 收尾 → turn/end。
  */
 async function scriptedTurn(deps: TurnDeps, turn: number, userText: string): Promise<void> {
@@ -104,7 +104,7 @@ async function scriptedTurn(deps: TurnDeps, turn: number, userText: string): Pro
     session.append('step/end', { turn, step })
   }
 
-  // turn 收尾：成本汇总落审计（施工单 05 §3）
+  // turn 收尾：成本汇总落审计
   const usage = ledger.finishTurn(turn)
   if (usage !== undefined) session.append('usage/summary', usage)
   session.append('turn/end', { turn, reason: { kind: 'completed' } })
@@ -116,7 +116,7 @@ async function withTurn(run: (deps: TurnDeps) => Promise<void>): Promise<void> {
     const clock = fixedClock({ start: 1_000 })
     provideSession(test.ctx, { sessionId: asSessionId('s-turn'), now: clock.now })
     provideTools(test.ctx)
-    // 治理平面（施工单 09 的插件线）在这里只是个测试替身：黄/红级 → ask，绿级直通。
+    // 治理平面在这里只是个测试替身：黄/红级 → ask，绿级直通。
     // 它证明的是"审批挂在接缝上"这件事——七段管线拿到的判决不来自工具体。
     test.ctx.events.on('tools/pre-execute', (input, next) => {
       const definition = test.ctx.get(TOOLS_SERVICE).get(input.call.name)

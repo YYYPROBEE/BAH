@@ -1,5 +1,5 @@
 /**
- * 上下文压缩（施工单 05 §5）：阈值判定 → 结构化摘要 → 折叠投影。
+ * 上下文压缩：阈值判定 → 结构化摘要 → 折叠投影。
  *
  * ```text
  * 判定   shouldCompact()   完整 turn 数 / token 估算 ≥ 配置阈值，且折叠后仍剩原文
@@ -10,7 +10,7 @@
  *
  * 摘要**不调模型**（确定性生成、可回放、零成本）：它由结构化统计 + 金融特例字段拼成。
  * 模型生成的散文摘要会引入不确定性与额外成本，且无法被快照回放逐字校验——
- * 需要时再作为可选增强（本阶段不做，见 PROGRESS 偏离记录）。
+ * 需要时再作为可选增强（本阶段不做，见  偏离记录）。
  */
 
 import { BahError, assertNever } from '@bah/util'
@@ -61,7 +61,7 @@ function isCjk(codePoint: number): boolean {
   )
 }
 
-/** 允许的配置键（未知键 fail-loud，施工单 00 §9「misconfiguration 必须 fail-loud」）。 */
+/** 允许的配置键（未知键 fail-loud，「misconfiguration 必须 fail-loud」）。 */
 const CONFIG_KEYS = new Set(['maxTokens', 'maxTurns', 'keepRecentTurns'])
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -396,7 +396,7 @@ export function planCompaction(input: PlanCompactionInput): CompactionPlan {
 }
 
 /**
- * 抽取金融特例字段（施工单 05 §5：涉及金额 / 收款人 / 审批的条目必须结构化保留）。
+ * 抽取金融特例字段（涉及金额 / 收款人 / 审批的条目必须结构化保留）。
  *
  * 数据来源三条：
  * - `tool/call.args` 里的 `amount` / `payee`（模型要求动多少钱、给谁）；

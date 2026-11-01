@@ -1,5 +1,5 @@
 /**
- * 底部抽屉审批（施工单 02 §3.4）。
+ * 底部抽屉审批。
  *
  * 与桌面弹窗（`views/approval.js`）的关系是**契约对齐、DOM 与状态机独立**（§9.2）：
  * 渲染字段集逐项等于 `ApprovalFrame`（`packages/channels/src/web/frames.ts:135-162`），
@@ -260,7 +260,7 @@ export function createApprovalSheet(host, handlers, deps = {}) {
       if (remainMs <= 0 && !expired) {
         expired = true
         // 到期 = 半途关闭语义：**零 decision**，结论只认服务端 `approval-closed` 帧。
-        // 文案落进 resultHost（feed）而不是抽屉里——抽屉马上就要关，写在里面等于没人看得见。
+        // 文案落进 resultHost（feed）而不是抽屉里——抽屉马上就要关，写在里面等于没人看得。
         announceLocal('票据在本地已过期，未提交任何结论；以服务端裁决为准。', 'unavailable')
         closeByUser()
       }
@@ -736,7 +736,7 @@ export function createApprovalSheet(host, handlers, deps = {}) {
     deps.resultHost?.append(resultNode)
   }
 
-  /** 本地事件（票据到期等）的可见交代：抽屉已经关了，话必须落在 feed 里才有人看得见。 */
+  /** 本地事件（票据到期等）的可见交代：抽屉已经关了，话必须落在 feed 里才有人看得。 */
   function announceLocal(message, tone) {
     deps.resultHost?.append(
       el('div', {

@@ -1,5 +1,5 @@
 /**
- * 查询类工具（施工单 08 §3.1–§3.6）。
+ * 查询类工具。
  *
  * 覆盖：账户列表 / 余额 / 流水分页与筛选 / 账单月度与季度 / 收款人汇总 / 报告 /
  * 受限计算（默认求值器 + 超时 + 取消 + 语法错误）。
@@ -111,7 +111,7 @@ describe('account_list / account_balance（T-TOOLS-001 的读侧）', () => {
     expect(error.code).toBe('account-forbidden')
   })
 
-  it('未绑定身份：no-identity（施工单 09 §4）', async () => {
+  it('未绑定身份：no-identity', async () => {
     const h = createBankHarness({ userId: null })
     const error = await captureRejection(() => h.call('account_list'))
     expect(error.code).toBe('no-identity')

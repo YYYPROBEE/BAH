@@ -1,7 +1,7 @@
 /**
  * 滑动确认条用例（TC-MOB-09..15、TC-MOB-30 的手势半边）。
  *
- * 桩纪律（施工单 02 §5）：**决策全在 `reducePointerEvents` 纯函数**，所以大部分用例直接喂
+ * 桩纪律：**决策全在 `reducePointerEvents` 纯函数**，所以大部分用例直接喂
  * `PointerSample[]`，不需要 PointerEvent 构造器（jsdom 没有）；DOM 层用
  * `new Event('pointerdown') + Object.assign(event, { clientX })` 补坐标。
  * 轨道宽经 `deps.trackWidth` 注入——jsdom 没有 CSS 布局，`getBoundingClientRect()` 全是 0。

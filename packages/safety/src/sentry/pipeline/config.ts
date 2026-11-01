@@ -1,10 +1,10 @@
 /**
- * `safety:sentry` 的配置面（施工单 10 §2 的两处适配之一：**fail-loud**）。
+ * `safety:sentry` 的配置面（**fail-loud**）。
  *
  * 三条纪律：
- * 1. 阈值 / 窗口 / 白名单**只来自 Config**，模型输出与用户输入都改不了（施工单 10 §9）；
+ * 1. 阈值 / 窗口 / 白名单**只来自 Config**，模型输出与用户输入都改不了；
  * 2. 未知键、类型错、阈值越界、正则编译失败 → 载入即抛（错误前缀 `bah-sentry: `）；
- * 3. 默认值必须"不误冻演示主线"（施工单 10 §9 风险表）：demo 档一次转账只有 1–2 个工具调用，
+ * 3. 默认值必须"不误冻演示主线"：demo 档一次转账只有 1–2 个工具调用，
  *    默认预算与熔断阈值都留出数量级余量。
  *
  * 本文件不依赖 `@bah/host` 的 boot 校验器：安全包要在任何宿主（含裸 Node 演示）可加载，
@@ -37,9 +37,9 @@ export interface SentryRuleSettings {
   readonly engine: 'legacy' | 'bundle'
   /** 停用的内置规则 ID（13 条之外的 ID 也允许写：内核会忽略，配置不因此报错）。 */
   readonly disabled: readonly string[]
-  /** NET-001 的 demo/example/mock 校准位（施工单 10 §2 的规则级白名单）。 */
+  /** NET-001 的 demo/example/mock 校准位。 */
   readonly demoWhitelist: boolean
-  /** 是否启用内置的跨场景提权规则（XSC-*，施工单 10 §3 第 4 行）。 */
+  /** 是否启用内置的跨场景提权规则（XSC-*， 第 4 行）。 */
   readonly crossScenario: boolean
   /** 部署侧追加规则（正则字符串在载入时编译，失败即抛）。 */
   readonly extra: readonly ExtraRule[]
@@ -52,7 +52,7 @@ export interface SentryBudgetSettings {
   readonly amountYuan: number
 }
 
-/** 断路器配置（施工单 10 §5）。 */
+/** 断路器配置。 */
 export interface SentryBreakerSettings {
   readonly denyThreshold: number
   readonly windowSeconds: number
@@ -60,17 +60,17 @@ export interface SentryBreakerSettings {
   readonly revokeTickets: boolean
 }
 
-/** 非法参数降级配置（施工单 10 §5 第 4 行）。 */
+/** 非法参数降级配置。 */
 export interface SentryDegradeSettings {
   readonly invalidArgsThreshold: number
 }
 
-/** 循环 guard 配置（施工单 10 §5 第 3 行）。 */
+/** 循环 guard 配置。 */
 export interface SentryGuardSettings {
   readonly maxToolsPerTurn: number
 }
 
-/** 幻觉防护配置（施工单 10 §4）。 */
+/** 幻觉防护配置。 */
 export interface SentryHonestySettings {
   /** 数值对账（post-execute + turn-stopping 两处）。 */
   readonly numeric: boolean
@@ -104,7 +104,7 @@ export interface SentryHaltSettings {
 /** TraceLog 的落盘口（W08 起**必须显式配置**，没有缺省值）。 */
 export const TRACE_SINKS = ['memory', 'stderr', 'session'] as const
 
-/** TraceLog 配置（施工单 10 §2 第 8 件）。 */
+/** TraceLog 配置。 */
 export interface SentryTraceSettings {
   readonly ringSize: number
   readonly flushThreshold: number
@@ -161,7 +161,7 @@ export const SENTRY_CONFIG_KEYS = {
 /**
  * 默认配置。
  *
- * 关键数字的来由（施工单 10 §9「不误冻演示主线」）：
+ * 关键数字的来由：
  * - `denyThreshold=5`：幕 2 只产生 1 次拒绝，幕 3 是 0 次；
  * - `budget.amountYuan=200000`：demo 的 800 元与 T-SNT-001 的 5 万元都在额度内；
  * - `maxToolsPerTurn=12`：正常一步 1–2 个工具，离上限有一个数量级。
@@ -200,9 +200,9 @@ export const DEFAULT_SENTRY_SETTINGS: SentryDefaults = {
 }
 
 /**
- * 内置的跨场景提权规则（施工单 10 §3 第 4 行的确定性拦截面）。
+ * 内置的跨场景提权规则。
  *
- * 为什么放在 Config 面而不是内核：内核的 13 条规则**算法与阈值不变**（施工单 10 §9）——
+ * 为什么放在 Config 面而不是内核：内核的 13 条规则**算法与阈值不变**——
  * 这两个正则属于"部署侧追加规则"（内核 `ScanToolArgsOptions.extraRules` 的既有能力），
  * 用 `rules.crossScenario` 一键开关。
  */
@@ -222,7 +222,7 @@ export const CROSS_SCENARIO_RULES: readonly ExtraRule[] = [
 ]
 
 /**
- * 校验并补齐默认值（施工单 10 硬约束 3：配置缺失/非法 → 载入即抛）。
+ * 校验并补齐默认值（配置缺失/非法 → 载入即抛）。
  *
  * @param raw 原始配置对象（`{}` = 全默认）
  * @returns 校验后的完整配置

@@ -8,18 +8,18 @@
 > `read/password-status` 两个键；代码口径 34 → **36**；
 > v1.0.3 → v1.0.4：按 **ADR-0016** 追加 `proactive/reminder` 一个键；代码口径 36 → **37**；
 > v1.0.4 → v1.0.5：按 **ADR-0017** 追加 `aa/participant-updated` 一个键；代码口径 37 → **38**）
-> **冻结单**：W02 · **消费单**：W05 / W07 / W10 / W11；**改签单**：W03（ADR-0003）/ 场景 4（ADR-0006）/ 场景 5（ADR-0007）
-> **代码真相源**：既有 7 个 `plan/*` 在 `packages/runtime/src/plan/events.ts`（第 7 个 `plan/resumed` 由 W10 通电）；
-> 7 个新键由各消费单在自己的声明面落表（含 W03 已通电的两个 bank 键）。
+> **冻结**：ADR-0001 · **消费方**：各领域事件；**改签**：ADR-0003 / ADR-0006 / ADR-0007
+> **代码真相源**：既有 7 个 `plan/*` 在 `packages/runtime/src/plan/events.ts`（第 7 个 `plan/resumed` 已通电）；
+> 7 个新键由各消费方在自己的声明面落表（含已通电的两个 bank 键）。
 > **变更流程**：见 §4。
 
 ## 1. 为什么先冻结事件而不是先写功能
 
-`docs/preflight-2026-10-25.md` 实测：20 项技术项里 **16 项未做**，其中 4 个单（W05/W07/W10/W11）都要新增事件。
+`docs/preflight-2026-10-25.md` 实测：20 项技术项里 **16 项未做**，其中 4 个单都要新增事件。
 让后置单各自起名，必然出现"同义异名"（`safety/halt` vs `safety/halted`）与"载荷漂移"。
 
 ⇒ 本表把 **7 个新键 + 1 处枚举扩展** 的完整载荷一次写死。
-其中 5 个是 W02 冻结键，2 个是 W03 按 **ADR-0003** 改签的银行领域键（已签字部分见该 ADR §5）。
+其中 5 个是冻结键，2 个是按 **ADR-0003** 改签的银行领域键（已签字部分见该 ADR §5）。
 
 ## 2. 已冻结的 7 个 `plan/*`（**一个名字都不许改**）
 
@@ -34,28 +34,28 @@
 | `plan/aborted` | `planId, reason('cancelled'\|'timeout'\|'disposed'\|'halted'), atNode?, at` | 同上 |
 
 > 这张表照 `packages/runtime/src/plan/events.ts` 的 `PlanSessionEventMap` 逐字抄的，不是转述。
-> **`status` 判定铁律**（W01 已记）：`blocked > 0` 必须落 `'failed'`，否则全被 block 的计划会报成功。
+> **`status` 判定铁律**（已记）：`blocked > 0` 必须落 `'failed'`，否则全被 block 的计划会报成功。
 
 ## 3. 新增的 7 个键 + 1 处枚举扩展（冻结）
 
 | # | 键 | 来源单 | 载荷（冻结，**一个字段都不许加减**） | 发射方式 |
 |---|---|---|---|---|
-| 1 | `safety/assertion` | W05 | `{ planId?: string; turnId: string; total: number; verified: number; needsEvidence: number; rejected: number; at: number }` | `session.append(...)` |
-| 2 | `safety/halt` | W07 | `{ reason: 'chain-broken' \| 'p0-threshold' \| 'manual'; detail?: string; at: number }` | `session.append(...)` |
-| 3 | `safety/unfreeze` | W07 | `{ ticketId: string; mfa: true; at: number }` | `session.append(...)` |
-| 4 | ~~`plan/resumed`~~ | W10 | 已通电：移入 §2（载荷未变，`{ planId: string; digest: string; skipped: number; resumedFrom: readonly string[]; at: number }`） | `session.appendDomain(...)` |
-| 5 | `plan/node-waiting` | W11 | `{ planId: string; nodeId: string; waitedMs: number; at: number }` | `session.appendDomain(...)` |
-| 6 | `card/reported-lost` | W03（ADR-0003） | `{ cardId: string; tail: string; status: 'lost'; at: number }` | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)` |
-| 7 | `sub/cancelled` | W03（ADR-0003） | `{ subscriptionId: string; merchant: string; at: number }` | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)` |
-| 8 | **扩展** `plan/aborted.reason` | W07 | 枚举 `'cancelled' \| 'timeout' \| 'disposed'` **追加** `'halted'` | 改 `events.ts` 的 `PlanSessionEventMap` |
+| 1 | `safety/assertion` | —| `{ planId?: string; turnId: string; total: number; verified: number; needsEvidence: number; rejected: number; at: number }` | `session.append(...)` |
+| 2 | `safety/halt` | —| `{ reason: 'chain-broken' \| 'p0-threshold' \| 'manual'; detail?: string; at: number }` | `session.append(...)` |
+| 3 | `safety/unfreeze` | —| `{ ticketId: string; mfa: true; at: number }` | `session.append(...)` |
+| 4 | ~~`plan/resumed`~~ | —| 已通电：移入 §2（载荷未变，`{ planId: string; digest: string; skipped: number; resumedFrom: readonly string[]; at: number }`） | `session.appendDomain(...)` |
+| 5 | `plan/node-waiting` | —| `{ planId: string; nodeId: string; waitedMs: number; at: number }` | `session.appendDomain(...)` |
+| 6 | `card/reported-lost` | ADR-0003） | `{ cardId: string; tail: string; status: 'lost'; at: number }` | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)` |
+| 7 | `sub/cancelled` | ADR-0003） | `{ subscriptionId: string; merchant: string; at: number }` | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)` |
+| 8 | **扩展** `plan/aborted.reason` | —| 枚举 `'cancelled' \| 'timeout' \| 'disposed'` **追加** `'halted'` | 改 `events.ts` 的 `PlanSessionEventMap` |
 | 9 | `read/subscriptions` | 场景 5（ADR-0007） | `{ result: SubscriptionListResult; detectedAt: number; basis: { from: number; to: number; txnCount: number }; detectorVersion: string }` | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)` |
 | 10 | `sub/authorization-revoked` | 场景 5（ADR-0007） | `{ authorizationId: string; merchant: string; affected: number; at: number }` | 同上 |
 | 11 | `sub/watch-updated` | 场景 5（ADR-0007） | `{ subscriptionId: string; watch: 'remind' \| 'idle' \| 'none'; aheadDays?: number; at: number }` | 同上 |
 | 12 | `card/state-changed` | 场景 4（ADR-0006） | `{ cardId: string; tail: string; from: 'normal' | 'frozen'; to: 'normal' | 'frozen'; reason: 'freeze' | 'unfreeze'; note?: string; at: number }` | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)` |
-| 13 | `security/password-changed` | 01 单（ADR-0014） | `{ userId: string; method: 'secure-page'; at: number }`（**禁止**旧密码 / 新密码 / 哈希 / 盐 / 明文变形） | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)`；发射点 `packages/bank/src/tools/password.ts` 的 `createPasswordHandoffPort().submit()` |
-| 14 | `read/password-status` | 01 单（ADR-0014） | `{ lastChangedAt: number \| null; remainingAttempts: number; at: number }` | 同上；发射点 `readPasswordStatus()`（只读分支，登记在 `READ_ONLY_ACTIONS`） |
-| 15 | `proactive/reminder` | 03 单（ADR-0016） | `{ source: string; key: string; title: string; channel: 'in-app' \| 'im' \| 'none'; suppressedReason?: string; at: number }`（`channel='none'` 时必须带 `suppressedReason`；**不落** `text` / `level`） | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)`；发射点 `packages/host/src/boot/plugins/proactive.ts` 的 `createProactiveService().push()`（非工具插件，经 `bank:audit` 服务拿到同一份发射面） |
-| 16 | `aa/participant-updated` | 05 单（ADR-0017） | `{ groupId: string; participantIndex: number; from: 'pending'; to: 'declined' \| 'expired'; at: number }`（**不放姓名/手机号**；不复用 `aa/collected`，也不加 `aa/expired`） | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)`；发射点 `packages/bank/src/tools/aa.ts`（decline/close）与 `packages/host/src/boot/plugins/aa-expiry.ts`（到期 job） |
+| 13 | `security/password-changed` | ADR-0014） | `{ userId: string; method: 'secure-page'; at: number }`（**禁止**旧密码 / 新密码 / 哈希 / 盐 / 明文变形） | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)`；发射点 `packages/bank/src/tools/password.ts` 的 `createPasswordHandoffPort().submit()` |
+| 14 | `read/password-status` | ADR-0014） | `{ lastChangedAt: number \| null; remainingAttempts: number; at: number }` | 同上；发射点 `readPasswordStatus()`（只读分支，登记在 `READ_ONLY_ACTIONS`） |
+| 15 | `proactive/reminder` | ADR-0016） | `{ source: string; key: string; title: string; channel: 'in-app' \| 'im' \| 'none'; suppressedReason?: string; at: number }`（`channel='none'` 时必须带 `suppressedReason`；**不落** `text` / `level`） | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)`；发射点 `packages/host/src/boot/plugins/proactive.ts` 的 `createProactiveService().push()`（非工具插件，经 `bank:audit` 服务拿到同一份发射面） |
+| 16 | `aa/participant-updated` | ADR-0017） | `{ groupId: string; participantIndex: number; from: 'pending'; to: 'declined' \| 'expired'; at: number }`（**不放姓名/手机号**；不复用 `aa/collected`，也不加 `aa/expired`） | `deps.audit.append(...)` → `session.appendDomain(..., ignorable: true)`；发射点 `packages/bank/src/tools/aa.ts`（decline/close）与 `packages/host/src/boot/plugins/aa-expiry.ts`（到期 job） |
 
 ### 3.1 `append` vs `appendDomain` 不是风格问题，是门禁盲区
 
@@ -74,10 +74,10 @@
 ### 3.3 「通电」的判定
 
 宪法 §3.2：**只声明不发射 = 未完成。** 本表每个键必须由来源单提供**至少一个发射点**，
-且通过对应门禁的反向覆盖。W02 本单**只落表，不发射**——`safety/*` 与 `plan/resumed` /
-`plan/node-waiting` 的发射点是 W05/W07/W10/W11 的验收项。
+且通过对应门禁的反向覆盖。本设计**只落表，不发射**——`safety/*` 与 `plan/resumed` /
+`plan/node-waiting` 的发射点是 后续迭代 的验收项。
 
-**例外已通电**：第 6、7 两行由 W03 实现并验收（`packages/bank/src/tools/account-ops.ts`
+**例外已通电**：第 6、7 两行由实现并验收（`packages/bank/src/tools/account-ops.ts`
 的 `deps.audit.append('card/reported-lost' | 'sub/cancelled', …)`，字面量发射）；
 第 9–11 三行由场景 5（ADR-0007）在 `packages/bank/src/tools/{subscriptions,account-ops}.ts`
 通电；第 12 行由场景 4（ADR-0006）在 `packages/bank/src/tools/account-ops.ts` 通电；
@@ -128,17 +128,17 @@
 ## 4. 变更流程
 
 1. **加键**：写 ADR + L1 owner 签字 + 在本表追加一行（含"发射方式"列）；
-2. **改载荷**：属**改签**，必须 ADR；W02 只给每个键**一次**改签名额（§5 风险表）；
+2. **改载荷**：属**改签**，必须 ADR；每个键只给**一次**改签名额（§5 风险表）；
 3. **改名**：禁止。事件名是契约，改名等于让历史日志失去可解释性；
 4. **`plan/aborted.reason` 加 `'halted'` 是改签**：见 `docs/adr/0002-plan-abort-halted.md`，
-   **W07 开工的前提**，无 ADR 就改 `events.ts` = 违规。
+   **实现方开工的前提**，无 ADR 就改 `events.ts` = 违规。
 
 ## 5. 本表之外一概不批
 
-需要第 8 个新键就在该单的"偏差"里申请。**W02 之后（D2 起）不再受理新键申请**
+需要第 8 个新键就在该单的"偏差"里申请。**实现方之后（D2 起）不再受理新键申请**
 ——事件表一松，`verify-*-events` 的三个门禁全部失去意义。
 
-> **已用的三次领域改签**：ADR-0003 的 `card/reported-lost` / `sub/cancelled`（W03，2026-10-25）；
+> **已用的三次领域改签**：ADR-0003 的 `card/reported-lost` / `sub/cancelled`（实现方，2026-10-25）；
 > ADR-0006 的 `card/state-changed`（场景 4，2026-10-30，19 → 20）；
 > ADR-0007 的 `read/subscriptions` / `sub/authorization-revoked` / `sub/watch-updated`（场景 5，2026-10-30，20 → 23）。
 > （ADR-0008「票据携带授权来源」只加**载荷字段**，不占事件键名额，故不计入改签。）
@@ -168,7 +168,7 @@
 > 不占 §5 的改签名额；借记卡发射的事件形状不变。
 >
 > **ADR-0016（通用主动通知通道，2026-11-01）**：新增 `proactive/reminder` 一个键。
-> 键名刻意**不是** `sub/*`——04 单（生日）复用同一条通道，泛化名字才不需要二次改签；
+> 键名刻意**不是** `sub/*`——实现方（生日）复用同一条通道，泛化名字才不需要二次改签；
 > `source` 取 `string` 而不是封闭联合，同理。`channel='none'` 时必须带 `suppressedReason`
 > （夜里被静默这件事要在审计里可解释）；`text` / `level` **不进载荷**，因此也不渲染。
 > 键数 36 → **37**。
@@ -186,7 +186,7 @@
 > `verify-session-events` 会扫 `audit.append('…')` 字面量并核对本文件的增强块。
 > 本次补 `card/spent` 与 `read/risk-questions`，不追溯补登历史键。
 
-## 6. 自检（TC-W02-04 / 06）
+## 6. 自检（TC-04 / 06）
 
 ```bash
 npx tsx scripts/verify-plan-events.ts      # 既有 6 键未被顺手改名/改载荷

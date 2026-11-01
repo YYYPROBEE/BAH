@@ -5,7 +5,7 @@
 - 影响面：`packages/bank/src/core/{model,provider,mock,merchant}.ts`、`packages/bank/src/tools/{specs,account-ops,queries,approval-details,dto,events}.ts`、`packages/host/src/boot/plugins/{bank-tools,merchant}.ts`、`packages/llm/src/demo/router.ts`
 
 > 编号说明：ADR-0010 已被并行线的授权窗口（`windowResponder`）占用，0011 预留给 AA 收口单；
-> 本单按顺序取 0012，避免与在途编号相撞。
+> 本设计按顺序取 0012，避免与在途编号相撞。
 
 ---
 
@@ -25,7 +25,7 @@
 - **路线 A**：把 `category` 删掉、月限额如实登记为展示字段（诚实收口，但不关 B-02）；
 - **路线 B**：补卡消费通道，让月限额与品类都落到真实扣款路径。
 
-**本单选 B**（用户显式选择）：不删参数，而是让参数有判定读取点。
+**本设计选 B**（用户显式选择）：不删参数，而是让参数有判定读取点。
 
 ## 2 决策
 
@@ -94,7 +94,7 @@ spend(sessionId, { cardId, merchantCategory, amountCents, memo? })
 ```
 
 扣款后若履约没有按预检成交，返回 `payment-without-order`，**不装作已下单**；
-退款/补偿归提示词 3（本单不实现）。
+退款/补偿归提示词 3（本设计不实现）。
 
 ### 2.4 品类限制的封闭值域
 
@@ -124,7 +124,7 @@ spend(sessionId, { cardId, merchantCategory, amountCents, memo? })
 3. **月限额不跨卡合并、不是自然月**：它是"同卡、近 30 天滚动窗口"；账单的月度口径另有一套。
 4. **未带 `viaCardId` 的转账不吃月限额**（见 2.1 的理由）。
 5. **卡消费没有独立的路由演示**：商户目录只有鲜花/蛋糕（无咖啡商户），且
-   `merchant_order` 是内部工具；因此本单只做工具面，不做「买杯咖啡用这张卡」的话术。
+   `merchant_order` 是内部工具；因此本设计只做工具面，不做「买杯咖啡用这张卡」的话术。
    路由只加了"关掉这张卡的餐饮/咖啡…消费"→`card_restriction(category)`。
 6. **`merchant_order` 的金额绑定是间接的**：票据绑定 `offerId`（票价由目录决定），
    不另绑金额；卡消费金额取同一份报价，预检与履约共用它。

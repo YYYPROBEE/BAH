@@ -260,7 +260,7 @@ async function bootForPlan(
   /**
    * CLI 就是"人工渠道"（ADR-0010）：操作者在终端敲 `bah plan arm` 等于本人点了批准。
    *
-   * 为什么必须显式装，而不是靠 profile 的默认值：profile 自本单起是
+   * 为什么必须显式装，而不是靠 profile 的默认值：profile 自本设计起是
    * `responder: none + windowResponder: true`（无差别放行已删），不装的话
    * `bah plan arm` 会直接 `approval-no-responder`——运维入口被自己的安全默认值锁死。
    *

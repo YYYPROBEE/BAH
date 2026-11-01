@@ -52,7 +52,7 @@ const NOW = 1_000
  * 行集合显式写在这里（对齐 `authorization.test.ts` 的夹具）。
  *
  * 为什么不读 `profiles/plan/patch.yml`：那份 patch 里的 `interaction:approval` 在这个
- * 层叠方式下不会装出自动应答者（实测 `approval-no-responder`），而本单要测的是
+ * 层叠方式下不会装出自动应答者（实测 `approval-no-responder`），而本设计要测的是
  * **签票时的明细**，不是 profile 层叠。行集合写死在这里，少一层间接。
  */
 const BASE_ROWS: readonly PluginRow[] = [

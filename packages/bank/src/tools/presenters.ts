@@ -1,5 +1,5 @@
 /**
- * 银行工具族的 presenter（施工单 08 §4）。
+ * 银行工具族的 presenter。
  *
  * 铁律：**纯函数**——同输入同输出；不访问 ctx / 时间 / 随机；不抛错（参数可能来自不可信的模型）。
  * 卡片只描述"展示什么"，渠道（Web / IM / 移动）按 `kind` 选模板，业务逻辑不进渠道。
@@ -379,7 +379,7 @@ export function verifyCard(result: VerifyResult): UiCard {
   }
 }
 
-/** 待执行卡片：转账（施工单 08 §3.8 `presentCall`）。 */
+/** 待执行卡片：转账。 */
 export function transferConfirmCard(
   args: Readonly<Record<string, unknown>>,
   ticketTtlSeconds: number,

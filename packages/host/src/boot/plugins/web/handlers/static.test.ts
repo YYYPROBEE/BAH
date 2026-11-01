@@ -1,9 +1,9 @@
 /**
- * 静态资源的 token 白名单用例（施工单 01 §5 TC-MCH-12..16 / §3.8 安全不变量）
+ * 静态资源的 token 白名单用例
  * + 坐席入口（人机接管 02 · B1）。
  *
  * 这里不启服务：直接调 `handleStatic` 并检查响应头 / 响应体，速度更快也更容易造
- * "白名单外的 HTML"。**真实 curl 矩阵**另存 `docs/evidence/.../01-static-matrix.txt`。
+ * "白名单外的 HTML"。**真实 curl 矩阵**另存 `仓库外归档`。
  *
  * 坐席入口的三条安全性质：
  * 1. `seatEnabled=false`（未配 `BAH_OPERATOR_TOKEN` 或不是 web 渠道）⇒ `/operator` 与
@@ -261,7 +261,7 @@ describe('白名单绕过变形（TC-MCH-15）', () => {
   })
 
   it('//index.html 与 /./index.html ⇒ 归一化后是**同一个文件**，注入（不构成泄漏）', async () => {
-    // ⚠ 施工单 01 §3.8 与 00 §8 C2 曾把这两种写法列为"不得注入"，这是事实错误：
+    // ⚠  与 00 §8 C2 曾把这两种写法列为"不得注入"，这是事实错误：
     // `normalize` 后它们就是 index.html 本身，路径精确等值命中白名单。判安全性的判据不是
     // "拼写不同"，而是"**有没有别的文件**拿到 token"——见下一条。
     for (const path of ['//index.html', '/./index.html']) {

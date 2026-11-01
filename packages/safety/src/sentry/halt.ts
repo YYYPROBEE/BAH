@@ -13,7 +13,7 @@
  *
  * | 原因 | 谁触发 |
  * |---|---|
- * | `chain-broken` | 审计链断裂（W08 接线，本单只提供入口） |
+ * | `chain-broken` | 审计链断裂（W08 接线，本设计只提供入口） |
  * | `p0-threshold` | P0 规则（`destructive` / `exfil` 两族）累计命中 3 次 |
  * | `manual` | 人工 `bah halt`（管理路由） |
  *

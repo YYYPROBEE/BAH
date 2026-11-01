@@ -6,7 +6,7 @@
  * - `./mock`：脚本化确定性 provider（无密钥跑通完整 turn）
  * - `./deepseek`：DeepSeek provider（真实流式）
  *
- * 跨包纪律：其他包只 import 包名，不 import `src/`（施工单 00 §6 映射规则）。
+ * 跨包纪律：其他包只 import 包名，不 import `src/`。
  */
 
 export * from './llm/index.ts'

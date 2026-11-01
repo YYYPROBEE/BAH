@@ -1,5 +1,5 @@
 /**
- * `@bah/interaction` · approval（施工单 09 §2–§3）。
+ * `@bah/interaction` · approval。
  *
  * 公开面：
  * - `ApprovalService`：`approval/request` 的唯一仲裁点（应答者 / 超时 / 归一化 / 幂等）；

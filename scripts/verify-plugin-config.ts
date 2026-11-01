@@ -1,7 +1,7 @@
 /**
- * 门禁：组合配置的三方一致（施工单 06 §0 第 5 条 / §4）。
+ * 门禁：组合配置的三方一致。
  *
- * 依据：施工单 01 §6「verify-plugin-config：bah.yml 引用的插件必须在依赖清单中」。
+ * 依据：「verify-plugin-config：bah.yml 引用的插件必须在依赖清单中」。
  * 阶段 6 把它从骨架版升级为**真实校验**，检查的是四份数据彼此不矛盾：
  *
  * ```text
@@ -28,7 +28,7 @@ import { parse } from 'yaml'
 
 import { isMainModule, runStandalone, type Gate, type GateResult } from './gate-lib.ts'
 
-/** bundle 数据目录（施工单 01 §6 规定为 `packages/cli/bundles/<name>/`）。 */
+/** bundle 数据目录。 */
 const BUNDLE_DIR = join('packages', 'cli', 'bundles')
 
 /** profile 数据目录。 */
@@ -118,7 +118,7 @@ const gate: Gate = {
     if (!existsSync(manifestPath)) {
       return {
         ok: false,
-        findings: ['缺少根 bah.yml（施工单 06 §1：profile.default 与随包 bundle 清单的唯一来源）'],
+        findings: ['缺少根 bah.yml（profile.default 与随包 bundle 清单的唯一来源）'],
         notes: [],
       }
     }

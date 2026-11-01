@@ -44,7 +44,7 @@ function makeRunner(tiers: Partial<Record<SandboxTier, Partial<TierSpec>>> = {})
 }
 
 describe('沙箱 worker 通道', () => {
-  it('compute-bounded 里跑通受限表达式（施工单 11 §0 第 5 条的演示通道）', async () => {
+  it('compute-bounded 里跑通受限表达式', async () => {
     const { runner, registry, records } = makeRunner()
     registry.register({ key: 'compute', capabilities: [], moduleUrl: href('./handlers/compute.ts') })
     const outcome = await runner.run(
