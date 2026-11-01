@@ -1,5 +1,5 @@
 /**
- * 移动壳装配根（施工单 02 §3.2）。
+ * 移动壳装配根。
  *
  * 与桌面 `main.js` 是**平行组装**：共享 `transport.js` / `store.js` / `dom.js` 与
  * `views/` 里的纯渲染件，但"帧 → 交互面"的映射是移动端自己的（00 D1 双壳）。
@@ -64,7 +64,7 @@ function rendererOf(frame, deps) {
 /**
  * 快捷短语默认文案（D10 第 5 条：chips 是演示主入口）。
  *
- * 四颗一对一对应 03 单的四类意图，答辩现场一键复现；文案里**不含**真实账号与户名。
+ * 四颗一对一对应 03 单的四类意图，对外说明现场一键复现；文案里**不含**真实账号与户名。
  * 视图层零硬编码：composer 只认注入进来的这份配置（TC-MOB-19）。
  */
 export const DEFAULT_QUICK_PHRASES = Object.freeze({
@@ -91,7 +91,7 @@ export const RECONNECT_DEFAULTS = Object.freeze({  baseMs: 1000,
  * ⚠ 如实登记：共享层 `transport.js` 的 `request()` 只回 `{ ok, status, code, reason }`，
  * **不透出 `retry-after` 响应头** ⇒ 生产路径上这个缺省值会被用到。要精确遵守服务端的
  * retry-after，得给 `request()` 的返回对象加一个字段（纯增量），但该文件正被并行线改写，
- * 本单不碰（00 §10 处置规矩 3）。已作为交接项写进 handoff 与复审报告。
+ * 本设计不碰（00 §10 处置规矩 3）。已作为交接项写进 handoff 与复审报告。
  */
 export const RATE_LIMIT_FALLBACK_SECONDS = 60
 
@@ -146,7 +146,7 @@ export function uiErrorOf(result) {
  *
  * 前端 JS 没有 `assertNever` 的编译期（`verify-assert-never` 只扫 .ts），而 D7 又允许
  * 后端先行加帧 ⇒ `default` 必须是**运行时兜底**（渲染一张可见的"未知帧"卡）而不是穷尽断言。
- * 这是 00 §4「switch 以 assertNever 收尾」在前端 JS 的等价物：显式 default + 兜底可见，
+ * 这是 00 §4「switch 以 assertNever 收尾」在前端 JS 的等价物：显式 default + 兜底可，
  * 静默丢帧才是这里最坏的失败模式（B 类探针点名过它）。
  *
  * @param {Record<string, any>} frame
@@ -164,7 +164,7 @@ export function dispatchFrame(frame, ctx) {
       return undefined
     case 'tool':
       // 有对应步骤就挂在步骤里（复用桌面 renderTool），没有就进会话流——
-      // 绿级只读工具常常不产生 DAG，只走 planSteps 会让它彻底不可见。
+      // 绿级只读工具常常不产生 DAG，只走 planSteps 会让它彻底不可。
       return ctx.planSteps.hasNode(frame.callId)
         ? ctx.planSteps.attachTool(frame)
         : ctx.feed.append(frame)
@@ -325,7 +325,7 @@ export function createMobileShell(deps) {
   const reminderHost = el('div', { dataset: { role: 'reminder-host' } })
   dock.append(reminderHost)
 
-  // 安全提醒与常用业务在会话流顶部：空会话时直接可见，开始对话后业务宫格收起
+  // 安全提醒与常用业务在会话流顶部：空会话时直接可，开始对话后业务宫格收起
   // （空态才有位置），安全提醒保留到用户自己收起。
   const safetyHost = el('div', { dataset: { role: 'safety' } })
   const quickHost = el('div', { class: 'm-quick', dataset: { role: 'quick-entry' } })

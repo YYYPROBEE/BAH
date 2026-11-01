@@ -50,7 +50,7 @@ describe('快捷短语 chips', () => {
     expect(buttons().map((node) => node.textContent)).toEqual(['乙', '丙'])
   })
 
-  it('TC-MOB-19 意图标签落进 data-intent（答辩现场可对上 03 单的四类意图）', () => {
+  it('TC-MOB-19 意图标签落进 data-intent（对外说明现场可对上 03 单的四类意图）', () => {
     chips([{ text: '甲', intent: '模糊复现' }])
 
     expect(buttons()[0].dataset.intent).toBe('模糊复现')

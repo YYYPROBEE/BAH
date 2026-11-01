@@ -1,10 +1,10 @@
 /**
- * base bundle · `core:agent`：主循环（施工单 04）。
+ * base bundle · `core:agent`：主循环。
  *
  * 只做装配：会话服务 + 模型注册表 + 提示词/工具注册表 → 一个 `AgentLoop`，
  * 并把它登记进活体注册表（`runtime:agents`），宿主按键取用。
  *
- * `channel` 是**提示词语气/长度**的输入（施工单 05 §4 的 `style` 段），不是"渠道代码分支"：
+ * `channel` 是**提示词语气/长度**的输入，不是"渠道代码分支"：
  * 渠道差异仍由 profile patch 表达，这里只是把值往装配器里传。
  */
 

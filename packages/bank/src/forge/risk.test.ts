@@ -1,5 +1,5 @@
 /**
- * 风控预检五规则（施工单 07 §4.3 / §6 的 T-BANK-011）。
+ * 风控预检五规则。
  */
 
 import { describe, expect, it } from 'vitest'

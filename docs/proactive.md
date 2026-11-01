@@ -68,7 +68,7 @@ pnpm demo:web
 # 再推一天 → 不重复；回复「给爱人订生日计划」→ 生日计划提案
 ```
 
-## 3 订阅续费（03 单，摘要）
+## 3 订阅续费（实现方，摘要）
 
 - `sub_watch(watch='remind', aheadDays)`：进入窗口逐条提醒（`source='subscription'`）；
   幂等键 `sub:<id>:<dueAt 的 YYYY-MM>`——跨月 tick 同一笔扣款不会提醒两次；

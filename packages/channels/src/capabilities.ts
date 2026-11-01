@@ -1,5 +1,5 @@
 /**
- * 渠道能力位的**单一实现点**（施工单 01 §3.1 / 00 D4）。
+ * 渠道能力位的**单一实现点**。
  *
  * WHY 单独成文件：能力位有三类消费方——适配器返回它、host 的 `/api/session` 上报它
  * （`web/handlers/session.ts`）、前端壳按它降级渲染。定义留在 `web/adapter.ts` 时，
@@ -14,9 +14,9 @@ import type { ChannelKind } from '@bah/runtime'
  * 的权威定义，`CHANNEL_HINTS`（`sections.ts`）与 host 的 `CHANNELS`（`plugins/agent.ts`）
  * 都穷尽了它。再写一份就是第二真相源。
  *
- * 施工单 01 §9 V2：`ChannelAdapter.id` 原先是 `'web'|'mobile'|'im'|'desktop'|'cli'`
+ *  V2：`ChannelAdapter.id` 原先是 `'web'|'mobile'|'im'|'desktop'|'cli'`
  * ——多一个 `cli`（全库无任何适配器使用）、少 `headless`/`sdk`（配置面却在用 `channel: headless`）。
- * 本单把它收敛为 `ChannelKind`：这是**修错位**，不是改签。
+ * 本设计把它收敛为 `ChannelKind`：这是**修错位**，不是改签。
  */
 export type ChannelId = ChannelKind
 
@@ -68,7 +68,7 @@ export const WEB_CAPABILITIES: ChannelCapabilities = {
  * `Permissions-Policy: microphone` 约束（00 D10 · 2026-10-29 二次定稿）。
  * `web/http.ts` 的 `permissions-policy` **逐字不动**，并由门禁 I10 钉死（任何改动即红）。
  * 页面侧的 IME 适配（输入框属性、`composition*` 组合态、可关提示、快捷短语 chips）全归 02 单，
- * 本单没有任何语音相关的实现工作。
+ * 本设计没有任何语音相关的实现工作。
  */
 export const MOBILE_CAPABILITIES: ChannelCapabilities = {
   richCards: true,
@@ -84,7 +84,7 @@ export const MOBILE_CAPABILITIES: ChannelCapabilities = {
 }
 
 /**
- * 以下四个是**占位常量**（适配器与 profile 不在本单；门禁 I2 只查常量表穷尽，I4 只查 mobile）：
+ * 以下四个是**占位常量**（适配器与 profile 不在本设计；门禁 I2 只查常量表穷尽，I4 只查 mobile）：
  * IM = 卡片可、表单不可、无流式（一条消息一屏）；desktop = 与 Web 同呈现 + 滑动确认（桌面壳
  * 不提供语音入口 ⇒ `voiceInput:'none'`）；headless = 无人在回路 ⇒ 一切呈现关闭
  * （`profiles/headless/patch.yml` 的 `channel: headless` 的如实描述：它没有前端，能力位只被

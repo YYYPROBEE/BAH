@@ -1,5 +1,5 @@
 /**
- * Web 应用入口（施工单 13 §4 步 9「Vite 打包 + 独立运行验收」）。
+ * Web 应用入口。
  *
  * 装配只做四件事：建仓库 → 连 SSE → 把帧分发给三个容器 → 接上四个动作
  * （发送 / 中断 / 审批结论 / 强验证）。**没有第五件事**：
@@ -238,7 +238,7 @@ export function mountApp(options) {
       class: 'ds-btn ds-btn--ghost ds-btn--sm',
       type: 'button',
       disabled: true,
-      title: '会话分叉属施工单 14（未落地）；此处显式禁用，避免假装可用',
+      title: '会话分叉属（未落地）；此处显式禁用，避免假装可用',
     },
     [icon('back', 14), '回到上一步'],
   )

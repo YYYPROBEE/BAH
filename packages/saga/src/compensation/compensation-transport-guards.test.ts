@@ -228,7 +228,7 @@ describe('补偿发射口的保险丝与并发分岔（SA-10 执行面补漏）'
     seedSaga(h.store, 'saga-veto', [{ stepId: 's1' }])
     bindComps(h, 'saga-veto', ['s1'])
 
-    // 不调 next() 即拥有判决（施工单 02 §4：waterfall 的短路形态）。
+    // 不调 next() 即拥有判决（waterfall 的短路形态）。
     h.ctx.events.on('saga/comp-decided', (value) => ({ ...value, decide: 'hold' }))
 
     let issued = 0
@@ -334,7 +334,7 @@ describe('补偿发射口的保险丝与并发分岔（SA-10 执行面补漏）'
     // 注：这里的 `probe-unresolved` 走的是 `outcome.reason` 透传（probeStep 的 L1 兜底），
     // 不是 issueComp 里那个字面量兜底——`probeStep` 永不返回 `not-executed`，
     // 所以 `settle.ts` 的 NOT_EXECUTED 分支与 `index.ts` 的 `'probe-unresolved'` 字面量
-    // 在当前装配下不可达（见本单结论，未为凑行覆盖伪造触发）。
+    // 在当前装配下不可达（见本设计结论，未为凑行覆盖伪造触发）。
     const h = harness()
     seedSaga(h.store, 'saga-probe-unknown', [{ stepId: 's1' }])
     bindComps(h, 'saga-probe-unknown', ['s1'])

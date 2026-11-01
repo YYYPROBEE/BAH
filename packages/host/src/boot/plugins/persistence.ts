@@ -1,5 +1,5 @@
 /**
- * base bundle · `core:persistence`：JSONL 落盘（施工单 03 §1.5）。
+ * base bundle · `core:persistence`：JSONL 落盘。
  *
  * 挂点是 `session/event`（`emit`，append 之后同步广播）：不包裹 `SessionApi.append`，
  * 也不认识主循环——"日志写在哪里"和"日志怎么产生"因此各自可替换。

@@ -1,5 +1,5 @@
 /**
- * 门面实现（施工文档 §9 的六件事）。
+ * 门面实现（设计文档 §9 的六件事）。
  *
  * 独立于 `index.ts` 只为一件事：`plugin.ts` 需要 `createMemoryLayer`，而 `index.ts`
  * 又要 re-export 插件形状——实现留在 barrel 里就成环。实现下沉一层，barrel 保持纯导出。

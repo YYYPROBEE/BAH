@@ -12,7 +12,7 @@ import type { LlmParams } from '@bah/llm'
 import { resolveCompactionConfig } from '../compaction/summarize.ts'
 import type { CompactionThresholds } from '../compaction/types.ts'
 
-/** 单 turn 的 step 数上限（防"模型无限要工具"；可调项一律走配置，施工单 00 §9 第 4 条）。 */
+/** 单 turn 的 step 数上限（防"模型无限要工具"；可调项一律走配置， 第 4 条）。 */
 export const DEFAULT_MAX_STEPS = 32
 
 /** 允许的配置键（未知键 fail-loud）。 */

@@ -45,7 +45,7 @@ function emptyAdapter(id: string): LlmAdapter {
   }
 }
 
-describe('FallbackRunner（施工单 05 §3 降级链）', () => {
+describe('FallbackRunner', () => {
   it('T-LLM-005 降级链：备用模型接管，assistant/attempt 落账（failed + retried 两条）', async () => {
     const registry = new LlmAdapterRegistry()
     registry.register(brokenAdapter('primary', 'prepare', new BahError('llm-http-error', 'HTTP 429 限流')))

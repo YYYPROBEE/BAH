@@ -1,8 +1,8 @@
 /**
- * 事件五模式（施工单 02 §3 / §4）。
+ * 事件五模式。
  *
  * 本文件只提供**机制**：监听器注册表 + 五种派发。事件表本身（哪些事件、各自什么 mode）
- * 由施工单 04 §6 冻结为接缝总表，届时 `verify-event-modes` 门禁比对「声明 mode」与「派发点」。
+ * 由 冻结为接缝总表，届时 `verify-event-modes` 门禁比对「声明 mode」与「派发点」。
  *
  * 五种模式语义：
  * - `emit`：单向通知，不 await、不返回值（记账类）
@@ -24,7 +24,7 @@ import type {
 import { coreError } from './errors.ts'
 import { once, type ListenerEntry, type RawListener } from './types.ts'
 
-/** 瀑布链长上限（施工单 02 §4 第 3 条）：超出即抛，防手误写出自循环。 */
+/** 瀑布链长上限：超出即抛，防手误写出自循环。 */
 export const MAX_WATERFALL_DEPTH = 32
 
 /**
@@ -124,7 +124,7 @@ export class BahEvents implements Events {
   /**
    * 链式传值：每个 handler 显式 `next()` 交还，返回最终（可能被改写的）值。
    *
-   * 精确语义（施工单 02 §4 逐条）：步进按注册顺序同步推进、handler 内部可 await、
+   * 精确语义：步进按注册顺序同步推进、handler 内部可 await、
    * 不调 `next()` 的 handler 拥有该判决（后续 handler 不再执行），链长上限 32 级。
    *
    * @mode waterfall —— 默认拦截器形态（请求 / 响应 / 判决）
@@ -176,7 +176,7 @@ export class BahEvents implements Events {
 /**
  * 瀑布步进：从第 `index` 级开始，把 `current` 交给该级 handler。
  *
- * 返回值规则（施工单 02 §4.5；语义与施工单 00 §12 的机制对照锚点一致——
+ * 返回值规则（语义与 的机制对照锚点一致——
  * 瀑布返回**最外层 handler 的返回值**，`next()` 本身不做值穿透）：
  *
  * - handler 的返回值就是本级的处理结果，所以「交还控制权」必须写成 `return next(v)`，

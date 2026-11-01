@@ -1,5 +1,5 @@
 /**
- * 子进程登记表（施工单 02 §2.11 的 `registry.ts`）。
+ * 子进程登记表。
  *
  * WHY 单独一张表而不是把状态塞进 supervisor 的闭包：
  * `sessionKey → ChildRecord` 要能被 `/healthz`、闲置回收、崩溃重启三处**独立读**，

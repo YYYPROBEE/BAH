@@ -1,5 +1,5 @@
 /**
- * 输入区（施工单 02 §3.9）。
+ * 输入区。
  *
  * 组合关系：chips 行（quick-phrases）+ IME 提示条与属性装配（ime-input）+ 主输入框 +
  * 发送 / 中断 + 错误行。四个子件都是本目录内的模块，共享层（transport/store/dom）只 import。

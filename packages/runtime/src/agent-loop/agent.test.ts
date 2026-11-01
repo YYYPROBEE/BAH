@@ -1,5 +1,5 @@
 /**
- * 主循环状态机（施工单 04 §2 / §7 的 T-LOOP-001~011、T-LOOP-013）。
+ * 主循环状态机。
  *
  * 说明两件"看起来可以更优雅、但不许改"的事：
  * 1. **落账顺序 = 施单 04 §7 T-LOOP-001**：`tool/call → tool/result → assistant/message`
@@ -640,7 +640,7 @@ describe('T-LOOP-008 turn-stopping', () => {
         prepare: (harness) => {
           disposers.push(
             harness.test.ctx.events.on('agent/turn-stopping', (input) => {
-              // 想继续的钩子：往 next-step 推一条纠正提示（施工单 10 §4）
+              // 想继续的钩子：往 next-step 推一条纠正提示
               harness.loop.steer('纠正提示')
               // 但循环 guard 判停：本 turn 不再继续
               input.stop('循环 guard：工具调用超上限')

@@ -159,7 +159,7 @@ describe('bindPort', () => {
 
   /**
    * 为什么改：旧实现拿不到地址就回退配置端口；配置端口为 `0` 时会把
-   * `http://host:0/` 交给调用方（fetch 必抛 `bad port`）。停机能被看见，
+   * `http://host:0/` 交给调用方（fetch 必抛 `bad port`）。停机能被看，
    * 不可用的 URL 不能——所以必须 fail-loud，而不是"看起来能用"。
    */
   it('address() 不是对象（unix socket / 已关闭）→ web-listen-failed，不回退配置端口', async () => {

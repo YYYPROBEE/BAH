@@ -1,5 +1,5 @@
 /**
- * 对话流（施工单 13 §2.1 第一行 + §5.1）。
+ * 对话流。
  *
  * 七种节点：轮次分割、消息气泡、行内提示、工具卡（`tool-card.js`）、
  * 选择题卡（`choice-card.js`）、风险问卷卡（`risk-form.js`）、已发生操作清单（`effects.js`）。
@@ -112,7 +112,7 @@ export function renderMessage(frame, deps = {}) {
   if (contextSource !== null) {
     // 运行时上下文每轮一张、内容是一整份用户档案（姓名/等级/余额/流水），实测 292px 高，
     // 比用户气泡和工具卡都大，会把真正的对话挤出屏幕。默认折叠成一行，需要时再展开。
-    // 其余两类（系统纠正 / 交接语）本来就短，保持直接可见。
+    // 其余两类（系统纠正 / 交接语）本来就短，保持直接可。
     const collapsible = contextSource === 'runtime-context'
     const toggle = collapsible
       ? el(

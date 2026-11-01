@@ -13,7 +13,7 @@ function codeOf(run: () => void): string | undefined {
   }
 }
 
-describe('UsageLedger（施工单 05 §3 成本账本）', () => {
+describe('UsageLedger', () => {
   it('T-LLM-004 usage 记账：每 turn 汇总 input/output tokens', () => {
     const ledger = new UsageLedger()
     ledger.record(1, { input: 100, output: 20 })

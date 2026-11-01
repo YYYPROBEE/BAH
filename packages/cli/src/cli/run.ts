@@ -1,5 +1,5 @@
 /**
- * CLI 命令行（施工单 06 §5 第 1/4/6 步的入口面）。
+ * CLI 命令行。
  *
  * 三条纪律：
  * 1. **进程入口最小化**：`main.ts` 只解析 `argv` 并设置退出码，其它全在本文件（可单测）；
@@ -69,7 +69,7 @@ export const USAGE = '用法：bah --profile <name> [--dump-config] [--prompt <t
 
 /** 完整帮助。 */
 export const HELP = [
-  'bah —— BAH 底座 CLI（施工单 06）',
+  'bah —— BAH 底座 CLI',
   '',
   USAGE,
   '',
@@ -454,7 +454,7 @@ function defaultHome(env: Readonly<Record<string, string | undefined>>): string 
  * 取唯一活体 agent。
  *
  * 一个 profile 只有一个 `core:agent` 行；想挂第二个会被依赖清单的 `duplicate-plugin` 挡住
- * （施工单 06 的"同一插件只能挂一次"），所以这里不处理"多于一个"。
+ * ，所以这里不处理"多于一个"。
  *
  * @throws `BahError('agent-absent')` agent 服务未注册 / 注册表为空（profile 少装了 `core:agent`）
  */

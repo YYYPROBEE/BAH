@@ -1,5 +1,5 @@
 /**
- * 请求装配、冻结与提交（施工单 04 §2.2）。
+ * 请求装配、冻结与提交。
  *
  * ```text
  * 装配（纯）  提示词装配 + 日志派生历史 + 认领消息 + 注入上下文 → LlmRequest
@@ -8,7 +8,7 @@
  * 提交        request/header → system/message → request/context → user/message
  * ```
  *
- * **为什么"提交"要晚于 `prepareCall`**：施工单 04 §2.2 要求取消的两种异步阶段
+ * **为什么"提交"要晚于 `prepareCall`**： 要求取消的两种异步阶段
  * （`agent/request` 与 `prepareCall`）**都不提交** system/user 消息——取消就是没发生。
  * 所以本次 attempt 的模型可见输入在内存里装配好、先只喂给这一轮请求，
  * 等 `prepareCall` 成功返回（= 请求真的发出去了）才落账。
@@ -41,7 +41,7 @@ import type { ToolRegistry } from '../tools/registry.ts'
 import type { InboxMessage } from './inbox.ts'
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 1. 会话投影 → 模型消息（wire-agnostic 视图，施工单 03 R32）
+ * 1. 会话投影 → 模型消息（wire-agnostic 视图， R32）
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -50,7 +50,7 @@ import type { InboxMessage } from './inbox.ts'
  * 两处有意的丢弃：
  * - `system` 消息**跳过**：本次 attempt 的系统头由本次装配结果提供（旧装配结果已按
  *   reconcile 撤回，这里再兜一次，保证 system 永远只有一条、且是最新的）；
- * - `reasoning` 块不回放：provider 侧也不接受把推理过程塞回去（施工单 05 的 wire 映射同此）。
+ * - `reasoning` 块不回放：provider 侧也不接受把推理过程塞回去。
  */
 export function toLlmMessages(messages: readonly DerivedMessage[]): LlmMessage[] {
   const output: LlmMessage[] = []
@@ -199,7 +199,7 @@ export interface RequestAssembly {
  * 装配一次请求。
  *
  * 提示词装配与模型能力位绑定：模型不支持 function calling 时**不下发**工具 schema
- * （下发了它只会照着编，施工单 05 §4）。
+ * （下发了它只会照着编）。
  */
 export function assembleRequest(input: AssembleRequestInput): RequestAssembly {
   const composed = input.composer.compose({

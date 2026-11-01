@@ -349,7 +349,7 @@ export interface SnapshotFrame {
 }
 
 /**
- * 选择题帧（00 D6/D7，施工单 01 §3.4）。语义边界（D6 原文）：追问**不走审批通道**——没有票据、
+ * 选择题帧（00 D6/D7）。语义边界（D6 原文）：追问**不走审批通道**——没有票据、
  * 没有 responder，用户点选后前端把**选项文本**当普通用户消息发 `POST /api/turn`。
  * 所以本帧刻意**不含** `ticketId`：有票据就会被误当成审批。
  * 发射方 `prompt_ask` 的 `tool/result`（03 单接线）；01 单只定契约，**不写**投影分支
@@ -380,7 +380,7 @@ export interface ChoiceOption {
 }
 
 /**
- * 目标帧（00 D7/D8，施工单 01 §3.4）。跨 turn 存续，靠 `frameKey` 的**替换语义**实现。
+ * 目标帧（00 D7/D8）。跨 turn 存续，靠 `frameKey` 的**替换语义**实现。
  * 发射方 `goal_set` 的 `tool/result`（04 单接线）；01 单只定契约。
  */
 export interface GoalFrame {
@@ -401,7 +401,7 @@ export interface GoalFrame {
 }
 
 /**
- * 待办帧（00 D7/D8，施工单 01 §3.4）：**派生帧，不落账**。由 `plan/*` 域事件派生
+ * 待办帧（00 D7/D8）：**派生帧，不落账**。由 `plan/*` 域事件派生
  * （`project.ts` 已有结构化分流通道 → `projectPlan()`）。D8 理由原文：todo 再落一遍账
  * 就有两个真相源，回放必打架。
  */
@@ -431,7 +431,7 @@ export interface TodoItem {
   /**
    * 可空。追溯：`plan/node-blocked` 的 `blockedBy` 数组。
    * ⚠ 该值当前被 `DagBuilder.planSettle` 消费后**未上帧**（`DagNode` 无此字段）
-   * ⇒ 本单只在 todo 帧上带，**不改** `DagNode`（DAG 视图契约属 02/04 的呈现面）。
+   * ⇒ 本设计只在 todo 帧上带，**不改** `DagNode`（DAG 视图契约属 02/04 的呈现面）。
    */
   readonly blockedBy?: readonly string[]
   /** 复用既有 `FrameTone`，不新造枚举。 */
@@ -439,7 +439,7 @@ export interface TodoItem {
 }
 
 /**
- * 影响面帧（00 D7，施工单 01 §3.4）：**派生帧**，由已成功的写操作 `tool/result` 派生；
+ * 影响面帧（00 D7）：**派生帧**，由已成功的写操作 `tool/result` 派生；
  * 用途是"中断后的已发生操作清单"。
  */
 export interface EffectsFrame {

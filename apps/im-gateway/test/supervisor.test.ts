@@ -1,5 +1,5 @@
 /**
- * 监督者（施工单 02 §2.11）：一用户一子进程 / 复用 / 崩溃重启 / 闲置回收 / 上限。
+ * 监督者：一用户一子进程 / 复用 / 崩溃重启 / 闲置回收 / 上限。
  *
  * 假子进程（`fake-child.ts`）实现 `LaunchedChild`，因此这里测的是真实的
  * `reservePort → overlay → spawn → health → CSRF` 链路，只是把 `node:child_process`

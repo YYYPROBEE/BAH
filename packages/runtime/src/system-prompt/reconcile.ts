@@ -1,5 +1,5 @@
 /**
- * 运行时上下文的 reconcile 语义（施工单 05 §4.1，四条逐条落地）。
+ * 运行时上下文的 reconcile 语义。
  *
  * ```text
  * 1. 每次 attempt 装配时刷新渲染                      → beginAttempt() 现算
@@ -8,7 +8,7 @@
  * 4. agent.inject(text) 走同一路径                    → RuntimeContextQueue
  * ```
  *
- * **为什么 `runtime.context` 不拼进 system 头**（施工单 05 §9 风险表最后一行）：
+ * **为什么 `runtime.context` 不拼进 system 头**：
  * system 头是"模型的稳定设定"，一旦掺入随每轮变化的账户余额/最近交易，就变成
  * 每轮都要重发的伪静态文本；把它作为 user 消息落历史，既模型可见、又天然可撤回，
  * 还能在审计里看到"当时给它看了什么"。
@@ -28,7 +28,7 @@ import type { ComposedPrompt } from './types.ts'
  * 待认领的运行时上下文文本。
  *
  * `inject()` 只登记，不落账：落账发生在**下一次被认领的请求**装配时
- * （施工单 04 §3「外部注入上下文」），这样"用户刚说的话"与"系统注入的说明"
+ * ，这样"用户刚说的话"与"系统注入的说明"
  * 在日志里是同一类事件、同样可审计。
  */
 export class RuntimeContextQueue {

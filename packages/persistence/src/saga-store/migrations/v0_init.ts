@@ -11,7 +11,7 @@ import type { DatabaseSync } from 'node:sqlite'
 /** 当前 schema 版本（迁移链单调递增）。 */
 export const CURRENT_SCHEMA_VERSION = 1
 
-/** v0 的施工级完整 DDL。 */
+/** v0 的实现级完整 DDL。 */
 export const V0_INIT_SQL = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;

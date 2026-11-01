@@ -56,7 +56,7 @@ export interface Plan {
 /**
  * 9 态（W11 加 `incident`）。
  *
- * 为什么是数组而不是纯类型联合：态数本身是**口径**（文档、宪法、答辩都引用它），
+ * 为什么是数组而不是纯类型联合：态数本身是**口径**（文档、宪法、对外说明都引用它），
  * 用 `length` 把自己的数钉成单测，比让下一个人去数联合类型可靠。
  */
 export const PLAN_NODE_STATES = [
@@ -88,7 +88,7 @@ export const TERMINAL_STATES: ReadonlySet<PlanNodeState> = new Set<PlanNodeState
 /**
  * `incident` 在事件层的**唯一载体**：`plan/node-result(status:'failed', code: 本常量)`。
  *
- * 为什么状态不单独落一个值（两条被否决的路，登记在 `PROGRESS.md` §70.1）：
+ * 为什么状态不单独落一个值（两条被否决的路，登记在 `` §70.1）：
  * - 改 W02 冻结的三值 `status` → `status` 与 `code` 变成两个判定者，没有机制保证不矛盾；
  * - 新增 `plan/node-incident` → `countTerminals()` 要认两个事件族，完整性判据二次复杂化。
  *
@@ -244,7 +244,7 @@ export const PLAN_RESUME_ERRORS = {
    *
    * `PlanNodeOutcome.output` 只在内存传、不进事件，所以 `resume` 跳过已 `succeeded` 的上游时
    * 没有 output 可解析。三条路里只有"入口拒绝"是对的（连带重跑 = 二次扣款；
-   * output 落事件 = 金额进 append-only 日志）。见 `PROGRESS.md` §70.1。
+   * output 落事件 = 金额进 append-only 日志）。见 `` §70.1。
    */
   argsUnresolved: 'plan-resume-args-unresolved',
 } as const
@@ -308,7 +308,7 @@ export interface PlanApi {
    * 执行一张计划。`initiator` 不接受参数——一律由宿主从会话取。
    *
    * `authorization` 只由受控执行器（`plan_wake`）注入：它随每次节点审批落进
-   * `ticket/*`（ADR-0008），让"谁批的"在凭证上可见。
+   * `ticket/*`（ADR-0008），让"谁批的"在凭证上可。
    */
   run(plan: Plan, options?: PlanApiRunOptions): Promise<PlanRunSummary>
   /**

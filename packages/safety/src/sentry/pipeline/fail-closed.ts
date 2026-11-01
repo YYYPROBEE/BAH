@@ -1,5 +1,5 @@
 /**
- * sentry 判决件的 fail-closed 包装（施工单 HP-0 §3.1）。
+ * sentry 判决件的 fail-closed 包装。
  *
  * ## 为什么需要这一层
  *

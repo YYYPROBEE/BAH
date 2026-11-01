@@ -1,5 +1,5 @@
 /**
- * 金额与合规文本的**渠道侧判定**（施工单 13 §2.2）。
+ * 金额与合规文本的**渠道侧判定**。
  *
  * 两条铁律：
  * 1. **不发明金额**：金额只从事件里取。单位必须分清——
@@ -82,7 +82,7 @@ export function maskPhone(phone: string): string {
 /**
  * 从工具结果文本里抽风险提示（理财合规：`disclaimerId` 必须展示）。
  *
- * 口径来自施工单 08：`projectContent` 把 `disclaimerId` 写进正文
+ * 口径来自：`projectContent` 把 `disclaimerId` 写进正文
  * （`风险提示：wealth.disclaimer.v1（必须向用户展示…）`）。工具卡片（`UiCard`）当前
  * **不落账**，所以渠道只能从**已持久化**的结果正文里取——这比"渠道自己编一句风险提示"安全得多。
  *

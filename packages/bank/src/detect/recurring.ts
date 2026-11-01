@@ -758,7 +758,7 @@ function pickDisplayName(names: readonly string[]): string {
     let score = 0
     if (/\p{Script=Han}/u.test(name)) score += 2
     if (!/^(stm|支付宝-|财付通-|微信支付-|快捷支付-|银联-)/i.test(lowered)) score += 2
-    if (!/[()（）]/.test(name)) score += 1
+    if (!/[()]/.test(name)) score += 1
     if (!/\d/.test(name)) score += 1
     return { name, score }
   })

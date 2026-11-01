@@ -1,5 +1,5 @@
 /**
- * 审计轨迹（施工单 10 §3 的内核组件 7：`trace`——铁律三"每个决策点写 TraceLog"的落点）。
+ * 审计轨迹（`trace`——铁律三"每个决策点写 TraceLog"的落点）。
  * 对应源文件 `sentry-dsh-plugin/src/kernel/trace.js`——序号分配、会话分桶环缓冲、
  * 攒批阈值与计数指标口径照搬。
  *

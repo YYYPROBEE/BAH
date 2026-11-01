@@ -1,10 +1,10 @@
 /**
- * base bundle · `bank:tools`：仿真银行工具族（施工单 08/09）。
+ * base bundle · `bank:tools`：仿真银行工具族。
  *
  * 装配四样东西：
  * 1. **mock 银行核心**（`MockBankCore` + demo / stress / adversarial 造数；日限额与 Config 同源）；
  * 2. **14 个 P0 工具**（注册进 `core:tools` 的注册表）；
- * 3. **治理平面**（pre-execute 三级判定 + 审批票据桥接；施工单 09 §1–§3）；
+ * 3. **治理平面**（pre-execute 三级判定 + 审批票据桥接；–§3）；
  * 4. **票据账本与强验证端口**：账本来自 `@bah/interaction`（`ticket/*` 事件），
  *    端口 `bank:challenge` 供审批插件在红级挑战链里调用。
  *
@@ -160,7 +160,7 @@ export const DEFAULT_BANK_TOOLS: Omit<BankToolsSettings, 'demoUserId'> = {
    */
   dailyTransferLimit: 1_000,
   /**
-   * 计入组合风险的工具名（施工单 09 §1.1 第 5 条）。
+   * 计入组合风险的工具名。
    *
    * 场景 5 把 `sub_cancel` / `sub_authorize` 纳入：连续多次退订/关协议本身就是需要
    * 解释的高风险组合（第 4 次起理由从 `declared` 变 `risky-calls`，不是升级档位）。
@@ -408,8 +408,8 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         now: run.now,
       })
       // 票据状态机的宿主出口（状态读取 + 熔断批量吊销；核销入口不外泄）。
-      // 施工单 10 §5：sentry 的断路器只通过这个窄端口吊销在途票据，不自己核销。
-      // 只交出两个方法——`issue/approve/block/redeem` 留在 bank-core，不跨包可见。
+      // ：sentry 的断路器只通过这个窄端口吊销在途票据，不自己核销。
+      // 只交出两个方法——`issue/approve/block/redeem` 留在 bank-core，不跨包可。
       const ticketGuard: TicketGuard = {
         status: (ticketId) => core.tickets.status(ticketId),
         revokeAll: (reason, at) => core.tickets.revokeAll(reason, at),
@@ -502,7 +502,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         })
       }
 
-      // 身份绑定渠道（施工单 09 §4）：mock 短信登录 / IM 映射 / Web 登录页接缝。
+      // 身份绑定渠道：mock 短信登录 / IM 映射 / Web 登录页接缝。
       // 三个渠道最终都只调 `identity.bind` + 落 `identity/bound`（事件名沿用 08 的 R87）。
       const credentials = new CredentialsService({
         login: new MockSmsLoginService({
@@ -577,7 +577,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
           }),
         ),
       )
-      // 票据生命周期账本（施工单 09 §3）：每次转移落 `ticket/*`，核销属主仍是 bank-core
+      // 票据生命周期账本：每次转移落 `ticket/*`，核销属主仍是 bank-core
       const tickets = new TicketLedger({
         record: (record) => {
           session.appendDomain(record.type, record.data, { ignorable: true })
@@ -595,7 +595,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
           }),
         ),
       )
-      // 强验证端口：审批服务用它在红级 ask 里签发 / 提交挑战（施工单 09 §6）
+      // 强验证端口：审批服务用它在红级 ask 里签发 / 提交挑战
       ctx.effect(
         ctx.provide(
           BANK_CHALLENGE,

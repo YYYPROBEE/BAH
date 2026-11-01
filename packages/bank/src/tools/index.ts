@@ -1,5 +1,5 @@
 /**
- * @bah/bank · tools（施工单 08：银行工具族）。
+ * @bah/bank · tools（银行工具族）。
  *
  * 导出面按用途收口：
  * - `specs.ts` / `render.ts`：目录与文档生成（门禁读这一层，不装配 Provider）；

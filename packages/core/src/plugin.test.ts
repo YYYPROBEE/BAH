@@ -1,5 +1,5 @@
 /**
- * 插件装配单测（施工单 02 §2 / §5 / §7 / §10）。
+ * 插件装配单测。
  *
  * 覆盖三段生命周期、inject 等待与成环、config fail-loud、同名覆盖回滚。
  */
@@ -15,7 +15,7 @@ import { findUnknownKeys, resolveConfig } from './plugin.ts'
 /**
  * 测试唯一收窄点：故意传入类型不符的配置，验证 fail-loud。
  *
- * 业务代码不许这么写（施工单 00 §10「不留 as unknown」）；测试不这样写就造不出非法输入。
+ * 业务代码不许这么写；测试不这样写就造不出非法输入。
  */
 const asConfig = (input: unknown): never => input as never
 
@@ -182,7 +182,7 @@ describe('config 校验（fail-loud）', () => {
     const rules: PluginV2<{ pattern: string }> = {
       name: 'bank:rules',
       config: Schema.object({
-        // 正则**编译**发生在配置校验里：编译失败即载入即抛（施工单 02 T-CORE-016）
+        // 正则**编译**发生在配置校验里：编译失败即载入即抛
         pattern: Schema.transform(Schema.string(), (value) => {
           new RegExp(value)
           return value

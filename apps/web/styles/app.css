@@ -1021,7 +1021,7 @@ textarea {
  * 审计页：计数条钉在顶部，只有时间线自己滚动。
  *
  * 计数条是"三秒指给人看"的那三个数（§5.5）；跟着列表一起滚出屏幕，
- * 等于把答辩时最该在眼前的东西弄丢了。
+ * 等于把对外说明时最该在眼前的东西弄丢了。
  */
 .panel__section--audit {
   display: flex;
@@ -1454,7 +1454,7 @@ textarea {
    *
    * 曾经写 `position: fixed; bottom: 0; height: 42vh; z-index: 30`：面板浮在输入区上方，
    * 600×900 实测输入框与发送按钮完全看不见（主功能不可用），对话流还得靠 46vh 的
-   * padding-bottom 硬留白。改成同一网格里的两行后，输入区始终可见，面板自己滚动。
+   * padding-bottom 硬留白。改成同一网格里的两行后，输入区始终可，面板自己滚动。
    */
   .app-body {
     grid-template-columns: minmax(0, 1fr);

@@ -1,5 +1,5 @@
 /**
- * 快照场景：sandbox-compute（施工单 12 §3；本单补沙箱/强验证背书）。
+ * 快照场景：sandbox-compute。
  *
  * 一条确定性对话踩三面：
  * 1. `analysis_calc`（绿级）→ `BANK_COMPUTE` → worker → `sandbox/done`；
@@ -56,7 +56,7 @@ export const CASE = {
    * 本场景真实驱动的治理平面（门禁 snapshot-fresh 的归属依据）。
    *
    * 清单是 headless-basic 的超集：同一套 headless 装配 + 三面对话。
-   * 末尾三条是本单新增的“此前无任何场景声明”的目录。
+   * 末尾三条是本设计新增的“此前无任何场景声明”的目录。
    */
   coveredSources: [
     'packages/runtime/src/agent-loop/',

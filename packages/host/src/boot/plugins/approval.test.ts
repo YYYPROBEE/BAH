@@ -1,5 +1,5 @@
 /**
- * `interaction:approval` 插件（施工单 09 §2 / §6 的宿主接线）。
+ * `interaction:approval` 插件。
  *
  * 端到端断言只看看得见的东西：会话事件序列、工具结果、票据状态。
  */
@@ -231,7 +231,7 @@ describe('审批服务端到端', () => {
   })
 })
 
-describe('红级挑战链（施工单 09 §6）', () => {
+describe('红级挑战链', () => {
   it('超日限额 → 签发挑战 → 强验证通过 → 才允许批准 → 核销', async () => {
     const app = await run({
       amount: 6_000,

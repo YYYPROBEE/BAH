@@ -1,9 +1,9 @@
 /**
- * `bank:tools` 插件（施工单 08 §0 第 6 条：headless 端到端）。
+ * `bank:tools` 插件（headless 端到端）。
  *
  * 两条链路：
  * 1. 真实 `HOST_PLUGINS` + 自定义行启动，mock 模型调 `account_balance` → 绿级放行 → 卡片数据落账；
- * 2. 不写 `demoUserId` → 未绑定身份，业务工具 deny `no-identity`（施工单 09 §4）。
+ * 2. 不写 `demoUserId` → 未绑定身份，业务工具 deny `no-identity`。
  */
 
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -189,7 +189,7 @@ describe('bank:tools 配置（fail-loud）', () => {
   })
 })
 
-describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
+describe('headless 端到端', () => {
   it('D5① fail-closed：未装 safety:sandbox 时 analysis_calc 拒绝执行，不回退进程内', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bah-bank-calc-'))
     const app = await bootWith({ demoUserId: 'u-1', seed: 7, datasetTier: 'demo' }, 's-bank-calc', dir)
@@ -274,7 +274,7 @@ describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
       expect(result.isError).toBe(false)
       expect(result.content.some((block) => block.text?.includes('¥12,345.67'))).toBe(true)
 
-      // 卡片从事件数据派生（施工单 08 §4）
+      // 卡片从事件数据派生
       const tool = app.ctx.get(TOOLS_SERVICE).get('account_balance')
       const card = tool.presentResult?.({}, read.result as never) as { kind?: string } | undefined
       expect(card?.kind).toBe('bank.balance')
@@ -374,7 +374,7 @@ describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
       expect(readFileSync(file, 'utf8')).toContain('identity/bound')
       expect(readFileSync(file, 'utf8')).toContain('mock-login')
 
-      // 回放：用同一批事件重建身份（施工单 12 的快照回放走同一条路径）
+      // 回放：用同一批事件重建身份
       const restored = new SessionIdentityStore()
       restoreSessionIdentity(restored, sessionId, events)
       expect(restored.resolve(sessionId)).toBe('u-1')

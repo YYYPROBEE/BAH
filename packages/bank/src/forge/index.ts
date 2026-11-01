@@ -1,5 +1,5 @@
 /**
- * 造数（施工单 07 §4）：seeded 可复现的仿真银行数据集。
+ * 造数：seeded 可复现的仿真银行数据集。
  *
  * 四档：
  * - `demo`：演示用的小数据；**预置王建国为白名单收款人**（首笔早于演示），保证 800 元转账
@@ -10,7 +10,7 @@
  *   固定脚本（不用随机源），`demo` 档因此保持字节不变。
  *
  * 随机源来自 `@bah/util` 的 `seededRandom`（与快照夹具同源）：同 seed 同数据，
- * 答辩、回放与"数据速查表"都能逐字复现。种子由调用方记录（施工单 12 的会话元数据）。
+ * 对外说明、回放与"数据速查表"都能逐字复现。种子由调用方记录。
  */
 
 import { assertNever, seededRandom, sha256Hex } from '@bah/util'
@@ -89,7 +89,7 @@ export interface BankDataset {
 export const DEMO_NOW = Date.UTC(2026, 9, 19, 2, 0, 0)
 
 /**
- * 默认风控阈值（施工单 07 §4.3；部署时可整体替换）。
+ * 默认风控阈值。
  *
  * 日累计转账限额与赛题分级线的示例值对齐：**1000 元（100,000 分）**。
  * 旧值 5000 元（500,000 分）与 `bank:tools.dailyTransferLimit` 的默认 1000 元并存，
@@ -805,7 +805,7 @@ function defaultProducts(): readonly WealthProduct[] {
   ]
 }
 
-/** 汇总某一账期的历史账单快照（施工单 07 §1 的 Bill 实体）。 */
+/** 汇总某一账期的历史账单快照。 */
 function buildBill(period: string, transactions: readonly Transaction[]): Bill {
   const byCategory: Partial<Record<TxnCategory, number>> = {}
   let totalInCents = 0

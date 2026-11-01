@@ -1,11 +1,11 @@
 /**
- * 审批服务的渠道无关词汇表（施工单 09 §2 / §2.1）。
+ * 审批服务的渠道无关词汇表。
  *
  * 三条纪律：
  * 1. **不依赖 `@bah/runtime`**：本包只认「票据视图 + 应答 + 挑战」这组结构，
  *    运行时的 `ApprovalInput` 在形状上与本文件的 `ApprovalInputLike` 兼容（宿主负责桥接）；
  * 2. **默认拒绝**：没有应答者、超时、非法返回、缺挑战端口——任何缺省路径都只能是
- *    `unavailable`（施工单 09 §2 表「超时 / 不可达 / 非法返回 → unavailable → 拒绝」）；
+ *    `unavailable`；
  * 3. **时间与定时全量注入**：`now` 与 `Timer` 都由调用方给，竞态与超时的先后顺序
  *    只由注入时钟决定，不依赖真实时间或 sleep（插件线 09 硬约束 7）。
  */
@@ -24,7 +24,7 @@ export type AuthorizationRef = TicketAuthorization
 /** 审批结论（与运行时的 `ApprovalDecision` 同值集；本包不 import 运行时）。 */
 export type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 
-/** 全部合法结论（门禁用；顺序与施工单 09 §2 一致）。 */
+/** 全部合法结论（门禁用；顺序与 一致）。 */
 export const APPROVAL_OUTCOMES: readonly ApprovalOutcome[] = [
   'allowed-once',
   'rejected',
@@ -213,7 +213,7 @@ export type ChallengeIssue =
  * 强验证挑战端口（由宿主用银行侧 `VerifyService` 实现；本包只认这三个动作）。
  *
  * 为什么把签发放在审批服务而不是判定函数：签发需要会话 ID 与“这次 ask 正在等人应答”
- * 这个事实，二者都只在这里可见（施工单 09 §6 的挑战链）。
+ * 这个事实，二者都只在这里可。
  */
 export interface ChallengePort {
   /** 签发一条挑战（`VerifyService.issue` 自此有生产调用点）。 */

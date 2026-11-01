@@ -1,5 +1,5 @@
 /**
- * headless 压缩快照回放（施工单 12 §3 / §5 的 T-AUD-005、T-AUD-006）。
+ * headless 压缩快照回放。
  *
  * **CI 永远只读**：默认 `replay` 模式，不写任何文件；要重录得显式设 `BAH_SNAPSHOT_RECORD=1`
  * （Windows PowerShell：`$env:BAH_SNAPSHOT_RECORD='1'; pnpm test:snapshot`）。

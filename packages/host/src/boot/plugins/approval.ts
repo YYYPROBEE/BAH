@@ -1,5 +1,5 @@
 /**
- * base bundle · `interaction:approval`：审批服务的宿主接线（施工单 09 §2）。
+ * base bundle · `interaction:approval`：审批服务的宿主接线。
  *
  * 为什么接线在 host 而不是 interaction：
  * 1. `@bah/interaction` 不依赖银行领域，强验证端口（`bank:challenge`）只有宿主能同时看到两边；
@@ -9,7 +9,7 @@
  * **装配顺序**：本行必须排在 `bank:tools` 之后（waterfall 注册顺序 = 外层顺序：
  * bank 先签五绑定票据，再把"找谁应答"交给本行的仲裁器），也依赖它提供的 `bank:challenge`。
  *
- * 渠道（Web 弹窗 / IM 卡片 / 坐席控制台，施工单 13/15）落地时只需
+ * 渠道（Web 弹窗 / IM 卡片 / 坐席控制台）落地时只需
  * `ctx.get(APPROVAL_SERVICE).attach(responder)`，不改本文件。
  */
 
@@ -84,7 +84,7 @@ export const approvalPlugin: HostPlugin<ApprovalSettings> = {
       const service = new ApprovalService({
         sessionId: run.sessionId,
         now: run.now,
-        // 银行侧提供的强验证端口（红级挑战链；施工单 09 §6）
+        // 银行侧提供的强验证端口（红级挑战链）
         challenges: ctx.get(BANK_CHALLENGE),
         record: (record) => {
           session.appendDomain(record.type, record.data, { ignorable: true })

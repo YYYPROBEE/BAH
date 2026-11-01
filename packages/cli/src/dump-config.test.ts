@@ -1,5 +1,5 @@
 /**
- * `--dump-config` 输出（施工单 06 §6 的 T-PRF-006）。
+ * `--dump-config` 输出。
  *
  * 只测渲染：`renderDumpConfig(profile, rows)` 是纯函数，行快照由调用方给。
  * "真实四层文件 → 四层标注"的端到端断言在 `cli/run.test.ts` 里另有一份。

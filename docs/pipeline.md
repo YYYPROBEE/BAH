@@ -1,6 +1,6 @@
 # 工具管线（七段）与接缝挂点手册
 
-> 规格依据：施工单 03 §2.2（顺序冻结）、§2.3（判决语义）、§2.5（呈现契约）、施工单 04 §5（接缝清单）。
+> 规格依据：§2.2（顺序冻结）、§2.3（判决语义）、§2.5（呈现契约）、§5（接缝清单）。
 > **顺序改动 = 破坏性变更**：必须同步更新本文件与架构文档，并跑全量快照（AGENTS.md 第 3 条）。
 
 ## 1. 七段的顺序与分工
@@ -9,13 +9,13 @@
 |---|---|---|---|---|
 | ① | `tool/call`（执行前） | `pipeline.ts` | `tool/call` | — |
 | ② | `presentCall(args)` | 工具定义（纯函数） | — | 工具体作者 |
-| ②e | **入参契约校验**（`argsSchema`） | `pipeline.ts` + `contracts.ts` | — | runtime 端口；宿主注入（W03） |
-| ③ | `tools/pre-execute`（waterfall） | **判决平面**：危险规则 → PII → 预算 → 断路器 → 三级权限 | — | 施工单 09/10（**唯一阻断点**） |
-| ③e | ask → 签票据 → `approval/request` | `pipeline.ts` | `approval/asked` / `approval/decided` | 施工单 09 + 渠道（13/14/15） |
+| ②e | **入参契约校验**（`argsSchema`） | `pipeline.ts` + `contracts.ts` | — | runtime 端口；宿主注入 |
+| ③ | `tools/pre-execute`（waterfall） | **判决平面**：危险规则 → PII → 预算 → 断路器 → 三级权限 | — | 设计说明/10（**唯一阻断点**） |
+| ③e | ask → 签票据 → `approval/request` | `pipeline.ts` | `approval/asked` / `approval/decided` | 设计说明+ 渠道（13/14/15） |
 | ④ | 单调 guard | `guard.ts` | — | 内核（插件无权绕过） |
-| ⑤ | `tools/execute`（waterfall 环绕） | 工具体 | — | 施工单 11（沙箱/超时）、05（重试/指标） |
-| ⑤e | **出参契约校验**（`resultSchema`） | `pipeline.ts` + `contracts.ts` | — | 同上（W03） |
-| ⑥ | `projectContent` → `tools/post-execute` | 工具定义 + 后置平面 | — | 施工单 10（脱敏/改写/纠正上下文） |
+| ⑤ | `tools/execute`（waterfall 环绕） | 工具体 | — | 设计说明（沙箱/超时）、05（重试/指标） |
+| ⑤e | **出参契约校验**（`resultSchema`） | `pipeline.ts` + `contracts.ts` | — | 同上 |
+| ⑥ | `projectContent` → `tools/post-execute` | 工具定义 + 后置平面 | — | 设计说明（脱敏/改写/纠正上下文） |
 | ⑦ | 归一化 → `finalizeContent` → `tools/result`(emit) → `tool/result` → `additionalContexts` → `presentResult` | `pipeline.ts` | `tool/result`、`user/message` | 工具体作者（presenter） |
 
 ## 2. 四个 waterfall 的载荷形状（都是「信封进出」）
@@ -56,7 +56,7 @@ ctx.events.on('tools/pre-execute', (input) =>
 `tools/execute` 的载荷是**执行函数本身**，listener 用 `next(wrapped)` 交还一个包过的函数：
 
 ```ts
-// 超时（施工单 11 的沙箱/超时策略就用这个形态）
+// 超时（设计说明的沙箱/超时策略就用这个形态）
 ctx.events.on('tools/execute', async (run, next) => {
   const wrapped = async (call) =>
     Promise.race([
@@ -121,12 +121,12 @@ ctx.events.on('tools/post-execute', (input) => ({
 
 ## 6. 审批流（`approval/request`）
 
-1. `pre-execute` 返回 `ask` → 管线签 `TicketRef`（五绑定里本单可见：指纹 / 金额 / 时效）；
+1. `pre-execute` 返回 `ask` → 管线签 `TicketRef`（五绑定里本设计可见：指纹 / 金额 / 时效）；
 2. 落账 `approval/asked` → 派发 `approval/request`（waterfall）；
 3. 渠道应答者返回 `{ ...input, decision: { decision: 'allowed-once' } }` 即批准；
 4. **无人应答**：`decision` 保持默认 `unavailable` → 管线判 deny（`code = 'approval-unavailable'`），
-   并落账 `approval/decided`。**unavailable = 拒绝**是硬规则（施工单 00 §11）；
-5. 票据**状态机**（核销）属主在 bank-core（施工单 07 §3），管线只做生命周期记账。
+   并落账 `approval/decided`。**unavailable = 拒绝**是硬规则（§11）；
+5. 票据**状态机**（核销）属主在 bank-core（§3），管线只做生命周期记账。
 
 ## 7. 失败与补记
 
@@ -148,7 +148,7 @@ try {
 
 补记的 `code = 'tool-interrupted'`，与"执行失败"（`tool-failed`）在审计里可区分。
 
-## 8. 契约校验的两个插点（W03 G-1）
+## 8. 契约校验的两个插点（实现方G-1）
 
 工具契约（`argsSchema` / `resultSchema`）由**宿主注入**：runtime 只定义
 `TOOL_CONTRACTS` 端口（`packages/runtime/src/tools/contracts.ts`），
@@ -162,10 +162,10 @@ try {
 
 **两个位置的理由**（顺序错了就是安全缺陷，不是风格问题）：
 
-- ②e 若放在 ① 之前 → 审计里没有非法参数的 `tool/call`（TC-W03-09 红）；
-- ②e 若放在 ③ 之后 → 票据可能已签发，等于"批了才发现参数错"（TC-W03-01 红）；
+- ②e 若放在 ① 之前 → 审计里没有非法参数的 `tool/call`（TC-09 红）；
+- ②e 若放在 ③ 之后 → 票据可能已签发，等于"批了才发现参数错"（TC-01 红）；
 - ⑤e 若缺失 → 模型会拿着**不合格的出参**继续决策，而审计里只有一条成功的 `tool/result`
-  ——这是全仓最危险的"假成功"形状（TC-W03-04）。
+  ——这是全仓最危险的"假成功"形状（TC-04）。
 
 **错误码边界**：这两个码**不进** `guard`、**不计入** deny 统计，也不参与"越权拦截率"。
 `reject()` 的语义是"治理面判 deny"；契约不合法是"模型发错了参数"，混进去会让赛题指标失真。
@@ -183,7 +183,7 @@ try {
 只返回第一个 `ToolContractViolation`。支持 `type` / `required` / `enum` / `minimum` / `maximum` /
 `exclusiveMinimum` / `exclusiveMaximum` / `minLength` / `maxLength` / `pattern` / `multipleOf` /
 `properties` / `items` / `additionalProperties: false`。`amount` 的"必须 > 0、最多两位小数"
-就是靠 `exclusiveMinimum: 0` + `multipleOf: 0.01` 表达（TC-W03-02）。
+就是靠 `exclusiveMinimum: 0` + `multipleOf: 0.01` 表达（TC-02）。
 
 **`oneOf`（R-8）**：只做**根级一层 object 分支**（`risk_assess` 的 questions / submit 出参）。
 **恰好命中 1 个分支**才算通过：0 个报 `oneOf`（文案列出每个分支的首个错误路径，只拼

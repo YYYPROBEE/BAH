@@ -1,5 +1,5 @@
 /**
- * 六段内建提示词单测（施工单 05 §4：能力位裁剪 + 工具 schema 自动汇入）。
+ * 六段内建提示词单测（能力位裁剪 + 工具 schema 自动汇入）。
  */
 
 import { describe, expect, it } from 'vitest'
@@ -40,7 +40,7 @@ function contextOf(overrides: Partial<PromptContext> = {}): PromptContext {
   }
 }
 
-describe('能力位裁剪（施工单 05 §3 / §4）', () => {
+describe('能力位裁剪', () => {
   it('T-LLM-006 无 toolCall 能力 → bank.capabilities 不装配（也不装配审批段）', () => {
     const registry = createDefaultPromptRegistry()
     const composed = registry.compose(

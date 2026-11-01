@@ -17,7 +17,7 @@ import { buildCard } from './cards.ts'
 import { formatCents, shortId, timeText, yuanToCents } from './format.ts'
 
 describe('金额提取', () => {
-  it('元参数换算成分；分参数原样保留（口径来自施工单 08）', () => {
+  it('元参数换算成分；分参数原样保留（口径来自）', () => {
     expect(amountFromArgs({ amount: 800 })).toBe(80_000)
     expect(amountFromArgs({ amount: 0.01 })).toBe(1)
     expect(amountFromArgs({ amountCents: 12_345 })).toBe(12_345)

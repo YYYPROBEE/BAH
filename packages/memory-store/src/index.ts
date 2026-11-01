@@ -1,5 +1,5 @@
 /**
- * 公开 API 面（施工文档 §9）——纯 barrel，不含实现。
+ * 公开 API 面（设计文档 §9）——纯 barrel，不含实现。
  *
  * 实现下沉到 `layer.ts`：`plugin.ts` 要 import `createMemoryLayer`，而本文件要
  * re-export 插件形状，实现留在这里就成环。

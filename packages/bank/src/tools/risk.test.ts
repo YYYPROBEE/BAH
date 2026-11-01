@@ -216,7 +216,7 @@ describe('重测冷却（R-2）：工具层的用户可读文案', () => {
       const blocked = await h.run('risk_assess', second)
       expect(blocked.result.isError).toBe(true)
       expect(blocked.result.code).toBe('risk-retest-cooldown')
-      // 文案逐字（施工单 6-1 第 4 条）：不是把核心的内部 message 直接漏给用户
+      // 文案逐字：不是把核心的内部 message 直接漏给用户
       expect(blocked.result.reason).toBe('距上次测评不足 24 小时，请在 24 小时后重试')
       // 冷却拦在落档之前：等级仍是第一次的 R5
       expect((await h.core.getUser(bankIds.user('u-1')))?.riskGrade).toBe('R5')

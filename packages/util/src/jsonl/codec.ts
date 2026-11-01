@@ -1,5 +1,5 @@
 /**
- * JSONL 行协议原语（施工单 03 §1.5 的磁盘形态）。
+ * JSONL 行协议原语。
  *
  * 为什么放在 `@bah/util`：会话日志有**两个**读写方——运行时的 `@bah/persistence` 与
  * 测试夹具 `@bah/test-support`。两者不能互相依赖（project reference 会成环），

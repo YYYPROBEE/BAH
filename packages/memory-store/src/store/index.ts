@@ -1,5 +1,5 @@
 /**
- * 存储层（施工文档 §2）：SQLite 实现。
+ * 存储层（设计文档 §2）：SQLite 实现。
  *
  * 复用 `@bah/persistence` 的 `loadSqlite()`——仓库里已经有 `node:sqlite` 的加载口
  * （含 ExperimentalWarning 过滤），抄一份只会多一处需要跟着 Node 版本改的地方。

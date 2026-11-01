@@ -1,5 +1,5 @@
 /**
- * 执行体登记表（施工单 11 §3）。
+ * 执行体登记表。
  *
  * 沙箱不知道"能执行什么"——能力由宿主显式登记，未登记的执行体一律 `refused`。
  * 这条边界让"模型代码进沙箱"与"沙箱能跑什么"两件事各有属主：
@@ -14,7 +14,7 @@ export class SandboxRegistry {
   private readonly handlers = new Map<string, SandboxHandlerRef>()
 
   /**
-   * 登记一个执行体，返回注销句柄（注册即可逆，施工单 00 §9 第 1 条）。
+   * 登记一个执行体，返回注销句柄（注册即可逆， 第 1 条）。
    *
    * @throws `bah-sandbox: handler-duplicate` 同键重复登记（会让"谁在执行"依赖登记顺序）
    */

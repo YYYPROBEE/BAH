@@ -1,5 +1,5 @@
 /**
- * 沙箱执行的共享形状（施工单 11 §3）。
+ * 沙箱执行的共享形状。
  *
  * 父侧与 worker 侧都 import 本文件，因此这里**只放类型与常量**，不许有任何副作用与包名 import：
  * worker 由 Node 直接加载（不经打包器），依赖一旦越出本包就得走 `dist/`。
@@ -42,10 +42,10 @@ export interface SandboxHandlerModule {
 }
 
 /**
- * 一次沙箱执行的四种结局（施工单 11 §3.1 的三分 + 成功）。
+ * 一次沙箱执行的四种结局。
  *
  * `refused` / `error` / `timeout` 三态在宿主侧一律转成 `isError` 的工具结果，
- * **不冒泡到主循环**（施工单 03 硬约束 5）。
+ * **不冒泡到主循环**。
  */
 export type SandboxOutcome<T> =
   | { readonly kind: 'ok'; readonly value: T; readonly tier: SandboxTier; readonly elapsedMs: number }

@@ -1,17 +1,17 @@
 /**
- * 层序合并器（施工单 06 §1 / §5 第 2 步）。
+ * 层序合并器。
  *
  * 四层，后层覆盖前层：
  * ```text
  * profile bundles → profile patch.yml → home patch → --patch overlay
  * ```
  *
- * **语义只有两种**（施工单 06 §0 第 3 条、§8 风险表第 1 行）：
+ * **语义只有两种**：
  * 1. `id` 命中 → **整块替换** `config`（不深合并；未写字段由插件默认值兜底）；
  * 2. `id` 未命中 → 插入新行（必须写 `use`，指向依赖清单里的插件实现）。
  *
  * 为什么坚持整块替换：深合并会让"我到底改了哪些字段"从配置上读不出来，
- * 出事故时无法用一份 patch 文件解释线上状态（施工单 06 §8）。
+ * 出事故时无法用一份 patch 文件解释线上状态。
  */
 
 import { bootError } from './config.ts'
@@ -174,7 +174,7 @@ export function normalizeRow(row: PluginRow, where: string): PluginRow {
 /**
  * 结构是否一致（id 序列与 use 逐条相同）。
  *
- * 不一致 = 插件行有增删改指向，config-only HMR 不处理（需重启，施工单 06 §8 第 3 行）。
+ * 不一致 = 插件行有增删改指向，config-only HMR 不处理（需重启， 第 3 行）。
  */
 export function sameStructure(
   previous: readonly ResolvedRow[],

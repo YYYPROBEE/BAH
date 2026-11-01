@@ -1,5 +1,5 @@
 /**
- * 压缩的落账动作（施工单 05 §5「摘要本身作为会话事件落账」）。
+ * 压缩的落账动作。
  *
  * 单独成一个文件的原因：`index.ts` 只做 re-export（覆盖率按文件统计，
  * 把逻辑写在入口里会逃过门禁）。
@@ -35,7 +35,7 @@ export interface CompactionRun {
  * 判定 + 落账一步到位（主循环在 turn 边界调用即可）。
  *
  * 注意：**不改写历史**——压缩的可见效果由投影层（`collapseEvents`）产生，
- * 日志永远是 append-only 的（施工单 03 §1.1）。
+ * 日志永远是 append-only 的。
  */
 export function runCompaction(
   session: SessionApi,

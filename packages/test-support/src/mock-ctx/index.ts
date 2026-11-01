@@ -1,11 +1,11 @@
 /**
- * 内核测试上下文（施工单 12 §3 的 `mock-ctx` 模块；测试地基）。
+ * 内核测试上下文。
  *
  * 目标：写用例时不再手搓「建 Context → 装插件 → 起停 → 收拾残留」，
  * 也不再用真实时间做等待（确定性纪律见 `docs/testing.md`）。
  *
  * 纪律：本模块只做**测试脚手架**，不得包含任何业务语义；
- * 断言一律通过内核公开 API 观察（施工单 02 §2 要点）。
+ * 断言一律通过内核公开 API 观察。
  */
 
 import type { Context, EventMode, Listener, PluginV2 } from '@bah/core'

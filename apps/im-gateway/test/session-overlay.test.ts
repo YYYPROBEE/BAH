@@ -1,5 +1,5 @@
 /**
- * 子进程 overlay 生成的 fail-loud 边界（施工单 02 §2.11）。
+ * 子进程 overlay 生成的 fail-loud 边界。
  *
  * overlay 是整块替换语义：字段漏写会回落默认值，等于隐式变配。合法路径已由
  * supervisor 用例覆盖；这里只钉住**非法端口不得写进 YAML**——一个 0 / NaN

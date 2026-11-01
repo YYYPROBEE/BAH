@@ -163,7 +163,7 @@ describe('config HMR 接线（run.ts 的三个闭包）', () => {
       )
 
       expect(code).toBe(0)
-      // 这是 run.ts 传给 startConfigHmr 的 warn：失败可见，旧配置继续生效。
+      // 这是 run.ts 传给 startConfigHmr 的 warn：失败可，旧配置继续生效。
       expect(err.join('\n')).toContain('配置重载失败')
     } finally {
       rmSync(root, { recursive: true, force: true })

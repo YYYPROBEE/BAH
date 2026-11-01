@@ -1,7 +1,6 @@
-# Web 前端施工文档（施工单 13 落地版）
+# Web 前端设计文档
 
-> 版本：v1.2（施工后按实际代码回填；评审稿原件留仓库外归档）
-> 对应施工单：[`13-Web前端.md`](../../BAH-施工文档集/13-Web前端.md)
+> 版本：v1.2（按实际代码回填）
 > 视觉标准：`design/bah-ds/`（BAH DS 自研设计系统，Light-only）
 > 出口：`pnpm typecheck && pnpm test && pnpm test:web && pnpm gate` 全绿，`pnpm web` 可独立运行五视图
 
@@ -24,11 +23,11 @@
 apps/web · 纯原生 DOM 渲染（只吃帧，不推导业务）
 ```
 
-前端**不维护平行状态**（施工单 13 §7 第一条风险的对策）：任何可见结论都能追到一条 `seq`。
+前端**不维护平行状态**（§7 第一条风险的对策）：任何可见结论都能追到一条 `seq`。
 
 ---
 
-## 1. 出口标准映射（施工单 13 §0）
+## 1. 出口标准映射（§0）
 
 | # | 出口标准 | 本设计的落点 | 验证 |
 |---|---|---|---|
@@ -72,11 +71,11 @@ apps/web · 纯原生 DOM 渲染（只吃帧，不推导业务）
     状态一律用 `.ds-tag` 文案 + 图标着色表达；确实需要容器级状态时，用**整圈** `border-color` + status surface 底色（`.ds-notif--*` 的做法）。
     1px 中性分隔线（`--border-neutral-*`）不算色条，允许。
 
-### 2.3 与施工单 13 §2 "Apple 设计语言"的调和
+### 2.3 与§2 "Apple 设计语言"的调和
 
-施工单要求「严格圆角、cubic-bezier、毛玻璃层次」，BAH DS 要求「quiet by default、避免装饰」。冲突时**视觉取值服从 BAH DS 令牌**，只保留 Apple 的**取向**：
+设计说明要求「严格圆角、cubic-bezier、毛玻璃层次」，BAH DS 要求「quiet by default、避免装饰」。冲突时**视觉取值服从 BAH DS 令牌**，只保留 Apple 的**取向**：
 
-| 施工单表述 | 本工程落地 | 理由 |
+| 设计说明表述 | 本工程落地 | 理由 |
 |---|---|---|
 | 严格圆角 | `--radius-8` 容器、`--radius-12` 卡片/弹窗 | 令牌即规范 |
 | cubic-bezier 平滑 | 统一 `--motion-standard: cubic-bezier(0.2, 0, 0, 1)`（时长取 120/200/300ms） | 令牌包无动效变量，时长按 SKILL.md 固定 |
@@ -139,13 +138,13 @@ packages/cli         ← 启动面（--serve）
 2. 归约器对同一 `(state, event)` 必须幂等：重复喂同一条事件不产生第二帧。
 3. 任何帧都能追到 `seq`；审计面板的每条都能回跳。
 
-### 4.3 卡片的渲染边界（施工后修正：R-WEB-D6）
+### 4.3 卡片的渲染边界（实现后修正：R-WEB-D6）
 
 **重要事实**：`UiCard`（`presentCall` / `presentResult` 的产物）当前**不落账**——
 `ToolPipeline` 把它们算出来交给 `AgentLoop`，但没有任何持久化或事件通道承载它们。
 因此"渠道按 `kind` 选 `UiCard` 模板"在**回放场景下无法实现**（日志里没有 kind）。
 
-落地口径（与施工单 13 §2 的"从原始事件 + 持久化结果元数据派生"一致）：
+落地口径（与§2 的"从原始事件 + 持久化结果元数据派生"一致）：
 
 ```text
 tool/call.args ──▶ 金额（元→分）/ 收款人 / 品类
@@ -223,7 +222,7 @@ tool/result.code/isError ──▶ 理由码与三态
 
 ### 5.4 DAG 视图
 
-> 施工单 13 §2.1 要求"plan 提案 / blocked 标记"，但 `plan/*` 事件属施工单 14，当前不存在。**偏差 R-WEB-D1**：本版从 `tool/call` + `tool/result` 派生**调用图**，语义与验收口径一致（节点携带权限级别、失败下游灰显），后续 `plan/` 事件到位后替换数据源、视图不动。
+> §2.1 要求"plan 提案 / blocked 标记"，但 `plan/*` 事件属设计说明，当前不存在。**偏差 R-WEB-D1**：本版从 `tool/call` + `tool/result` 派生**调用图**，语义与验收口径一致（节点携带权限级别、失败下游灰显），后续 `plan/` 事件到位后替换数据源、视图不动。
 
 - 节点：`turn` → `step` → `tool call`（三层泳道）。
 - 边：同 step 内按 `seq` 串行；step 首尾跨 step 连接。
@@ -318,7 +317,7 @@ confirmed(amount, callId) =
 Bearer 401 → CSRF 403 → 业务 423/409 → 静态 404 → 405。状态码列只列该路由自身可能产生的码，
 不含 429（逐路由相同）与 500（全局兜底：未归类异常一律 `web-internal`）。
 
-**W09 CSRF**：所有写路由（`POST/PUT/DELETE`）在 Bearer 之后额外校验——同源 `Origin`，
+**实现方CSRF**：所有写路由（`POST/PUT/DELETE`）在 Bearer 之后额外校验——同源 `Origin`，
 或 `bah_csrf` cookie + `X-BAH-CSRF` 请求头双提交一致；缺失 403 `web-csrf-required`，
 不符 403 `web-csrf-forbidden`（详见 §7.2.2）。管理路由豁免（CLI 客户端没有 Origin/cookie）。
 
@@ -358,7 +357,7 @@ Bearer 401 → CSRF 403 → 业务 423/409 → 静态 404 → 405。状态码列
 CLI 侧对应命令是 `bah sentry unfreeze --by <operator>`（headless 无此入口，只能重启进程，
 见 `docs/sentry.md` §5.1）。
 
-### 7.1.1 HALT 管理路由（W07）
+### 7.1.1 HALT 管理路由
 
 三条路由与 §7.1 **共用同一道管理闸**（token / 回环 / POST / 404 优先），
 区别只在业务语义：
@@ -413,7 +412,7 @@ HALT 期间新 turn 的 `/api/turn` 返回 **423 `safety-halted`**（不是 500�
 - POST 成功后返回 `{ ok: true, seq? }`，前端不据此改状态（状态只来自帧）。
 - 路径参数 `ticketId` 只允许 `[A-Za-z0-9._:-]{1,128}`，防注入到日志/文件名。
 
-#### 7.2.1 审批归属（W04）
+#### 7.2.1 审批归属
 
 有效 token 只证明"能访问这个 Web 服务"，不证明"这张票据归你"。审批/验票两条路由额外校验
 票据的 `sessionId` 与渠道绑定会话一致：
@@ -429,7 +428,7 @@ HALT 期间新 turn 的 `/api/turn` 返回 **423 `safety-halted`**（不是 500�
 `decide` / `verify` 入口比对；`web.ts` 只做状态码翻译（`foreign-ticket` → 403）。
 单会话宿主里正常的跨会话票据不会进入待应答表（404 兜底），403 是给"多会话 / 错误装配"预备的防线。
 
-#### 7.2.2 CSRF（W09）
+#### 7.2.2 CSRF
 
 写请求（`POST/PUT/DELETE`）在凭证检查之后、业务处理之前过 CSRF 闸：
 
@@ -520,7 +519,7 @@ connect: GET /api/events?since=<clientMaxSeq>
 
 - 插件 id 与内核插件同构（`domain:name`），配置逐键校验（`rejectUnknownKeys` + 类型读取），未知键即启动失败。
 - `inject: ['bah:run', 'runtime:session', 'runtime:agents', 'interaction:approval']`——缺审批服务即挂起，不静默降级。
-- 端口占用 → `BahError('web-listen-failed')`，不自动换端口（换端口会让"答辩时打开的是旧页面"变成可能）。
+- 端口占用 → `BahError('web-listen-failed')`，不自动换端口（换端口会让"对外说明时打开的是旧页面"变成可能）。
 - `port: 0` 合法：由内核分配随机端口，测试与桌面壳内嵌用；实际端口经 `WEB_SERVER` 服务（`channel:web`）暴露。
 
 ### 9.2 启动
@@ -574,20 +573,20 @@ pnpm web          # = tsx packages/cli/src/main.ts --profile web --serve
 
 | 编号 | 偏差 | 原因 | 回收条件 |
 |---|---|---|---|
-| R-WEB-D1 | DAG 从工具调用派生，非 `plan/*` 事件 | 施工单 14 未开工，`plan/*` 事件表不存在 | `plan/*` 落地后替换数据源 |
-| R-WEB-D2 | "回到上一步"（fork）未接 | fork 产生**新会话**，单会话服务端需切换会话与 SSE 重连，属施工单 14 §5 范围 | 施工单 14 落地 |
-| R-WEB-D3 | 坐席接管视图未接 | 无 `handoff/*` 事件；属施工单 15 | 施工单 15 落地 |
+| R-WEB-D1 | DAG 从工具调用派生，非 `plan/*` 事件 | 设计说明未开工，`plan/*` 事件表不存在 | `plan/*` 落地后替换数据源 |
+| R-WEB-D2 | "回到上一步"（fork）未接 | fork 产生**新会话**，单会话服务端需切换会话与 SSE 重连，属§5 范围 | 设计说明落地 |
+| R-WEB-D3 | 坐席接管视图未接 | 无 `handoff/*` 事件；属设计说明| 设计说明落地 |
 | R-WEB-D4 | 流式 `delta` 为 ephemeral，不入会话日志 | 分片不是事实，`assistant/message` 才是；落账分片会让日志膨胀且破坏 `deriveMessages` | 永不回收（设计选择） |
 | R-WEB-D5 | 依赖方向 `host → channels` 翻转 | 见 §3 | 不回收（修正） |
 | R-WEB-D6 | 卡片从 `tool/call.args` + `tool/result.content` 派生，非 `UiCard` | `UiCard` 不落账（`ToolPipeline` 算出后无人持久化），回放场景无 `kind` 可用 | `tool/call` 增 `card` 字段后换 `cards.ts` 输入 |
-| R-WEB-D7 | 渠道适配器未实现 `answerApproval`（改由 `attachApproval` + `decide`） | 人点按钮是**带外**事件，不是同步返回值；施工单 09 的 `ApprovalResponder` 才是权威接缝 | 不回收（修正） |
+| R-WEB-D7 | 渠道适配器未实现 `answerApproval`（改由 `attachApproval` + `decide`） | 人点按钮是**带外**事件，不是同步返回值；设计说明的 `ApprovalResponder` 才是权威接缝 | 不回收（修正） |
 | R-WEB-D8 | 审批弹窗无倒计时，只有"已等待" | `approval/asked` 不带票据 TTL（`ApprovalView` 也不暴露 `expiresAt`）；编倒计时=在资金操作上说假话 | `approval/asked` 增 `expiresAt` 字段（需事件表变更 + 重录快照） |
 | R-WEB-D9 | 金额单位在运行时口径不一致 | `TicketDraft.amount` 注释写"金额分档"、pipeline 用例传 `50_000`，而 bank governance 实际填 `amountCents / 100`（**元**） | 渠道以**参数金额（元）为准**，事件金额按元兜底；建议后续统一口径并更名 |
-| R-WEB-F1 | `channels/web/` 未进覆盖率强制名单 | 名单扩容会牵动 `pnpm test:coverage` 阈值，且 `apps/web` 是 JS 不在 v8 include 面 | 随施工单 14 一并扩容（本次已落 53 条投影用例 + 46 条前端用例 + 13 条宿主用例） |
+| R-WEB-F1 | `channels/web/` 未进覆盖率强制名单 | 名单扩容会牵动 `pnpm test:coverage` 阈值，且 `apps/web` 是 JS 不在 v8 include 面 | 随设计说明一并扩容（本次已落 53 条投影用例 + 46 条前端用例 + 13 条宿主用例） |
 
 ---
 
-## 12. 施工步骤（勾选表）
+## 12. 实现步骤（勾选表）
 
 - [x] 1. 依赖翻转 + `@bah/channels` 入口
 - [x] 2. 帧模型与投影器（`frames.ts` / `project.ts`）

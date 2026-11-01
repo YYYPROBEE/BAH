@@ -1,5 +1,5 @@
 /**
- * 生成 `docs/tool-catalog.md`（施工单 08 §5 第 6 步）。
+ * 生成 `docs/tool-catalog.md`。
  *
  * 用法：`pnpm tool-catalog`。门禁 `verify-tool-catalog` 逐字比对，改了工具定义就重新生成。
  */

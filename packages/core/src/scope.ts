@@ -1,9 +1,9 @@
 /**
- * 单 agent 作用域与键屏蔽代理（施工单 02 §6，收敛版）。
+ * 单 agent 作用域与键屏蔽代理。
  *
  * - `scope`：单 agent 的键值注册原语，随所属 Context dispose 自动清理；
  * - `isolate`：**只做键屏蔽**——事件与贡献共享父级，仅 `get` 被屏蔽。
- *   多渠道差异一律用 profile 组合解决，不做多 realm 复杂隔离（施工单 00 §11 裁剪决策）。
+ *   多渠道差异一律用 profile 组合解决，不做多 realm 复杂隔离。
  */
 
 import type { AgentScope, Context, Disposer, EffectDisposer, Events, ServiceKey } from './api.ts'
@@ -82,7 +82,7 @@ class IsolatedContext implements Context {
   }
 }
 
-/** 构造键屏蔽代理（`Context.isolate` 的实现，施工单 02 §6）。 */
+/** 构造键屏蔽代理（`Context.isolate` 的实现）。 */
 export function createIsolate(parent: Context, hidden: ReadonlySet<string>): Context {
   return new IsolatedContext(parent, hidden)
 }

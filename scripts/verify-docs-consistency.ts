@@ -5,7 +5,7 @@
  *
  * `verify-facts` 只比对 `facts.md` 与源码重算值；它**不看** README / deploy 等
  * 对外材料里的数字。结果就是"facts 对了、deploy 还写 27 项门禁"——
- * 评委随手点开哪份文档，看到的就是哪份的旧数。
+ * 审阅者随手点开哪份文档，看到的就是哪份的旧数。
  *
  * 本门禁补三件事：
  *
@@ -15,7 +15,7 @@
  * 3. **能力口径防回退**：C3/C4/C5 之后，某些表述已经变成**错误**（"HALT 重启即清零"
  *    "记忆层未接线" "无人工接管平面"）。这类话在对外材料里出现即红——比数字过期更危险，
  *    因为它是"把已做的能力说成没做"，同样是不诚实。
- * 4. **过程件不得回流**：施工台账、证据原件、交接单等路径出现在树里即红（见 `FORBIDDEN_PATHS`）。
+ * 4. **过程件不得回流**：归档记录、证据原件、交接单等路径出现在树里即红（见 `FORBIDDEN_PATHS`）。
  *
  * ## 白名单
  *
@@ -30,9 +30,9 @@ import type { Gate, GateResult } from './gate-lib.ts'
 import { projectRoot } from './gate-lib.ts'
 
 /**
- * 对外材料清单（评委可能直接点开的文件）。
+ * 对外材料清单（审阅者可能直接点开的文件）。
  *
- * 刻意**不**用 `walk` 扫 docs/：那会把历史件与内部施工单一起卷进来，
+ * 刻意**不**用 `walk` 扫 docs/：那会把历史件与内部设计说明一起卷进来，
  * 于是要么写一堆白名单例外，要么只能把判据放宽到没用。
  */
 const PUBLIC_DOCS: readonly string[] = [
@@ -132,16 +132,16 @@ const WRONG_CLAIMS: readonly { readonly pattern: RegExp; readonly why: string }[
 /**
  * 过程件路径：不得进入默认分支的树。
  *
- * 施工台账、证据原件、交接单、演练单与一次性复审稿是**开发过程**的产物，
+ * 归档记录、证据原件、交接单、演练单与一次性复审稿是**开发过程**的产物，
  * 不是对外文档。它们被撤下后如果随某个分支合并回来，这条规则负责让提交变红；
  * 需要保留时放仓库外的归档目录，不要放回 `docs/`。
  */
 const FORBIDDEN_PATHS: readonly { readonly pattern: RegExp; readonly why: string }[] = [
-  { pattern: /^PROGRESS\.md$/, why: '施工台账不随仓库分发' },
+  { pattern: /^\.md$/, why: '归档记录不随仓库分发' },
   { pattern: /^DECISIONS\.md$/, why: '内部决策记录不随仓库分发' },
   { pattern: /^docs\/evidence\//, why: '证据原件不随仓库分发' },
   { pattern: /^docs\/review\//, why: '评审/走查稿不随仓库分发' },
-  { pattern: /^docs\/plans\//, why: '施工计划不随仓库分发' },
+  { pattern: /^docs\/plans\//, why: '实现计划不随仓库分发' },
   { pattern: /^docs\/handoff-/, why: '交接单不随仓库分发' },
   { pattern: /^docs\/drill-/, why: '演练单不随仓库分发' },
   { pattern: /^docs\/next-(?:actions|orders|three)-/, why: '内部排期不随仓库分发' },

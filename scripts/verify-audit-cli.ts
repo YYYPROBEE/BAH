@@ -1,5 +1,5 @@
 /**
- * 门禁：`bah audit` 命令面契约（施工单 16 §10）。
+ * 门禁：`bah audit` 命令面契约。
  *
  * 六条断言：
  * 1. `docs/audit.md` 的 flag 集合与 `AUDIT_HELP` 逐字一致；

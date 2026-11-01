@@ -170,7 +170,7 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
     // 交易密码端口（ADR-0014）：矩阵测试不装银行包 ⇒ 端点回 501，闸顺序不受影响
     tryPassword: () => undefined,
     staticRoot: 'this-directory-does-not-exist',
-    // 施工单 01：单个 indexPath 泛化为 token 入口白名单（D3）；矩阵测试不落盘
+    // ：单个 indexPath 泛化为 token 入口白名单（D3）；矩阵测试不落盘
     defaultEntry: 'this-directory-does-not-exist/index.html',
     tokenEntries: ['this-directory-does-not-exist/index.html'],
     operatorEntry: 'this-directory-does-not-exist/operator.html',

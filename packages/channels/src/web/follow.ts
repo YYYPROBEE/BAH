@@ -1,5 +1,5 @@
 /**
- * Session-follow 客户端状态机（施工单 13 §3.1）。
+ * Session-follow 客户端状态机。
  *
  * 只做三件事，且都能在 node 里断言（不依赖 EventSource）：
  * 1. **不重**：`seq <= maxSeq` 的帧直接丢弃（重连补发 / 服务端重复推送都靠它兜底）；
@@ -7,7 +7,7 @@
  * 3. **不胀**：缓冲帧数超过上限 → 重同步（长会话 + 慢消费的兜底）。
  *
  * 传输层（EventSource / WebSocket / 桌面壳 IPC）不在这里：本类只吃 `WebFrame`，
- * 这样"桌面端注入 boots 后独立运行"（施工单 13 §0 第 5 条）不需要改一行 follow 逻辑。
+ * 这样"桌面端注入 boots 后独立运行"不需要改一行 follow 逻辑。
  */
 
 import type { SnapshotFrame, WebFrame } from './frames.ts'

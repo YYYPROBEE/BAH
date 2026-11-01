@@ -845,7 +845,7 @@ class Store:
         session_id: str,
         limit: int = 20,
     ) -> list[dict[str, Any]]:
-        """只列本会话的 trace；跨会话读取一律不可见。"""
+        """只列本会话的 trace；跨会话读取一律不可。"""
 
         rows = conn.execute(
             """

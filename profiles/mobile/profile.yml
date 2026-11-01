@@ -1,4 +1,4 @@
-# mobile（施工单 01）：移动 H5 渠道 profile。
+# mobile：移动 H5 渠道 profile。
 #
 # 与 web 的差别只有三处（00 D2 原文）：适配器（能力位）、入口 HTML、默认端口。
 # 其余配置段与 profiles/web/patch.yml **逐字一致**——移动端的差异是"呈现与宿主装配"，

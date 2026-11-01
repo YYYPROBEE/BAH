@@ -1,5 +1,5 @@
 /**
- * 压缩落账单测（施工单 05 §5：摘要作为会话事件落账，可回放；T-CMP-002 / 004）。
+ * 压缩落账单测（摘要作为会话事件落账，可回放；T-CMP-002 / 004）。
  */
 
 import { asSessionId, withTestContext } from '@bah/test-support'
@@ -46,7 +46,7 @@ describe('runCompaction / appendCompactionSummary', () => {
       const last = session.events().at(-1)
       expect(last?.type).toBe('compaction/summary')
       if (last?.type === 'compaction/summary') {
-        // 摘要自带可回跳的事件引用（施工单 05 §5「带事件引用的摘要」）
+        // 摘要自带可回跳的事件引用
         expect(last.data.refs.length).toBe(run.plan.droppedSeqs.length)
         expect(last.data.refs).toEqual([...run.plan.droppedSeqs])
         expect(last.data.droppedMessages).toBeGreaterThan(0)

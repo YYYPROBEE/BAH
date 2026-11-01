@@ -1,4 +1,4 @@
-# 安全防护层 sentry（`@bah/safety` · 施工单 10）
+# 安全防护层 sentry（`@bah/safety` · 设计说明）
 
 > 本文是插件线 10 的机制说明：四接缝映射、注入防御矩阵、幻觉防护、熔断锁存与
 > `safety:sentry` 配置。内核算法与阈值见 [sentry 内核](../packages/safety/src/sentry/kernel/)，
@@ -31,19 +31,19 @@ agent/turn-stopping honesty.ts    行动断言对账（S-1）/ 无工具结果�
 waterfall 的注册顺序 = 外层顺序：bank 的三级判决先说话，sentry 只在允许路径上叠加确定性拒绝；
 任何下游 `ask` / `deny` 原样保留。
 
-### 2.1 控制面判决顺序（施工单 03 §2.2 的 ③a–d）
+### 2.1 控制面判决顺序（§2.2 的 ③a–d）
 
 ```text
 a. 危险规则     13 条内置 + 部署追加规则；先归一化参数 blob（base64/全角/零宽先拆开）
 b. PII 检测     仅审计（PII 不是攻击意图的确定性证据）
-c. 风险分       会话 riskLevel=high → 非绿工具 deny（W09；reason=risk-score）
+c. 风险分       会话 riskLevel=high → 非绿工具 deny（reason=risk-score）
 d. 预算         先记账再比对：total_calls / risky_calls / amount
 e. 熔断/降级    锁存冻结、只绿模式、同 turn 工具数超限（三者都只拦非绿）
 ```
 
 绿级只读工具**永不**因风险分/熔断被误伤（高风险会话里仍可查余额、流水）。
 
-W09 的 `riskScore.enforce` 默认开：入口检测把会话升到 `high` 后，写操作一律拒绝，
+实现方的 `riskScore.enforce` 默认开：入口检测把会话升到 `high` 后，写操作一律拒绝，
 链上 `sentry/decision.reason` 写机器可读的 `risk-score`；HALT 闸在本监听器之前，
 停机时先返回 `safety-halted`，风险分不会绕过 HALT。
 
@@ -82,7 +82,7 @@ turn-stopping 抛错 → stop(固定话术)（turn/end.reason.kind = guard-stopp
 | 2 | 混淆绕过 | 6 步归一化后再检测：全角 NFKC / 零宽 / 同形 / base64 / 间隔符 / 拼音标记 | 同上 | T-SNT-002 |
 | 3 | 工具参数注入 | `scanToolArgs` 递归扫参数 blob（备注/收款人备注/任意嵌套） | **`tools/pre-execute` 命中即 deny** | T-SNT-003 / 幕 2 |
 | 4 | 跨场景提权 | 组合风险规则（`XSC-001/002`，默认关、演示 profile 显式开）+ 收款人白名单（09） | `tools/pre-execute` | T-SNT-004 |
-| 5 | 渠道侧注入（IM） | `im.ts`：`⟦UNTRUSTED:im⟧` 来源标记 + 降权提示词 section 占位 | 入口审计标注，section 由施工单 15 注册 | T-SNT-005 |
+| 5 | 渠道侧注入（IM） | `im.ts`：`⟦UNTRUSTED:im⟧` 来源标记 + 降权提示词 section 占位 | 入口审计标注，section 由设计说明注册 | T-SNT-005 |
 
 **设计要点**：即使模型被完全带偏，业务操作仍被工具面拦住——这是演示"注入防御有效"的核心话术。
 
@@ -97,7 +97,7 @@ turn-stopping 抛错 → stop(固定话术)（turn/end.reason.kind = guard-stopp
 | 全 turn 数值复核 | `agent/turn-stopping` | assistant 全 turn 陈述金额 vs 本 turn 权威金额无交集 → 纠正提示进 `next-step` |
 | 无工具结果不陈述 | `agent/turn-stopping` | 本 turn 无任何 `tool/result` 却陈述账户事实 → 纠正 + `sentry/honesty-corrected` |
 | **行动断言对账（S-1）** | `agent/turn-stopping` | "已转账 / 已核销 / 已办理 / 已完成"与本 turn 成功工具逐类核对；不符 → nudge，同 turn 再犯 → 判停 |
-| disclaimer / `txnRef` | 施工单 08（本单只做接线断言） | `wealth.*` 带 `disclaimerId`；`read/balance` 带 `txnRef` |
+| disclaimer / `txnRef` | 设计说明（本设计只做接线断言） | `wealth.*` 带 `disclaimerId`；`read/balance` 带 `txnRef` |
 
 S-1 的三条口径：
 
@@ -120,7 +120,7 @@ S-1 的三条口径：
 | 万元 | `1.5 万元`、`5万` | `1500000`、`5000000` |
 | 元角分 | `12 元 3 角 4 分`、`3 角 4 分` | `1234`、`34` |
 
-### 4.1 断言核验门（W05，`safety:verify`）
+### 4.1 断言核验门（实现方，`safety:verify`）
 
 S-1 是"事后纠正"（`turn-stopping`，用户已经能看到当步文本），断言核验门是**出站前**的最后一道门：
 挂在 `agent/reply`（waterfall），在 `assistant/message` 落账**之前**改写，channels 读日志时
@@ -185,9 +185,9 @@ headless（无 HTTP 服务）
 管理路由三条约束（默认关闭 / 只绑回环 / token 只从环境变量读）见
 `docs/web-frontend.md` §7.1。
 
-**答辩口径**：不要讲"CLI 可以解冻 headless"——那是假的。headless 只能重启。
+**对外说明口径**：不要讲"CLI 可以解冻 headless"——那是假的。headless 只能重启。
 
-### 5.2 HALT（全系统停机，W07 / HP-3）
+### 5.2 HALT（全系统停机，实现方/ HP-3）
 
 HALT 与断路器是**两条独立的停机面**，不要混着讲：
 
@@ -198,10 +198,10 @@ HALT 与断路器是**两条独立的停机面**，不要混着讲：
 
 - 状态机在 `packages/safety/src/sentry/halt.ts`：进程级 `RUNNING | HALTED` 单例，纯逻辑；
 - 工具闸挂在 `tools/pre-execute`，**在 `next()` 之前**返回 `deny`（不调下游）；
-  下游一旦先拿到控制权，审批桥接就可能先签票据——`TC-W07-02` 钉的就是"无 `ticket/issued`"；
+  下游一旦先拿到控制权，审批桥接就可能先签票据——`TC-02` 钉的就是"无 `ticket/issued`"；
 - `plan` 由**宿主**在 `PlanApi.run()` 之前拦截，直接落
   `plan/completed(status='aborted')` + `plan/aborted(reason='halted')`，引擎零改动（R-4）；
-- 触发条件写死三条：`chain-broken`（审计链断裂，W08 接线）、`p0-threshold`
+- 触发条件写死三条：`chain-broken`（审计链断裂，实现方接线）、`p0-threshold`
   （`destructive` / `exfil` 两族规则累计 3 次）、`manual`（`bah halt`）；
 - P0 计数是**安全下限**，故意不接 Config（接成可调就等于允许把 HALT 调成永不触发）。
 
@@ -234,19 +234,19 @@ safety:sentry:
   degrade:   { invalidArgsThreshold: 3 }
   guard:     { maxToolsPerTurn: 12 }
   honesty:   { numeric: true, noResult: true }
-  riskScore: { enforce: true }   # W09：高风险会话拒非绿工具；关掉必须在自评报告登记
-  halt:      { enabled: true, ticketTtlSeconds: 120 }   # W07：默认开；关掉必须在自评报告登记
+  riskScore: { enforce: true }   # 高风险会话拒非绿工具；关掉必须在自评报告登记
+  halt:      { enabled: true, ticketTtlSeconds: 120 }   # 默认开；关掉必须在自评报告登记
   trace:     { ringSize: 200, flushThreshold: 1, sink: session }   # 必填：memory | session | stderr
 ```
 
 校验（`pipeline/config.ts`）：未知键 / 类型错 / 阈值越界 / 正则编译失败 → 载入即抛，
 错误消息以 `bah-sentry: ` 开头。阈值**只来自 Config**，模型输出与用户输入都改不了。
 
-**`trace.sink` 没有缺省值（W08）**：未写即抛 `sentry-trace-sink-required`，进程起不来。
+**`trace.sink` 没有缺省值**：未写即抛 `sentry-trace-sink-required`，进程起不来。
 三个可运行 profile（headless / plan / web）都已显式写 `sink: session`；这不是"推荐值"，
 而是"必须做一次显式选择"。`memory` 仍是合法值，但它现在必须在配置里被写出来。
 
-默认值的选取（施工单 10 §9「不误冻演示主线」）：
+默认值的选取（§9「不误冻演示主线」）：
 
 - `denyThreshold=5`：幕 2 只产生 1 次拒绝，幕 3 是 0 次；
 - `amountYuan=200000`：demo 的 800 元与压测的 5 万元都在额度内；
@@ -268,15 +268,15 @@ safety:sentry:
 | `safety/halt` | HALT 进入（chain-broken / p0-threshold / manual） | reason / detail? / at（**走 `session.append`**） |
 | `safety/unfreeze` | 凭 MFA 票据解除 | ticketId / mfa: true / at（**走 `session.append`**） |
 
-**顺序约束（W18 修）**：`trace.sink=session` 是在 `session/event` 的监听器**内部**再
+**顺序约束（实现方修）**：`trace.sink=session` 是在 `session/event` 的监听器**内部**再
 `appendDomain` 一条 `sentry/trace`。`runtime:session` 的广播因此把嵌套事件排到队尾，
 保证每个监听器看到的 `seq` 严格递增。否则排在 sentry **之后**注册的监听器会先收到 seq=N+1、
 再收到已"过期"的 seq=N；按 seq 单调消费的 `channel:web` 投影器会静默丢掉 `tool/call` 与
-`approval/asked`，页面就永远不出现审批弹窗。回归用例是 `TC-W18-01`
-（`packages/runtime/src/session/service.test.ts`）与 `TC-W18-02`
+`approval/asked`，页面就永远不出现审批弹窗。回归用例是 `TC-01`
+（`packages/runtime/src/session/service.test.ts`）与 `TC-02`
 （`packages/host/src/boot/plugins/web.test.ts`，走真实 append 链路而非手工 emit）。
 
-### 7.1 判决入链（W08）
+### 7.1 判决入链
 
 `sentry/decision` **不是会话事件**——事件表里没有这个键，不要 `session.append`。
 它由 `audit:decisions` 写进**会话级证据链** `<会话根>/<sessionId>/audit.jsonl`：
@@ -296,7 +296,7 @@ v2 在 v1 上追加 `version: 2` / `subject`（本仓为 `session:<id>`）/ `dec
 "bank 外层 → sentry 内层"，bank 的 `ask` 可能在 sentry 之后才被加上；最终是否放行以
 `approval/decided` 为准。不要把 `sentry/decision=allow` 读成"这笔转账已获批准"。
 
-**`reason` 的两种形态（W09）**：一般拒绝写人话（便于复盘）；`risk-score` 拒绝写机器码
+**`reason` 的两种形态**：一般拒绝写人话（便于复盘）；`risk-score` 拒绝写机器码
 `risk-score`，与 `stage` 一致，便于按理由聚合。模型可见的拒绝文案仍是完整人话。
 
 链断裂（启动时扫全部链）→ `audit/chain-broken` 平台事件 + stderr + `HALT(chain-broken)`；
@@ -361,16 +361,16 @@ identity/bound → turn/start → sentry/detected(high, injection_direct)
 2. **"无工具结果不陈述"收窄为"本 turn 无任何 `tool/result`"**：若按字面"无 `read/*`"判定，
    幕 3 的合法转账成功陈述（写工具结果）会被误纠正。
 3. **IM section 未注册**：`SECTION_ORDERS` 是冻结装配序，sentry 只交付出
-   `IM_UNTRUSTED_SECTION` 描述，注册权留给施工单 15。
+   `IM_UNTRUSTED_SECTION` 描述，注册权留给设计说明。
 4. **人工解冻入口**：本批次以服务方法提供（`SENTRY_SERVICE.unfreeze`）；
-   坐席控制台 / Web 面板的按钮属施工单 13/15。
-5. **TraceLog 导出**：`memory` / `session` / `stderr` 三种 sink，**必须显式配置**（W08）；
+   坐席控制台 / Web 面板的按钮属设计说明/15。
+5. **TraceLog 导出**：`memory` / `session` / `stderr` 三种 sink，**必须显式配置**；
    `session` 逐条落 durable 会话事件（`sentry/trace`，可回放），`stderr` 仅演示且生产环境载入即拒；
-   三链导出与自评报表属施工单 12。会话级判决链默认不引入签名密钥（无密钥也要能起），
+   三链导出与自评报表属设计说明。会话级判决链默认不引入签名密钥（无密钥也要能起），
    完整验签仍由 `bah audit --key` 对白名单类型负责。
-6. **沙箱不在本单**：`analysis_calc` 仍在进程内跑（施工单 11 的 R113）。
+6. **沙箱不在本设计**：`analysis_calc` 仍在进程内跑（设计说明的 R113）。
 7. **XSC 默认关**：`rules.crossScenario` 默认 `false`，演示 profile 显式打开；
    上线前先跑 `pnpm sentry:fp -- --dir <脱敏真实语料>`，样本量不足或增量命中未复核时不得开启。
-8. **风险分是会话级累计值（W09）**：`riskLevel` 只升不降，一旦到 `high`，本进程内后续非绿
+8. **风险分是会话级累计值**：`riskLevel` 只升不降，一旦到 `high`，本进程内后续非绿
    工具都会被拒；重启/新会话才回到 `low`。这是"宁可少办一笔"的口径，不是按 turn 重算。
    `riskScore.enforce=false` 是回滚开关，关掉必须在自评报告登记并说明理由。

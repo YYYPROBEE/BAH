@@ -1,5 +1,5 @@
 /**
- * llm-mock-server（施工单 12 §3 / §4 第 5 步）：provider 请求-响应录制与回放。
+ * llm-mock-server：provider 请求-响应录制与回放。
  *
  * 两半：
  * - **录制**：`createRecordingAdapter(inner, sink)` 包在真实适配器外面，把每次调用的

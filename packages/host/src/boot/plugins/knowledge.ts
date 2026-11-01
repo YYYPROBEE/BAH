@@ -60,7 +60,7 @@ export interface KnowledgeClaims {
 }
 
 export interface KnowledgeSignatureSettings {
-  /** `false` = 不做签名门（仅限演示回滚；必须在 PROGRESS 登记）。 */
+  /** `false` = 不做签名门（仅限演示回滚；必须在  登记）。 */
   readonly enabled: boolean
   /** 签名清单（相对仓库根）。 */
   readonly manifestPath: string

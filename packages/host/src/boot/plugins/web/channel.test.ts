@@ -1,5 +1,5 @@
 /**
- * `createHttpChannel` 的**同源装配**用例（施工单 01 §3.6 / §8 B5、TC-MCH-20..21）。
+ * `createHttpChannel` 的**同源装配**用例。
  *
  * 判据是"两个渠道的差异**只有** D2 那三项"：
  * 1. 能力位（适配器）：`/api/session` 的 capabilities 只在这五项上不同；

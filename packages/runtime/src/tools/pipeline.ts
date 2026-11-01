@@ -1,5 +1,5 @@
 /**
- * 七段工具执行管线（施工单 03 §2.2，**顺序冻结、不可重排**）。
+ * 七段工具执行管线。
  *
  * ```text
  * ① tool/call 落账（执行前）
@@ -14,9 +14,9 @@
  * ```
  *
  * 纪律：
- * - 工具体抛错**一律**归一化为 `isError` 结果，不冒泡（施工单 03 硬约束 5）；
- * - presenter 是纯函数，管线保证只把参数/结果传进去，不传 ctx（施工单 03 §2.5）；
- * - 判决顺序改动 = 破坏性变更（施工单 03 硬约束 3）。
+ * - 工具体抛错**一律**归一化为 `isError` 结果，不冒泡；
+ * - presenter 是纯函数，管线保证只把参数/结果传进去，不传 ctx；
+ * - 判决顺序改动 = 破坏性变更。
  */
 
 import { randomUUID } from 'node:crypto'
@@ -450,7 +450,7 @@ export class ToolPipeline {
       ...(ask.authorization === undefined && this.authorization === undefined
         ? {}
         : { authorization: ask.authorization ?? this.authorization }),
-      // 无人应答 = 拒绝（available 的反面；施工单 00 §11）
+      // 无人应答 = 拒绝（available 的反面）
       decision: { decision: 'unavailable' },
     }
 
@@ -556,7 +556,7 @@ export class ToolPipeline {
     return { result, callCard, additionalContexts: [] }
   }
 
-  /** 票据签发（五绑定只做本单可见的三项；状态机属主在 bank-core，施工单 07 §3）。 */
+  /** 票据签发（五绑定只做本设计可见的三项；状态机属主在 bank-core）。 */
   private mintTicket(call: ToolCallInput, ask: AskVerdict): TicketRef {
     const draft = ask.ticket
     return {

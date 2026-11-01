@@ -1,5 +1,5 @@
 /**
- * H5 审批链接的签名与校验（施工单 03 §2.3）。
+ * H5 审批链接的签名与校验。
  *
  * 形态：`base64url(JSON(payload)) + '.' + base64url(HMAC-SHA256(secret, base64urlPart))`。
  *

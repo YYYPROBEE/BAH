@@ -1,4 +1,4 @@
-# web-channel 快照场景的层 4 overlay（施工单 13）。
+# web-channel 快照场景的层 4 overlay。
 #
 # 目的：在 headless 底座上挂一次真正的 Web 渠道，并让整套流程**当场跑完**。
 # 两处刻意配置：

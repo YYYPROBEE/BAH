@@ -1,11 +1,11 @@
 /**
- * sentry 的 durable 事件声明（施工单 10 §1 的四接缝落账 + 施工单 03 §1.2 的治理族）。
+ * sentry 的 durable 事件声明。
  *
  * 为什么由本包声明：03 §1.2 的规矩是「`sentry/*`、`policy/downgraded`、`guard/repeat-tool`
  * 等治理事件由各自插件包用同一个模块增强机制追加」。这里只做声明，不改冻结的 `api.ts`。
  *
  * 两条纪律：
- * 1. **全部 `ignorable: true`**（施工单 10 硬约束 6 / R91）：平台 reader（`deriveMessages`）
+ * 1. **全部 `ignorable: true`**：平台 reader（`deriveMessages`）
  *    不认识这些族，必须显式可跳过，否则下一条请求会把它们当 required-on-read 缺失而拒绝；
  * 2. 事件名只允许出现在本文件——`verify-session-events` 门禁会扫强化块里的字面量。
  */
@@ -16,7 +16,7 @@ import type { RiskLevel, TraceRecord } from '../kernel/index.ts'
 
 /** sentry 治理事件的数据表（`SessionEventMap` 的增强内容）。 */
 export interface SentrySessionEventMap {
-  /** 入口平面检测到风险信号（仅审计：**检测器永不阻断**，施工单 10 §3）。 */
+  /** 入口平面检测到风险信号（仅审计：**检测器永不阻断**）。 */
   'sentry/detected': {
     readonly turn: number
     readonly step: number
@@ -24,11 +24,11 @@ export interface SentrySessionEventMap {
     readonly score: number
     readonly families: readonly string[]
     readonly transforms: readonly string[]
-    /** 是否带 IM 不可信来源标记（施工单 10 §3 第 5 行）。 */
+    /** 是否带 IM 不可信来源标记。 */
     readonly untrusted: boolean
     readonly at: number
   }
-  /** 控制平面拒绝了一次工具调用（唯一阻断点的落账；施工单 10 §1）。 */
+  /** 控制平面拒绝了一次工具调用（唯一阻断点的落账）。 */
   'sentry/tool-denied': {
     readonly callId: string
     readonly name: string
@@ -39,7 +39,7 @@ export interface SentrySessionEventMap {
     readonly stage: string
     readonly at: number
   }
-  /** 断路器锁存冻结（窗口拒绝数达阈值；冻结与时间无关，施工单 10 §5）。 */
+  /** 断路器锁存冻结（窗口拒绝数达阈值；冻结与时间无关）。 */
   'sentry/breaker-frozen': {
     readonly sessionId: SessionId
     readonly denies: number
@@ -49,14 +49,14 @@ export interface SentrySessionEventMap {
     readonly reason: string
     readonly at: number
   }
-  /** 显式人工解冻（**唯一**解除路径；施工单 10 §5）。 */
+  /** 显式人工解冻（**唯一**解除路径）。 */
   'sentry/unfrozen': {
     readonly sessionId: SessionId
     readonly by: string
     readonly reason: string
     readonly at: number
   }
-  /** 幻觉防护追加了纠正提示（turn-stopping 的旁路纠正；施工单 10 §4）。 */
+  /** 幻觉防护追加了纠正提示（turn-stopping 的旁路纠正）。 */
   'sentry/honesty-corrected': {
     readonly turn: number
     /**
@@ -69,7 +69,7 @@ export interface SentrySessionEventMap {
     readonly at: number
   }
   /**
-   * 判决件自身异常 → 已按 fail-closed 阻断（施工单 HP-0 §3.1）。
+   * 判决件自身异常 → 已按 fail-closed 阻断。
    *
    * 为什么必须单独落一条：`block` 只是"结果没进模型"，运维还需要知道
    * **是核验坏了还是真的查出错**。两者的处置完全不同（前者修组件，后者查数据）。
@@ -86,18 +86,18 @@ export interface SentrySessionEventMap {
   /**
    * 审计轨迹的 durable 副本（`trace.sink=session` 时逐条落账）。
    *
-   * 载荷就是 TraceLog 的原始记录（`ts` / `seq` / `kind` 等），供施工单 12 的三链导出
+   * 载荷就是 TraceLog 的原始记录（`ts` / `seq` / `kind` 等），供 的三链导出
    * 直接回放；平台 reader 不认识本族，必须 `ignorable: true`。
    */
   'sentry/trace': TraceRecord
-  /** 连续非法参数超阈 → 只绿模式（施工单 10 §5 第 4 行）。 */
+  /** 连续非法参数超阈 → 只绿模式。 */
   'policy/downgraded': {
     readonly sessionId: SessionId
     readonly invalidArgs: number
     readonly threshold: number
     readonly at: number
   }
-  /** 同 turn 工具调用数超限（施工单 10 §5 第 3 行）。 */
+  /** 同 turn 工具调用数超限。 */
   'guard/repeat-tool': {
     readonly turn: number
     readonly tools: number

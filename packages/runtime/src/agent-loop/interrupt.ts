@@ -1,11 +1,11 @@
 /**
- * 中断：每个 turn 一个 `AbortController`（施工单 04 §3「中断」）。
+ * 中断：每个 turn 一个 `AbortController`。
  *
  * 三条硬规则：
  * 1. **一个 turn 一个 controller**：新 turn 换新的，旧 latch 立刻失效——
  *    否则"上一轮按过停"会让下一轮一开始就处于取消态；
  * 2. `interrupt()` 只影响**当前** turn；没有 turn 在跑时是无操作（不排队、不抛错）；
- * 3. 取消信号必须传到 `adapter.stream(call, signal)`（施工单 04 §3），
+ * 3. 取消信号必须传到 `adapter.stream(call, signal)`，
  *    由 provider 决定在哪一处分片边界收尾。
  *
  * 为什么单独成类（而不是主循环里的两个字段）：`turn/end` 之后要能验证"旧信号已失效"，

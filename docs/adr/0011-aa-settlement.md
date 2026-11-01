@@ -1,7 +1,7 @@
 # ADR-0011 · AA 收口：只读分支 + 模拟代收
 
 - 状态：**已采纳**（2026-11-01）
-- 关联：审查报告 B-04 / B-05、施工提示词 2、`docs/contracts/event-table.md` §5
+- 关联：审查报告 B-04 / B-05、设计提示词 2、`docs/contracts/event-table.md` §5
 - 影响面：`packages/bank/src/core/{provider,mock,model}.ts`、
   `packages/bank/src/tools/{specs,tier,governance,aa,events,dto}.ts`、
   `docs/{bank-tools,contracts/event-table}.md`
@@ -108,7 +108,7 @@ collectAa(req: { userId, groupId, participant: number | string }): Promise<{
 - `aa/collected` 载荷不含姓名；
 - 参与人定位不收手机号（传手机号 → `aa-participant-unknown`，不会被当成键）。
 
-## 3 不声称（答辩时必须说清）
+## 3 不声称（对外说明时必须说清）
 
 1. **不是真实到账**：`collect` 是 demo 模拟代收——本进程替参与人把那一份"记进"
    组织者主账户并写流水；跨人真实收款需要行内清算接口，本仓没有。
@@ -128,5 +128,5 @@ collectAa(req: { userId, groupId, participant: number | string }): Promise<{
 - 正向：`paidAt` 从死字段变成有写入方的真实状态；
 - 负向：`collect` 的票据金额是预览值，组状态变化会让执行期拒绝（用户需重新批准）；
 - 中性：工具数不变（仍 28），事件键 33 → 34；
-- 中性：演示路由（`parseAa` 的 status/collect 话术）未做（施工单标注为可选项），
+- 中性：演示路由（`parseAa` 的 status/collect 话术）未做（设计说明标注为可选项），
   当前只能由工具面/模型直接调用。

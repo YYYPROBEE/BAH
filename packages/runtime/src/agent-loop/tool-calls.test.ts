@@ -1,11 +1,11 @@
 /**
- * 工具调度（施工单 04 §2.3 / §6 第 5 步）。
+ * 工具调度。
  *
  * 钉住两件事：
  * 1. **参数不可用就不执行**：坏 JSON / 根不是 object 的调用直接落 `isError` 的 `tool/result`
- *    （三级防线的最后一道，施工单 05 §2.3），工具体一次都不跑；
+ *    （三级防线的最后一道），工具体一次都不跑；
  * 2. **失败补记的观察口可用**：`observeToolCalls` 把 `session/event` 喂给 `ToolCallRecovery`，
- *    主循环在 step 失败时才有东西可补（施工单 03 §0 第 4 条）。
+ *    主循环在 step 失败时才有东西可补。
  */
 
 import { asSessionId, fixedClock, withTestContext } from '@bah/test-support'

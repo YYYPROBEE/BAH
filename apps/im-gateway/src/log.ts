@@ -1,5 +1,5 @@
 /**
- * 网关日志（施工单 02 §2.15）。
+ * 网关日志。
  *
  * 三条纪律：
  * 1. 只走 `@bah/util` 的 `logJson`（`console.*` 在 packages 面被 `verify-observability` 判红，

@@ -102,7 +102,7 @@ export const BARREL_EXCLUSIONS: readonly BarrelExclusion[] = [
   },
   {
     path: 'packages/channels/src/desktop/index.ts',
-    why: '桌面渠道模块入口：只 re-export adapter 的 id 常量与薄工厂（施工单 15 / 桌面端 01，纯 barrel）',
+    why: '桌面渠道模块入口：只 re-export adapter 的 id 常量与薄工厂',
   },
   {
     path: 'packages/channels/src/im/index.ts',

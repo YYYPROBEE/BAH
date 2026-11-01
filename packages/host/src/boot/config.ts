@@ -1,11 +1,11 @@
 /**
- * boot 配置校验原语（施工单 06 §4：fail-loud，错误一律带 `bah-boot: ` 前缀）。
+ * boot 配置校验原语（fail-loud，错误一律带 `bah-boot: ` 前缀）。
  *
  * 为什么不用 schemastery：内核的 `ConfigSchema` 是"可选"能力（`resolveConfig` 只在插件声明
  * `config` 时走它）；boot 面要在**建 ctx 之前**就把"这一行配置写错了"报出来，
  * 所以这里用零依赖的手写校验，并把补默认值的动作一并做掉（"未写字段由插件默认值兜底"）。
  *
- * 纪律：所有错误都是结构化 `BahError` + `bah-boot: ` 前缀，绝不静默回退（施工单 00 §9）。
+ * 纪律：所有错误都是结构化 `BahError` + `bah-boot: ` 前缀，绝不静默回退。
  */
 
 import {
@@ -16,7 +16,7 @@ import {
   rejectUnknownConfigKeys,
 } from '@bah/util'
 
-/** boot 错误统一前缀（施工单 06 §4）。 */
+/** boot 错误统一前缀。 */
 export const BOOT_PREFIX = 'bah-boot: '
 
 const invalidConfig = (message: string, detail: Readonly<Record<string, unknown>>): never => {

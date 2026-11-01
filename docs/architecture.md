@@ -1,6 +1,6 @@
 # 架构：注册表、装配与数据流
 
-> W19 交付件之一。**本文的图与事实表由脚本生成**（`scripts/gen-architecture.ts`），
+> **本文的图与事实表由脚本生成**（`scripts/gen-architecture.ts`），
 > 块外文字手写；生成块过期会让门禁 `verify-architecture` 直接红。
 > 配套两份：[algorithms.md](algorithms.md)（三条核心算法）、[security-design.md](security-design.md)（威胁模型与缺口）。
 >
@@ -19,7 +19,7 @@
 
 ### 1.1 三种状态，不是两种
 
-施工单 v2 只写了"装配 / 未装配"两态，实测必须三态——否则会把"装了但关掉"讲成"没装"：
+早期方案只写了"装配 / 未装配"两态，实测必须三态——否则会把"装了但关掉"讲成"没装"：
 
 | 态 | 判据 | 画法 | 例子 |
 |---|---|---|---|
@@ -29,13 +29,13 @@
 
 `enabled: false` 的区别是真金白银的：`bank:saga-bridge` 关掉时，它的 tick 定时器、补偿依赖
 全都不接管，但插件实例仍在（`ctx.get` 得到的是"什么都不做"的实现）。把它画成"没装"，
-答辩时被问"那 plan 里的转账谁补偿"就会答错——正确答案是**plan 本身没有整图补偿，只有前向执行**，
+对外说明时被问"那 plan 里的转账谁补偿"就会答错——正确答案是**plan 本身没有整图补偿，只有前向执行**，
 要整图补偿得让 plan 去编排一整笔 saga。
 
 **第三种形态：tick-only**（`enabled: true, eligible: []`）。`web` / `mobile` / `web-plan`
 用这一形态：桥接不接管任何工具（`transfer_create` 不会被双层展开），但 `saga/tick` 的
 定时器仍在，AA 到期、订阅与生日提醒在常驻进程里有派发源。它和"生效"的区别只在
-`eligible`，和"关闭"的区别只在 tick 是否运行——答辩时不要把它说成"关了"。
+`eligible`，和"关闭"的区别只在 tick 是否运行——对外说明时不要把它说成"关了"。
 
 **唯一的例外是生日计划（ADR-0013）**：`birthday_plan` 的商户腿在"银行腿已扣款、商户 commit 失败"
 时会调用 `bank:compensation` 冲正**那一条腿**的银行流水，entry 记 `compensation.kind='reversed'`。
@@ -330,7 +330,7 @@ graph TB
 图中：实线 = 生效；灰虚线 = 该 profile 未装配（别的 profile 装了）；橙色虚线 = 装配但
 `enabled: false`。**只画三个 profile 状态不一致的组件**，一致的组件见下面的矩阵表。
 
-同一份数据的表格视图（答辩时按行念更清楚）：
+同一份数据的表格视图（对外说明时按行念更清楚）：
 
 <!-- BEGIN GENERATED:matrix -->
 | 组件 | profiles/headless | profiles/plan | profiles/web | profiles/web-plan | profiles/mobile | profiles/im |
@@ -398,7 +398,7 @@ POST /api/turn
             └─ tool/result                       ← 权威结果（唯一面向模型的结果）
        └─ session.append(...)                    每条事件都过这里
             ├─ core:persistence                  session.jsonl（durable，按落账顺序）
-            ├─ audit:decisions                   audit.jsonl（判决链，W08）
+            ├─ audit:decisions                   audit.jsonl（判决链）
             ├─ safety:sentry                     TraceLog（sentry/trace，ignorable）
             └─ channel:web 的投影器               事件 → 帧 → SSE
 ```
@@ -406,7 +406,7 @@ POST /api/turn
 两个容易被忽略但**必须讲**的点：
 
 - **落账是单点**：所有事件（含领域事件）都过 `runtime:session`，磁盘顺序 = 广播顺序
-  （W18 修的就是这条：嵌套 append 曾经让排在后面的监听器先收到 N+1）；
+  （这里修的就是这条：嵌套 append 曾经让排在后面的监听器先收到 N+1）；
 - **工具结果只有一份**：`tool/result` 既是落账事实，也是模型能看到的唯一结果；
   卡片、DAG、审计时间线都是它的**投影**，不是第二份真相。
 

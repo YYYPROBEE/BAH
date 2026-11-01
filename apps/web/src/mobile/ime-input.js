@@ -1,5 +1,5 @@
 /**
- * IME 适配层（施工单 02 §3.6 / 00 D10 二次定稿）。
+ * IME 适配层。
  *
  * 语音输入走**设备系统输入法的听写**：音频采集与识别都发生在操作系统 / 输入法层，
  * 网页只从 `input` 事件里拿到**文本**。因此本模块不做任何语音识别、不申请任何媒体权限、
@@ -29,7 +29,7 @@ export const HINT_TEXT = '点键盘上的麦克风图标即可说话'
  * @param {HTMLInputElement|HTMLTextAreaElement} input
  * @param {'text'|'amount'} [kind] `amount` 另给 `inputmode="decimal"`——移动端会直接弹数字键盘。
  *
- * ⚠ 如实登记：本单生产路径只用 `kind='text'`（composer 的主输入框）与审批抽屉的拒绝理由框；
+ * ⚠ 如实登记：本设计生产路径只用 `kind='text'`（composer 的主输入框）与审批抽屉的拒绝理由框；
  * `'amount'` 是给 03/04 单"金额内联输入"预留的接线位，当前**只有测试覆盖**，没有生产调用点。
  * 不谎称已接线（00 §9.2 D 类探针）。
  */

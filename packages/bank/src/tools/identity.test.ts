@@ -1,5 +1,5 @@
 /**
- * 会话身份绑定（施工单 09 §4 的 08 先行段）。
+ * 会话身份绑定。
  */
 
 import { describe, expect, it } from 'vitest'

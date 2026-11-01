@@ -13,7 +13,7 @@
  * ## 诚实边界（写进文档）
  *
  * - 真实记忆层（`bah:memory-store`）的 `RetrievedMemory` **没有结构化槽位**，只有
- *   `renderedText`。本单不解析自然语言去"猜"槽位，所以真实记忆只贡献 `routeCode`
+ *   `renderedText`。本设计不解析自然语言去"猜"槽位，所以真实记忆只贡献 `routeCode`
  *   （该不该追问）与候选文本，**不填 filled**。结构化槽位回填需要 memory-store 侧
  *   提供字段，属后续单；演示与评测用 `demoMemory` 夹具。
  * - 配置的 `demoMemory` 是**确定性假记忆**，不是生产路径：生产 profile 不写它。
@@ -194,7 +194,7 @@ function realMemoryPort(ctx: Context, settings: IntentPlaneSettings): IntentMemo
               },
             }),
       })
-      /* v8 ignore start —— 真实记忆层在本单只跑空库（装配了记忆插件的端到端面在 04 单）：
+      /* v8 ignore start —— 真实记忆层在本设计只跑空库（装配了记忆插件的端到端面在 04 单）：
          映射形状由 IntentMemoryItem 的类型签名保证；这里保留逐字段映射而不是 `as` 断言，
          等记忆层真的有了结构化字段时，编译期会逼着补齐 */
       const memories: IntentMemoryItem[] = result.memories.map((memory) => ({

@@ -1,5 +1,5 @@
 /**
- * 依赖清单与 base 插件集（施工单 06 §3：base = 内核 + 主循环 + 模型层 + 工具管线 + 持久化）。
+ * 依赖清单与 base 插件集（base = 内核 + 主循环 + 模型层 + 工具管线 + 持久化）。
  *
  * 这是**底座出口**在进程内的版本：用真实的 `HOST_PLUGINS` 装一个应用、跑一个 mock turn、
  * 把 JSONL 落盘。CLI 的端到端用例（`@bah/cli`）与进程级冒烟覆盖"命令行真的能起它"，
@@ -169,11 +169,11 @@ describe('依赖清单（HOST_PLUGINS）', () => {
       // 03 单：意图平面与追问。两行按序装配（prompt:ask 取 intent:plane 的会话状态）
       'intent:plane',
       'prompt:ask',
-      // 渠道（施工单 13）：不在 base bundle 里，由 profiles/web 的 patch 加行
+      // 渠道：不在 base bundle 里，由 profiles/web 的 patch 加行
       'channel:web',
-      // 渠道（施工单 01）：同样只登记不默认装配，由 profiles/mobile 的 patch 加行
+      // 渠道：同样只登记不默认装配，由 profiles/mobile 的 patch 加行
       'channel:mobile',
-      // 渠道（施工单 15 / 桌面端 01）：同样只登记不默认装配，由 profiles/desktop 的 patch 加行
+      // 渠道：同样只登记不默认装配，由 profiles/desktop 的 patch 加行
       'channel:desktop',
       // IM 网关 01：同样只登记不默认装配，由 profiles/im 的 patch 加行
       'channel:im',

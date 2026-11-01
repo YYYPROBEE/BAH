@@ -1,12 +1,12 @@
 /**
- * 工具调度：模型发起的调用 → 七段管线，以及失败补记的观察口（施工单 04 §2.3 / §6 第 5 步）。
+ * 工具调度：模型发起的调用 → 七段管线，以及失败补记的观察口。
  *
  * 本文件只做三件事，判决与执行语义一律留给 `tools/pipeline.ts`：
  * 1. `ToolCallDispatcher`：把装配后的调用逐个送进七段管线；
  * 2. **参数没能 parse 成 object** 的调用不执行——按三级防线回灌结构化失败
- *    （施工单 05 §2.3 的最后一道），保证 `assistant/message.toolCalls ↔ tool/result` 仍配对；
+ *    ，保证 `assistant/message.toolCalls ↔ tool/result` 仍配对；
  * 3. `observeToolCalls`：把 `session/event` 喂给 `ToolCallRecovery`，
- *    让 step 中途失败时能把"已开始、未完成"的调用补记成 `isError`（施工单 03 §0 第 4 条）。
+ *    让 step 中途失败时能把"已开始、未完成"的调用补记成 `isError`。
  */
 
 import type { Context, Disposer } from '@bah/core'
@@ -88,7 +88,7 @@ export class ToolCallDispatcher {
    * 执行一次调用。
    *
    * 参数不可用（坏 JSON / 根不是 object）→ **不执行**，直接落一条 `isError` 的 `tool/result`：
-   * 模型因此知道"这次调用被拒的理由"，下一 step 可以自我修复（施工单 05 §2.3）。
+   * 模型因此知道"这次调用被拒的理由"，下一 step 可以自我修复。
    */
   async execute(call: AssembledToolCall): Promise<ToolExecution> {
     if (call.parseError !== undefined || call.args === undefined) {

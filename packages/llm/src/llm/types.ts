@@ -1,8 +1,8 @@
 /**
- * provider-neutral 模型词汇表（施工单 05 §1，**冻结面**）。
+ * provider-neutral 模型词汇表。
  *
  * 为什么单独冻一层：adapter 与主循环之间只认这套词汇，换 provider 不动主循环。
- * 判别标签（`kind` / `role`）一律小写 kebab-case，switch 一律以 `assertNever` 收尾（施工单 00 §9 第 6 条）。
+ * 判别标签（`kind` / `role`）一律小写 kebab-case，switch 一律以 `assertNever` 收尾。
  *
  * 与 `@bah/core` 的 `ContentBlock` 分工（同名不同域，跨包一律走包名，不会混）：
  * - core 的 = **工具结果内容块**（`type` 标签），属七段管线与卡片面；
@@ -17,7 +17,7 @@ import type { ToolSchema } from '@bah/core'
 export type { ToolSchema }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 1. 内容块与流式分片（施工单 05 §1）
+ * 1. 内容块与流式分片
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -46,14 +46,14 @@ export type ContentBlock =
   | { readonly kind: 'tool-addition'; readonly tools: readonly ToolSpec[] }
   | { readonly kind: 'tool-removal'; readonly names: readonly string[] }
 
-/** 流式结束原因。`tool-calls` 驱动主循环的工具调度（施工单 04 §2.3）。 */
+/** 流式结束原因。`tool-calls` 驱动主循环的工具调度。 */
 export type FinishReason = 'stop' | 'tool-calls' | 'length' | 'aborted' | 'error'
 
 /**
  * 流式分片。
  *
  * `tool-call-delta` 的参数是**文本增量**：按 `index` + `id` 累积，`block-end` 时整体 parse
- * （施工单 05 §2.1）——绝不在分片阶段尝试 parse（半截 JSON 必然失败）。
+ * ——绝不在分片阶段尝试 parse（半截 JSON 必然失败）。
  */
 export type StreamChunk =
   | { readonly kind: 'block-start'; readonly index: number }
@@ -105,7 +105,7 @@ export interface ToolSpec {
   readonly schema: ToolSchema
 }
 
-/** 能力位：决定提示词装配与工具选择（施工单 05 §3）。 */
+/** 能力位：决定提示词装配与工具选择。 */
 export interface ModelCapabilities {
   readonly toolCall: boolean
   readonly image: boolean
@@ -171,7 +171,7 @@ export interface LlmRequest {
 /**
  * 已冻结的调用（`prepareCall` 的产出）。
  *
- * 「冻结」= 主循环拿到它之后不再允许 `agent/request` listener 改写（施工单 04 §2.2）；
+ * 「冻结」= 主循环拿到它之后不再允许 `agent/request` listener 改写；
  * adapter 侧用 `Object.freeze` 保证实现层面也改不动。
  */
 export interface PreparedCall {
@@ -183,7 +183,7 @@ export interface PreparedCall {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 3. Adapter seam（施工单 05 §2）
+ * 3. Adapter seam
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -191,9 +191,9 @@ export interface PreparedCall {
  *
  * 五个方法各有分工，别合并：
  * - `providerInfo` / `listModels`：路由与展示；
- * - `resolveModel`：**能力位的唯一来源**——提示词装配靠它裁剪 section（施工单 05 §4）；
+ * - `resolveModel`：**能力位的唯一来源**——提示词装配靠它裁剪 section；
  * - `prepareCall`：绑定模型与参数（此后请求冻结）；
- * - `stream`：真正的 wire 交互，必须响应 `signal`（中断传播，施工单 04 §3）。
+ * - `stream`：真正的 wire 交互，必须响应 `signal`（中断传播）。
  */
 export interface LlmAdapter {
   providerInfo(): ProviderInfo
@@ -204,7 +204,7 @@ export interface LlmAdapter {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 4. 用量与成本账本（施工单 05 §3）
+ * 4. 用量与成本账本
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** 一次调用的用量。 */
@@ -220,7 +220,7 @@ export interface CallUsage {
 /**
  * 一个 turn 的用量汇总。
  *
- * **与 `usage/summary` 会话事件同形**（施工单 05 §3「按 turn 汇总 tokens 进入审计导出」）；
+ * **与 `usage/summary` 会话事件同形**；
  * 两处形状的一致性由阶段 5 的集成测试钉住，此包不依赖 `@bah/runtime`。
  */
 export interface TurnUsage extends CallUsage {
@@ -248,7 +248,7 @@ export interface AssistantMessage {
  * 一次装配完成的工具调用。
  *
  * `args` 只在**参数可解析且为 object 根**时存在；坏 JSON 时 `parseError` 有值、`args` 缺省、
- * `argsText` 保留原文——三件事同时成立，修复路径才有东西可喂（施工单 05 §2.3）。
+ * `argsText` 保留原文——三件事同时成立，修复路径才有东西可喂。
  */
 export interface AssembledToolCall {
   readonly callId: string

@@ -1,7 +1,7 @@
 /**
  * 门禁：全仓不得出现上游 Harness（dsh）的依赖、源码路径或说明符。
  *
- * 依据：施工单 00 §3 合规底线第 1、2 条；施工单 01 §6。
+ * 依据： 合规底线第 1、2 条；。
  * 本门禁是 M0 完整实现（非骨架），任何命中即阻断合并。
  *
  * 扫描面：`packages/`、`apps/`、`services/rag/` 下的源码与清单，
@@ -36,22 +36,22 @@ const RULES: readonly Rule[] = [
   {
     id: 'upstream-scope',
     test: /@deepseek-ai\//,
-    why: '不得引用 @deepseek-ai/*（施工单 00 §3 第 1 条）',
+    why: '不得引用 @deepseek-ai/*',
   },
   {
     id: 'upstream-specifier',
     test: /(?:from\s*|require\s*\(\s*|import\s*\(\s*)['"][^'"]*dsh[^'"]*['"]/,
-    why: '模块说明符指向 dsh 源码（施工单 00 §3 第 1 条）',
+    why: '模块说明符指向 dsh 源码',
   },
   {
     id: 'upstream-checkout',
     test: /(?:from\s*|require\s*\(\s*|import\s*\(\s*)['"][^'"]*[Dd]eepseek[-_ ]?[Hh]arness[^'"]*['"]/,
-    why: '模块说明符指向 dsh 本地检出目录（施工单 00 §3 第 1、3 条）',
+    why: '模块说明符指向 dsh 本地检出目录',
   },
   {
     id: 'upstream-python',
     test: /^\s*(?:from|import)\s+(?:deepseek[-_]?ai|deepseek[-_]?harness|dsh)\b/i,
-    why: 'Python 代码导入了上游 Harness（施工单 00 §3 第 1 条）',
+    why: 'Python 代码导入了上游 Harness',
   },
 ]
 
@@ -59,7 +59,7 @@ const RULES: readonly Rule[] = [
 const MANIFEST_RULE: Rule = {
   id: 'upstream-manifest',
   test: /@deepseek-ai\/|deepseek[-_ ]?harness/i,
-  why: '清单里出现上游 Harness 依赖坐标或检出路径（施工单 00 §3 第 1、3 条）',
+  why: '清单里出现上游 Harness 依赖坐标或检出路径',
 }
 
 const isTextSource = (fileName: string): boolean =>

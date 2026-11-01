@@ -1,5 +1,5 @@
 /**
- * 审批服务（施工单 09 §2）：应答者仲裁 + 超时 + 归一化 + 幂等。
+ * 审批服务：应答者仲裁 + 超时 + 归一化 + 幂等。
  *
  * 挂在七段管线的 ③e `approval/request`（waterfall）上，是**唯一的审批判决点**：
  *
@@ -46,7 +46,7 @@ interface PendingApproval {
 /**
  * 服务键：`interaction:approval`（渠道插件按需取用来注册应答者）。
  *
- * 施工单 10 落地后，sentry 平面若要观察/接管判决，也从这个键取同一个仲裁器。
+ *  落地后，sentry 平面若要观察/接管判决，也从这个键取同一个仲裁器。
  */
 export const APPROVAL_SERVICE: ServiceKey<ApprovalService> = defineService<ApprovalService>(
   'interaction:approval',

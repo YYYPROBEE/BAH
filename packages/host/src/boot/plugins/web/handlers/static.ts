@@ -12,7 +12,7 @@
  *
  * 入口判定按**规范化后的绝对路径**做（token 白名单 / 坐席入口），不做字面量路径比较：
  * `//operator.html`、`/./operator.html`、`/operator%2ehtml` 都会先规范化成同一个目标
- * （施工单 01 对抗式复审 P1-1）。
+ * 。
  */
 
 import { readFile } from 'node:fs/promises'
@@ -71,7 +71,7 @@ export async function handleStatic(
   // "服务崩了"和"路径不对"。这里一律 400，且**不回显**原始串以外的任何信息。
   let decoded: string
   try {
-    // 施工单 01 / 00 D3：`/` 的落点由配置的 `defaultEntry` 决定（移动壳是第二个 HTML 壳），
+    //  D3：`/` 的落点由配置的 `defaultEntry` 决定（移动壳是第二个 HTML 壳），
     // 这里只换成相对名——后面的 normalize + join + 穿越校验逐字不动。
     decoded = pathname === '/' ? relative(deps.staticRoot, deps.defaultEntry) : decodeURIComponent(pathname)
   } catch {

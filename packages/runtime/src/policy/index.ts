@@ -61,7 +61,7 @@ export interface PolicyContext {
 }
 
 /**
- * 策略意见。`code` 用于审计与结果码（deny 时必须有可机读的理由）。
+ * 策略意。`code` 用于审计与结果码（deny 时必须有可机读的理由）。
  *
  * 四个 `level/tierReason/ruleIds/policyVersion` 是**可选增量**（策略外置 S2）：
  * - legacy 实现（`createTierPolicy`）**不填**，治理平面据此走旧 `decide()` 路径；

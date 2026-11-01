@@ -1,5 +1,5 @@
 /**
- * `safety:sentry` 配置面（施工单 10 §2 适配二：fail-loud）。
+ * `safety:sentry` 配置面（fail-loud）。
  *
  * 锚点：未知键 / 类型错 / 阈值越界 / 正则编译失败 → 载入即抛（`bah-sentry: `）。
  */

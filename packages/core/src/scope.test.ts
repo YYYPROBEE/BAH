@@ -1,5 +1,5 @@
 /**
- * 作用域与键屏蔽代理单测（施工单 02 §6 / §10）。
+ * 作用域与键屏蔽代理单测。
  */
 
 import { describe, expect, it } from 'vitest'

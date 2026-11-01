@@ -1,5 +1,5 @@
 /**
- * 银行工具族的治理平面（施工单 09 §1–§3）。
+ * 银行工具族的治理平面。
  *
  * 三个挂点，全部经 `ctx.events`（不私建旁路）：
  * 1. `tools/pre-execute`（waterfall）：身份 → 预检 → `decide()` 判定矩阵 → `allow / ask / deny`；
@@ -450,7 +450,7 @@ export function provideBankGovernance(options: BankGovernanceOptions): void {
     }),
   )
 
-  // ③ 结果记账（施工单 09 §3 第 4 步）：成功 → consumed；失败 / 拒绝 / 超时 → blocked
+  // ③ 结果记账：成功 → consumed；失败 / 拒绝 / 超时 → blocked
   ctx.effect(
     ctx.events.on('tools/result', (payload) => {
       const result = payload as ToolResultLike

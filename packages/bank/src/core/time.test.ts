@@ -1,5 +1,5 @@
 /**
- * 时间口径（施工单 07 §4）：UTC 切日 / 切账期 + 账期解析 fail-loud。
+ * 时间口径：UTC 切日 / 切账期 + 账期解析 fail-loud。
  */
 
 import { describe, expect, it } from 'vitest'

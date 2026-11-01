@@ -1,8 +1,7 @@
-# 仿真银行 bank（施工单 07 落地说明）
+# 仿真银行 bank
 
-> 读者：写银行工具族的人（施工单 08）、做审批票据的人（09）、写渠道 / 演示脚本的人。
-> 规格权威仍是 `BAH-施工文档集/07-仿真银行bank.md`；本文只讲**本仓怎么落地**、**金额与时序口径**、
-> 以及**留给 08/09 的桥接点**。
+> 读者：写银行工具族的人、做审批票据的人、写渠道 / 演示脚本的人。
+> 本文只讲**本仓怎么落地**、**金额与时序口径**，以及**留给后续的桥接点**。
 
 ## 1. 模块图
 
@@ -17,8 +16,8 @@ packages/bank/src/
 ├─ forge/
 │  ├─ index.ts      buildBankDataset：demo / stress / adversarial / recurring 四档造数
 │  └─ risk.ts       风控预检六规则 + 夜间时段判定
-├─ tools/           银行工具族（施工单 08；见 docs/bank-tools.md）
-└─ verify/          强验证挑战 / 锁定（施工单 09 §6 的 Provider seam）
+├─ tools/           银行工具族（见 docs/bank-tools.md）
+└─ verify/          强验证挑战 / 锁定（§6 的 Provider seam）
 ```
 
 ## 2. 九实体与金额口径
@@ -53,12 +52,12 @@ issued(pending) ──批准──▶ approved(allowed-once) ──bank-core 执
 
 | 规则 | 落点 |
 |---|---|
-| 签发 | 治理平面的 `ask` 判决调用 `TicketStore.issue()`（施工单 09 接线） |
+| 签发 | 治理平面的 `ask` 判决调用 `TicketStore.issue()`（接线） |
 | 批准 | `approve()`：幂等；过期会先置 `blocked(expired)` 再抛 |
 | **核销属主** | `redeem()`：同步 CAS；检查与转移之间**没有 await**，JS 单线程内原子 |
 | 五绑定 | 会话 / 工具 / 参数指纹 / 金额 / TTL；逐项比对，任何一项不同都拒绝 |
 | 失败不消耗 | 除"过期"会顺带置 `blocked`，其余拒绝都不改票据状态 |
-| 记账与状态分离 | `tools/result` 侧只落 `approval/decided` 生命周期，不改票据状态（施工单 09） |
+| 记账与状态分离 | `tools/result` 侧只落 `approval/decided` 生命周期，不改票据状态 |
 
 错误码（全部 `BahError`，kebab-case）：
 
@@ -113,7 +112,7 @@ const ref = {
 审批票据的 `issued → approved / blocked` 生命周期由 `tools/governance.ts` 的 `approval/request`
 桥接同步（详见 [bank-tools.md](bank-tools.md) §3）。
 
-### 4.1 冲正与执行 lease（W12）
+### 4.1 冲正与执行 lease
 
 **冲正**（`MockBankCore.reverse(txnId)`，不是 `BankCoreProvider` 的方法）：
 
@@ -188,7 +187,7 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 
 ## 7. 测试与覆盖
 
-规格用例全在 `packages/bank/src`（ID 与施工单逐条对应）：
+规格用例全在 `packages/bank/src`（ID 与用例表逐条对应）：
 
 | ID | 落点 |
 |---|---|
@@ -205,7 +204,7 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 | T-BANK-011 风控预检规则 | `forge/risk.test.ts` |
 | T-BANK-012 余额不足 | `core/mock.test.ts` |
 
-工具族（施工单 08）的用例在 `packages/bank/src/tools/*.test.ts`，ID 与期望见
+工具族的用例在 `packages/bank/src/tools/*.test.ts`，ID 与期望见
 [bank-tools.md](bank-tools.md) §8（T-TOOLS-001~010）。
 
 补充用例：票据并发核销（两个并发 `createTransfer` 只成功一个）、状态机边角（重复签发 / 幂等 /
@@ -226,7 +225,7 @@ const core = new MockBankCore({ data, now: () => 1_792_000_000_000 })
 `engine: bundle` 时，治理平面的顺序不变：身份 → 预检 → 生效上限 `min(core, config)` →
 策略求值（只给 `level/reason`，作为 escalation）→ 硬规则（`no-identity` / `verify-locked` /
 红级挑战）→ 票据/审批。**策略不能把红降黄，也不能让锁定/未绑定放行**；策略 deny 覆盖
-allow，但绿级读工具不咨询策略（TC-W04-06）。
+allow，但绿级读工具不咨询策略（TC-06）。
 
 审计口径：`tier/decided` 带 `engineSource / policyVersion / ruleIds / paramsDigest`，
 bundle 实际求值时还有 `evidence`（完整输入 + `inputDigest`）；链上镜像为
@@ -241,9 +240,9 @@ bundle 实际求值时还有 `evidence`（完整输入 + `inputDigest`）；链�
 
 | 项 | 现状 | 计划 |
 |---|---|---|
-| card / subscription 的 Provider 方法 | 九实体与造数已落；读写方法未加入 `BankCoreProvider` | 施工单 08 的工具对齐时补齐（07 §2 明确写了"同理"） |
+| card / subscription 的 Provider 方法 | 九实体与造数已落；读写方法未加入 `BankCoreProvider` | 后续补齐 |
 | 与 `@bah/core` `TicketRef` 的桥接 | 08 已落地（`tools/tickets.ts` + `tools/governance.ts`） | 09 接管审批服务与挑战链 |
 | 金额单位 | 核心面全是「分」；工具参数是「元」 | 08 的工具层用 `yuanToCents` 转换一次 |
 | 日 / 账期 | 固定 UTC 切分 | 夜间大额是唯一本地口径（UTC+8）；如需按客户时区切日，属插件线配置扩展 |
 | 状态持久化 | 全内存；重启回到造数初始态 | 真实对接只换 Provider；mock 不落盘 |
-| 文件命名 | 票据状态机落 `core/ticket.ts`（施工单 07 §5 写的是 `core/tickets.ts`） | 以覆盖率名单与 `@bah/bank` 单数模块习惯为准，已在 PROGRESS 记账 |
+| 文件命名 | 票据状态机落 `core/ticket.ts`（§5 写的是 `core/tickets.ts`） | 以覆盖率名单与 `@bah/bank` 单数模块习惯为准， |

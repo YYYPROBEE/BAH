@@ -202,7 +202,7 @@ export const U_SCENARIOS: readonly EvalScenario[] = [
   scenario({
     id: 'U-05',
     family: 'U',
-    title: '🟡 偏差：「1w」按 1 元归一（100 分），收款人未识别 → 追问（偏差可见，不掩盖）',
+    title: '🟡 偏差：「1w」按 1 元归一（100 分），收款人未识别 → 追问（偏差可，不掩盖）',
     turns: ['转 1w 给自己另一张卡'],
     expect: [
       { kind: 'tool-result', tool: 'intent_resolve', path: 'kind', equals: 'explicit' },

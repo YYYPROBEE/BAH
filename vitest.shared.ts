@@ -1,12 +1,12 @@
 /**
- * 四个测试面共用的解析配置（施工单 01 §5 的 unit / e2e / snapshot / web）。
+ * 四个测试面共用的解析配置。
  *
  * **为什么要 alias**：各包 `exports` 指向 `dist/`（发布面）。测试若按包名解析，就会跑到
  * **构建产物**上——改了 `src` 忘了 `pnpm build` 时，用例会静默跑旧代码（阶段 2 就踩过这个隐患）。
  * 测试面因此统一指向各包的 `src/index.ts`：与 `tsc -b`（project references）看到的是同一份源码。
  *
  * 边界：这只是**测试面**规则；包与包之间的真实运行时依赖仍走包名 + `dist/`
- * （施工单 02 §8 第 1 条：任何环境裸 Node 可加载）。
+ * （任何环境裸 Node 可加载）。
  */
 
 import { fileURLToPath } from 'node:url'

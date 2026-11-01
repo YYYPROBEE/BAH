@@ -22,7 +22,7 @@ async function collect(chunks: AsyncIterable<StreamChunk>): Promise<StreamChunk[
   return out
 }
 
-describe('llm-mock（施工单 05 §2.2 确定性 provider）', () => {
+describe('llm-mock', () => {
   it('按脚本出队：文本被切片、工具调用参数被分片，装配后与脚本一致', async () => {
     const adapter = new MockLlmAdapter({
       script: {

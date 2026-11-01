@@ -1,5 +1,5 @@
 /**
- * @bah/host · 逻辑模块 boot（施工单 06）。
+ * @bah/host · 逻辑模块 boot。
  *
  * 对外只暴露"组合系统"这一层：命令式启动（`boot`）、层序合并（`mergeLayers`）、
  * 依赖清单（`createCatalog` / `HOST_PLUGINS`）、config HMR（`startConfigHmr`）。

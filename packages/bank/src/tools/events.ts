@@ -1,12 +1,12 @@
 /**
- * 银行领域的 durable 会话事件（施工单 03 §1.2 的领域族 + 施工单 08 §2 的「落账事件」列）。
+ * 银行领域的 durable 会话事件。
  *
- * 为什么由本包声明：施工单 03 定的规矩是「`transfer/*`、`wealth/*`、`verify/*` 等
+ * 为什么由本包声明： 定的规矩是「`transfer/*`、`wealth/*`、`verify/*` 等
  * 领域事件由各自插件包用同一个增强机制追加」。`@bah/core` 的 `SessionEventMap`
  * 留了索引签名，这里用 `declare module` 补成逐键声明，不修改冻结文件。
  *
  * 两条纪律：
- * 1. **事件载荷就是卡片的数据源**（施工单 08 §4「卡片从事件派生」）：
+ * 1. **事件载荷就是卡片的数据源**：
  *    `result` 整块落账，渠道不依赖工具返回值的临时变量；
  * 2. 事件名只允许出现在 `BANK_SESSION_EVENT_TYPES` 里——`verify-session-events` 门禁会扫
  *    `audit.append('…')` 的字面量，并读取本文件的增强块。
@@ -41,9 +41,9 @@ import type { TierReason } from './tier.ts'
 
 /** 银行领域事件的数据表（`SessionEventMap` 的增强内容）。 */
 export interface BankSessionEventMap {
-  /** 会话已绑定银行用户（施工单 09 §4；回放时据此恢复身份）。 */
+  /** 会话已绑定银行用户。 */
   'identity/bound': IdentityBoundData
-  /** 三级判决已作出（允许 / 需审批 / 拒绝 + 理由码；施工单 09 §1.2 的审计落点）。 */
+  /** 三级判决已作出（允许 / 需审批 / 拒绝 + 理由码； 的审计落点）。 */
   'tier/decided': {
     /** 调用 ID。 */
     readonly callId: string

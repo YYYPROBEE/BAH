@@ -219,7 +219,7 @@ describe('W15 · 独立重放', () => {
  * `--snapshots` 的命令行面（W15 复审补）。
  *
  * 为什么要单独测：抽样逻辑的单测一直是绿的，而脚本头部写的示例文件
- * `session.snapshots.json` **在仓库里不存在**——评委照着敲会得到一串 ENOENT 栈。
+ * `session.snapshots.json` **在仓库里不存在**——审阅者照着敲会得到一串 ENOENT 栈。
  * 这条用例跑的就是文档里那条命令本身，示例路径失效会立刻红。
  */
 describe('TC-W15-11 scripts/replay.ts --snapshots 可跑性与失败口径', () => {

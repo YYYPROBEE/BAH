@@ -1,5 +1,5 @@
 /**
- * 身份绑定渠道（施工单 09 §4）：mock 短信登录、IM 映射、Web 登录页接缝。
+ * 身份绑定渠道：mock 短信登录、IM 映射、Web 登录页接缝。
  *
  * T-IDN-002 / T-IDN-003 的“绑定后放行 / identity/bound 可回放”在
  * `packages/host/src/boot/plugins/bank-tools.test.ts` 里做端到端断言；

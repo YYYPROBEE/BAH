@@ -3,7 +3,7 @@
  *
  * 为什么 base 里带一个 demo 工具：`--profile headless` 的验收要证明"完整 turn"包含
  * 工具七段管线（`tool/call` → `tool/result` → 模型续写），而不是只有一段文本回复。
- * 银行工具族属于插件线（施工单 08），本阶段不实现。
+ * 银行工具族属于插件线，本阶段不实现。
  */
 
 import { TOOLS_SERVICE } from '@bah/runtime'

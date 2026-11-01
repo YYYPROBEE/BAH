@@ -1,5 +1,5 @@
 /**
- * 快照场景：headless profile 跑一段确定性对话（施工单 12 §3）。
+ * 快照场景：headless profile 跑一段确定性对话。
  *
  * 同一个文件同时服务两端：
  * - **录制**（`runRecord`）：用真实 `profiles/headless` + 真 mock provider，把 provider 调用换成

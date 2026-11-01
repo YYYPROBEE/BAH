@@ -1,5 +1,5 @@
 /**
- * DeepSeek 的 wire 映射（OpenAI 兼容形态，施工单 05 §2.1）。
+ * DeepSeek 的 wire 映射（OpenAI 兼容形态）。
  *
  * 本文件**只有纯函数**：内容块 ↔ wire 消息、工具 schema ↔ `tools` 字段、SSE 分片 ↔ `StreamChunk`。
  * 网络与重试在 `adapter.ts`——这样 wire 映射可以逐条单测，不需要任何密钥或桩服务器。
@@ -26,7 +26,7 @@ export const TEXT_INDEX = 0
 export const REASONING_INDEX = 1
 export const TOOL_INDEX_BASE = 2
 
-/** 密钥与端点的环境变量名（施工单 05 §2.1「配置：环境变量，进 Config 校验，不硬编码」）。 */
+/** 密钥与端点的环境变量名（环境变量，进 Config 校验，不硬编码」）。 */
 export const API_KEY_ENV = 'DEEPSEEK_API_KEY'
 export const BASE_URL_ENV = 'DEEPSEEK_BASE_URL'
 

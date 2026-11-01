@@ -1,5 +1,5 @@
 /**
- * 提示词装配单测（施工单 05 §4）。
+ * 提示词装配单测。
  */
 
 import { BahError } from '@bah/util'
@@ -38,7 +38,7 @@ const CONTEXT: PromptContext = {
   },
 }
 
-describe('PromptRegistry（施工单 05 §4）', () => {
+describe('PromptRegistry', () => {
   it('T-LLM-007 section 顺序：六 section order 单调递增且与冻结表一致', () => {
     const orders = DEFAULT_SECTIONS.map((section) => section.order)
     expect(orders).toEqual([0, 10, 20, 30, 40, 50])
@@ -67,7 +67,7 @@ describe('PromptRegistry（施工单 05 §4）', () => {
       'style',
     ])
 
-    // system 头里不能出现运行时上下文（施工单 05 §4.1）
+    // system 头里不能出现运行时上下文
     expect(composed.header).not.toContain('尾号 1234')
     expect(composed.context).toContain('尾号 1234')
   })

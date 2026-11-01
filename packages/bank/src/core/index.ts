@@ -1,5 +1,5 @@
 /**
- * @bah/bank · core（施工单 07：数据模型 / Provider seam / 票据状态机 / mock 核心）。
+ * @bah/bank · core（数据模型 / Provider seam / 票据状态机 / mock 核心）。
  *
  * 导出面：
  * - `model.ts`：九实体 + 品牌 ID + 金额换算 + 风控阈值形状

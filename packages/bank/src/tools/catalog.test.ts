@@ -1,5 +1,5 @@
 /**
- * 工具目录 / 卡片契约（施工单 08 §0 第 3–4 条、§6 T-TOOLS-009 / 010）。
+ * 工具目录 / 卡片契约。
  *
  * `docs/tool-catalog.md` 是生成物：这里同时钉住「文档 = 渲染结果」与「工厂 = 目录」，
  * 门禁 `verify-tool-catalog` 是同一断言的提交前版本。
@@ -27,7 +27,7 @@ import { createBankHarness } from './testing.ts'
 /** 仓库根下的生成物（相对本测试文件）。 */
 const CATALOG_DOC = new URL('../../../../docs/tool-catalog.md', import.meta.url)
 
-describe('工具目录（施工单 08 §2）', () => {
+describe('工具目录', () => {
   it('30 个工具、数量不超上限、名字唯一', () => {
     expect(BANK_TOOL_SPECS).toHaveLength(30)
     expect(BANK_TOOL_SPECS.length).toBeLessThanOrEqual(BANK_TOOL_LIMIT)

@@ -1,5 +1,5 @@
 /**
- * 跨会话记忆层 · 类型唯一源（施工文档 §3）。
+ * 跨会话记忆层 · 类型唯一源（设计文档 §3）。
  *
  * 本文件只放**形状**，不放行为：词表在 `words.ts`，判决在 `gates/`，读写语义在
  * `store/` 与 `read/`。所有跨文件引用都从这里取类型，避免同一概念两处定义漂移。
@@ -34,7 +34,7 @@ export type VaultState = 'pending_confirm' | 'active' | 'retired'
 /**
  * 写入管道的结果码（零静默丢弃：每条被拒的候选都必须落到其中之一）。
  *
- * `PASS` 之外的每个码都是**给人看的理由**，不是内部枚举——答辩时要能逐条解释。
+ * `PASS` 之外的每个码都是**给人看的理由**，不是内部枚举——对外说明时要能逐条解释。
  */
 export type GateCode =
   | 'PASS'
@@ -56,7 +56,7 @@ export type GateCode =
   | 'CHANNEL_REJECTED'
 
 /**
- * 读取路由的结果码（施工文档 §7.1）。
+ * 读取路由的结果码（设计文档 §7.1）。
  *
  * 独立于 `GateCode`：写侧是"要不要收"，读侧是"要不要查"，混在一个联合里会让
  * 调用方分不清拒绝发生在哪个方向。
@@ -76,7 +76,7 @@ export interface MemoryCandidate {
   readonly scene: Scene
   readonly source: SourceType
   readonly pattern: PatternId
-  /** 命中原文片段，供审计与答辩回溯。 */
+  /** 命中原文片段，供审计与对外说明回溯。 */
   readonly rawSpan: string
   readonly confidence: number
 }
@@ -114,7 +114,7 @@ export interface Provenance {
  * 记忆层事件。
  *
  * `gate_rejected` 与 `injection_rejected` 分开：前者是"不合规但无害"，后者是
- * **攻击信号**，答辩要看的是后者的条数。
+ * **攻击信号**，对外说明要看的是后者的条数。
  */
 export interface MemoryEvent {
   readonly type: 'injection_rejected' | 'procedural_change' | 'gate_rejected'
@@ -157,7 +157,7 @@ export interface RetrieveQuery {
   readonly user_id: string
   readonly session_id: string
   readonly scene: Scene | 'unknown'
-  /** 显式跨域借用；`confidence < 0.6` → 拒借 + 反问建议（施工文档 §7.1）。 */
+  /** 显式跨域借用；`confidence < 0.6` → 拒借 + 反问建议（设计文档 §7.1）。 */
   readonly crossSceneRef?: { readonly target: Scene; readonly confidence: number }
   readonly maxK?: number
 }

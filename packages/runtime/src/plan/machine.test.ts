@@ -18,7 +18,7 @@ const STATES: readonly PlanNodeState[] = PLAN_NODE_STATES
 
 describe('transition', () => {
   it('态数是口径：9 个，且 `PLAN_NODE_STATES` 是唯一来源（TC-W11-08 / TC-W11-10）', () => {
-    // 加态必须同时改这个元组：文档、宪法、答辩引用的"N 态"都从它来。
+    // 加态必须同时改这个元组：文档、宪法、对外说明引用的"N 态"都从它来。
     // 断言长度而不是"数一遍联合类型"，是为了让漏改的人在这里红，而不是在 PPT 里错。
     expect(PLAN_NODE_STATES).toHaveLength(9)
     expect(new Set(PLAN_NODE_STATES).size).toBe(9)

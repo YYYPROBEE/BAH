@@ -1,5 +1,5 @@
 /**
- * CLI 端到端（施工单 06 §0 出口标准 1 / 2 / 4 的命令行面）。
+ * CLI 端到端。
  *
  * 每个用例都在临时目录里搭一个**真仓库**（`bah.yml` + `packages/cli/bundles/*` + `profiles/*`），
  * 然后用 `runCli` 走完整链路：解析参数 → 读 profile → 加载 bundle → boot → 跑 turn → 落盘。

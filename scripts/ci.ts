@@ -67,7 +67,7 @@ type Step = CommandStep | VitestStep | E2eStep | RagStep
  *
  * 现值：unit 实测 2830（地板 2829，移动 H5 01 收口抬）、snapshot 实测 34（地板 22）、
  * web 实测 333（地板 332，移动 H5 02 收口抬：新增 apps/web/src/mobile 10 文件 / 194 例）。
- * snapshot 地板是历史值，只增不减（施工单 02 没动治理平面）。
+ * snapshot 地板是历史值，只增不减。
  * 余量刻意留小：地板的作用是钉住"没有大批丢失"，不是允许慢慢删。
  */
 const STEPS: readonly Step[] = [

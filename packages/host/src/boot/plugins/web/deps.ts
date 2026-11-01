@@ -121,7 +121,7 @@ export interface WebDeps {
   readonly staticRoot: string
   /**
    * `/` 的落点（静态根下的绝对路径）。
-   * 施工单 01 / 00 D3：不再写死 index.html——移动壳是第二个 HTML 壳。
+   *  D3：不再写死 index.html——移动壳是第二个 HTML 壳。
    */
   readonly defaultEntry: string
   /**

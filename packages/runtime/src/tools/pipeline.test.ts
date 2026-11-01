@@ -1,5 +1,5 @@
 /**
- * 七段管线单测（施工单 03 §2.2 / §4 的 T-TOOL-003 ~ 012）。
+ * 七段管线单测。
  *
  * 断言口径：一律看「公开可观察面」——管线返回值、`tool/call` / `tool/result` /
  * `user/message` 落账序列、工具体是否真的执行、卡片产物。不碰私有字段。
@@ -432,7 +432,7 @@ describe('tools/execute 环绕', () => {
     })
   })
 
-  it('超时包裹可用（施工单 11 沙箱 / 超时策略的挂点形态）', async () => {
+  it('超时包裹可用', async () => {
     await withHarness(async (h) => {
       h.registry.register(
         tool({

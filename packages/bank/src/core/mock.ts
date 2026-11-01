@@ -1,8 +1,8 @@
 /**
- * mock 银行核心（施工单 07 §2 / §4）：全部状态在内存，不做任何 I/O。
+ * mock 银行核心：全部状态在内存，不做任何 I/O。
  *
  * 权威口径只有账本：日累计、剩余额度、账单异常都从 `transactions` 实时推导，
- * Harness 侧的会话状态只是缓存（施工单 07 §8 第 1 条）。
+ * Harness 侧的会话状态只是缓存。
  *
  * 写操作（转账 / 理财购买）必须先过 `TicketStore.redeem()`——**核销属主在 bank-core**；
  * 校验（账户、金额、余额、产品）全部在核销**之前**，核销之后只做不会抛错的账本变更，
@@ -116,7 +116,7 @@ import { DAY_MS, dayKey, monthKey, periodRange, previousMonth } from './time.ts'
 
 /** mock 核心的装配参数。 */
 export interface MockBankCoreOptions {
-  /** 造数产物（施工单 07 §4）。 */
+  /** 造数产物。 */
   readonly data: BankDataset
   /** 时钟（缺省 = 造数的基准时刻；测试与回放注入固定钟）。 */
   readonly now?: () => number

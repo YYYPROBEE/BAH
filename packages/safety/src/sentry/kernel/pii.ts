@@ -1,5 +1,5 @@
 /**
- * 代币化编译器（PII Vault，施工单 10 §3 的内核组件 4：`pii`）。
+ * 代币化编译器（PII Vault， 的内核组件 4：`pii`）。
  * 对应源文件 `sentry-dsh-plugin/src/kernel/pii.js`——模式表、代币格式、掩码口径与
  * 目的地白名单全部照搬。
  *

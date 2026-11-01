@@ -1,12 +1,12 @@
 /**
- * 接缝事件声明（施工单 03 §2.2 的七段管线挂点 + 施工单 04 §5 的接缝清单）。
+ * 接缝事件声明。
  *
- * 全部挂点走 `ctx` 的事件系统（施工单 03 硬约束 2：禁止私建事件旁路）。
+ * 全部挂点走 `ctx` 的事件系统（禁止私建事件旁路）。
  * 这里用**模块增强**把 `@bah/core` 的 `BahEventMap` 从索引签名补成逐键声明——
- * 这正是 `api.ts` 注释里预留的「施工单 04 §6 收窄为接缝总表」扩展位，且不需要改动冻结文件。
+ * 这正是 `api.ts` 注释里预留的「 收窄为接缝总表」扩展位，且不需要改动冻结文件。
  *
  * `@mode` 是公开契约：门禁 `verify-event-modes` 比对「声明 mode」与「实际派发点」。
- * 五种模式的分工（施工单 02 §3）：判决/环绕用 waterfall，记账/通知用 emit。
+ * 五种模式的分工：判决/环绕用 waterfall，记账/通知用 emit。
  */
 
 import type { ContentBlock, SessionId, TicketAuthorization, TicketDetail, TicketRef } from '@bah/core'
@@ -60,7 +60,7 @@ export interface PreExecuteInput {
  */
 export type ToolExecutor = (call: ToolCallInput) => Promise<unknown>
 
-/** 结果后置判决（施工单 03 §2.2 第 ⑥ 段）。 */
+/** 结果后置判决。 */
 export type PostExecuteVerdict =
   | { readonly kind: 'accept' }
   | { readonly kind: 'block'; readonly reason: string; readonly code: string }
@@ -83,7 +83,7 @@ export interface ApprovalResponse {
 /**
  * `approval/request` 的载荷：票据 + 渠道无关的安全 payload + 当前结论。
  *
- * `decision` 默认 `unavailable`：**无人应答 = 拒绝**（施工单 00 §11「审批事件对与 unavailable=deny」）。
+ * `decision` 默认 `unavailable`：**无人应答 = 拒绝**。
  * 渠道应答者返回 `{ ...input, decision: { decision: 'allowed-once' } }` 即批准。
  */
 export interface ApprovalInput {
@@ -198,7 +198,7 @@ declare module '@bah/core' {
     'agent/turn-stopping': AgentTurnStoppingInput
 
     /**
-     * 配置已重载（config-only HMR；施工单 06 §4）。
+     * 配置已重载（config-only HMR）。
      *
      * 只报"哪些行的配置变了"：插件行的增删不在热重载范围内（需重启进程）。
      * 派发点是 `@bah/host` 的 `boot.reload`——组合系统只通知，具体重读由插件自己决定。

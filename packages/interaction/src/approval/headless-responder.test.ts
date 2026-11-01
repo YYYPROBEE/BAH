@@ -1,5 +1,5 @@
 /**
- * headless 自动应答者（施工单 09 §6）：默认拒绝之外的**显式**演示/回归通道。
+ * headless 自动应答者：默认拒绝之外的**显式**演示/回归通道。
  */
 
 import { describe, expect, it } from 'vitest'
