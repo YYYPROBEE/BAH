@@ -1,14 +1,14 @@
 {
-  "measuredAt": "2026-10-30",
+  "measuredAt": "2026-11-02",
   "command": "NODE_EXTRA_CA_CERTS= pnpm test:coverage:all",
   "line": {
-    "covered": 49571,
-    "total": 55161,
-    "pct": 89.87
+    "covered": 60053,
+    "total": 61636,
+    "pct": 97.43
   },
   "packages": {
-    "atLeast80": 16,
+    "atLeast80": 18,
     "total": 18
   },
-  "note": "2026-10-30 五线合流后跑批（`pnpm test:coverage:all`，数字取 `.ci-artifacts/cov-all/coverage-summary.json`）：行 49571/55161 = 89.87%，包 16/18。分母包含五条支线并入的桌面端、IM 网关、主动能力与卡片状态面；唯一未达 80% 的两个包：memory-store 72.68%、eval 46.93%。历史值（46778/52001=89.96%、46761/52005=89.92%、41749/46877=89.06%、CI 31233/34270=91.14%）只作历史记录。"
+  "note": "2026-11-02 CI（Ubuntu / Node 22.19）跑批实测（`pnpm test:coverage:all`，数字取 `.ci-artifacts/cov-all/coverage-summary.json`）：行 60053/61636 = 97.43%，包 18/18（18 个包全部 ≥80%，最低 saga 90.34%）。较上一版 89.87%（49571/55161，包 16/18）的提升来自两处配置修复：① 评测包用例落在 packages/eval/tests/，原根配置 include 扫不到它们而分母含 eval/src——eval 由 46.93% 回到 92.21%；② memory-store 的纯类型 types.ts 与纯 barrel index.ts 在本机 v8 下按物理行计入分母报 0 覆盖假红——memory-store 由 72.68% 回到 96.65%。历史值（89.87%、91.14% 等）只作历史记录。"
 }

@@ -16,7 +16,7 @@
 | 工具数 | **30 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
 | 注册表条目（项） | **32** | `HOST_PLUGINS` 计数 |
 | 门禁（项） | **53** | `scripts/verify-*.ts` 计数 |
-| 覆盖率 | **89.87%（行口径，49571/55161 行，实测 2026-10-30）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
+| 覆盖率 | **97.43%（行口径，60053/61636 行，实测 2026-11-02）；18/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
 ## 1. 为什么是这三条
