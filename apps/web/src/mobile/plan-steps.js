@@ -16,6 +16,7 @@
  */
 
 import { clear, el, icon } from '../dom.js'
+import { bilingualNodeLabel } from '../views/dag.js'
 
 /**
  * 9 态的窄屏呈现表。`tag` 为空串表示"只降文字色，不挂徽标"（skipped/cancelled 是中性终态，
@@ -53,7 +54,7 @@ export function flattenDag(dag) {
     const callId = node.kind === 'call' && node.id.startsWith('call:') ? node.id.slice('call:'.length) : undefined
     return {
       id: node.id,
-      label: node.label,
+      label: bilingualNodeLabel(node),
       state: node.state,
       kind: node.kind,
       tier: node.tier,

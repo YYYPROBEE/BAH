@@ -468,10 +468,68 @@ textarea {
 
 .message__call {
   display: flex;
-  align-items: center;
-  gap: var(--spacer-6);
+  flex-direction: column;
+  gap: var(--spacer-4);
   padding: var(--spacer-4) 0;
   border-bottom: 1px solid var(--border-neutral-l1);
+}
+
+.message__call-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-6);
+  flex-wrap: wrap;
+}
+
+.message__call-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-4);
+  padding: var(--spacer-6);
+  border: 1px solid var(--border-neutral-l1);
+  border-radius: var(--radius-8);
+  background: var(--bg-base-secondary);
+}
+
+.message__call-result-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-6);
+  flex-wrap: wrap;
+}
+
+.message__call-result-title {
+  font-size: var(--body-sm-font-size);
+  color: var(--text-default);
+}
+
+.message__call-field {
+  display: flex;
+  gap: var(--spacer-6);
+  font-size: var(--body-sm-font-size);
+}
+
+.message__call-field-label {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.message__call-field-value {
+  color: var(--text-default);
+  word-break: break-word;
+}
+
+.message__call-table {
+  overflow-x: auto;
+}
+
+.message__call-table .ds-table {
+  font-size: var(--body-xs-font-size);
+}
+
+.message__call-reason {
+  color: var(--text-secondary);
+  font-size: var(--body-sm-font-size);
 }
 
 .message__call:last-child {
