@@ -27,12 +27,15 @@ pnpm check
 `pnpm check` 共 **14 步**，任一步红即停并给出耗时汇总：
 
 ```
-typecheck → lint → build → test → test:coverage → test:coverage:all → gate
+typecheck → lint → build → test → test:coverage:all → test:coverage → gate
           → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag:check
 ```
 
-其中 `test:coverage` 与 `test:coverage:all` **两步都要**：前者守「名单内逐文件 100%」，
+其中 `test:coverage:all` 与 `test:coverage` **两步都要**：前者守「名单内逐文件 100%」，
 后者报「行口径（仅 `packages/*/src`）/ 包口径 14–16」。只跑前者会把分母当成全仓——那正是底座评审的红灯。
+
+两步的先后是刻意的：**全仓口径先跑**，因为它是台账数字（行口径 / 包口径）的唯一来源；
+逐文件 100% 是更严的第二道闸，它红不该让主指标的数字产不出来。
 
 两种模式，**红绿口径不同，不可混用**：
 

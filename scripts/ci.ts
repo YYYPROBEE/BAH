@@ -75,11 +75,12 @@ const STEPS: readonly Step[] = [
   { kind: 'command', name: 'lint', command: 'pnpm lint' },
   { kind: 'command', name: 'build', command: 'pnpm build' },
   { kind: 'vitest', name: 'test (unit)', minCases: 3046 },
-  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 3046 },
-  // W17：全仓覆盖率口径（分母 = packages/*/src 全量，不是 allowlist 名单）。
-  // 上一步的 `test:coverage` 守"名单内逐文件 100%"，这一步报"全仓行口径 ≥80% / 包口径 ≥14/16"。
-  // 两步都要：只有前者会"分母只算一半"，只有后者会丢掉"确定性组件必须 100%"的硬约束。
+  // 全仓覆盖率口径（分母 = packages/*/src 全量，不是 allowlist 名单）先跑：
+  // 它是台账数字（行口径 / 包口径）的唯一来源。后一步 `test:coverage` 守的是
+  // "名单内逐文件 100%"，比它更严——更严的那道闸红，不该让主指标的数字产不出来。
   { kind: 'command', name: 'test:coverage:all', command: 'pnpm test:coverage:all' },
+  // 强制名单内逐文件 100%（行/语句/函数 100%、分支 80%）。
+  { kind: 'vitest', name: 'test:coverage', coverage: true, minCases: 3046 },
   { kind: 'command', name: 'gate', command: 'pnpm gate' },
   // W15：eval 三步接线（unit / smoke / baseline）；都走真实 boot，不进主 vitest 面。
   { kind: 'command', name: 'eval:unit', command: 'pnpm eval:unit' },
