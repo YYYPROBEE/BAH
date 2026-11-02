@@ -1,0 +1,9 @@
+# BAH 项目清单。
+#
+# `verify-plugin-config` 门禁读它，CLI 也读它：
+# - `profile.default`：不写 `--profile` 时用哪个
+# - `profile.bundles`：本仓随包提供的 bundle（必须与 packages/cli/package.json 的
+#   `bah.profile.bundles` 声明、以及 packages/cli/bundles/<name>/ 目录三方一致）
+profile:
+  default: headless
+  bundles: [base]

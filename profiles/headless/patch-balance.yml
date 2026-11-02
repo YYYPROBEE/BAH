@@ -1,0 +1,34 @@
+# headless · 余额演示 overlay（层 4，`--patch` 叠层）
+#
+# 默认 `patch.yml` 演的是幕 3（800 元黄级转账）；这个 overlay 把 mock 脚本整块换成
+# 08 的余额查询，用来演示/回归绿级只读链路：
+#
+#   pnpm bah --profile headless --patch profiles/headless/patch-balance.yml \
+#     --prompt "查一下我的余额" --session s-balance --jsonl .tmp-balance
+#
+# 语义是**整块替换**：`core:model` 的 config 一旦出现，
+# 就完全取代默认 patch 里的脚本，不会出现"两段脚本拼在一起"。
+
+- id: core:model
+  config:
+    provider: mock
+    model: mock-chat
+    chunkSize: 4
+    script:
+      - tool: { id: call-1, name: account_balance, args: {} }
+      - text: 已为你在模拟环境查询账户余额。
+
+# 替换 core:model 必须同步主循环的 model：整块替换后 core:agent 仍指 router 会报
+# “provider router 未注册”（router 适配器已被 mock 顶掉）。
+# 除 model 外照抄 patch.yml 的 core:agent：漏写 compaction / runtimeContext 等于把它们关掉。
+- id: core:agent
+  config:
+    channel: headless
+    loop:
+      model: mock:mock-chat
+      maxSteps: 8
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }
+      notes:
+        - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。

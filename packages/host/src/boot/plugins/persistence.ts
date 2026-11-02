@@ -1,0 +1,155 @@
+/**
+ * base bundle · `core:persistence`：JSONL 落盘。
+ *
+ * 挂点是 `session/event`（`emit`，append 之后同步广播）：不包裹 `SessionApi.append`，
+ * 也不认识主循环——"日志写在哪里"和"日志怎么产生"因此各自可替换。
+ *
+ * 懒创建：第一条事件到达时才建会话目录与 header，这样 `--dump-config` 之类"只看不跑"的
+ * 命令不会留下空会话文件。`create()` 对已存在的会话是排他失败（不覆写）。
+ */
+
+import { basename, join } from 'node:path'
+
+import { defineService } from '@bah/core'
+import { JsonlPersistence } from '@bah/persistence'
+import { BahError, assertSafePathSegment, isTenantId, logJson } from '@bah/util' 
+
+import type { SessionEvent, SessionId } from '@bah/core'
+import type { TenantId } from '@bah/util'
+import type { SessionHandle, JsonlOptions } from '@bah/persistence'
+
+import { tenantRootOf } from '../tenant-root.ts'
+
+import type { HostPlugin } from '../../plugin-manager/index.ts'
+import { RUN_SERVICE } from '../boot.ts'
+import { readBoolean, readString, rejectUnknownKeys } from '../config.ts'
+
+/**
+ * 会话文件定位服务（宿主打印"落盘在哪"用，避免宿主自己拼路径）。
+ *
+ * ## 租户化之后（01 TA-12）`root` 的语义
+ *
+ * `root` 是**租户根** `<config.root>/<tenantId>`，不是部署根。所有拿 `root` 的调用方
+ * 直接得到"已经拼好租户的目录"，**不要再自己拼一次**——那正是 AR-01 的形态
+ * （一处漏拼 = 审计在租户外，而且不会报错）。
+ *
+ * 唯一的例外是 `baseRoot`：`bank:saga-store` 的 sqlite 按 01 §5 的裁剪决策
+ * **不按租户分库**（单库单进程 + `verify-saga-wiring` 以固定路径为基线），
+ * 所以它显式取 `baseRoot`。**别在别处用 `baseRoot`**。
+ */
+export interface SessionFiles {
+  /** 本租户的根目录：`<config.root>/<tenantId>`（会话目录 / 审计链 / 停机状态都在它下面）。 */
+  readonly root: string
+  /** 部署根（未拼租户）。只给"按设计单文件共享"的 saga 库用，见上。 */
+  readonly baseRoot: string
+  /** 本进程服务的租户（与 `RunContext.tenantId` 同源）。 */
+  readonly tenantId: TenantId
+  /** 某会话的 JSONL 文件路径（会话尚未创建时返回**将要**写入的路径）。 */
+  fileOf(sessionId: SessionId): string
+}
+
+/** 服务键：跨包只认这个。 */
+export const SESSION_FILES = defineService<SessionFiles>('bah:session-files')
+
+/** `core:persistence` 的配置。 */
+export interface PersistenceSettings {
+  /** 部署根（每个租户一段、每个会话再一段；见 `tenantRootOf`）。 */
+  readonly root: string
+  /** 每次 append 后是否 `fsync`（默认 true；演示/测试可关）。 */
+  readonly fsync: boolean
+}
+
+/**
+ * 默认会话根目录（相对进程 cwd）。
+ *
+ * 导出给 `safety:sentry` 用：HALT 停机状态与会话日志同根（租户根下的 `halt.json`），
+ * 这样"停机证据跟着部署目录走"，而不是跟着进程或某个会话 ID 走。
+ */
+export const DEFAULT_ROOT = 'sessions'
+
+// 既有调用方（sentry / CLI / boot）继续从这里取；公式本体在 `../tenant-root.ts`
+export { tenantRootOf }
+
+export const persistencePlugin: HostPlugin<PersistenceSettings> = {
+  id: 'core:persistence',
+
+  plugin: {
+    name: 'core:persistence',
+    inject: [RUN_SERVICE.id],
+    apply(ctx, config) {
+      const run = ctx.get(RUN_SERVICE)
+      // 部署根（`--jsonl` 优先）；租户根是它下面的一段，见 `tenantRootOf`
+      const baseRoot = run.jsonlDir ?? config.root
+      const root = tenantRootOf(baseRoot, run.tenantId)
+      const backend = new JsonlPersistence({
+        fsync: config.fsync,
+        // 尾行截断是**可容忍**的损坏（半写），告警但继续；中间行损坏仍抛错
+        warn: (message) => logJson('warn', 'host.persistence-warn', { message }),
+      } satisfies JsonlOptions)
+
+      const dirOf = (sessionId: SessionId): string => {
+        // 最后一道防线：会话 ID 来自 CLI / 恢复流程，拼路径前必须过白名单
+        const id = String(sessionId)
+        assertSafePathSegment(id, 'sessionId')
+        return join(root, id)
+      }
+      const handles = new Map<string, SessionHandle>()
+
+      // 会话关闭 / 插件 dispose 时释放常驻 fd 与内存索引
+      ctx.effect(() => {
+        for (const handle of handles.values()) handle.close?.()
+        handles.clear()
+      })
+
+      ctx.provide<SessionFiles>(SESSION_FILES, {
+        root,
+        baseRoot,
+        tenantId: run.tenantId,
+        fileOf: (sessionId) => join(dirOf(sessionId), 'session.jsonl'),
+      })
+
+      /** 本轮 boot 里"已存在的会话"只扫一次（续写模式下不允许多次全目录 scan）。 */
+      let existing: ReadonlySet<string> | undefined
+      const existingSessions = (): ReadonlySet<string> => {
+        if (existing !== undefined) return existing
+        let ids: readonly string[] = []
+        try {
+          // 归档目录（IM 子进程重启时 `<sessionId>-prev-<ts>`）里的 header 仍带原 sessionId；
+          // 直接按 header 收集会让新进程误判"会话已存在"，去 open 尚未创建的规范目录。
+          // 活动会话的目录名必须等于 sessionId，归档名带后缀，因此按目录名过滤。
+          ids = backend
+            .list(root)
+            .filter((info) => basename(info.dir) === String(info.sessionId))
+            .map((info) => String(info.sessionId))
+        } catch {
+          // 根目录还不存在 = 本次是全新部署；"列不出来"不等于"读坏了"
+          ids = []
+        }
+        existing = new Set(ids)
+        return existing
+      }
+
+      ctx.events.on('session/event', (envelope) => {
+        const key = String(envelope.session)
+        let handle = handles.get(key)
+        if (handle === undefined) {
+          const dir = dirOf(envelope.session)
+          // 续写既有会话（`run.restoreSession`）：open 会把旧事件读进来、从尾部继续写；
+          // 否则仍是"新建即拒绝覆写"。用 list() 而不是 existsSync：空目录/半写目录都不算会话。
+          handle = existingSessions().has(key)
+            ? backend.open(dir, { mode: 'write' })
+            : backend.create(dir, envelope.session, { now: envelope.event.at })
+          handles.set(key, handle)
+        }
+        handle.append(envelope.event as SessionEvent)
+      })
+    },
+  },
+
+  validate(config) {
+    rejectUnknownKeys(config, ['root', 'fsync'], 'core:persistence')
+    const root = readString(config, 'root', 'core:persistence') ?? DEFAULT_ROOT
+    const fsync = readBoolean(config, 'fsync', 'core:persistence', true)
+    return { root, fsync }
+  },
+}

@@ -1,0 +1,13 @@
+# web-plan（B2）：plan DAG + Web 渠道同一个 profile。
+#
+# - bundles: [base] —— 与 web / plan 同底座
+# - patch: web 的全部装配 + plan:dag（modelTools）+ saga-bridge tick-only（eligible: []）
+# - hmr: false —— 计划执行是同步长事务，热重载没有收益
+#
+# 演示口径：模型经 plan_propose 提出受约束 DAG（只校验不执行），用户确认后
+# plan_execute 执行；plan_execute 本身黄级审批一次，每个写节点再各走一次审批。
+# Web DAG 视图显示 plan/* 节点图（B2 数据源），tool/call 调用图保留为执行细节。
+name: web-plan
+bundles: [base]
+patch: ./patch.yml
+hmr: false

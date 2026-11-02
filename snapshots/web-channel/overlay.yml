@@ -1,0 +1,38 @@
+# web-channel 快照场景的层 4 overlay。
+#
+# 目的：在 headless 底座上挂一次真正的 Web 渠道，并让整套流程**当场跑完**。
+# 两处刻意配置：
+# 1. `channel:web.port: 0` —— 端口由内核分配，录制/回放不会撞端口，也不会留下监听；
+# 2. `core:agent.channel: web` —— 系统提示词的渠道段按 Web 裁剪（与 profiles/web 一致）。
+
+- id: core:agent
+  config:
+    channel: web
+    # 与 profile 的 core:model（provider: router）配对：loop.model 的 provider 必须与
+    # 实际注册的适配器一致，否则 registry.resolve 在录制期就报"provider 未注册"
+    loop: { model: router:router-chat, maxSteps: 8 }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }
+
+- id: demo:echo
+  use: demo:echo
+  config: { prefix: '[web] ' }
+
+- id: channel:web
+  use: channel:web
+  config:
+    port: 0
+    host: 127.0.0.1
+    staticRoot: apps/web
+    heartbeatMs: 15000
+
+# 本场景的转账要真的走完（证明 Web 渠道 + 审批 + 落账整条链路），
+# 所以录制夹具必须有一个显式放行的应答者。ADR-0010 之后 headless base 是
+# `responder: none`：没有这一行，录制会停在 `approval-no-responder` 并超时。
+# 放行只写进本快照的 rows（scenario.json），不回写 profile。
+- id: interaction:approval
+  config:
+    responder: headless
+    autoDecision: allow
+    autoVerify: true
+    windowResponder: false

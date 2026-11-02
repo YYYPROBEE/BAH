@@ -1,0 +1,10 @@
+/** 意图平面：纯 barrel，只允许 export，不允许任何语句。 */
+export * from './types.ts'
+export * from './lexicon.ts'
+export * from './slots.ts'
+export * from './evidence.ts'
+export * from './recall.ts'
+export * from './resolve.ts'
+export * from './result.ts'
+export * from './deps.ts'
+export * from './tool.ts'

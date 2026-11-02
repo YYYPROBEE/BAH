@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../runtime"
+    },
+    {
+      "path": "../safety"
+    },
+    {
+      "path": "../util"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+# headless · 知识平面 overlay（层 4，`--patch` 叠层）
+#
+# 前置：先启动 services/rag 的 sidecar（127.0.0.1:7801），再跑：
+#   pnpm bah --profile headless --patch profiles/headless/patch-knowledge.yml \
+#     --prompt "稳盈90天持有不满7天赎回费率是多少？" --session s-rag-demo --jsonl .tmp-rag
+#
+# 语义是整块替换：`core:model` 的 script 一旦出现，就完全取代默认 patch 的转账脚本。
+
+- id: core:model
+  config:
+    provider: mock
+    model: mock-chat
+    chunkSize: 4
+    script:
+      - tool:
+          id: call-k1
+          name: knowledge_answer
+          args:
+            question: 稳盈90天持有不满7天赎回费率是多少？
+      - text: 以上为知识库校验后的回答，引用见下方。
+
+# 层 4 替换 core:model 时必须同时改主循环：行是整块替换，
+# 不改的话 core:agent.loop.model 仍是 patch.yml 的 router:router-chat，
+# 而 router 适配器已被 mock 顶掉 → “provider router 未注册”（A3 实测）。
+# 除 model 外**照抄 patch.yml 的 core:agent**：整块替换下漏写就等于关掉压缩与实体槽位。
+- id: core:agent
+  config:
+    channel: headless
+    loop:
+      model: mock:mock-chat
+      maxSteps: 8
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }
+      notes:
+        - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。
+
+# 插入新行：base bundle 不含 knowledge 行，必须写 use 指向依赖清单里的插件
+- id: bank:knowledge
+  use: bank:knowledge
+  config:
+    mode: http
+    baseUrl: http://127.0.0.1:7801
+    required: false
+    channel: headless
+    claims:
+      default: { role: retail, audience: standard, region: CN-SH }
+      users:
+        u-1: { role: retail, audience: standard, region: CN-SH }

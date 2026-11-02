@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "."
+  },
+  "include": [
+    "src",
+    "bundles"
+  ],
+  "references": [
+    {
+      "path": "../host"
+    },
+    {
+      "path": "../persistence"
+    },
+    {
+      "path": "../saga"
+    }
+  ]
+}

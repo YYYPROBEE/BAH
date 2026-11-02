@@ -1,0 +1,12 @@
+# 仓库内统一 LF。Windows 下 `core.autocrlf=true` 会把检出文件转成 CRLF，
+# 而下列文件按字节精确比对（sha256 / 签名），一旦转换就会校验失败。
+* text=auto eol=lf
+
+# 知识库语料：`pnpm knowledge:sign` 的摘要入签名，字节级比对
+packages/knowledge/fixtures/** -text
+
+# 策略文件：生产签名验签按原文计算，不允许多一个 CR
+policies/** -text
+
+# 快照夹具：回放要求「同快照两次回放全等」，行尾必须稳定
+snapshots/** -text

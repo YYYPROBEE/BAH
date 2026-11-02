@@ -1,0 +1,15 @@
+# plan 快照场景的层 4 overlay（只服务录制/回放夹具，不是生产配置）。
+#
+# ADR-0010 之后 `profiles/plan` 的审批应答者是 `none`：生产 plan 没有弹窗，
+# 就不该有人替它点头。但本场景是**回归夹具**——它要证明计划引擎真的执行了
+# 查余额 → 试算 → 扣款三节点，所以录制时必须有一个显式放行的应答者。
+#
+# 放行只写进本快照的 rows（scenario.json），不回写 profile。
+# 负控：删掉本行，录制会因 `approval-no-responder` 失败（已实测）。
+
+- id: interaction:approval
+  config:
+    responder: headless
+    autoDecision: allow
+    autoVerify: true
+    windowResponder: false

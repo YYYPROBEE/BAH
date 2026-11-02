@@ -1,0 +1,227 @@
+{
+  "name": "compaction",
+  "profile": "headless",
+  "prompts": [
+    "第一轮：请记住尾号 1234 的账户",
+    "第二轮：这个账户的余额是多少",
+    "第三轮：按刚才那个账户再查一次"
+  ],
+  "sessionId": "s-snapshot-compaction",
+  "clock": {
+    "start": 1700000000000,
+    "step": 1
+  },
+  "randomSeed": 7,
+  "rows": [
+    {
+      "id": "core:session",
+      "use": "core:session",
+      "config": {}
+    },
+    {
+      "id": "core:tools",
+      "use": "core:tools",
+      "config": {}
+    },
+    {
+      "id": "core:prompt",
+      "use": "core:prompt",
+      "config": {}
+    },
+    {
+      "id": "core:model",
+      "use": "core:model",
+      "config": {
+        "provider": "mock",
+        "model": "mock-chat",
+        "chunkSize": 4,
+        "script": [
+          {
+            "text": "第一轮已按演示数据回答（压缩演示不触发任何写操作）。"
+          },
+          {
+            "text": "第二轮已按演示数据回答（压缩演示不触发任何写操作）。"
+          },
+          {
+            "text": "第三轮已按演示数据回答（压缩演示不触发任何写操作）。"
+          }
+        ]
+      }
+    },
+    {
+      "id": "core:agent",
+      "use": "core:agent",
+      "config": {
+        "channel": "headless",
+        "loop": {
+          "model": "mock:mock-chat",
+          "maxSteps": 4,
+          "compaction": {
+            "maxTurns": 1,
+            "keepRecentTurns": 1
+          }
+        },
+        "runtimeContext": {
+          "user": {
+            "name": "张三",
+            "level": "金卡"
+          },
+          "notes": [
+            "本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。"
+          ]
+        }
+      }
+    },
+    {
+      "id": "core:persistence",
+      "use": "core:persistence",
+      "config": {
+        "root": "sessions"
+      }
+    },
+    {
+      "id": "obs:telemetry",
+      "use": "obs:telemetry",
+      "config": {
+        "maxSpans": 2000
+      }
+    },
+    {
+      "id": "audit:decisions",
+      "use": "audit:decisions",
+      "config": {}
+    },
+    {
+      "id": "policy:rules",
+      "use": "policy:rules",
+      "config": {}
+    },
+    {
+      "id": "bank:tools",
+      "use": "bank:tools",
+      "config": {
+        "demoUserId": "u-1",
+        "seed": 7,
+        "datasetTier": "demo",
+        "policy": {
+          "engine": "bundle"
+        }
+      }
+    },
+    {
+      "id": "interaction:approval",
+      "use": "interaction:approval",
+      "config": {
+        "responder": "none",
+        "windowResponder": true
+      }
+    },
+    {
+      "id": "safety:sentry",
+      "use": "safety:sentry",
+      "config": {
+        "trace": {
+          "sink": "session"
+        },
+        "rules": {
+          "crossScenario": true
+        }
+      }
+    },
+    {
+      "id": "safety:verify",
+      "use": "safety:verify",
+      "config": {}
+    },
+    {
+      "id": "safety:sandbox",
+      "use": "safety:sandbox",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-store",
+      "use": "bank:saga-store",
+      "config": {}
+    },
+    {
+      "id": "bank:saga",
+      "use": "bank:saga",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-audit",
+      "use": "bank:saga-audit",
+      "config": {}
+    },
+    {
+      "id": "intent:plane",
+      "use": "intent:plane",
+      "config": {}
+    },
+    {
+      "id": "prompt:ask",
+      "use": "prompt:ask",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-bridge",
+      "use": "bank:saga-bridge",
+      "config": {
+        "enabled": true,
+        "eligible": [
+          "transfer_create"
+        ],
+        "tickIntervalMs": 60000,
+        "saga": {
+          "maxAttempts": 1
+        }
+      }
+    },
+    {
+      "id": "demo:echo",
+      "use": "demo:echo",
+      "config": {
+        "prefix": "[headless] "
+      }
+    }
+  ],
+  "model": {
+    "provider": "mock",
+    "spec": {
+      "id": "mock-chat",
+      "providerId": "mock",
+      "displayName": "Mock Chat（确定性脚本）",
+      "capabilities": {
+        "toolCall": true,
+        "image": false,
+        "reasoning": true
+      },
+      "contextWindow": 32000
+    }
+  },
+  "coveredSources": [
+    "packages/runtime/src/agent-loop/",
+    "packages/runtime/src/agent/",
+    "packages/runtime/src/session/",
+    "packages/runtime/src/system-prompt/",
+    "packages/runtime/src/tools/",
+    "packages/runtime/src/policy/",
+    "packages/runtime/src/seams.ts",
+    "packages/runtime/src/compaction/",
+    "packages/llm/src/llm/",
+    "packages/llm/src/mock/",
+    "packages/llm/src/demo/",
+    "packages/bank/src/core/",
+    "packages/bank/src/tools/",
+    "packages/host/src/boot/",
+    "packages/persistence/src/jsonl/",
+    "packages/persistence/src/chain/",
+    "packages/persistence/src/saga-store/",
+    "packages/safety/src/sentry/",
+    "packages/safety/src/verify/",
+    "packages/interaction/src/approval/",
+    "packages/saga/src/recovery/",
+    "packages/saga/src/index.ts",
+    "packages/saga/src/tick/"
+  ]
+}

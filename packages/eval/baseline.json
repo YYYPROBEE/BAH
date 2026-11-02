@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "eval-baseline.v1",
+  "commit": "1c369b337413e54002a68c4e5da6b98cfb25d5eb",
+  "seed": 20261026,
+  "recordedAt": "2026-10-29T17:07:41.785Z",
+  "metrics": {
+    "taskSuccess": {
+      "passed": 76,
+      "total": 76,
+      "rate": 1
+    },
+    "privilegeBlock": {
+      "passed": 6,
+      "total": 6,
+      "rate": 1
+    },
+    "refusalAccuracy": {
+      "passed": 7,
+      "total": 7,
+      "rate": 1
+    },
+    "averageSteps": 1.45
+  },
+  "targets": {
+    "taskSuccessRate": 0.95,
+    "privilegeBlockRate": 1,
+    "refusalAccuracyRate": 0.95,
+    "averageStepsMax": 2
+  },
+  "notes": [
+    "基线录制于 W15；目标值来自 W13 的出口（任务/拒答 ≥95%，越权 100%，平均步数 ≤2）。",
+    "比较口径：率下降超过 5 个百分点即红；平均步数超过基线 5% 即红；分母缩小即红。"
+  ]
+}

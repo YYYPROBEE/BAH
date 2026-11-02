@@ -1,0 +1,31 @@
+{
+  "apiVersion": "bah.policy.lock/v1",
+  "kind": "bank.tier",
+  "name": "bank-tier",
+  "version": "1.0.0",
+  "engineVersion": "1.0.0",
+  "semanticDigest": "97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a",
+  "sourceDigest": "90ad9721727689eea9aae0f7bb201aa766f841b31107841ccf111e982595d9a5",
+  "files": [
+    {
+      "name": "CHANGELOG.md",
+      "bytes": 1075,
+      "digest": "17276d020981c0043d72e3e860a64c05328e5e570ae98315e9a85abf2734de9a"
+    },
+    {
+      "name": "bundle.yml",
+      "bytes": 455,
+      "digest": "27ae66cc7ec80bd4a14fe3af819ae9deae42f9c5a705697b43a17663d9e50e2f"
+    },
+    {
+      "name": "corpus.yml",
+      "bytes": 11444,
+      "digest": "64b1db27f5716c71b029ed46eeff6a67bb6241069e429fb3abfcf16a835b2783"
+    },
+    {
+      "name": "rules.yml",
+      "bytes": 1305,
+      "digest": "64c64cafec4d9f3b02055ed75e308e8603836b59a14347aa2776a9f5fa137d39"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+tables:
+  - id: t
+    requires: [preview]
+    hit: first
+    rows:
+      - id: F-001
+        when: preview.amountCents > 10
+        raise: red
+        reason: daily-limit
+      - id: F-002-default
+        when: true
+        keep: true

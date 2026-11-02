@@ -1,0 +1,45 @@
+# headless · 知识平面拒绝演示（层 4）
+#
+#   pnpm bah --profile headless --patch profiles/headless/patch-knowledge-refusal.yml \
+#     --prompt "稳盈90天B起购金额是多少？" --session s-rag-refusal --jsonl .tmp-rag
+#
+# 预期：知识卡为固定拒答（SCOPE_EMPTY），不出现 50000 元。
+
+- id: core:model
+  config:
+    provider: mock
+    model: mock-chat
+    chunkSize: 4
+    script:
+      - tool:
+          id: call-k2
+          name: knowledge_answer
+          args:
+            question: 稳盈90天B起购金额是多少？
+      - text: 当前无法给出可引用的回答，详见下方知识卡。
+
+# 同 patch-knowledge：替换 core:model 必须同步主循环的 model，
+# 否则 core:agent 仍指向已被顶掉的 router 适配器。除 model 外照抄 patch.yml（整块替换）。
+- id: core:agent
+  config:
+    channel: headless
+    loop:
+      model: mock:mock-chat
+      maxSteps: 8
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }
+      notes:
+        - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。
+
+- id: bank:knowledge
+  use: bank:knowledge
+  config:
+    mode: http
+    baseUrl: http://127.0.0.1:7801
+    required: false
+    channel: headless
+    claims:
+      default: { role: retail, audience: standard, region: CN-SH }
+      users:
+        u-1: { role: retail, audience: standard, region: CN-SH }

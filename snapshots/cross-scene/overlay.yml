@@ -1,0 +1,14 @@
+# cross-scene 快照场景的层 4 overlay（只服务录制/回放夹具，不是生产配置）。
+#
+# ADR-0010 之后 `profiles/plan` 的审批应答者是 `none`。本场景要证明
+# 「两轮对话 → 计划创建 → 三笔转账各自落领域事件」，`plan_execute` 的审批
+# 必须被放行；否则 flow 会停在 `approval-no-responder`，`plan/created` 不出现。
+#
+# 放行只写进本快照的 rows（scenario.json），不回写 profile。
+
+- id: interaction:approval
+  config:
+    responder: headless
+    autoDecision: allow
+    autoVerify: true
+    windowResponder: false

@@ -1,0 +1,36 @@
+# bank-tier 1.0.0 · 规则表
+#
+# 与 packages/bank/src/tools/tier.ts 的 legacy 判定逐条等价（设计方案 01 §11）。
+# 表顺序是语义：金额优先于收款人（同时命中时理由取更具体的 daily-limit）。
+
+tables:
+  - id: transfer-escalation
+    appliesTo: [transfer_create]
+    requires: [preview]
+    hit: first
+    rows:
+      # 日累计含本笔 > 生效上限 → 红。严格大于：恰好等于上限不升。
+      - id: TR-001-over-daily-limit
+        when: preview.dailyUsedCents + preview.amountCents > limits.dailyLimitCents
+        raise: red
+        reason: daily-limit
+      # 新收款人 → 红（防"小额试探 + 大额收割"）。
+      - id: TR-002-new-payee
+        when: preview.payee.binding == "new"
+        raise: red
+        reason: new-payee
+      - id: TR-003-default
+        when: true
+        keep: true
+
+  - id: risky-calls-reason
+    hit: first
+    rows:
+      # 组合风险超阈：只改理由，不改级别；绿级不改（绿级工具不进策略，此处再守一道）。
+      - id: RC-001-over-threshold
+        when: reason == "declared" && level != "green" && state.riskyCallsInTurn >= params.riskyCallThreshold
+        keep: true
+        reason: risky-calls
+      - id: RC-002-default
+        when: true
+        keep: true

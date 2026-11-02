@@ -1,0 +1,199 @@
+/**
+ * sentry 判决件的 fail-closed 包装。
+ *
+ * ## 为什么需要这一层
+ *
+ * 七段管线对 `tools/post-execute` 的异常处理是"宽容"的（`runtime/src/tools/pipeline.ts`）：
+ *
+ * ```text
+ * 后置监听器坏了不等于工具执行坏了：按 accept 继续，落审计。
+ * ```
+ *
+ * 这条宽容对普通观察者成立，但对**带 block 权限的判决件**是反模式：sentry 的数值对账
+ * 一旦自己抛错，未经核验的工具结果会原样作为可信内容交给模型——校验组件失效的那一次，
+ * 恰好就是最该拦截的那一次。
+ *
+ * 本包装只改 sentry 自己的监听器，不动 runtime 的通用 catch：`runtime` 不知道谁"带判决权"，
+ * 让它猜哪个监听器重要，等于把职责放到错误的层。
+ *
+ * ## 三条纪律
+ *
+ * 1. **不向上抛**：抛出去会落到 runtime 的 `catch`，那条路径返回 accept——正好是我们要避免的；
+ * 2. **错误详情不进模型可见文本**：`reason` 是固定话术，错误消息只进审计（截断 200 字），
+ *    也不拼接 `payload` / 工具参数 / 工具结果，避免把失败面变成信息泄漏面；
+ * 3. **`next` 最多一次**：内层监听器若重复调用下游，会出现"同一结果被下游判决两次"，
+ *    这在有副作用的监听器（记账 / 吊销票据）上不是幂等的。
+ */
+
+import { reasonOf } from '@bah/util'
+
+import type { Listener } from '@bah/core'
+import type { TraceLog } from '../kernel/index.ts'
+
+import type { SentrySessionEventType } from './events.ts'
+import { createNumericListener, type SentryHonestyOptions } from './honesty.ts'
+
+/** 包装参数：只要落账能力，不要整个 settings。 */
+export interface FailClosedOptions {
+  readonly sessionId: string
+  readonly trace: TraceLog
+  readonly record: (type: SentrySessionEventType, data: unknown) => void
+  readonly now: () => number
+}
+
+/**
+ * `tools/post-execute` 监听器形状。
+ *
+ * 直接取 `Listener<'tools/post-execute'>`，不用手写的 `(payload: unknown, next: …) => …`：
+ * 后者在**同时装载 runtime 类型增强**的 program 里（`tsconfig.scripts.json`：门禁脚本
+ * 同时 import `@bah/host` 与 `@bah/safety`）会因 `next` 参数逆变而不兼容
+ * `ctx.events.on()` 的签名。`@bah/core` 的 `BahEventMap` 是开放索引签名，所以只装
+ * `@bah/core` 的包内 program 仍把 `payload` 解析成 `unknown`，行为与改前逐字一致。
+ */
+export type PostExecuteListener = Listener<'tools/post-execute'>
+
+/** 审计里错误消息的截断长度。 */
+const MAX_MESSAGE = 200
+
+/** 结构化理由码（模型与审计共用的唯一标识）。 */
+export const VERIFIER_UNAVAILABLE = 'verifier-unavailable'
+
+/**
+ * 模型可见的固定话术。
+ *
+ * 刻意不含错误内容：真实原因写在 `sentry/verifier-failed` 与 TraceLog 里，
+ * 只给运维看。模型看到"组件异常，已阻断"就够——它既不需要、也不该拿到内部异常。
+ */
+const BLOCK_REASON =
+  '【幻觉防护】结果核验组件异常，本次工具结果未经核验，已阻断。请重试或联系运维。'
+
+/**
+ * 把任意 post-execute 监听器包成 fail-closed。
+ *
+ * @param listener 原始监听器（正常路径完全由它决定）
+ * @param options 落账依赖
+ * @returns 包装后的监听器：**永不抛错**，异常一律降级为 `block`
+ */
+export function failClosedPostExecute(
+  listener: PostExecuteListener,
+  options: FailClosedOptions,
+): PostExecuteListener {
+  const { sessionId, trace, record, now } = options
+
+  return async (payload, next) => {
+    // 一次取用：内层无论调几次 `next`，下游只跑一次
+    const once = onceNext(next)
+    try {
+      return await listener(payload, once)
+    } catch (error) {
+      const at = now()
+      const message = truncate(reasonOf(error), MAX_MESSAGE)
+      trace.append({ session: sessionId, kind: 'honesty-verifier-failed', message, at })
+      record('sentry/verifier-failed', {
+        listener: 'tools/post-execute',
+        code: VERIFIER_UNAVAILABLE,
+        message,
+        at,
+      })
+      return {
+        ...(isRecord(payload) ? payload : {}),
+        verdict: { kind: 'block', code: VERIFIER_UNAVAILABLE, reason: BLOCK_REASON },
+      }
+    }
+  }
+}
+
+/**
+ * sentry 自己的 post-execute 监听器：数值对账 + fail-closed。
+ *
+ * `createNumericListener` 保留导出与既有测试不动（接口已冻结），这里只做包装。
+ */
+export function createSentryPostExecuteListener(
+  options: SentryHonestyOptions,
+): PostExecuteListener {
+  return failClosedPostExecute(createNumericListener(options), {
+    sessionId: options.sessionId,
+    trace: options.trace,
+    record: options.record,
+    now: options.now,
+  })
+}
+
+/** `agent/turn-stopping` 监听器形状（serial，无 `next` 参数）。 */
+export type TurnStoppingListener = (payload: unknown) => void
+
+/**
+ * turn-stopping 版 fail-closed 的固定判停理由。
+ *
+ * 这里没有"block"可返回，唯一的失败即"不许正常收尾"——所以异常一律转成 `stop()`。
+ */
+export const TURN_STOPPING_BLOCK_REASON =
+  '【行动断言】行动核验组件异常，本轮不能按正常完成收尾，已判停。'
+
+/**
+ * 把 `agent/turn-stopping` 监听器包成 fail-closed（D5 / S-1）。
+ *
+ * 为什么 turn-stopping 也要包：行动断言守卫挂在收尾钩子上，它自己崩了如果只是
+ * 静默跳过，带成功断言的消息就正常收尾了——**核验组件失效的那一次，恰好是最该拦的那一次**。
+ *
+ * 三条纪律与 post-execute 版一致：不向上抛、错误详情不进模型可见文本、落
+ * `sentry/verifier-failed` 让运维知道是组件坏了。
+ */
+export function failClosedTurnStopping(
+  listener: TurnStoppingListener,
+  options: FailClosedOptions,
+): TurnStoppingListener {
+  const { sessionId, trace, record, now } = options
+
+  return (payload) => {
+    try {
+      listener(payload)
+    } catch (error) {
+      const at = now()
+      const message = truncate(reasonOf(error), MAX_MESSAGE)
+      trace.append({ session: sessionId, kind: 'honesty-verifier-failed', message, at })
+      record('sentry/verifier-failed', {
+        listener: 'agent/turn-stopping',
+        code: VERIFIER_UNAVAILABLE,
+        message,
+        at,
+      })
+      const stop = isRecord(payload) ? payload['stop'] : undefined
+      if (typeof stop === 'function') {
+        try {
+          ;(stop as (reason?: string) => void)(TURN_STOPPING_BLOCK_REASON)
+        } catch {
+          // 判停本身都失败时没有更强的兜底：至少异常详情已经进审计
+        }
+      }
+    }
+  }
+}
+
+/**
+ * `next` 的一次性包装。
+ *
+ * 同步抛错**不在这里转成 reject**：让它按普通异常冒泡到内层监听器的调用点，
+ * 最终由本层的 catch 接住。若这里转成 `Promise.reject`，内层不 await 它就会
+ * 变成 unhandled rejection——用更隐蔽的方式报告同一个错误，不值。
+ *
+ * 泛型而非 `unknown`：`Listener` 的 `next` 参数类型随事件表走（见 `PostExecuteListener`
+ * 的注释），写死 `unknown` 会在逆变位置失配。
+ */
+function onceNext<T>(next: (value: T) => Promise<T>): (value: T) => Promise<T> {
+  let cached: Promise<T> | undefined
+  return (value) => {
+    if (cached === undefined) cached = next(value)
+    return cached
+  }
+}
+
+/** 截断到 `limit` 字符（按码点，不切坏代理对）。 */
+function truncate(text: string, limit: number): string {
+  const chars = [...text]
+  return chars.length <= limit ? text : `${chars.slice(0, limit).join('')}…`
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}

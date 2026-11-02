@@ -1,0 +1,296 @@
+/**
+ * 银行工具族的测试夹具（**只服务单测**，不从包入口导出，不进发布面）。
+ *
+ * 两个 harness：
+ * - `createBankHarness`：直接调用 `ToolDefinition.execute`，验证工具体与落账；
+ * - `createPipelineHarness`：装真实七段管线 + 治理平面，验证 T-TOOLS-001~004 的
+ *   allow / ask / 票据 / 升级链路。
+ */
+
+import {
+  asSessionId,
+  createTestContext,
+  fixedClock,
+  type Clock,
+  type TestContext,
+} from '@bah/test-support'
+import {
+  SESSION_SERVICE,
+  ToolGuard,
+  ToolPipeline,
+  ToolRegistry,
+  provideSession,
+  provideTools,
+} from '@bah/runtime'
+import type { SessionApi } from '@bah/runtime'
+import type { Context, ToolDefinition, ToolExecContext } from '@bah/core'
+import type { AnySessionEvent, ToolExecution } from '@bah/runtime'
+import type { PolicyEngine } from '@bah/runtime'
+
+import type { ForgeTier } from '../forge/index.ts'
+import { DEMO_NOW, buildBankDataset } from '../forge/index.ts'
+import { MockBankCore, bankIds } from '../core/index.ts'
+import { DAY_MS } from '../core/time.ts'
+import { createBankTools } from './catalog.ts'
+import type { BankAudit, BankSessionEventMap, BankSessionEventType } from './events.ts'
+import { provideBankGovernance } from './governance.ts'
+import type { BankIdentity, BankToolDeps, BankToolsConfig, ComputeSeam } from './types.ts'
+import type { AccountId } from '../core/model.ts'
+import { VerifyService, createMockVerifyProvider } from '../verify/index.ts'
+
+/** 落账记录（测试断言用）。 */
+export interface AuditRecord {
+  readonly type: BankSessionEventType
+  readonly data: unknown
+}
+
+/** 默认配置（测试与 host 默认一致）。 */
+export const TEST_CONFIG: BankToolsConfig = {
+  disclaimerId: 'wealth-risk-v1',
+  computeTimeoutMs: 5_000,
+  ticketTtlSeconds: 120,
+  redChallenge: 'sms',
+  dailyTransferLimit: 1_000,
+  riskyOps: ['transfer_create', 'wealth_purchase'],
+  riskyCallThreshold: 3,
+  riskCooldownDays: 1,
+}
+
+/** 直接调用工具的 harness。 */
+export interface BankHarness {
+  readonly deps: BankToolDeps
+  readonly core: MockBankCore
+  readonly verify: VerifyService
+  readonly tools: ReadonlyMap<string, ToolDefinition<unknown, unknown>>
+  readonly audits: AuditRecord[]
+  readonly ctx: ToolExecContext
+  /**
+   * 注入钟（`advance(ms)` 可以推进时间）。
+   *
+   * 为什么交出来：交接票据的 TTL、锁定窗口这类语义**只能靠推进时间**验证，
+   * 而"再造一个 harness"会让同一份夹具出现两条实现。
+   */
+  readonly clock: Clock
+  call(name: string, args?: Readonly<Record<string, unknown>>, callId?: string): Promise<unknown>
+  auditsOf<K extends BankSessionEventType>(type: K): BankSessionEventMap[K][]
+}
+
+/** 造依赖（两个 harness 共用）。 */
+export function createDeps(options: {
+  readonly now: () => number
+  /** `null` = 未绑定身份（测 `no-identity`）；缺省 = demo 用户 `u-1`。 */
+  readonly userId?: string | null
+  readonly tier?: ForgeTier
+  readonly seed?: number
+  readonly config?: Partial<BankToolsConfig>
+  readonly audits: AuditRecord[]
+  readonly verify?: VerifyService
+  readonly core?: MockBankCore
+  readonly compute?: ComputeSeam
+  /** 替换身份接缝（03 TA-47：构造 wrong-tenant / 旧载荷等样本）。 */
+  readonly identity?: BankIdentity
+}): { deps: BankToolDeps; core: MockBankCore; verify: VerifyService } {
+  const dataset = buildBankDataset({
+    seed: options.seed ?? 7,
+    tier: options.tier ?? 'demo',
+    now: DEMO_NOW,
+  })
+  // 重测冷却与部署面同源：harness 里由 `config.riskCooldownDays` 决定，
+  // 缺省 = `TEST_CONFIG` 的 1 天（与 host 一致）。想关掉就在 `config` 里写 0。
+  const cooldownDays = options.config?.riskCooldownDays ?? TEST_CONFIG.riskCooldownDays
+  const core =
+    options.core ??
+    new MockBankCore({
+      data: dataset,
+      now: options.now,
+      ...(cooldownDays <= 0 ? {} : { riskCooldownMs: cooldownDays * DAY_MS }),
+    })
+  const verify =
+    options.verify ??
+    new VerifyService({ provider: createMockVerifyProvider(), now: options.now })
+  const audit: BankAudit = {
+    append: (type, data) => {
+      options.audits.push({ type, data })
+    },
+  }
+  const userId = options.userId === null ? undefined : (options.userId ?? 'u-1')
+  const deps: BankToolDeps = {
+    core,
+    tickets: core.tickets,
+    audit,
+    identity: options.identity ?? { resolve: () => userId },
+    verify,
+    config: { ...TEST_CONFIG, ...options.config },
+    now: options.now,
+    ...(options.compute === undefined ? {} : { compute: options.compute }),
+  }
+  return { deps, core, verify }
+}
+
+/** 建一个直接调用工具的 harness。 */
+export function createBankHarness(options: {
+  readonly userId?: string | null
+  readonly tier?: ForgeTier
+  readonly seed?: number
+  readonly config?: Partial<BankToolsConfig>
+  readonly compute?: ComputeSeam
+  readonly verify?: VerifyService
+} = {}): BankHarness {
+  const clock = fixedClock({ start: DEMO_NOW, step: 1 })
+  const audits: AuditRecord[] = []
+  const { deps, core, verify } = createDeps({ ...options, now: clock.now, audits })
+  const tools = new Map(createBankTools(deps).map((tool) => [tool.name, tool]))
+  const ctx: ToolExecContext = {
+    sessionId: asSessionId('s-bank'),
+    callId: 'c-direct',
+    signal: new AbortController().signal,
+  }
+  return {
+    deps,
+    core,
+    verify,
+    tools,
+    audits,
+    ctx,
+    clock,
+    async call(name, args = {}, callId = 'c-direct') {
+      const tool = tools.get(name)
+      if (tool === undefined) throw new Error(`测试里没有工具 ${name}`)
+      return tool.execute(args, { ...ctx, callId })
+    },
+    auditsOf<K extends BankSessionEventType>(type: K) {
+      return audits
+        .filter((record) => record.type === type)
+        .map((record) => record.data as BankSessionEventMap[K])
+    },
+  }
+}
+
+/** 装真实七段管线的 harness（T-TOOLS-001~004）。 */
+export interface PipelineHarness {
+  readonly test: TestContext
+  readonly ctx: Context
+  readonly session: SessionApi
+  readonly deps: BankToolDeps
+  readonly core: MockBankCore
+  readonly audits: AuditRecord[]
+  readonly pipeline: ToolPipeline
+  readonly events: () => readonly AnySessionEvent[]
+  run(name: string, args?: Readonly<Record<string, unknown>>): Promise<ToolExecution>
+  dispose(): Promise<void>
+}
+
+/** 建一个带会话 / 工具注册表 / 管线的测试上下文，并装上治理平面。 */
+export function createPipelineHarness(options: {
+  readonly userId?: string | null
+  readonly approval?: 'allowed-once' | 'rejected' | 'unavailable'
+  readonly tier?: ForgeTier
+  readonly seed?: number
+  /** 覆盖 `BankToolsConfig`（P5：riskyOps / riskyCallThreshold 的对抗用例）。 */
+  readonly config?: Partial<BankToolsConfig>
+  readonly verify?: VerifyService
+  /** 复用同一个 bank-core（跨会话累计用例：账本必须共享）。 */
+  readonly core?: MockBankCore
+  /** 会话 ID（缺省 `s-bank-pipe`；跨会话用例传另一个）。 */
+  readonly sessionId?: string
+  /** 调用 ID 前缀（跨会话共用 core 时避免票据 ID 撞车）。 */
+  readonly callIdPrefix?: string
+  /** 策略引擎（缺省 = `tier.ts` 的默认实现；W04 的注入面）。 */
+  readonly policy?: PolicyEngine
+  /** 策略引擎模式（策略外置 S2；缺省 `legacy`）。 */
+  readonly policyEngineMode?: 'legacy' | 'bundle'
+  /** 当前生效策略版本（早拒路径审计；缺省 `legacy`）。 */
+  readonly activePolicyVersion?: string
+  /**
+   * 可控时钟（缺省 = 内部确定性钟）。
+   *
+   * W12：lease 过期需要"审批后、执行前"推进时间——用例把钟拿在手上，
+   * 在 `tools/execute` 监听器里 advance，就能测到"核销前被拒"而不是只测记账。
+   */
+  readonly clock?: Clock
+  /** 执行 lease（W12：窄窗口；缺省 = 只用票据 TTL）。 */
+  readonly lease?: {
+    readonly enforce: boolean
+    readonly ttlMs: number
+  }
+  /** 替换身份接缝（03 TA-47 用例）。 */
+  readonly identity?: BankIdentity
+  /** 进程租户（03 TA-47；缺省不判租户）。 */
+  readonly tenantId?: string
+} = {}): PipelineHarness {
+  const test = createTestContext()
+  const sessionId = asSessionId(options.sessionId ?? 's-bank-pipe')
+  const clock = options.clock ?? fixedClock({ start: DEMO_NOW, step: 10 })
+  provideSession(test.ctx, { sessionId, now: clock.now })
+  const session = test.ctx.get(SESSION_SERVICE)
+  const registry = new ToolRegistry()
+  provideTools(test.ctx, registry)
+
+  const audits: AuditRecord[] = []
+  const { deps, core } = createDeps({
+    ...options,
+    now: clock.now,
+    audits,
+    ...(options.core === undefined ? {} : { core: options.core }),
+  })
+  for (const tool of createBankTools(deps)) registry.register(tool)
+  provideBankGovernance({
+    ctx: test.ctx,
+    sessionId,
+    deps,
+    ...(options.policy === undefined ? {} : { policy: options.policy }),
+    ...(options.policyEngineMode === undefined
+      ? {}
+      : { policyEngineMode: options.policyEngineMode }),
+    ...(options.activePolicyVersion === undefined
+      ? {}
+      : { activePolicyVersion: options.activePolicyVersion }),
+    ...(options.lease === undefined ? {} : { lease: options.lease }),
+    ...(options.tenantId === undefined ? {} : { tenantId: options.tenantId }),
+  })
+
+  if (options.approval !== undefined) {
+    const decision = options.approval
+    test.ctx.events.on('approval/request', (payload) => {
+      const input = payload as { decision: { decision: string } }
+      return { ...input, decision: { decision } }
+    })
+  }
+
+  const pipeline = new ToolPipeline({
+    ctx: test.ctx,
+    registry,
+    session,
+    guard: new ToolGuard(),
+    sessionId,
+    now: clock.now,
+  })
+  let sequence = 0
+  return {
+    test,
+    ctx: test.ctx,
+    session,
+    deps,
+    core,
+    audits,
+    pipeline,
+    events: () => session.events(),
+    async run(name, args = {}) {
+      sequence += 1
+      return pipeline.execute({
+        callId: `${options.callIdPrefix ?? ''}c-${sequence}`,
+        name,
+        args,
+      })
+    },
+    dispose: () => test.dispose(),
+  }
+}
+
+/** 当前用户名下的主账户 ID（测试里少写一次 listAccounts）。 */
+export async function primaryAccountId(core: MockBankCore): Promise<AccountId> {
+  const accounts = await core.listAccounts(bankIds.user('u-1'))
+  const current = accounts.find((account) => account.type === 'current') ?? accounts[0]
+  if (current === undefined) throw new Error('demo 数据没有账户')
+  return current.id
+}

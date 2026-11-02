@@ -1,0 +1,617 @@
+/**
+ * Web 渠道的**渲染原语**（帧）。
+ *
+ * 为什么要中间层而不是"事件直接进 DOM"：
+ * 1. 帧是纯数据：同一串会话事件 → 同一串帧（无时钟、无随机、无 DOM），
+ *    因此"两次渲染 diff = 0"是构造出来的性质，而不是碰巧相等（T-WEB-007）；
+ * 2. 帧可快照：断线重同步时服务端重放同一归约器，客户端整体替换即可，
+ *    不需要"倒推 DOM 该怎么回滚"（T-WEB-001）；
+ * 3. 帧可测：node 面测归约器，jsdom 面只测"帧 → 节点"。
+ *
+ * 纪律：本文件只有**类型与判别工具**，不含任何推导逻辑（推导在 `project.ts`）。
+ */
+
+import { assertNever } from '@bah/util'
+
+import type { ApprovalDecision } from '@bah/runtime'
+
+/** 权限级别在渠道侧的投影（`unknown` 表示事件里没带，绝不猜）。 */
+export type FrameTier = 'green' | 'yellow' | 'red' | 'unknown'
+
+/** 文本色调（对应 BAH DS 的 `--text-*` / `--status-*`，不引入新色）。 */
+export type FrameTone = 'default' | 'muted' | 'success' | 'warning' | 'danger'
+
+/** 徽标色调（对应 `.ds-tag--*`）。 */
+export type TagTone = 'default' | 'brand' | 'success' | 'warning' | 'danger'
+
+/** 一个徽标。 */
+export interface FrameTag {
+  readonly text: string
+  readonly tone: TagTone
+}
+
+/** 一个字段行。 */
+export interface CardField {
+  readonly label: string
+  readonly value: string
+  /** 是否是金额字段（金额要按"是否有工具结果"降级，见 `amount.ts`）。 */
+  readonly amount?: boolean
+  readonly tone?: FrameTone
+  /** 等宽数字（ID / 理由码 / 计数）。 */
+  readonly mono?: boolean
+}
+
+/** 表格（账户列表、交易流水）。 */
+export interface CardTable {
+  readonly headers: readonly string[]
+  readonly rows: readonly (readonly string[])[]
+}
+
+/** 卡片视图：领域 `UiCard` 或工具结果文本在渠道侧的**唯一**呈现形态。 */
+export interface CardView {
+  /** 原始卡片种类（`bank.transfer-created` 等；文本派生时为 `tool.content`）。 */
+  readonly kind: string
+  /** 模板名（视图按它选布局）。 */
+  readonly template: 'transfer' | 'wealth' | 'ledger' | 'analysis' | 'verify' | 'knowledge' | 'generic'
+  readonly title: string
+  readonly subtitle?: string
+  readonly fields: readonly CardField[]
+  readonly table?: CardTable
+  readonly tags: readonly FrameTag[]
+  /** 风险提示（理财合规硬要求：**永不折叠**）。 */
+  readonly disclaimer?: { readonly id: string; readonly text: string }
+  /** 工具结果正文（已从 `tool/result.content` 取出，保留换行）。 */
+  readonly body?: string
+  /** 结构化理由码（拒绝 / 失败 / 知识拒答）。 */
+  readonly code?: string
+  readonly note?: string
+}
+
+/** 一轮的开始 / 结束。 */
+export interface TurnFrame {
+  readonly kind: 'turn'
+  readonly seq: number
+  readonly at: number
+  readonly turn: number
+  readonly phase: 'start' | 'end'
+  /** 结束原因（`phase === 'end'` 时存在）。 */
+  readonly endKind?: 'completed' | 'blocked' | 'aborted' | 'max-tokens' | 'guard-stopped' | 'failed'
+  readonly reason?: string
+}
+
+/** 一条消息块。 */
+export type MessageBlock =
+  | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'image'; readonly mimeType: string; readonly data: string }
+  | { readonly type: 'other'; readonly summary: string }
+
+/** 消息气泡。 */
+export interface MessageFrame {
+  readonly kind: 'message'
+  readonly seq: number
+  readonly at: number
+  /** C5-2：`operator` 是人工坐席发言，与 assistant 区别渲染（不是模型说的）。 */
+  readonly role: 'user' | 'assistant' | 'operator'
+  readonly blocks: readonly MessageBlock[]
+  /** 本轮发起的工具调用（只给 ID / 名字，明细在 `tool` 帧）。 */
+  readonly toolCalls?: readonly { readonly callId: string; readonly name: string }[]
+  /** 消息来源（`context` = 工具后置纠正文本，不显示为用户发言）。 */
+  readonly source?: string
+  /** 坐席显示名（仅 `role:'operator'` 时有值）。 */
+  readonly operator?: string
+}
+
+/**
+ * 流式增量（ephemeral）。
+ *
+ * 不是事实：不入会话日志、不占 `seq`、断线即丢。权威仍是随后的 `assistant/message`。
+ * 为什么单独一帧：UI 需要"边生成边显示"，但不能让分片污染 append-only 日志
+ * （否则 `deriveMessages` 会把半句话当成历史）。
+ */
+export interface DeltaFrame {
+  readonly kind: 'delta'
+  readonly at: number
+  readonly text: string
+}
+
+/** 工具卡片三态：待执行 / 完成 / 被拒（含执行失败）。 */
+export interface ToolFrame {
+  readonly kind: 'tool'
+  readonly seq: number
+  readonly at: number
+  readonly callId: string
+  readonly name: string
+  readonly title: string
+  readonly state: 'pending' | 'done' | 'denied'
+  /** 失败细分：`denied` = 判决拦截；`failed` = 执行期错误（文案必须不同）。 */
+  readonly reasonKind?: 'denied' | 'failed'
+  readonly tier: FrameTier
+  /** 金额是否已被本 turn 的工具结果证实（false → 标灰 + "待确认"）。 */
+  readonly amountConfirmed: boolean
+  readonly card?: CardView
+  readonly code?: string
+  readonly reason?: string
+  readonly durationMs?: number
+}
+
+/** 审批弹窗（六要素 + 挑战 + 截止时刻）。 */
+/** 审批明细的一行（服务端签发；渠道只排版，不重算）。 */
+export interface ApprovalDetail {
+  readonly label: string
+  readonly value: string
+  /** 展示强调：金额等宽 / 时刻 / 风险结论（风险用 `ds-tag`，**不得**用左侧竖色条）。 */
+  readonly emphasis?: 'amount' | 'date' | 'risk'
+}
+
+export interface ApprovalFrame {
+  readonly kind: 'approval'
+  readonly seq: number
+  readonly at: number
+  readonly ticketId: string
+  readonly callId: string
+  readonly name: string
+  /** 操作类型（渠道可读标题）。 */
+  readonly operation: string
+  readonly amountText?: string
+  /**
+   * 金额是否已被工具结果证实。审批帧只在**同 turn 已有成功 `transfer_preview`**
+   * 且收款人+金额与本次审批完全一致时为 `true`；其余情况仍是"待批准的数字"，
+   * 视图标灰 + "待确认"。批准执行后的最终确认仍以本次 `tool/result` 为准。
+   */
+  readonly amountConfirmed: boolean
+  readonly payeeName?: string
+  /** 收款人手机号（**已脱敏**：前 3 后 4；原值不进前端）。 */
+  readonly payeePhone?: string
+  /** 手续费展示文本（来自本 turn 的 `transfer_preview` 结果；没有就不编）。 */
+  readonly feeText?: string
+  readonly tier: FrameTier
+  /** 票据 TTL 截止时刻（epoch ms）；客户端只做视觉倒计时。 */
+  readonly expiresAt?: number
+  readonly challenge?: 'face' | 'sms' | 'ushield'
+  /** 拒绝理由是否必填（红级 / 资金类）。 */
+  readonly rejectReasonRequired: boolean
+  /**
+   * 必须逐字输入的确认词（删除 / 撤销类操作）。
+   *
+   * 渲染用的同一份规则由 `confirm.ts` 提供；**判定在服务端**（`http-adapter.ts` 的 `decide`），
+   * 前端只负责要求用户打字。
+   */
+  readonly confirmText?: string
+  /**
+   * 服务端签发的结构化操作明细（`approval/asked.details` 的**原样**投影）。
+   *
+   * 数量上限见 `project.ts` 的 `DETAILS_MAX_ROWS`（超出截断并标 `truncated`）；
+   * 金额等数值**一律不在这里重算**——重算就等于渠道自造事实。
+   */
+  readonly details?: readonly ApprovalDetail[]
+  /** 明细是否因超出展示上限被截断（截断时 `details` 只含前 N 条）。 */
+  readonly detailsTruncated?: boolean
+}
+
+/** 风险问卷的一个选项（键 / 文本 / 分值，全部来自服务端常量表）。 */
+export interface RiskQuestionOption {
+  readonly key: string
+  readonly text: string
+  readonly score: number
+}
+
+/** 风险问卷的一道题。 */
+export interface RiskQuestionItem {
+  readonly index: number
+  readonly title: string
+  readonly options: readonly RiskQuestionOption[]
+}
+
+/**
+ * 风险问卷卡（`read/risk-questions` 域事件的投影）。
+ *
+ * 语义边界：这张卡**不是审批**——它没有票据、点了不发钱，只负责"让用户本人答题"。
+ * 答完由前端拼一条普通用户消息（`风险测评作答 <问卷ID> 1=… 2=…`）走 `POST /api/turn`，
+ * 与手打一句话完全同一条路径；真正的确认闸是随后的审批卡（逐题回显 + 批准）。
+ *
+ * 为什么不复用 `choice` 帧：`choice` 只能承载一题、点选后回传**选项文本**，
+ * 5 题连问时无法携带题号（用户看到的下一条消息只剩"中等"两个字），
+ * 服务端也就无法证明"第 3 题选了哪一项"。这里用一张卡收齐 5 题，一次提交。
+ */
+export interface RiskQuestionnaireFrame {
+  readonly kind: 'risk-questionnaire'
+  readonly seq: number
+  readonly at: number
+  /** 追溯：`tool/result.callId`（发卷的那次调用）。 */
+  readonly callId: string
+  readonly questionnaireId: string
+  readonly version: string
+  /** 失效时刻（epoch ms）；前端只做展示，判定在服务端。 */
+  readonly expiresAt: number
+  readonly questions: readonly RiskQuestionItem[]
+}
+
+/** 审批收尾。 */
+export interface ApprovalClosedFrame {  readonly kind: 'approval-closed'
+  readonly seq: number
+  readonly at: number
+  readonly ticketId: string
+  readonly decision: ApprovalDecision
+  readonly label: string
+  readonly reason?: string
+  readonly code?: string
+}
+
+/** 行内提示（判停 / 失败 / 压缩 / 安全拦截）。 */
+export interface NoticeFrame {
+  readonly kind: 'notice'
+  readonly seq: number
+  readonly at: number
+  readonly level: 'info' | 'success' | 'warning' | 'danger'
+  readonly title: string
+  readonly text?: string
+  readonly code?: string
+}
+
+/** 审计时间线条目。 */
+/** 审计明细的一行（服务端按白名单裁剪后的安全字段；前端只排版）。 */
+export interface AuditDetail {
+  readonly label: string
+  readonly value: string
+}
+
+export interface AuditFrame {
+  readonly kind: 'audit'
+  readonly seq: number
+  readonly at: number
+  /** `HH:MM:SS`（服务端按 UTC 格式化，前端不再算时区）。 */
+  readonly timeText: string
+  /** 分类（审批 / 票据 / 工具 / 安全 / 知识 / 订阅 / 轮次）。 */
+  readonly category: 'approval' | 'ticket' | 'tool' | 'safety' | 'knowledge' | 'subscription' | 'turn'
+  readonly label: string
+  readonly summary: string
+  readonly code?: string
+  readonly ticketId?: string
+  readonly toolName?: string
+  /** 可展开的明细（白名单字段，不放原始工具参数/结果/用户原话）。 */
+  readonly detail?: readonly AuditDetail[]
+}
+
+/**
+ * DAG 节点。
+ *
+ * B2（2026-10-27）：新增 `plan` 节点与 plan 执行状态——`running` / `failed` /
+ * `skipped` / `incident` / `cancelled` 与 `PLAN_NODE_STATES` 对齐；
+ * `incident` 与 `failed` 在视图上**必须可区分**（security-design §4 第 6 条的自认缺口）。
+ */
+export interface DagNode {
+  readonly id: string
+  readonly label: string
+  readonly kind: 'step' | 'call' | 'plan'
+  readonly step: number
+  readonly tier: FrameTier
+  readonly state:
+    | 'pending'
+    | 'ok'
+    | 'denied'
+    | 'blocked'
+    | 'running'
+    | 'failed'
+    | 'skipped'
+    | 'incident'
+    | 'cancelled'
+  /** plan 节点的计划 ID（kind='plan' 时存在）。 */
+  readonly planId?: string
+  /** plan 节点的失败/跳过理由码（与 `plan/node-result.code` 同源）。 */
+  readonly code?: string
+}
+
+/** DAG 边（有向：先 → 后）。 */
+export interface DagEdge {
+  readonly from: string
+  readonly to: string
+}
+
+/** DAG（按 turn 整体替换）。 */
+export interface DagFrame {
+  readonly kind: 'dag'
+  readonly seq: number
+  readonly at: number
+  readonly turn: number
+  readonly nodes: readonly DagNode[]
+  readonly edges: readonly DagEdge[]
+  /** 文字摘要（SVG 的 `aria-label` 用它，屏幕阅读器不能只看到一张空图）。 */
+  readonly summary: string
+}
+
+/** 接管状态变化（用户页顶部横幅）。 */
+export interface HandoffFrame {
+  readonly kind: 'handoff'
+  readonly seq: number
+  /** 进入接管的时刻（认领帧也沿用它，见 `projectHandoff`）。 */
+  readonly at: number
+  readonly active: boolean
+  readonly reason?: string
+  readonly operator?: string
+  readonly waitedMs?: number
+}
+
+/** 超时告警（不自动交回，只提示）。 */
+export interface HandoffWarnFrame {
+  readonly kind: 'handoff-warn'
+  readonly seq: number
+  readonly at: number
+  readonly waitedMs: number
+  readonly slaMs: number
+}
+
+/** 全量快照（连接 / 重同步）。 */
+export interface SnapshotFrame {
+  readonly kind: 'snapshot'
+  readonly sessionId: string
+  readonly maxSeq: number
+  readonly frames: readonly WebFrame[]
+}
+
+/**
+ * 选择题帧（00 D6/D7）。语义边界（D6 原文）：追问**不走审批通道**——没有票据、
+ * 没有 responder，用户点选后前端把**选项文本**当普通用户消息发 `POST /api/turn`。
+ * 所以本帧刻意**不含** `ticketId`：有票据就会被误当成审批。
+ * 发射方 `prompt_ask` 的 `tool/result`（接线）；只定契约，**不写**投影分支
+ * （工具尚不存在，写了就是永不命中的死代码 + 覆盖率洞）。
+ */
+export interface ChoiceFrame {
+  readonly kind: 'choice'
+  readonly seq: number
+  readonly at: number
+  /** 追溯：`tool/result.callId`（`runtime/src/session/types.ts`）。 */
+  readonly callId: string
+  /** 追溯：`prompt_ask` 出参 question（schema 由定义）。 */
+  readonly prompt: string
+  /** 追溯：`prompt_ask` 出参候选列表；D6 硬约束 ≤3 个。 */
+  readonly options: readonly ChoiceOption[]
+  /** 追溯：D6「必含手动输入出口」⇒ 收窄成字面量 true，不给 false 留死胡同。 */
+  readonly allowFreeText: true
+}
+
+/** 一个候选项。 */
+export interface ChoiceOption {
+  /** 追溯：`prompt_ask` 出参选项 id；仅供前端 key，回传只回 label。 */
+  readonly id: string
+  /** 追溯：`prompt_ask` 出参 label；即点选后发 `/api/turn` 的文本。 */
+  readonly label: string
+  /** 可空。追溯：`CardField.value` 的同类文本形态。 */
+  readonly hint?: string
+}
+
+/**
+ * 目标帧（00 D7/D8）。跨 turn 存续，靠 `frameKey` 的**替换语义**实现。
+ * 发射方 `goal_set` 的 `tool/result`（接线）；只定契约。
+ */
+export interface GoalFrame {
+  readonly kind: 'goal'
+  readonly seq: number
+  readonly at: number
+  /** 追溯：`goal_set` 出参 title。 */
+  readonly title: string
+  /**
+   * 追溯：`goal_set` 出参 status（`active|achieved|abandoned|expired`）的帧侧词汇。
+   * `expired` 是补的第四档：账本里四种终态都要能呈现，不能把"过期"折叠成"放弃"。
+   */
+  readonly status: 'active' | 'done' | 'abandoned' | 'expired'
+  /** 可空。追溯：`ApprovalFrame.amountText`；必须走 `formatCents`。 */
+  readonly amountText?: string
+  /** 可空。追溯：`ApprovalFrame.payeePhone`（已脱敏前 3 后 4）。 */
+  readonly payeePhone?: string
+}
+
+/**
+ * 待办帧（00 D7/D8）：**派生帧，不落账**。由 `plan/*` 域事件派生
+ * （`project.ts` 已有结构化分流通道 → `projectPlan()`）。D8 理由原文：todo 再落一遍账
+ * 就有两个真相源，回放必打架。
+ */
+export interface TodoFrame {
+  readonly kind: 'todo'
+  readonly seq: number
+  readonly at: number
+  /** 追溯：`DagFrame.turn`。 */
+  readonly turn: number
+  /** 追溯：`plan/*` 的 planId / `DagNode.planId`。 */
+  readonly planId: string
+  readonly items: readonly TodoItem[]
+  /** 派生值 = `items.filter(i => !i.done).length`；冗余但可断言。 */
+  readonly openCount: number
+}
+
+/** 一条待办。 */
+export interface TodoItem {
+  /** 追溯：`plan/*` 的 nodeId / `DagNode.id`。 */
+  readonly id: string
+  /** 追溯：`DagNode.label`（值来自 `plan/node-started.tool` 的可读标题）。 */
+  readonly text: string
+  /** 追溯：`DagNode.state`；9 态映射见 `project.ts` 的 `projectTodo`。 */
+  readonly done: boolean
+  /** 可空。追溯：`DagNode.code`（与 `plan/node-result.code` 同源）。 */
+  readonly code?: string
+  /**
+   * 可空。追溯：`plan/node-blocked` 的 `blockedBy` 数组。
+   * ⚠ 该值当前被 `DagBuilder.planSettle` 消费后**未上帧**（`DagNode` 无此字段）
+   * ⇒ 本设计只在 todo 帧上带，**不改** `DagNode`（DAG 视图契约属 02/04 的呈现面）。
+   */
+  readonly blockedBy?: readonly string[]
+  /** 复用既有 `FrameTone`，不新造枚举。 */
+  readonly tone: FrameTone
+}
+
+/**
+ * 影响面帧（00 D7）：**派生帧**，由已成功的写操作 `tool/result` 派生；
+ * 用途是"中断后的已发生操作清单"。
+ */
+export interface EffectsFrame {
+  readonly kind: 'effects'
+  readonly seq: number
+  readonly at: number
+  /** 追溯：`CallRecord.turn`。 */
+  readonly turn: number
+  readonly items: readonly EffectItem[]
+  /** 可空。追溯：`ApprovalFrame.ticketId`；无审批的写操作为 undefined。 */
+  readonly ticketId?: string
+}
+
+/** 一条已发生的操作。 */
+export interface EffectItem {
+  /** 追溯：`tool/result.callId`。 */
+  readonly callId: string
+  /** 追溯：`tool/result.name`。 */
+  readonly name: string
+  /** 追溯：`ToolFrame.title`，由 `toolTitle(name)` 产出。 */
+  readonly title: string
+  /** 可空。追溯：`ApprovalFrame.amountText`；`amountFromArgs` + `formatCents`。 */
+  readonly amountText?: string
+  /** 可空。追溯：`tool/result.durationMs` / `ToolFrame.durationMs`。 */
+  readonly durationMs?: number
+  /** 复用 `FrameTone`。 */
+  readonly tone: FrameTone
+}
+
+/** 计划卡的一条条件（授权快照的可见形态）。 */
+export interface PlanCardCondition {
+  /** 条件种类（`balance-at-least` / `fact-unchanged` / …）。 */
+  readonly kind: string
+  /** 期望值（`>= 100000`、`f-1@2`、`未被撤销`）。 */
+  readonly expected: string
+  /** 当前状态：武装时 `unknown`，唤醒失守时 `failed`。 */
+  readonly state: 'ok' | 'failed' | 'unknown'
+  /** 实际值（失守时有值）。 */
+  readonly actual?: string
+}
+
+/**
+ * 计划卡（G7）："我在替你做什么"的唯一承载帧。
+ *
+ * 投影源是 `plan_arm` / `plan_disarm` / `plan_wake` 的 **`tool/result`**，
+ * 不是 `plan/created`（后者保持"不产帧"的既有约定，见 `project.ts` 的注释）。
+ */
+export interface PlanCardFrame {
+  readonly kind: 'plan-card'
+  readonly seq: number
+  readonly at: number
+  readonly windowId: string
+  readonly planId: string
+  readonly title: string
+  readonly tier: 'strict' | 'standard' | 'wide'
+  readonly budgetText: string
+  /** 到期时刻（判定时钟的目标；不是落账时刻）。 */
+  readonly dueAt: number
+  /** 本次实例键（`2026-10-22` / `2026-10` / `once:<dueAt>`）。 */
+  readonly occurrence: string
+  readonly state:
+    | 'armed'
+    | 'due'
+    | 'running'
+    | 'done'
+    | 'failed'
+    | 'cancelled'
+    /** 到期未执行（窗口过期；提示词 4-2）。 */
+    | 'expired'
+    /** 需用户重新确认（明细被改 / 条件失守；提示词 4-2）。 */
+    | 'needs-reconfirm'
+  readonly conditions: readonly PlanCardCondition[]
+  /** 最近一次唤醒的判决（`failed` 态必填）。 */
+  readonly lastVerdict?: { readonly code: string; readonly at: number }
+  /**
+   * 最近一次唤醒的补偿（ADR-0013）：只在"已扣款、商户没成交"时出现。
+   * `reversed` 才代表钱回来了；另外两种必须如实显示为未退成。
+   */
+  readonly compensation?: {
+    readonly kind: 'reversed' | 'reversal-failed' | 'reversal-unavailable'
+    readonly txnId?: string
+    readonly reversalTxnId?: string
+    readonly amountCents?: number
+    readonly code?: string
+  }
+  /** 节点数（卡片摘要用；明细在 DAG 帧）。 */
+  readonly nodeCount: number
+  /** 计划内容摘要（与 `plan/created.digest` 同源）。 */
+  readonly digest: string
+}
+
+/** 全部帧。 */
+export type WebFrame =
+  | TurnFrame
+  | MessageFrame
+  | DeltaFrame
+  | ToolFrame
+  | ApprovalFrame
+  | ApprovalClosedFrame
+  | NoticeFrame
+  | AuditFrame
+  | DagFrame
+  | ChoiceFrame
+  | RiskQuestionnaireFrame
+  | GoalFrame
+  | TodoFrame
+  | EffectsFrame
+  | HandoffFrame
+  | HandoffWarnFrame
+  | SnapshotFrame
+  | PlanCardFrame
+
+/** 帧的稳定键：同一键的新帧**替换**旧帧（不追加），这是三态与 DAG 更新的基础。 */
+export function frameKey(frame: WebFrame): string {
+  switch (frame.kind) {
+    case 'turn':
+      return `turn:${String(frame.turn)}:${frame.phase}`
+    case 'message':
+      return `message:${String(frame.seq)}`
+    case 'delta':
+      return `delta:${String(frame.at)}`
+    case 'tool':
+      return `tool:${frame.callId}`
+    case 'approval':
+      return `approval:${frame.ticketId}`
+    case 'approval-closed':
+      return `approval-closed:${frame.ticketId}`
+    case 'notice':
+      return `notice:${String(frame.seq)}`
+    case 'audit':
+      return `audit:${String(frame.seq)}`
+    case 'dag':
+      return `dag:${String(frame.turn)}`
+    case 'choice':
+      // 同一次追问只有一张卡（替换语义）
+      return `choice:${frame.callId}`
+    case 'risk-questionnaire':
+      // 同一次发卷只有一张问卷卡；重新发卷会得到新的 callId，因此是新卡（旧卡留在历史里）
+      return `risk-questionnaire:${frame.callId}`
+    case 'goal':
+      // 会话级唯一目标条（跨 turn 替换，D8）
+      return 'goal'
+    case 'todo':
+      // 与 `dag:${turn}` 同粒度
+      return `todo:${String(frame.turn)}:${frame.planId}`
+    case 'effects':
+      // 一轮一张"已发生清单"，累积替换
+      return `effects:${String(frame.turn)}`
+    case 'handoff':
+      // 固定 key：接管会循环（进入→交回→再进入），按 active 分键会让重放顺序
+      // 出现"新的 active:true 被旧的 active:false 覆盖"的假状态。
+      return 'handoff'
+    case 'handoff-warn':
+      // 固定 key（不带 seq）：超时只该有一个红标，累积多条没有意义。
+      return 'handoff-warn'
+    case 'snapshot':
+      return 'snapshot'
+    case 'plan-card':
+      // 一个窗口一张卡（跨 turn 存活；撤销与唤醒都是替换语义）
+      return `plan-card:${frame.windowId}`
+    default:
+      return assertNever(frame, 'web-frame')
+  }
+}
+
+/** 帧的 `seq`（`delta` / `snapshot` 没有）。 */
+export function frameSeq(frame: WebFrame): number | undefined {
+  switch (frame.kind) {
+    case 'delta':
+    case 'snapshot':
+      return undefined
+    default:
+      return frame.seq
+  }
+}

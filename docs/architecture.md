@@ -1,0 +1,444 @@
+# 架构：注册表、装配与数据流
+
+> **本文的图与事实表由脚本生成**（`scripts/gen-architecture.ts`），
+> 块外文字手写；生成块过期会让门禁 `verify-architecture` 直接红。
+> 配套两份：[algorithms.md](algorithms.md)（三条核心算法）、[security-design.md](security-design.md)（威胁模型与缺口）。
+>
+> 本文不重复各包的机制细节——每种机制都有唯一的说明书（`docs/plan.md`、`docs/sentry.md`、
+> `docs/pipeline.md`、`docs/knowledge.md`、`docs/audit.md`），本文只负责**把组件摆到正确的位置上**。
+
+## 1. 两张面，两个问题
+
+架构图最容易被问倒的不是"你有哪些组件"，而是**"这个组件在哪个入口生效"**。
+所以这里刻意分成两面，每面用"能说清的那张载体"（图或表）来表达：
+
+| 面 | 回答的问题 | 载体 | 数据来源 |
+|---|---|---|---|
+| **组件与依赖** | "系统由哪些部件组成、谁依赖谁" | 分层表 + 依赖图 + 依赖明细表 | `HOST_PLUGINS` + 每个插件的 `inject` |
+| **装配** | "**这个 profile** 到底装了哪些" | 差异图 + 20×3 矩阵 | 真实装载器：`readProfile` → `loadBundles` → `readLayers` → `mergeLayers` |
+
+### 1.1 三种状态，不是两种
+
+早期方案只写了"装配 / 未装配"两态，实测必须三态——否则会把"装了但关掉"讲成"没装"：
+
+| 态 | 判据 | 画法 | 例子 |
+|---|---|---|---|
+| **生效** | 该 profile 有这一行，且 config 没有 `enabled: false` | 实线 | `core:session` 在三个 profile 都生效 |
+| **装配但关闭** | 有行，但 `enabled: false`（插件 `apply()` 里直接 `return`） | 虚线 + 标注 | `bank:saga-bridge` 在 `profiles/plan` 里 |
+| **未装配** | 该 profile 根本没有这一行（注册表里有，但没人 `use`） | 不画；在别的 profile 里画灰虚线 | `channel:web` 只在 `profiles/web` |
+
+`enabled: false` 的区别是真金白银的：`bank:saga-bridge` 关掉时，它的 tick 定时器、补偿依赖
+全都不接管，但插件实例仍在（`ctx.get` 得到的是"什么都不做"的实现）。把它画成"没装"，
+对外说明时被问"那 plan 里的转账谁补偿"就会答错——正确答案是**plan 本身没有整图补偿，只有前向执行**，
+要整图补偿得让 plan 去编排一整笔 saga。
+
+**第三种形态：tick-only**（`enabled: true, eligible: []`）。`web` / `mobile` / `web-plan`
+用这一形态：桥接不接管任何工具（`transfer_create` 不会被双层展开），但 `saga/tick` 的
+定时器仍在，AA 到期、订阅与生日提醒在常驻进程里有派发源。它和"生效"的区别只在
+`eligible`，和"关闭"的区别只在 tick 是否运行——对外说明时不要把它说成"关了"。
+
+**唯一的例外是生日计划（ADR-0013）**：`birthday_plan` 的商户腿在"银行腿已扣款、商户 commit 失败"
+时会调用 `bank:compensation` 冲正**那一条腿**的银行流水，entry 记 `compensation.kind='reversed'`。
+这是逐腿对冲，不是分布式事务；部分成功仍是合法终态。
+
+## 2. 事实表（三份文档共用同一块）
+
+> 下面这张表由脚本注入到 `architecture.md` / `algorithms.md` / `security-design.md`
+> **同一个块**——三份文档对同一批事实只可能有一种说法。
+
+<!-- BEGIN GENERATED:facts -->
+| 事实 | 值 | 唯一来源（以代码为准，改文档不改代码） |
+|---|---|---|
+| plan 节点态 | **9 态**（pending、ready、running、succeeded、failed、skipped、blocked、cancelled、incident） | packages/runtime/src/plan/types.ts 的 `PLAN_NODE_STATES` |
+| saga 状态 | **11 态**（CREATED、RUNNING、PENDING_RISK_REVIEW、GATE_HOLDING、COMPENSATING、PARTIALLY_COMPENSATED、COMPENSATION_DLQ、SUCCEEDED、ABORTED_CLEAN、COMPENSATED、MANUALLY_CLOSED） | packages/saga/src/state-machine/transitions.ts 的 `SAGA_TRANSITIONS` |
+| 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
+| 工具数 | **30 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
+| 注册表条目（项） | **32** | `HOST_PLUGINS` 计数 |
+| 门禁（项） | **54** | `scripts/verify-*.ts` 计数 |
+| 覆盖率 | **89.87%（行口径，49571/55161 行，实测 2026-10-30）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
+<!-- END GENERATED:facts -->
+
+## 3. 组件与依赖（20 个组件）
+
+### 3.0 分层
+
+按 id 前缀归层。**分层用表格不用图**：mermaid 对"8 个分组 × 20 个节点、组间无连线"这种输入
+没有稳定布局（实测要么横排到画布外，要么每组自成一列），而分层本身是**分类信息**，
+表格比图准、也比图好核对。
+
+<!-- BEGIN GENERATED:layers -->
+| 层 | 组件 | 数量 |
+|---|---|---|
+| ① 内核与主循环（core） | `core:session`、`core:tools`、`core:prompt`、`core:model`、`core:agent`、`core:persistence` | 6 |
+| ② 证据链（audit） | `audit:decisions` | 1 |
+| ③ 银行域（bank） | `bank:tools`、`bank:knowledge`、`bank:saga-store`、`bank:saga`、`bank:saga-audit`、`bank:saga-bridge`、`bank:merchant` | 7 |
+| ④ 交互与审批（interaction） | `interaction:approval` | 1 |
+| ⑤ 安全防护（safety） | `safety:sentry`、`safety:verify`、`safety:sandbox` | 3 |
+| ⑥ 编排原语（plan） | `plan:dag`、`plan:scheduler` | 2 |
+| ⑦ 渠道（channel） | `channel:web`、`channel:mobile`、`channel:desktop`、`channel:im` | 4 |
+| ⑧ 演示件（demo） | `demo:echo` | 1 |
+| **合计** | — | **32** |
+<!-- END GENERATED:layers -->
+
+### 3.1 依赖图（谁向谁要服务）
+
+<!-- BEGIN GENERATED:dependency-graph -->
+```mermaid
+graph LR
+  p0["core:session"]
+  p1["obs:telemetry"]
+  p2["core:tools"]
+  p3["core:prompt"]
+  p4["core:model"]
+  p5["core:agent"]
+  p6["core:persistence"]
+  p7["audit:decisions"]
+  p8["demo:echo"]
+  p9["bank:tools"]
+  p10["policy:rules"]
+  p11["bank:knowledge"]
+  p12["interaction:approval"]
+  p13["safety:sentry"]
+  p14["safety:verify"]
+  p15["safety:sandbox"]
+  p16["bank:saga-store"]
+  p17["bank:saga"]
+  p18["bank:saga-audit"]
+  p19["bank:saga-bridge"]
+  p20["plan:dag"]
+  p21["plan:scheduler"]
+  p22["fact:store"]
+  p23["bank:merchant"]
+  p24["proactive:reminder"]
+  p25["bah:memory-store"]
+  p26["intent:plane"]
+  p27["prompt:ask"]
+  p28["channel:web"]
+  p29["channel:mobile"]
+  p30["channel:desktop"]
+  p31["channel:im"]
+  p0 --> host["宿主运行时 boot()"]
+  p1 --> host["宿主运行时 boot()"]
+  p1 --> p0
+  p10 --> host["宿主运行时 boot()"]
+  p10 --> p0
+  p11 --> host["宿主运行时 boot()"]
+  p11 --> p0
+  p11 --> p2
+  p11 --> p9
+  p12 --> host["宿主运行时 boot()"]
+  p12 --> p0
+  p13 --> host["宿主运行时 boot()"]
+  p13 --> p0
+  p13 --> p2
+  p13 --> p5
+  p13 --> p7
+  p13 --> p9
+  p14 --> host["宿主运行时 boot()"]
+  p14 --> p0
+  p15 --> host["宿主运行时 boot()"]
+  p15 --> p0
+  p17 --> p6
+  p18 --> p17
+  p18 --> p6
+  p21 --> host["宿主运行时 boot()"]
+  p22 --> host["宿主运行时 boot()"]
+  p22 --> p0
+  p23 --> host["宿主运行时 boot()"]
+  p24 --> host["宿主运行时 boot()"]
+  p24 --> p0
+  p25 --> host["宿主运行时 boot()"]
+  p25 --> p0
+  p25 --> p3
+  p25 --> p6
+  p28 --> host["宿主运行时 boot()"]
+  p28 --> p0
+  p28 --> p12
+  p28 --> p5
+  p29 --> host["宿主运行时 boot()"]
+  p29 --> p0
+  p29 --> p12
+  p29 --> p5
+  p30 --> host["宿主运行时 boot()"]
+  p30 --> p0
+  p30 --> p12
+  p30 --> p5
+  p31 --> host["宿主运行时 boot()"]
+  p31 --> p0
+  p31 --> p12
+  p31 --> p3
+  p31 --> p5
+  p5 --> host["宿主运行时 boot()"]
+  p5 --> p0
+  p5 --> p4
+  p6 --> host["宿主运行时 boot()"]
+  p7 --> host["宿主运行时 boot()"]
+  p7 --> p6
+  p8 --> p2
+  p9 --> host["宿主运行时 boot()"]
+  p9 --> p0
+  p9 --> p2
+```
+<!-- END GENERATED:dependency-graph -->
+
+读图要点：`core:agent` 依赖 `bah:run`（注入钟/会话 ID）、`runtime:session`、`llm:adapters`；
+`safety:sentry` 是依赖最多的一个（6 个），因为它站在四个接缝上，既是观察者又是阻断者；
+`channel:web` 只依赖运行时与审批服务——它**不认识**银行域，这是渠道可替换的前提。
+
+图上只画箭头不带标签（8 条同名 `bah:run` 会糊成一片），**具体依赖哪个服务看这张表**：
+
+![依赖图](diagrams/architecture-dependencies.png)
+
+<!-- BEGIN GENERATED:dependencies -->
+| 组件 | 依赖的服务（`inject`） | 提供方 |
+|---|---|---|
+| core:session | `bah:run` | 宿主运行时 boot() |
+| obs:telemetry | `bah:run`、`runtime:session` | 宿主运行时 boot()、`core:session` |
+| core:tools | —（无依赖） | — |
+| core:prompt | —（无依赖） | — |
+| core:model | —（无依赖） | — |
+| core:agent | `bah:run`、`runtime:session`、`llm:adapters` | 宿主运行时 boot()、`core:session`、`core:model` |
+| core:persistence | `bah:run` | 宿主运行时 boot() |
+| audit:decisions | `bah:run`、`bah:session-files` | 宿主运行时 boot()、`core:persistence` |
+| demo:echo | `runtime:tools` | `core:tools` |
+| bank:tools | `bah:run`、`runtime:session`、`runtime:tools` | 宿主运行时 boot()、`core:session`、`core:tools` |
+| policy:rules | `bah:run`、`runtime:session` | 宿主运行时 boot()、`core:session` |
+| bank:knowledge | `bah:run`、`runtime:tools`、`runtime:session`、`bank:identity` | 宿主运行时 boot()、`core:tools`、`core:session`、`bank:tools` |
+| interaction:approval | `bah:run`、`runtime:session` | 宿主运行时 boot()、`core:session` |
+| safety:sentry | `bah:run`、`runtime:session`、`runtime:tools`、`runtime:agents`、`bank:ticket-guard`、`audit:decisions` | 宿主运行时 boot()、`core:session`、`core:tools`、`core:agent`、`bank:tools`、`audit:decisions` |
+| safety:verify | `bah:run`、`runtime:session` | 宿主运行时 boot()、`core:session` |
+| safety:sandbox | `bah:run`、`runtime:session` | 宿主运行时 boot()、`core:session` |
+| bank:saga-store | —（无依赖） | — |
+| bank:saga | `bah:session-files` | `core:persistence` |
+| bank:saga-audit | `bah:saga-clock`、`bah:session-files` | `bank:saga`、`core:persistence` |
+| bank:saga-bridge | —（无依赖） | — |
+| plan:dag | —（无依赖） | — |
+| plan:scheduler | `bah:run` | 宿主运行时 boot() |
+| fact:store | `bah:run`、`runtime:session` | 宿主运行时 boot()、`core:session` |
+| bank:merchant | `bah:run` | 宿主运行时 boot() |
+| proactive:reminder | `bah:run`、`runtime:session` | 宿主运行时 boot()、`core:session` |
+| bah:memory-store | `bah:run`、`runtime:session`、`runtime:system-prompt`、`bah:session-files` | 宿主运行时 boot()、`core:session`、`core:prompt`、`core:persistence` |
+| intent:plane | —（无依赖） | — |
+| prompt:ask | —（无依赖） | — |
+| channel:web | `bah:run`、`runtime:session`、`runtime:agents`、`interaction:approval` | 宿主运行时 boot()、`core:session`、`core:agent`、`interaction:approval` |
+| channel:mobile | `bah:run`、`runtime:session`、`runtime:agents`、`interaction:approval` | 宿主运行时 boot()、`core:session`、`core:agent`、`interaction:approval` |
+| channel:desktop | `bah:run`、`runtime:session`、`runtime:agents`、`interaction:approval` | 宿主运行时 boot()、`core:session`、`core:agent`、`interaction:approval` |
+| channel:im | `bah:run`、`runtime:session`、`runtime:agents`、`interaction:approval`、`runtime:system-prompt` | 宿主运行时 boot()、`core:session`、`core:agent`、`interaction:approval`、`core:prompt` |
+<!-- END GENERATED:dependencies -->
+
+## 4. 装配图与矩阵（五个可运行 profile）
+
+`profiles/` 下有 7 个目录，但只有 `headless` / `plan` / `web` 有 `profile.yml`，
+其余四个是空壳。差异的本质：
+
+<!-- BEGIN GENERATED:assembly -->
+```mermaid
+graph TB
+  subgraph P_headless["profiles/headless"]
+    p8_headless["demo:echo"]
+    p11_headless["bank:knowledge（未装配）"]
+    p19_headless["bank:saga-bridge"]
+    p20_headless["plan:dag（未装配）"]
+    p21_headless["plan:scheduler（未装配）"]
+    p22_headless["fact:store（未装配）"]
+    p23_headless["bank:merchant（未装配）"]
+    p24_headless["proactive:reminder（未装配）"]
+    p25_headless["bah:memory-store（未装配）"]
+    p28_headless["channel:web（未装配）"]
+    p29_headless["channel:mobile（未装配）"]
+    p31_headless["channel:im（未装配）"]
+  end
+  subgraph P_plan["profiles/plan"]
+    p8_plan["demo:echo（未装配）"]
+    p11_plan["bank:knowledge（未装配）"]
+    p19_plan["bank:saga-bridge（enabled: false）"]
+    p20_plan["plan:dag"]
+    p21_plan["plan:scheduler"]
+    p22_plan["fact:store"]
+    p23_plan["bank:merchant"]
+    p24_plan["proactive:reminder"]
+    p25_plan["bah:memory-store（未装配）"]
+    p28_plan["channel:web（未装配）"]
+    p29_plan["channel:mobile（未装配）"]
+    p31_plan["channel:im（未装配）"]
+  end
+  subgraph P_web["profiles/web"]
+    p8_web["demo:echo"]
+    p11_web["bank:knowledge"]
+    p19_web["bank:saga-bridge"]
+    p20_web["plan:dag"]
+    p21_web["plan:scheduler"]
+    p22_web["fact:store"]
+    p23_web["bank:merchant"]
+    p24_web["proactive:reminder"]
+    p25_web["bah:memory-store"]
+    p28_web["channel:web"]
+    p29_web["channel:mobile（未装配）"]
+    p31_web["channel:im（未装配）"]
+  end
+  subgraph P_web-plan["profiles/web-plan"]
+    p8_web-plan["demo:echo"]
+    p11_web-plan["bank:knowledge"]
+    p19_web-plan["bank:saga-bridge"]
+    p20_web-plan["plan:dag"]
+    p21_web-plan["plan:scheduler"]
+    p22_web-plan["fact:store"]
+    p23_web-plan["bank:merchant"]
+    p24_web-plan["proactive:reminder"]
+    p25_web-plan["bah:memory-store（未装配）"]
+    p28_web-plan["channel:web"]
+    p29_web-plan["channel:mobile（未装配）"]
+    p31_web-plan["channel:im（未装配）"]
+  end
+  subgraph P_mobile["profiles/mobile"]
+    p8_mobile["demo:echo"]
+    p11_mobile["bank:knowledge"]
+    p19_mobile["bank:saga-bridge"]
+    p20_mobile["plan:dag"]
+    p21_mobile["plan:scheduler"]
+    p22_mobile["fact:store"]
+    p23_mobile["bank:merchant"]
+    p24_mobile["proactive:reminder"]
+    p25_mobile["bah:memory-store"]
+    p28_mobile["channel:web（未装配）"]
+    p29_mobile["channel:mobile"]
+    p31_mobile["channel:im（未装配）"]
+  end
+  subgraph P_im["profiles/im"]
+    p8_im["demo:echo"]
+    p11_im["bank:knowledge"]
+    p19_im["bank:saga-bridge"]
+    p20_im["plan:dag（未装配）"]
+    p21_im["plan:scheduler（未装配）"]
+    p22_im["fact:store（未装配）"]
+    p23_im["bank:merchant（未装配）"]
+    p24_im["proactive:reminder（未装配）"]
+    p25_im["bah:memory-store"]
+    p28_im["channel:web（未装配）"]
+    p29_im["channel:mobile（未装配）"]
+    p31_im["channel:im"]
+  end
+  classDef ghost stroke-dasharray: 5 5,stroke:#9aa4b2,color:#9aa4b2
+  classDef off stroke-dasharray: 3 3,stroke:#c9822f,color:#c9822f
+  class p11_headless,p20_headless,p21_headless,p22_headless,p23_headless,p24_headless,p25_headless,p28_headless,p29_headless,p31_headless,p8_plan,p11_plan,p25_plan,p28_plan,p29_plan,p31_plan,p29_web,p31_web,p25_web-plan,p29_web-plan,p31_web-plan,p28_mobile,p31_mobile,p20_im,p21_im,p22_im,p23_im,p24_im,p28_im,p29_im ghost
+  class p19_plan off
+```
+<!-- END GENERATED:assembly -->
+
+![装配差异图](diagrams/architecture-assembly.png)
+
+图中：实线 = 生效；灰虚线 = 该 profile 未装配（别的 profile 装了）；橙色虚线 = 装配但
+`enabled: false`。**只画三个 profile 状态不一致的组件**，一致的组件见下面的矩阵表。
+
+同一份数据的表格视图（对外说明时按行念更清楚）：
+
+<!-- BEGIN GENERATED:matrix -->
+| 组件 | profiles/headless | profiles/plan | profiles/web | profiles/web-plan | profiles/mobile | profiles/im |
+|---|---|---|---|---|---|---|
+| core:session | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| obs:telemetry | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| core:tools | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| core:prompt | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| core:model | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| core:agent | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| core:persistence | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| audit:decisions | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| demo:echo | ● 生效 | · 未装配 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| bank:tools | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| policy:rules | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| bank:knowledge | · 未装配 | · 未装配 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| interaction:approval | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| safety:sentry | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| safety:verify | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| safety:sandbox | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| bank:saga-store | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| bank:saga | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| bank:saga-audit | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| bank:saga-bridge | ● 生效 | ○ 关闭 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| plan:dag | · 未装配 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | · 未装配 |
+| plan:scheduler | · 未装配 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | · 未装配 |
+| fact:store | · 未装配 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | · 未装配 |
+| bank:merchant | · 未装配 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | · 未装配 |
+| proactive:reminder | · 未装配 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | · 未装配 |
+| bah:memory-store | · 未装配 | · 未装配 | ● 生效 | · 未装配 | ● 生效 | ● 生效 |
+| intent:plane | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| prompt:ask | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 | ● 生效 |
+| channel:web | · 未装配 | · 未装配 | ● 生效 | ● 生效 | · 未装配 | · 未装配 |
+| channel:mobile | · 未装配 | · 未装配 | · 未装配 | · 未装配 | ● 生效 | · 未装配 |
+| channel:desktop | · 未装配 | · 未装配 | · 未装配 | · 未装配 | · 未装配 | · 未装配 |
+| channel:im | · 未装配 | · 未装配 | · 未装配 | · 未装配 | · 未装配 | ● 生效 |
+<!-- END GENERATED:matrix -->
+
+### 4.1 六处差异的**理由**（不是随手配的）
+
+| 差异 | 为什么 |
+|---|---|
+| `channel:web` 只在 web / web-plan | 渠道是入口，headless/plan 不需要 HTTP 端口；装上会白占端口并让 `main.smoke` 撞端口 |
+| `plan:dag` 在 plan 与 web-plan | 默认 web **不装** plan——不让主演示路径的模型自己画 DAG；要演示"模型可见的规划 + DAG 节点图"用 `web-plan`（B1/B2）：`modelTools: true` 显式打开，且 saga-bridge 只保留 tick（`eligible: []`） |
+| `bank:knowledge` 只在 web / web-plan | 它要 `mode: http` 连 RAG sidecar；headless/plan 不联网、零依赖是硬约束 |
+| `bank:saga-bridge` 在 plan 关闭、在 web/mobile/web-plan 为 tick-only | 接管工具会让 `transfer_create` 被再展开成一笔 saga，一条 `plan/node-result` 会对上两条 `tool/call`，plan 的计数断言全部失真；常驻 profile 又需要 `saga/tick` 驱动 AA 到期与主动提醒，所以只关接管、不关时钟 |
+| `interaction:approval.responder` | headless/plan 用自动应答者（无人值守），web/web-plan 用 `none` + 真人点——**默认结论都是拒绝**，绝不默认放行 |
+| `bah:memory-store` 只在 web | 记忆会改变模型输入，不做静默开启；由 web profile 显式写（单租户 demo，诚实边界见插件注释） |
+
+## 5. 一次 Web 对话的路径（数据流）
+
+```text
+POST /api/turn
+  └─ channel:web  handlers/session.handleTurn   验票(401/403) → agent.send(text) → ensureDriver
+       └─ core:agent  drive()                    turn/start → step/start
+            ├─ agent/pre-step   safety:sentry   归一化 6 步 + 9 签名检测 + 风险分（永不拒绝）
+            ├─ core:model                        llm/stream（chrome 上的 ephemeral delta）
+            ├─ assistant/message                 ← 工具调用意图
+            ├─ tools/pre-execute
+            │    ├─ bank:tools                  五级权限判定 → 签票据（黄/红）
+            │    ├─ safety:sentry               危险规则/预算/熔断 → deny | ask | allow
+            │    └─ interaction:approval         ask ⇒ approval/asked + ticket/issued
+            │         └─ channel:web 的应答者    真人点"批准" → allowed-once → ticket 可核销
+            ├─ tools/execute  ToolPipeline      七段管线；转账前核销票据（一次性）
+            └─ tool/result                       ← 权威结果（唯一面向模型的结果）
+       └─ session.append(...)                    每条事件都过这里
+            ├─ core:persistence                  session.jsonl（durable，按落账顺序）
+            ├─ audit:decisions                   audit.jsonl（判决链）
+            ├─ safety:sentry                     TraceLog（sentry/trace，ignorable）
+            └─ channel:web 的投影器               事件 → 帧 → SSE
+```
+
+两个容易被忽略但**必须讲**的点：
+
+- **落账是单点**：所有事件（含领域事件）都过 `runtime:session`，磁盘顺序 = 广播顺序
+  （这里修的就是这条：嵌套 append 曾经让排在后面的监听器先收到 N+1）；
+- **工具结果只有一份**：`tool/result` 既是落账事实，也是模型能看到的唯一结果；
+  卡片、DAG、审计时间线都是它的**投影**，不是第二份真相。
+
+## 6. 怎么改架构图（以及它为什么不会腐烂）
+
+```bash
+npx tsx scripts/gen-architecture.ts           # 重写生成块
+npx tsx scripts/gen-architecture.ts --check   # 只校验（门禁与 CI 用这条）
+
+# PNG（给不渲染 mermaid 的读者）：需要一次性准备渲染器
+curl -sSL -o .tmp-w19/mermaid.min.js https://unpkg.com/mermaid@11/dist/mermaid.min.js
+MERMAID_JS=.tmp-w19/mermaid.min.js npx tsx scripts/render-diagrams.ts
+```
+
+- 组件名只能来自 `HOST_PLUGINS`，脚本里**没有一个**组件名字面量；
+- 装配状态只能来自真实装载器，不自己解析 YAML；
+- 事实表的数值来自 `PLAN_NODE_STATES` / `SAGA_TRANSITIONS` / `BANK_TOOL_SPECS` /
+  `planPlugin.validate()` / `scripts/verify-*.ts` 计数——全是运行时真值；
+- 唯一"跑一遍才有"的事实是覆盖率，它落在 `docs/coverage-baseline.json`（带测量命令与日期），
+  改它必须是一次真实测量。
+
+## 7. 已知限制（架构层面的，不是缺陷清单）
+
+1. **依赖图不表达"同一插件多实例"**：脚本遇到一个插件被两行引用会直接抛错，
+   而不是画一张含糊的图。当前没有这种用法，将来要有，先决定图的表达方式。
+2. **装配图不表达层序**：`mergeLayers` 的四层（bundle → profile patch → home → overlay）
+   在图上被压成了一个结果。层序本身在 `docs/profile.md`，这里不重复。
+3. **依赖边只到"服务键"粒度**：`inject` 是服务级契约，不是函数调用图。
+   想看函数级调用请直接读包的 `index.ts`。
+   **懒取的服务不是 `inject` 边，图里不画**：`safety:halt` 与
+   `runtime:context-source`（实体槽位数据源，由 `bank:tools` 提供、`core:agent`
+   每 step 懒取）都属这一类。它们的存在由对应插件/端口文档说明；
+   `SERVICE_OWNER` 只服务 `inject` 解析，不是全量服务清单。
+4. **本文不含部署拓扑**：单进程、无外部中间件（除可选的 RAG sidecar），
+   所以没有"部署图"这一层可画。

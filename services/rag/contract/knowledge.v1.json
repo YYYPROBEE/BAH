@@ -1,0 +1,910 @@
+{
+  "$id": "https://bah.local/contract/knowledge.v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "definitions": {
+    "AnswerRequest": {
+      "$defs": {
+        "AnswerOptions": {
+          "additionalProperties": false,
+          "properties": {
+            "maxChars": {
+              "default": 600,
+              "maximum": 2000,
+              "minimum": 80,
+              "title": "Maxchars",
+              "type": "integer"
+            },
+            "requireCitations": {
+              "default": true,
+              "title": "Requirecitations",
+              "type": "boolean"
+            },
+            "style": {
+              "default": "concise",
+              "enum": [
+                "concise",
+                "detailed"
+              ],
+              "title": "Style",
+              "type": "string"
+            }
+          },
+          "title": "AnswerOptions",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "description": "请求体只描述问题本身：身份/会话/注入命中/trace 全部由服务端派生。",
+      "properties": {
+        "answerOptions": {
+          "$ref": "#/$defs/AnswerOptions"
+        },
+        "query": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "default": "knowledge.v1",
+          "title": "Schemaversion",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "title": "AnswerRequest",
+      "type": "object"
+    },
+    "AnswerResponse": {
+      "$defs": {
+        "Candidate": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "productId": {
+              "title": "Productid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "productId",
+            "name"
+          ],
+          "title": "Candidate",
+          "type": "object"
+        },
+        "Citation": {
+          "additionalProperties": false,
+          "properties": {
+            "charEnd": {
+              "default": 0,
+              "title": "Charend",
+              "type": "integer"
+            },
+            "charStart": {
+              "default": 0,
+              "title": "Charstart",
+              "type": "integer"
+            },
+            "clauseNo": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Clauseno"
+            },
+            "docId": {
+              "title": "Docid",
+              "type": "string"
+            },
+            "marker": {
+              "title": "Marker",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            }
+          },
+          "required": [
+            "marker",
+            "docId",
+            "title"
+          ],
+          "title": "Citation",
+          "type": "object"
+        },
+        "Evidence": {
+          "additionalProperties": false,
+          "properties": {
+            "charEnd": {
+              "default": 0,
+              "title": "Charend",
+              "type": "integer"
+            },
+            "charStart": {
+              "default": 0,
+              "title": "Charstart",
+              "type": "integer"
+            },
+            "chunkId": {
+              "title": "Chunkid",
+              "type": "integer"
+            },
+            "clauseNo": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Clauseno"
+            },
+            "docId": {
+              "title": "Docid",
+              "type": "string"
+            },
+            "marker": {
+              "title": "Marker",
+              "type": "string"
+            },
+            "text": {
+              "title": "Text",
+              "type": "string"
+            },
+            "tier": {
+              "default": 5,
+              "title": "Tier",
+              "type": "integer"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            }
+          },
+          "required": [
+            "marker",
+            "chunkId",
+            "docId",
+            "title",
+            "text"
+          ],
+          "title": "Evidence",
+          "type": "object"
+        },
+        "Latency": {
+          "additionalProperties": false,
+          "properties": {
+            "generation": {
+              "default": 0,
+              "title": "Generation",
+              "type": "integer"
+            },
+            "retrieval": {
+              "default": 0,
+              "title": "Retrieval",
+              "type": "integer"
+            },
+            "total": {
+              "default": 0,
+              "title": "Total",
+              "type": "integer"
+            },
+            "verify": {
+              "default": 0,
+              "title": "Verify",
+              "type": "integer"
+            }
+          },
+          "title": "Latency",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "answer": {
+          "title": "Answer",
+          "type": "string"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/Candidate"
+          },
+          "title": "Candidates",
+          "type": "array"
+        },
+        "citations": {
+          "items": {
+            "$ref": "#/$defs/Citation"
+          },
+          "title": "Citations",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "answer",
+            "refusal",
+            "disambiguation"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "latencyMs": {
+          "$ref": "#/$defs/Latency"
+        },
+        "reasonCode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoncode"
+        },
+        "schemaVersion": {
+          "default": "knowledge.v1",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "traceId": {
+          "title": "Traceid",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "GREEN",
+            "AMBER_INFERRED",
+            "AMBER_DISAMBIGUATION",
+            "RED",
+            "LOCKED"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "traceId",
+        "kind",
+        "answer",
+        "verdict"
+      ],
+      "title": "AnswerResponse",
+      "type": "object"
+    },
+    "HealthResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "chunks": {
+          "title": "Chunks",
+          "type": "integer"
+        },
+        "corpusVersion": {
+          "title": "Corpusversion",
+          "type": "integer"
+        },
+        "docs": {
+          "title": "Docs",
+          "type": "integer"
+        },
+        "embedVersion": {
+          "title": "Embedversion",
+          "type": "string"
+        },
+        "embedding": {
+          "default": "off",
+          "enum": [
+            "on",
+            "off"
+          ],
+          "title": "Embedding",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "default": "knowledge.v1",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "degraded"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "corpusVersion",
+        "embedVersion",
+        "docs",
+        "chunks"
+      ],
+      "title": "HealthResponse",
+      "type": "object"
+    },
+    "QueryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "limits": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Limits",
+          "type": "object"
+        },
+        "query": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "default": "knowledge.v1",
+          "title": "Schemaversion",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "title": "QueryRequest",
+      "type": "object"
+    },
+    "QueryResponse": {
+      "$defs": {
+        "Candidate": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "productId": {
+              "title": "Productid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "productId",
+            "name"
+          ],
+          "title": "Candidate",
+          "type": "object"
+        },
+        "Evidence": {
+          "additionalProperties": false,
+          "properties": {
+            "charEnd": {
+              "default": 0,
+              "title": "Charend",
+              "type": "integer"
+            },
+            "charStart": {
+              "default": 0,
+              "title": "Charstart",
+              "type": "integer"
+            },
+            "chunkId": {
+              "title": "Chunkid",
+              "type": "integer"
+            },
+            "clauseNo": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Clauseno"
+            },
+            "docId": {
+              "title": "Docid",
+              "type": "string"
+            },
+            "marker": {
+              "title": "Marker",
+              "type": "string"
+            },
+            "text": {
+              "title": "Text",
+              "type": "string"
+            },
+            "tier": {
+              "default": 5,
+              "title": "Tier",
+              "type": "integer"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            }
+          },
+          "required": [
+            "marker",
+            "chunkId",
+            "docId",
+            "title",
+            "text"
+          ],
+          "title": "Evidence",
+          "type": "object"
+        },
+        "Latency": {
+          "additionalProperties": false,
+          "properties": {
+            "generation": {
+              "default": 0,
+              "title": "Generation",
+              "type": "integer"
+            },
+            "retrieval": {
+              "default": 0,
+              "title": "Retrieval",
+              "type": "integer"
+            },
+            "total": {
+              "default": 0,
+              "title": "Total",
+              "type": "integer"
+            },
+            "verify": {
+              "default": 0,
+              "title": "Verify",
+              "type": "integer"
+            }
+          },
+          "title": "Latency",
+          "type": "object"
+        },
+        "LookupValue": {
+          "additionalProperties": false,
+          "properties": {
+            "cellRef": {
+              "title": "Cellref",
+              "type": "string"
+            },
+            "formula": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Formula"
+            },
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "unit": {
+              "title": "Unit",
+              "type": "string"
+            },
+            "valueText": {
+              "title": "Valuetext",
+              "type": "string"
+            }
+          },
+          "required": [
+            "label",
+            "valueText",
+            "unit",
+            "cellRef"
+          ],
+          "title": "LookupValue",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "answer": {
+          "default": "",
+          "title": "Answer",
+          "type": "string"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/Candidate"
+          },
+          "title": "Candidates",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "evidence",
+            "lookup",
+            "disambiguation",
+            "refusal"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "latencyMs": {
+          "$ref": "#/$defs/Latency"
+        },
+        "reasonCode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoncode"
+        },
+        "route": {
+          "default": "hybrid",
+          "enum": [
+            "hybrid",
+            "lookup"
+          ],
+          "title": "Route",
+          "type": "string"
+        },
+        "schemaVersion": {
+          "default": "knowledge.v1",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "traceId": {
+          "title": "Traceid",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "$ref": "#/$defs/LookupValue"
+          },
+          "title": "Values",
+          "type": "array"
+        },
+        "verdict": {
+          "default": "GREEN",
+          "enum": [
+            "GREEN",
+            "AMBER_INFERRED",
+            "AMBER_DISAMBIGUATION",
+            "RED",
+            "LOCKED"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "visibleCount": {
+          "default": 0,
+          "title": "Visiblecount",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "traceId",
+        "kind"
+      ],
+      "title": "QueryResponse",
+      "type": "object"
+    },
+    "VerifyRequest": {
+      "$defs": {
+        "VerifyOptions": {
+          "additionalProperties": false,
+          "properties": {
+            "requireCitations": {
+              "default": true,
+              "title": "Requirecitations",
+              "type": "boolean"
+            }
+          },
+          "title": "VerifyOptions",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "answerText": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Answertext",
+          "type": "string"
+        },
+        "options": {
+          "$ref": "#/$defs/VerifyOptions"
+        },
+        "schemaVersion": {
+          "default": "knowledge.v1",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "traceIds": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Traceids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "traceIds",
+        "answerText"
+      ],
+      "title": "VerifyRequest",
+      "type": "object"
+    },
+    "VerifyResponse": {
+      "$defs": {
+        "Citation": {
+          "additionalProperties": false,
+          "properties": {
+            "charEnd": {
+              "default": 0,
+              "title": "Charend",
+              "type": "integer"
+            },
+            "charStart": {
+              "default": 0,
+              "title": "Charstart",
+              "type": "integer"
+            },
+            "clauseNo": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Clauseno"
+            },
+            "docId": {
+              "title": "Docid",
+              "type": "string"
+            },
+            "marker": {
+              "title": "Marker",
+              "type": "string"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            }
+          },
+          "required": [
+            "marker",
+            "docId",
+            "title"
+          ],
+          "title": "Citation",
+          "type": "object"
+        },
+        "Latency": {
+          "additionalProperties": false,
+          "properties": {
+            "generation": {
+              "default": 0,
+              "title": "Generation",
+              "type": "integer"
+            },
+            "retrieval": {
+              "default": 0,
+              "title": "Retrieval",
+              "type": "integer"
+            },
+            "total": {
+              "default": 0,
+              "title": "Total",
+              "type": "integer"
+            },
+            "verify": {
+              "default": 0,
+              "title": "Verify",
+              "type": "integer"
+            }
+          },
+          "title": "Latency",
+          "type": "object"
+        },
+        "VerifyClaim": {
+          "additionalProperties": false,
+          "properties": {
+            "entailment": {
+              "default": "skipped",
+              "enum": [
+                "pass",
+                "fail",
+                "skipped"
+              ],
+              "title": "Entailment",
+              "type": "string"
+            },
+            "index": {
+              "title": "Index",
+              "type": "integer"
+            },
+            "literal": {
+              "enum": [
+                "pass",
+                "fail"
+              ],
+              "title": "Literal",
+              "type": "string"
+            },
+            "markers": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Markers",
+              "type": "array"
+            },
+            "support": {
+              "enum": [
+                "pass",
+                "fail"
+              ],
+              "title": "Support",
+              "type": "string"
+            },
+            "text": {
+              "title": "Text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "index",
+            "text",
+            "literal",
+            "support"
+          ],
+          "title": "VerifyClaim",
+          "type": "object"
+        },
+        "VerifyNumber": {
+          "additionalProperties": false,
+          "properties": {
+            "match": {
+              "title": "Match",
+              "type": "boolean"
+            },
+            "raw": {
+              "title": "Raw",
+              "type": "string"
+            },
+            "source": {
+              "title": "Source",
+              "type": "string"
+            },
+            "unit": {
+              "title": "Unit",
+              "type": "string"
+            },
+            "valueText": {
+              "title": "Valuetext",
+              "type": "string"
+            }
+          },
+          "required": [
+            "raw",
+            "valueText",
+            "unit",
+            "source",
+            "match"
+          ],
+          "title": "VerifyNumber",
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "citations": {
+          "items": {
+            "$ref": "#/$defs/Citation"
+          },
+          "title": "Citations",
+          "type": "array"
+        },
+        "claims": {
+          "items": {
+            "$ref": "#/$defs/VerifyClaim"
+          },
+          "title": "Claims",
+          "type": "array"
+        },
+        "latencyMs": {
+          "$ref": "#/$defs/Latency"
+        },
+        "numbers": {
+          "items": {
+            "$ref": "#/$defs/VerifyNumber"
+          },
+          "title": "Numbers",
+          "type": "array"
+        },
+        "reasonCode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoncode"
+        },
+        "schemaVersion": {
+          "default": "knowledge.v1",
+          "title": "Schemaversion",
+          "type": "string"
+        },
+        "traceId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Traceid"
+        },
+        "verdict": {
+          "enum": [
+            "GREEN",
+            "AMBER_INFERRED",
+            "AMBER_DISAMBIGUATION",
+            "RED",
+            "LOCKED"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "verdict"
+      ],
+      "title": "VerifyResponse",
+      "type": "object"
+    }
+  },
+  "title": "knowledge.v1"
+}

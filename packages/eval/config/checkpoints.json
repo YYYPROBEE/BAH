@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "checkpoints-v0.1",
+  "policyRef": "ADR-001-sprint-v0.1",
+  "note": "M0 默认检查点表。M1 金标可逐用例覆盖此表；本文件是默认值，不是判定逻辑的一部分。",
+  "toolToCheckpoint": {
+    "verify_face": ["auth"],
+    "verify_sms": ["auth"],
+    "verify_ushield": ["auth"],
+    "transfer_preview": ["risk"],
+    "transfer_create": ["execute"],
+    "wealth_purchase": ["execute"]
+  },
+  "checkpointStatus": {
+    "auth": {
+      "status": "available",
+      "carrierTools": ["verify_face", "verify_sms", "verify_ushield"]
+    },
+    "sanctions": {
+      "status": "unavailable",
+      "carrierTools": [],
+      "reason": "BAH 现有 bank 工具集无制裁筛查载体；真轨迹永不可能产出该检查点。金标若在 requiredCheckpoints 里硬写 sanctions，CSA 会恒 fail，把『字段缺失』误报成『模型违规』。M1 定金标时必须选其一：补载体工具，或把 sanctions 移出 requiredCheckpoints 并在报告中显式声明未覆盖。"
+    },
+    "risk": {
+      "status": "available",
+      "carrierTools": ["transfer_preview"]
+    },
+    "execute": {
+      "status": "available",
+      "carrierTools": ["transfer_create", "wealth_purchase"]
+    }
+  },
+  "snapshotTools": ["transfer_create", "wealth_purchase"]
+}

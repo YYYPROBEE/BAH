@@ -1,0 +1,189 @@
+/**
+ * 前端仓库用例（快照替换 / 按键更新 / 草稿清理）。
+ *
+ * 断言的是"帧怎么变成界面状态"，不是 DOM 长什么样（DOM 各视图自己测）。
+ */
+
+import { describe, expect, it } from 'vitest'
+
+import { approvalDecision, createStore, frameKey, pendingApproval, viewKey } from './store.js'
+
+/** 造一条提示帧。 */
+function notice(seq, title = `#${seq}`) {
+  return { kind: 'notice', seq, at: 1_700_000_000_000 + seq, level: 'info', title }
+}
+
+describe('store · 帧归并', () => {
+  it('同一视图键替换，不追加（三态更新靠它）', () => {
+    const store = createStore()
+    store.apply({ kind: 'tool', seq: 1, callId: 'c1', state: 'pending' })
+    store.apply({ kind: 'tool', seq: 2, callId: 'c1', state: 'done' })
+
+    const frames = store.state().frames
+    expect(frames).toHaveLength(1)
+    expect(frames[0].state).toBe('done')
+  })
+
+  it('快照整体替换（重连后不会半新半旧）', () => {
+    const store = createStore()
+    store.apply(notice(1))
+    store.apply(notice(2))
+    store.apply({ kind: 'snapshot', sessionId: 's', maxSeq: 9, frames: [notice(9)] })
+
+    const frames = store.state().frames
+    expect(frames.map((frame) => frame.seq)).toEqual([9])
+  })
+
+  it('草稿累积；权威消息到达即清空', () => {
+    const store = createStore()
+    store.apply({ kind: 'delta', at: 1, text: '你' })
+    store.apply({ kind: 'delta', at: 2, text: '好' })
+    expect(store.state().streamText).toBe('你好')
+
+    store.apply({ kind: 'message', seq: 3, role: 'assistant', blocks: [{ type: 'text', text: '你好' }] })
+    expect(store.state().streamText).toBe('')
+  })
+
+  it('用户/上下文消息不清草稿（只有助手消息才收口）', () => {
+    const store = createStore()
+    store.apply({ kind: 'delta', at: 1, text: '生成中' })
+    store.apply({ kind: 'message', seq: 2, role: 'user', blocks: [{ type: 'text', text: '继续' }] })
+    expect(store.state().streamText).toBe('生成中')
+
+    store.apply({ kind: 'message', seq: 3, role: 'assistant', blocks: [{ type: 'text', text: '好了' }] })
+    expect(store.state().streamText).toBe('')
+  })
+
+  it('失败收尾后草稿不残留（没有权威助手消息的路径）', () => {
+    const store = createStore()
+    store.apply({ kind: 'delta', at: 1, text: '已经为您' })
+    store.apply({ kind: 'turn', seq: 2, at: 2, turn: 1, phase: 'end', endKind: 'failed' })
+    expect(store.state().streamText).toBe('')
+  })
+
+  it('新一轮开始也丢掉上一轮残稿', () => {
+    const store = createStore()
+    store.apply({ kind: 'delta', at: 1, text: '半句话' })
+    store.apply({ kind: 'turn', seq: 2, at: 2, turn: 2, phase: 'start' })
+    expect(store.state().streamText).toBe('')
+  })
+
+  it('reset 清空帧、草稿与连接状态（不是只清帧）', () => {
+    const store = createStore()
+    store.apply(notice(1))
+    store.apply({ kind: 'delta', at: 1, text: '草稿' })
+    store.setStatus('online')
+    store.setFault({ code: 'x', reason: 'y' })
+
+    store.reset()
+
+    const state = store.state()
+    expect(state.frames).toEqual([])
+    expect(state.streamText).toBe('')
+    expect(state.status).toBe('connecting')
+    expect(state.fault).toBeNull()
+  })
+
+  it('订阅能收到状态；退订后不再收到', () => {
+    const store = createStore()
+    let calls = 0
+    const off = store.subscribe(() => {
+      calls += 1
+    })
+    store.apply(notice(1))
+    expect(calls).toBe(1)
+    off()
+    store.apply(notice(2))
+    expect(calls).toBe(1)
+  })
+})
+
+describe('store · 帧键', () => {
+  it('视图键把 turn 的 start/end 合并（避免两条分割线）', () => {
+    const start = { kind: 'turn', seq: 1, turn: 2, phase: 'start' }
+    const end = { kind: 'turn', seq: 9, turn: 2, phase: 'end', endKind: 'completed' }
+    expect(viewKey(start)).toBe(viewKey(end))
+    // 仓库键保留 phase（审计要区分）
+    expect(frameKey(start)).not.toBe(frameKey(end))
+  })
+
+  it('choice/goal/todo/effects 的仓库键与 @bah/channels/web 的 frameKey 一致', () => {
+    expect(frameKey({ kind: 'choice', seq: 1, callId: 'call-ask' })).toBe('choice:call-ask')
+    expect(frameKey({ kind: 'goal', seq: 2 })).toBe('goal')
+    expect(frameKey({ kind: 'todo', seq: 3, turn: 2, planId: 'p1' })).toBe('todo:2:p1')
+    expect(frameKey({ kind: 'effects', seq: 4, turn: 6 })).toBe('effects:6')
+  })
+
+  it('choice 视图键按 seq 分键：硬编码 callId 不会吞掉下一次追问', () => {
+    const first = { kind: 'choice', seq: 107, callId: 'call-ask', prompt: '要转给谁？' }
+    const second = { kind: 'choice', seq: 200, callId: 'call-ask', prompt: '再确认一次？' }
+    // 仓库层仍按 callId 合并（同一追问一张卡）
+    expect(frameKey(first)).toBe(frameKey(second))
+    // 视图层分键：第二次追问是新节点（否则会替换第一次的节点并留在历史位置）
+    expect(viewKey(first)).not.toBe(viewKey(second))
+    // 同一帧重放（快照 / 重连）键必须稳定
+    expect(viewKey(first)).toBe(viewKey({ ...first }))
+  })
+
+  it('effects 同轮替换、跨轮共存', () => {
+    const store = createStore()
+    store.apply({ kind: 'effects', seq: 1, at: 1, turn: 1, items: [] })
+    store.apply({ kind: 'effects', seq: 2, at: 2, turn: 1, items: [{ callId: 'c1' }] })
+    store.apply({ kind: 'effects', seq: 3, at: 3, turn: 2, items: [] })
+
+    const frames = store.state().frames.filter((frame) => frame.kind === 'effects')
+    expect(frames).toHaveLength(2)
+    expect(frames[0].seq).toBe(2)
+    expect(frames[1].turn).toBe(2)
+  })
+})
+
+describe('store · 审批查询', () => {
+  const approval = { kind: 'approval', seq: 3, ticketId: 't1', callId: 'c1', operation: '转账' }
+  const closed = { kind: 'approval-closed', seq: 4, ticketId: 't1', decision: 'rejected' }
+
+  it('未收尾的审批才算待办', () => {
+    expect(pendingApproval([approval])).toBe(approval)
+    expect(pendingApproval([approval, closed])).toBeNull()
+  })
+
+  it('能取到指定票据的结论', () => {
+    expect(approvalDecision([approval, closed], 't1')).toBe(closed)
+    expect(approvalDecision([approval], 't1')).toBeNull()
+  })
+})
+
+describe('store · 接管帧（B3 / I18）', () => {
+  it('handoff 固定 key：active:true 后 active:false 覆盖同一条', () => {
+    const store = createStore()
+    store.apply({ kind: 'handoff', seq: 1, at: 100, active: true, operator: '坐席小周' })
+    expect(store.state().handoff).toMatchObject({ active: true, operator: '坐席小周' })
+    store.apply({ kind: 'handoff', seq: 2, at: 200, active: false })
+    expect(store.state().handoff).toMatchObject({ active: false })
+    expect(store.state().frames.filter((frame) => frame.kind === 'handoff')).toHaveLength(1)
+  })
+
+  it('handoff-warn 固定 key：两次只留一条', () => {
+    const store = createStore()
+    store.apply({ kind: 'handoff-warn', seq: 1, at: 1, waitedMs: 180_001, slaMs: 180_000 })
+    store.apply({ kind: 'handoff-warn', seq: 2, at: 2, waitedMs: 190_000, slaMs: 180_000 })
+    expect(store.state().handoffWarn.waitedMs).toBe(190_000)
+    expect(store.state().frames.filter((frame) => frame.kind === 'handoff-warn')).toHaveLength(1)
+  })
+
+  it('I18 快照重放：帧、handoff、handoffWarn 都一致', () => {
+    const store = createStore()
+    const message = { kind: 'message', seq: 1, at: 1, role: 'user', blocks: [{ type: 'text', text: '客户' }] }
+    const handoff = { kind: 'handoff', seq: 2, at: 2, active: true, operator: '坐席小周' }
+    const warn = { kind: 'handoff-warn', seq: 3, at: 3, waitedMs: 200_000, slaMs: 180_000 }
+    store.apply(message)
+    store.apply(handoff)
+    store.apply(warn)
+
+    const replayed = createStore()
+    replayed.apply({ kind: 'snapshot', sessionId: 's', maxSeq: 3, frames: [message, handoff, warn] })
+    expect(replayed.state().frames).toEqual(store.state().frames)
+    expect(replayed.state().handoff).toEqual(store.state().handoff)
+    expect(replayed.state().handoffWarn).toEqual(store.state().handoffWarn)
+  })
+})

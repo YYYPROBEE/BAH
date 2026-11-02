@@ -1,0 +1,47 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../runtime"
+    },
+    {
+      "path": "../llm"
+    },
+    {
+      "path": "../policy"
+    },
+    {
+      "path": "../interaction"
+    },
+    {
+      "path": "../safety"
+    },
+    {
+      "path": "../bank"
+    },
+    {
+      "path": "../knowledge"
+    },
+    {
+      "path": "../persistence"
+    },
+    {
+      "path": "../memory-store"
+    },
+    {
+      "path": "../saga"
+    },
+    {
+      "path": "../channels"
+    },
+    {
+      "path": "../telemetry"
+    }
+  ]
+}

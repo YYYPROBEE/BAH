@@ -1,0 +1,129 @@
+# bank-tier-demo 1.0.0 · 语料
+#
+# 覆盖：默认行、日累计边界、新收款人、演示规则、组合风险理由、
+# 三级声明、两种绑定、五条边界标签。演示 bundle 也要跑满覆盖与变异，
+# 否则"判决来自外置文件"只在一条 happy path 上成立（03 §7.2）。
+cases:
+  - id: D-001-under-limit-whitelist
+    note: 白名单、未超限、单笔低于 800 元——落在两条默认行上，仍是黄级
+    input:
+      subject: { userId: u-1, sessionId: s-1 }
+      action: { name: transfer_create, declared: yellow }
+      preview: { amountCents: 70000, dailyUsedCents: 0, dailyLimitCents: 500000, payee: { binding: whitelist } }
+      state: { riskyCallsInTurn: 0, verifyLocked: false }
+      limits: { dailyLimitCents: 500000 }
+      params: { riskyCallThreshold: 3 }
+    expect: { level: yellow, reason: declared, ruleIds: [TR-003-default, RC-002-default] }
+
+  - id: D-002-exactly-at-limit
+    note: sum == limit 不升（严格大于）
+    tags: [limit-eq]
+    input:
+      subject: { userId: u-1, sessionId: s-1 }
+      action: { name: transfer_create, declared: yellow }
+      preview: { amountCents: 70000, dailyUsedCents: 430000, dailyLimitCents: 500000, payee: { binding: whitelist } }
+      state: { riskyCallsInTurn: 0, verifyLocked: false }
+      limits: { dailyLimitCents: 500000 }
+      params: { riskyCallThreshold: 3 }
+    expect: { level: yellow, reason: declared, ruleIds: [TR-003-default, RC-002-default] }
+
+  - id: D-003-new-payee
+    note: 新收款人升红（金额低于演示阈值，命中的是 TR-002 而不是 TR-004）
+    input:
+      subject: { userId: u-1, sessionId: s-1 }
+      action: { name: transfer_create, declared: yellow }
+      preview: { amountCents: 10000, dailyUsedCents: 0, dailyLimitCents: 500000, payee: { binding: new } }
+      state: { riskyCallsInTurn: 0, verifyLocked: false }
+      limits: { dailyLimitCents: 500000 }
+      params: { riskyCallThreshold: 3 }
+    expect: { level: red, reason: new-payee, ruleIds: [TR-002-new-payee, RC-002-default] }
+
+  - id: D-004-single-large-whitelist
+    note: 演示规则——单笔 5000 元白名单也升红（1.0.0 不会，这是"判决来自外置文件"的证据）
+    input:
+      subject: { userId: u-1, sessionId: s-1 }
+      action: { name: transfer_create, declared: yellow }
+      preview: { amountCents: 500000, dailyUsedCents: 0, dailyLimitCents: 1000000, payee: { binding: whitelist } }
+      state: { riskyCallsInTurn: 0, verifyLocked: false }
+      limits: { dailyLimitCents: 1000000 }
+      params: { riskyCallThreshold: 3 }
+    expect: { level: red, reason: daily-limit, ruleIds: [TR-004-single-large, RC-002-default] }
+
+  - id: D-005-risky-at-threshold
+    note: riskyCalls == threshold 只改理由，级别仍黄
+    tags: [threshold]
+    input:
+      subject: { userId: u-1, sessionId: s-1 }
+      action: { name: transfer_create, declared: yellow }
+      preview: { amountCents: 70000, dailyUsedCents: 0, dailyLimitCents: 500000, payee: { binding: whitelist } }
+      state: { riskyCallsInTurn: 3, verifyLocked: false }
+      limits: { dailyLimitCents: 500000 }
+      params: { riskyCallThreshold: 3 }
+    expect: { level: yellow, reason: risky-calls, ruleIds: [TR-003-default, RC-001-over-threshold] }
+
+  - id: D-006-over-limit-by-one
+    note: sum == limit + 1 即升红（日累计边界另一侧，命中 TR-001）
+    tags: [limit+1]
+    input:
+      subject: { userId: u-1, sessionId: s-1 }
+      action: { name: transfer_create, declared: yellow }
+      preview: { amountCents: 70001, dailyUsedCents: 430000, dailyLimitCents: 500000, payee: { binding: whitelist } }
+      state: { riskyCallsInTurn: 0, verifyLocked: false }
+      limits: { dailyLimitCents: 500000 }
+      params: { riskyCallThreshold: 3 }
+    expect: { level: red, reason: daily-limit, ruleIds: [TR-001-over-daily-limit, RC-002-default] }
+
+  - id: D-007-single-large-exactly-at-demo-threshold
+    note: 演示阈值恰好命中（>= 80000）
+    input:
+      subject: { userId: u-1, sessionId: s-1 }
+      action: { name: transfer_create, declared: yellow }
+      preview: { amountCents: 80000, dailyUsedCents: 0, dailyLimitCents: 500000, payee: { binding: whitelist } }
+      state: { riskyCallsInTurn: 0, verifyLocked: false }
+      limits: { dailyLimitCents: 500000 }
+      params: { riskyCallThreshold: 3 }
+    expect: { level: red, reason: daily-limit, ruleIds: [TR-004-single-large, RC-002-default] }
+
+  - id: D-008-risky-below-threshold
+    note: riskyCalls == threshold - 1 不改理由
+    tags: [threshold-1]
+    input:
+      subject: { userId: u-1, sessionId: s-1 }
+      action: { name: transfer_create, declared: yellow }
+      preview: { amountCents: 70000, dailyUsedCents: 0, dailyLimitCents: 500000, payee: { binding: whitelist } }
+      state: { riskyCallsInTurn: 2, verifyLocked: false }
+      limits: { dailyLimitCents: 500000 }
+      params: { riskyCallThreshold: 3 }
+    expect: { level: yellow, reason: declared, ruleIds: [TR-003-default, RC-002-default] }
+
+  - id: D-009-risky-above-threshold
+    note: riskyCalls == threshold + 1 仍只改理由，不改级别
+    tags: [threshold+1]
+    input:
+      subject: { userId: u-1, sessionId: s-1 }
+      action: { name: transfer_create, declared: yellow }
+      preview: { amountCents: 70000, dailyUsedCents: 0, dailyLimitCents: 500000, payee: { binding: whitelist } }
+      state: { riskyCallsInTurn: 4, verifyLocked: false }
+      limits: { dailyLimitCents: 500000 }
+      params: { riskyCallThreshold: 3 }
+    expect: { level: yellow, reason: risky-calls, ruleIds: [TR-003-default, RC-001-over-threshold] }
+
+  - id: D-010-declared-green
+    note: 绿级工具不进第一张表；策略只落默认行，级别保持绿
+    input:
+      subject: { userId: u-1, sessionId: s-1 }
+      action: { name: transfer_preview, declared: green }
+      state: { riskyCallsInTurn: 0, verifyLocked: false }
+      limits: { dailyLimitCents: 500000 }
+      params: { riskyCallThreshold: 3 }
+    expect: { level: green, reason: declared, ruleIds: [RC-002-default] }
+
+  - id: D-011-declared-red
+    note: 已声明红、无 preview：策略不改级别，只落默认行
+    input:
+      subject: { userId: u-1, sessionId: s-1 }
+      action: { name: wealth_purchase, declared: red }
+      state: { riskyCallsInTurn: 0, verifyLocked: false }
+      limits: { dailyLimitCents: 500000 }
+      params: { riskyCallThreshold: 3 }
+    expect: { level: red, reason: declared, ruleIds: [RC-002-default] }

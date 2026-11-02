@@ -1,0 +1,249 @@
+{
+  "name": "sandbox-compute",
+  "profile": "headless",
+  "prompts": [
+    "餐饮占交通加餐饮的百分之多少？帮我算一下",
+    "给新收款人李小雨转 120 元",
+    "帮我查一下余额"
+  ],
+  "sessionId": "s-snapshot-sandbox-compute",
+  "clock": {
+    "start": 1700000000000,
+    "step": 1
+  },
+  "randomSeed": 7,
+  "rows": [
+    {
+      "id": "core:session",
+      "use": "core:session",
+      "config": {}
+    },
+    {
+      "id": "core:tools",
+      "use": "core:tools",
+      "config": {}
+    },
+    {
+      "id": "core:prompt",
+      "use": "core:prompt",
+      "config": {}
+    },
+    {
+      "id": "core:model",
+      "use": "core:model",
+      "config": {
+        "provider": "mock",
+        "model": "mock-chat",
+        "chunkSize": 4,
+        "script": [
+          {
+            "tool": {
+              "id": "call-1",
+              "name": "analysis_calc",
+              "args": {
+                "code": "round(data.dining / (data.dining + data.transport) * 100)",
+                "data": {
+                  "dining": 620,
+                  "transport": 180
+                }
+              }
+            }
+          },
+          {
+            "text": "餐饮在交通加餐饮中的占比约为 78%。"
+          },
+          {
+            "tool": {
+              "id": "call-2",
+              "name": "transfer_create",
+              "args": {
+                "amount": 120,
+                "payee": {
+                  "name": "李小雨",
+                  "phone": "13700003333"
+                },
+                "remark": "新收款人小额测试"
+              }
+            }
+          },
+          {
+            "text": "已为新收款人李小雨完成 120 元转账（红色级别，已审批并核销）。"
+          },
+          {
+            "tool": {
+              "id": "call-3",
+              "name": "account_balance",
+              "args": {}
+            }
+          },
+          {
+            "text": "已查询当前账户余额。"
+          }
+        ]
+      }
+    },
+    {
+      "id": "core:agent",
+      "use": "core:agent",
+      "config": {
+        "channel": "headless",
+        "loop": {
+          "model": "mock:mock-chat",
+          "maxSteps": 12
+        },
+        "runtimeContext": {
+          "user": {
+            "name": "张三",
+            "level": "金卡"
+          }
+        }
+      }
+    },
+    {
+      "id": "core:persistence",
+      "use": "core:persistence",
+      "config": {
+        "root": "sessions"
+      }
+    },
+    {
+      "id": "obs:telemetry",
+      "use": "obs:telemetry",
+      "config": {
+        "maxSpans": 2000
+      }
+    },
+    {
+      "id": "audit:decisions",
+      "use": "audit:decisions",
+      "config": {}
+    },
+    {
+      "id": "policy:rules",
+      "use": "policy:rules",
+      "config": {}
+    },
+    {
+      "id": "bank:tools",
+      "use": "bank:tools",
+      "config": {
+        "demoUserId": "u-1",
+        "seed": 7,
+        "datasetTier": "stress"
+      }
+    },
+    {
+      "id": "interaction:approval",
+      "use": "interaction:approval",
+      "config": {
+        "responder": "none",
+        "windowResponder": true
+      }
+    },
+    {
+      "id": "safety:sentry",
+      "use": "safety:sentry",
+      "config": {
+        "trace": {
+          "sink": "session"
+        },
+        "rules": {
+          "crossScenario": true
+        }
+      }
+    },
+    {
+      "id": "safety:verify",
+      "use": "safety:verify",
+      "config": {}
+    },
+    {
+      "id": "safety:sandbox",
+      "use": "safety:sandbox",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-store",
+      "use": "bank:saga-store",
+      "config": {}
+    },
+    {
+      "id": "bank:saga",
+      "use": "bank:saga",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-audit",
+      "use": "bank:saga-audit",
+      "config": {}
+    },
+    {
+      "id": "intent:plane",
+      "use": "intent:plane",
+      "config": {}
+    },
+    {
+      "id": "prompt:ask",
+      "use": "prompt:ask",
+      "config": {}
+    },
+    {
+      "id": "bank:saga-bridge",
+      "use": "bank:saga-bridge",
+      "config": {
+        "enabled": true,
+        "eligible": [
+          "transfer_create"
+        ],
+        "tickIntervalMs": 60000,
+        "saga": {
+          "maxAttempts": 1
+        }
+      }
+    },
+    {
+      "id": "demo:echo",
+      "use": "demo:echo",
+      "config": {
+        "prefix": "[headless] "
+      }
+    }
+  ],
+  "model": {
+    "provider": "mock",
+    "spec": {
+      "id": "mock-chat",
+      "providerId": "mock",
+      "displayName": "Mock Chat（确定性脚本）",
+      "capabilities": {
+        "toolCall": true,
+        "image": false,
+        "reasoning": true
+      },
+      "contextWindow": 32000
+    }
+  },
+  "coveredSources": [
+    "packages/runtime/src/agent-loop/",
+    "packages/runtime/src/session/",
+    "packages/runtime/src/system-prompt/",
+    "packages/runtime/src/tools/",
+    "packages/runtime/src/seams.ts",
+    "packages/llm/src/llm/",
+    "packages/llm/src/mock/",
+    "packages/bank/src/core/",
+    "packages/bank/src/tools/",
+    "packages/host/src/boot/",
+    "packages/persistence/src/jsonl/",
+    "packages/persistence/src/chain/",
+    "packages/persistence/src/saga-store/",
+    "packages/safety/src/sentry/",
+    "packages/interaction/src/approval/",
+    "packages/saga/src/recovery/",
+    "packages/saga/src/index.ts",
+    "packages/saga/src/tick/",
+    "packages/safety/src/sandbox-runtime/",
+    "packages/bank/src/forge/",
+    "packages/bank/src/verify/"
+  ]
+}

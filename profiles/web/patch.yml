@@ -1,0 +1,226 @@
+# web profile patch（层 2）。
+#
+# 语义仍是**整块替换**：每行 config 一出现就完全取代 base 的值。
+#
+# 演示主路径：内置 router（离线、确定性；只认查余额 / 转账两种意图）
+#   → 黄级 → Web 弹窗审批 → 核销 → 文本收尾。
+# 前端连上后应看到：对话流两段气泡、工具卡三态（待执行→完成）、审批弹窗六要素、DAG、审计时间线。
+# 知识问答**不在** router 的意图范围内：用 `pnpm demo:rag`（headless）单独演示；
+# 若要在 Web 里问知识，按下面注释切 DeepSeek（需要网络 + BAH_MODEL_KEY）。
+# 真实模型是可替换 provider 的证据，不是主路径；切换是手动改 profile，不是自动降级。
+
+- id: core:model
+  config:
+    provider: router
+    model: router-chat
+    chunkSize: 4
+    # ── 可替换真实模型（DeepSeek V4.1 Flash / DashScope 兼容端点）──
+    # 切换时必须**同时**改这里与 core:agent.loop.model（两处成对，见 docs/deploy.md）：
+    # 把上面三行换成下面整块，并把 loop.model 改成 deepseek:deepseek-v4.1-flash-1017。
+    # provider: deepseek
+    # model: deepseek-v4.1-flash-1017
+    # baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
+    # apiKeyEnv: BAH_MODEL_KEY
+    # modelSpec:
+    #   displayName: DeepSeek V4.1 Flash（DashScope 兼容端点）
+    #   contextWindow: 131072
+    #   toolCall: true
+    #   reasoning: false
+    # requestTimeoutMs: 30000
+    # retryMax: 2
+    # retryBaseMs: 300
+    # # D2 成本：单位是**微元/百万 token**（整数，金额不碰浮点）。
+    # # 这三个价是**演示占位价**（输入 2 元 / 缓存 0.5 元 / 输出 8 元每百万 token），
+    # # 不是任何官方报价；真实账单必须由部署方按合同核价后改这三行。
+    # # 不写这块 `usage/summary.costMicroYuan` 恒为 0——router 是本地生成、零上游成本，
+    # # 所以主路径显示 0 元是**正确**的，不是"没配"。
+    # pricing:
+    #   inputPerMTok: 2000000
+    #   cachedInputPerMTok: 500000
+    #   outputPerMTok: 8000000
+
+- id: policy:rules
+  config:
+    root: policies
+    active: { bank.tier: bank-tier/1.0.0 }
+    hotReload: true
+    requireSignature: false
+    shadow: { bank.tier: null }
+
+# C04 演示确定性：Web 演示进程的单会话日志不需要逐条 fsync。
+# 关掉后每次 append 不再阻塞在磁盘同步上，避免现场"点批准后气泡卡住"。
+# 代价是进程被硬杀时可能丢最后几条事件——演示用重启可复现的种子数据兜底。
+- id: core:persistence
+  config:
+    root: sessions
+    fsync: false
+
+- id: bank:tools
+  config:
+    demoUserId: u-1
+    seed: 7
+    datasetTier: demo
+    # 策略外置 S3：判决走外置规则；热重载由下方 policy:rules 行打开
+    policy: { engine: bundle }
+    # 实体槽位的数据层预算（只有 core:agent.slots.source=bank 时才会被读）。
+    # 七键都有界：越界是 boot 期 invalid-config，不是运行期静默收敛。
+    contextSlots:
+      accounts: 3          # 最多展示账户数
+      transactions: 3      # 最多展示流水数
+      windowDays: 30       # 流水回看窗口（天）
+      timeoutMs: 250       # 单次核心读的真实等待预算（不走注入钟）
+      maxChars: 800        # 数据行总长预算（头部与说明不计）
+      breakerFailures: 3   # 连续失败几次开熔断
+      breakerOpenMs: 10000 # 熔断窗口（毫秒）
+
+# ── 场景 6 / 定时计划（2026-11-01 补齐，与 mobile 同款）──────────────────────
+#
+# WHY 必须补：router 的生日分支会发 `goal_set` / `plan_propose` / `plan_execute`。
+# 这三行缺席时它们不在注册表，工具调用直接 `tool-missing`，但脚本仍会输出
+# "已生成计划"——那是当着审阅者面编造结果（违反「幻觉防护」）。
+# 补齐后主演示（pnpm demo:web）与移动端能力一致：事实库 / 到点唤醒 / 商户腿全在。
+- id: plan:dag
+  use: plan:dag
+  config:
+    enabled: true
+    maxNodes: 16
+    maxEdges: 64
+    # 必须 < 票据 TTL（bank:tools.ticketTtlSeconds=120 → 120000ms）
+    planTimeoutMs: 30000
+    dryRunDefault: false
+    modelTools: true
+
+# G2/G3：生活事实库 + 到期唤醒驱动器（零新事件键：事实走 tool/call+tool/result）。
+- id: fact:store
+  use: fact:store
+  config: { enabled: true }
+
+- id: plan:scheduler
+  use: plan:scheduler
+  config: { enabled: true, catchUpOnBoot: true }
+
+# G4：mock 商户域。资金腿仍是 transfer_create，商户腿只回执货物。
+- id: bank:merchant
+  use: bank:merchant
+  config: { enabled: true, fault: none }
+
+# ADR-0016：订阅续费主动提醒（通用主动通知通道 `bah:proactive`）。
+# 规则写死在代码里，这里只开总开关；boot 补跑保留——启动即扫，不必等第一个 tick。
+- id: proactive:reminder
+  use: proactive:reminder
+  config: { enabled: true, catchUpOnBoot: true }
+
+# ★ saga-bridge 只保留 tick、不接管工具（复审 P1-2）：
+#   计划节点本身就是 preview → create 两步，接管会把 transfer_create 展开两次；
+#   但完全关掉连 `saga/tick` 也没了，AA 到期 / 订阅与生日提醒在常驻进程里只能靠启动补跑。
+#   `eligible: []` = 桥接不接管任何工具；`tickIntervalMs` 仍给到期 job 一个时钟源。
+#   代价不变：计划里的转账失去自动补偿（docs/mobile.md 的诚实边界同样适用）。
+- id: bank:saga-bridge
+  config:
+    enabled: true
+    eligible: []
+    tickIntervalMs: 60000
+    saga: { maxAttempts: 1 }
+
+# 知识平面：base bundle **不含**此行，web 必须显式开。
+# 不开就没检索：`knowledge_answer` / `knowledge_query` 两个工具根本不存在于注册表，
+# 模型也看不到（工具 schema 按注册表装配）。
+- id: bank:knowledge
+  use: bank:knowledge
+  config:
+    mode: http
+    baseUrl: http://127.0.0.1:7801
+    channel: web
+    # 演示要求 RAG sidecar 先起（pnpm rag:dev / pnpm demo:rag）；
+    # required=false 让 sidecar 缺席时降级为 knowledge-unavailable（fail-closed），
+    # 而不是把整个站点顶掉——但那样"检索增强"就只剩壳，演示前必须确认探活通过。
+    # 鉴权 fail-loud：sidecar 与宿主必须用同一 BAH_KNOWLEDGE_TOKEN（见 docs/knowledge.md）。
+    required: false
+
+# 认证面（租户与鉴权 02）。**整块注释掉 = auth.mode: static = 改动前的行为**。
+# 打开 password 模式之前必须先做三件事（boot 期会 fail-loud）：
+#   1) cp auth/users.example.yml auth/users.yml 并换掉口令；
+#       目录缺失 → auth-directory-missing；tenant 不一致 → auth-directory-tenant-mismatch；
+#   2) 去掉 bank:tools 的 demoUserId（上面那行）→ 否则 auth-demo-user-conflict；
+#   3) 去掉 core:agent 的 runtimeContext.user（下面 name: 张三 那行）→ 否则 auth-static-user-conflict
+#      （姓名改由实体槽位现算；否则换个人登录时 slots-user-mismatch 会让每个 turn 失败）。
+#
+# - id: channel:web
+#   config:
+#     auth:
+#       mode: password
+#       cookie: { name: bah_sid, secure: false }   # 生产（HTTPS）必须 true
+#       session: { idleMs: 1800000, absoluteMs: 28800000 }
+#       directory: { path: auth/users.yml }
+#       login: { maxFailures: 5, lockMs: 900000, backoffBaseMs: 1000, backoffMaxMs: 60000 }
+
+- id: interaction:approval
+  config:
+    # Web 有弹窗：不设自动应答者，等人点（默认结论 unavailable = 拒绝，绝不默认放行）
+    responder: none
+
+- id: safety:sentry
+  config:
+    # W08：审计 trace 显式落 durable 会话事件；缺省不再退化为内存环。
+    trace:
+      sink: session
+    rules:
+      crossScenario: true
+
+- id: core:agent
+  config:
+    # 唯一与 headless 不同的核心配置：渠道语气（模型同为离线 router）
+    channel: web
+    loop:
+      # 切 DeepSeek 时必须与 core:model 同步改成 deepseek:deepseek-v4.1-flash-1017
+      model: router:router-chat
+      maxSteps: 8
+      # 与 headless 同阈值：压缩只在长会话（> 8 turn）才触发，
+      # 演示那两幕不会触发，所以不会污染"对话流可回放"的验收。
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
+    # 实体槽位：每 step 从 bank:tools 提供的权威核心现算（S3 通电）。
+    # 关掉这一行 = 回到静态画像；适配器与端口保留但无人调用（最小回滚单元）。
+    slots: { source: bank }
+    runtimeContext:
+      # name 必须与 bank:tools.demoUserId（u-1）的权威姓名一致（S0 后为张三）；
+      # 不一致会在首个 turn 触发 slots-user-mismatch（主体错位宁可红）。
+      user: { name: 张三, level: 金卡 }
+      notes:
+        - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。
+
+# C4 跨会话记忆（`bah:memory-store`）。
+#
+# base bundle **不含**此行：记忆会改变模型输入，不做静默开启，由 profile 显式写。
+# 三条接线（写入 `turn/end` / 召回 `agent/pre-step` / 注入提示词段）见
+# `packages/host/src/boot/plugins/memory.ts` 的模块注释。
+#
+# dbPath 是**相对租户根的单段文件名**（TA-13 / AR-08）：实际落点
+# `<core:persistence.root>/<tenant>/memory.db`，换 `--jsonl` 或 `--tenant` 时记忆跟着走。
+# 写 `sessions/memory.db` 或绝对路径会在 boot 期 fail-loud（"相对谁"说不清 = 共库事故）。
+# 租户**不在**这里写：它只来自 `--tenant` / `BAH_TENANT`（写 `tenant:` 会被当成未知键拒绝）。
+# 诚实边界：影子核验未接（记忆不会被银行权威状态覆盖）。
+- id: bah:memory-store
+  use: bah:memory-store
+  config:
+    dbPath: memory.db
+    userId: u-1
+    sensitivityCeiling: 2
+
+- id: demo:echo
+  use: demo:echo
+  config: { prefix: '[web] ' }
+
+# 渠道行：前端作为插件模块接入。
+# 必须放在 interaction:approval 之后 —— 本行 inject 审批服务，直接注册 Web 应答者。
+- id: channel:web
+  use: channel:web
+  config:
+    port: 7331
+    host: 127.0.0.1
+    # 纯原生 ES 模块：静态目录直接指向源码，不需要先 build
+    staticRoot: apps/web
+    heartbeatMs: 15000
+    # 人机接管（01）：3 分钟未处理 → 落 handoff/timeout-warned 并在坐席台亮红。
+    # 0 = 只记录不告警。**不自动交回**（自动把客户退回给模型比挂着更糟）。
+    handoff:
+      slaMs: 180000

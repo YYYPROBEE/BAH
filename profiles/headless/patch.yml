@@ -1,0 +1,71 @@
+# headless profile patch（层 2：profile patch）。
+#
+# 语义是**整块替换**：下面每行的 config 一旦出现，
+# 就完全取代 base 那一行的 config——没写的字段走插件默认值，而不是与旧值深合并。
+# 所以 `core:model` 从 deepseek 换成 mock 只需重写这一行，不会有"残留的 deepseek 字段"。
+
+- id: core:model
+  config:
+    # headless 不出演示，但要给门禁与快照一个**确定性**模型：
+    # - 不用 mock 的固定脚本：那份脚本只认"给王建国转 800 元"，问别的就答非所问；
+    # - 不用 deepseek：快照必须无网络、无密钥也能复现。
+    # `router` 读消息现规划步骤，同样是纯函数，但不会答非所问（见 packages/llm/src/demo）。
+    provider: router
+    model: router-chat
+    chunkSize: 4
+
+- id: bank:tools
+  config:
+    # headless 显式绑定 demo 用户（张三）；不写则所有业务工具 deny no-identity
+    demoUserId: u-1
+    seed: 7
+    datasetTier: demo
+    # 策略外置 S3：判决走内容寻址的外置规则（1.0.0 与 legacy 穷举等价）
+    policy: { engine: bundle }
+
+- id: interaction:approval
+  config:
+    # ★ ADR-0010：本 profile 不再"无差别放行"。
+    #
+    # 曾经的 `responder: headless + autoDecision: allow` 让**任何** ask 都被自动批准，
+    # 那是回归夹具的语义，不是生产语义（headless 里没有第二个人，默认方向只能是拒绝）。
+    #
+    # 现在只装窗口代签应答者：票据必须带 `authorization.kind='window'`（只有 `plan_wake`
+    # 注入）且宿主核验通过，才签一次；其余 ask 无人应答 = unavailable = 拒绝。
+    # eval / 幕 3 若确实需要"自动批准"，由用例自己显式写 `autoDecision: allow`
+    # （见 `packages/eval/src/scenario/runner.ts` 的 allow 行），不再借 profile 的默认值。
+    responder: none
+    windowResponder: true
+
+- id: safety:sentry
+  config:
+    # W08：审计 trace 必须显式选落盘口（W08 起缺省不再退化为内存环，缺配置即载入失败）。
+    # `session` = 逐条落 durable 会话事件（可回放）；`memory` 只用于确认不需要留证的场景。
+    trace:
+      sink: session
+    # XSC-001/002 默认关（生产先用真实语料统计误报）；演示/压测 profile 显式打开
+    rules:
+      crossScenario: true
+
+- id: core:agent
+  config:
+    channel: headless
+    loop:
+      model: router:router-chat
+      maxSteps: 8
+      # 上下文压缩：超过 8 个完整 turn 折叠更早的历史，保留最近 3 个原文。
+      # 缺省（不写 compaction）= 本 agent 永不压缩（`config.ts` 里 `compaction?:` 可缺省），
+      # 所以这一行是"压缩是否通电"的唯一开关；演示效果用 patch-compaction.yml 把阈值压到 2。
+      compaction: { maxTurns: 8, keepRecentTurns: 3 }
+    runtimeContext:
+      user: { name: 张三, level: 金卡 }
+      # 补充说明段（`runtimeContextSection` 消费）：这是环境声明，不是业务数据。
+      # 不写这一行该段永不装配——全仓 `notes` 没有其它写入方。
+      notes:
+        - 本对话运行在仿真数据集（demo 档），账户与金额均为造数，不产生真实资金变动。
+
+# 插入新行：id 不在任何 bundle 里出现，所以必须写 use 指向依赖清单里的插件
+- id: demo:echo
+  use: demo:echo
+  config: { prefix: '[headless] ' }
+

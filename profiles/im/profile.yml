@@ -1,0 +1,4 @@
+name: im
+bundles: [base]
+patch: ./patch.yml
+hmr: false

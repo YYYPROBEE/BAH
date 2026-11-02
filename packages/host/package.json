@@ -1,0 +1,33 @@
+{
+  "name": "@bah/host",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist-types/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build:bundle": "tsdown src/index.ts --dts"
+  },
+  "dependencies": {
+    "@bah/bank": "workspace:*",
+    "@bah/channels": "workspace:*",
+    "@bah/core": "workspace:*",
+    "@bah/interaction": "workspace:*",
+    "@bah/knowledge": "workspace:*",
+    "@bah/llm": "workspace:*",
+    "@bah/memory-store": "workspace:*",
+    "@bah/persistence": "workspace:*",
+    "@bah/policy": "workspace:*",
+    "@bah/runtime": "workspace:*",
+    "@bah/safety": "workspace:*",
+    "@bah/saga": "workspace:*",
+    "@bah/telemetry": "workspace:*",
+    "@bah/util": "workspace:*"
+  },
+  "devDependencies": {
+    "@bah/test-support": "workspace:*"
+  }
+}

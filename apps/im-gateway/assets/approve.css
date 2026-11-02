@@ -1,0 +1,155 @@
+/* H5 审批页（03 单）。零远程资源；颜色只在 :root 定义一次。 */
+:root {
+  --page-bg: #f3f4f6;
+  --card-bg: #ffffff;
+  --text: #1f2328;
+  --muted: #61676d;
+  --line: #d8dbe0;
+  --primary: #1a56a8;
+  --primary-ink: #ffffff;
+  --danger: #a3271f;
+  --danger-ink: #ffffff;
+  --radius: 12px;
+  --space: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: var(--space);
+  background: var(--page-bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  line-height: 1.6;
+}
+
+.card {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: calc(var(--space) * 1.5);
+  background: var(--card-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+h1 {
+  margin: 0 0 var(--space);
+  font-size: 1.35rem;
+  line-height: 1.35;
+}
+
+p {
+  margin: 0 0 var(--space);
+  color: var(--muted);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px var(--space);
+  margin: 0 0 var(--space);
+}
+
+.facts dt {
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 0;
+  color: var(--text);
+}
+
+.notice {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--page-bg);
+  color: var(--text);
+}
+
+button {
+  min-height: 44px;
+  padding: 10px var(--space);
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--primary-ink);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  border-color: var(--line);
+  background: var(--line);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+button.secondary {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--danger-ink);
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space);
+  margin-top: var(--space);
+}
+
+.reason {
+  display: grid;
+  gap: 6px;
+  margin-top: var(--space);
+}
+
+.reason span {
+  color: var(--muted);
+}
+
+textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.status {
+  min-height: 1.6em;
+  margin: var(--space) 0 0;
+  color: var(--text);
+}
+
+@media (max-width: 420px) {
+  .actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 执行明细（服务端签发）：与摘要同网格，只靠字号/颜色区分强调，不画左侧色条 */
+.details-title {
+  margin: var(--space) 0 8px;
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.detail-amount {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-risk {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.detail-date {
+  font-variant-numeric: tabular-nums;
+}
