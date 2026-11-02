@@ -105,6 +105,6 @@ jobs:
           fetch-depth: 0
 
       - name: TruffleHog（仅报已验真的凭据）
-        uses: trufflesecurity/trufflehog@ce76ea8f54888c154de94d37f0681493e69193f8 # main（2026-10-28 HEAD）
+        uses: trufflesecurity/trufflehog@7238e0ec9b14ceef77041f057d709bbe68ab25e1 # main（2026-10-28 HEAD）
         with:
           extra_args: --only-verified
