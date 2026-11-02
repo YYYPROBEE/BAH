@@ -62,7 +62,7 @@ const PUBLIC_DOCS: readonly string[] = [
   { pattern: /41\/41/, why: '门禁数曾是 41/41，现在见 facts' },
   { pattern: /42\/42/, why: '门禁数曾是 42/42，现在见 facts' },
   { pattern: /43\/43/, why: '门禁数曾是 43/43，现在见 facts' },
-  { pattern: /18\/18/, why: '快照数曾是 18/18（现在是 6 文件 23 例）' },
+  { pattern: /(?:快照|snapshot)[^|\n]{0,12}18\/18|18\/18[^|\n]{0,12}(?:快照|snapshot)/, why: '快照数曾是 18/18（现在是 13 文件 60 例）' },
   { pattern: /1811\s*用例/, why: '用例数曾是 1811' },
   { pattern: /1951\s*用例/, why: '用例数曾是 1951' },
   { pattern: /2019\s*用例/, why: '用例数曾是 2019' },

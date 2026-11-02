@@ -31,6 +31,7 @@ import {
 import { createDialog } from './views/dialog.js'
 import {
   CONVERSATION_KINDS,
+  orderToolFrames,
   renderDraft,
   renderEmptyState,
   renderFrame,
@@ -78,6 +79,15 @@ function syncContainer(container, rendered, frames, factory) {
     if (seen.has(key)) continue
     entry.node.remove()
     rendered.delete(key)
+  }
+  // 只有含工具卡的流才需要按 `orderToolFrames` 重排；普通对话保持既有顺序，
+  // 避免把"同一 callId 的新选择题卡必须在末尾"这类既有约束打乱。
+  if (frames.some((frame) => frame.kind === 'tool')) {
+    const desired = frames.map((frame) => rendered.get(viewKey(frame))?.node).filter(Boolean)
+    for (let index = 0; index < desired.length; index += 1) {
+      const node = desired[index]
+      if (container.children[index] !== node) container.insertBefore(node, container.children[index] ?? null)
+    }
   }
 }
 
@@ -447,6 +457,7 @@ export function mountApp(options) {
   let answerFooterKey = null
   let lastAnswerModel = null
   const modelSuggestions = new Map()
+  const suggestionAttempted = new Set()
   const suggestionPending = new Set()
 
   /** 以"会话 + 回答序号"为键缓存模型建议：同一轮只请求一次，失败也缓存空数组。 */
@@ -455,12 +466,13 @@ export function mountApp(options) {
   }
 
   function requestModelSuggestions(model, key) {
-    if (modelSuggestions.has(key) || suggestionPending.has(key)) return
-    // 测试桩 / 旧宿主没这条 API：直接落空数组，走规则回退，不让收口块因此报错。
+    if (suggestionAttempted.has(key) || suggestionPending.has(key)) return
+    // 测试桩 / 旧宿主没这条 API：标记已尝试，保留规则回退。
     if (typeof api.suggest !== 'function') {
-      modelSuggestions.set(key, [])
+      suggestionAttempted.add(key)
       return
     }
+    suggestionAttempted.add(key)
     suggestionPending.add(key)
     const context = model.context ?? { user: '', assistant: '' }
     void api
@@ -473,14 +485,17 @@ export function mountApp(options) {
                 .filter((item) => item !== '')
                 .slice(0, 2)
             : []
-        modelSuggestions.set(key, items)
-        // 仍然是同一轮才替换；已经翻到下一轮就丢弃这次结果。
-        if (lastAnswerModel !== null && lastAnswerModel.key === key) {
-          syncAnswerFooter(lastAnswerModel.model)
+        // 空结果不写入 Map：让 syncAnswerFooter 继续用规则回退，而不是把按钮清空。
+        if (items.length > 0) {
+          modelSuggestions.set(key, items)
+          // 仍然是同一轮才替换；已经翻到下一轮就丢弃这次结果。
+          if (lastAnswerModel !== null && lastAnswerModel.key === key) {
+            syncAnswerFooter(lastAnswerModel.model)
+          }
         }
       })
       .catch(() => {
-        modelSuggestions.set(key, [])
+        // 模型不可用：保留规则回退，不把“没有建议”渲染成空标签。
       })
       .finally(() => {
         suggestionPending.delete(key)
@@ -520,8 +535,8 @@ export function mountApp(options) {
     }
     // 新帧会追加在末尾；每次 sync 把收口块挪到最后，保证它永远是会话流的最后一项。
     if (conversation.lastElementChild !== answerFooter) conversation.append(answerFooter)
-    // 模型建议是异步的：先把规则回退渲染出来，拿到结果后再原地替换。
-    if (!modelSuggestions.has(requestKey)) requestModelSuggestions(model, requestKey)
+    // 模型建议是异步的：先把规则回退渲染出来，拿到非空结果后再原地替换。
+    if (!suggestionAttempted.has(requestKey)) requestModelSuggestions(model, requestKey)
   }
 
   const approvals = createApprovalController(overlay, {
@@ -813,7 +828,10 @@ export function mountApp(options) {
   /** 全量同步（幂等；每帧都可能触发一次）。 */
   function sync(state) {
     // ① 对话流
-    const conversationFrames = state.frames.filter((frame) => CONVERSATION_KINDS.has(frame.kind))
+    // 工具卡跟到发起它的助手消息后面：避免"卡在上、'我查一下'在下"造成下面没内容。
+    const conversationFrames = orderToolFrames(
+      state.frames.filter((frame) => CONVERSATION_KINDS.has(frame.kind)),
+    )
     syncContainer(conversation, rendered, conversationFrames, (frame) => renderFrame(frame, choiceDeps))
 
     // 一律以"最后一轮是否还在跑"决定收口块：运行中 / 流式草稿 / 接管中都不出反馈与追问。

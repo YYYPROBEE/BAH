@@ -71,6 +71,43 @@ export function renderFrame(frame, deps = {}) {
   }
 }
 
+/**
+ * 把工具卡挪到「发起它的助手消息」之后。
+ *
+ * 事件日志里 `tool/result` 可能先于同一步的 `assistant/message` 落账；按原序渲染会变成
+ * "工具卡在上、助手说'我查一下'在下"，用户看不到刚查到的内容。这里只调展示顺序，
+ * 不改帧、不改 seq：助手消息后面紧跟它引用的工具卡。
+ *
+ * @param {ReadonlyArray<Record<string, any>>} frames
+ * @returns {Record<string, any>[]}
+ */
+export function orderToolFrames(frames) {
+  const toolByCall = new Map()
+  for (const frame of frames) {
+    if (frame?.kind === 'tool' && typeof frame.callId === 'string') toolByCall.set(frame.callId, frame)
+  }
+  if (toolByCall.size === 0) return [...frames]
+
+  const used = new Set()
+  const out = []
+  for (const frame of frames) {
+    if (frame?.kind === 'tool' && toolByCall.has(frame.callId)) continue
+    out.push(frame)
+    if (frame?.kind !== 'message' || frame.role !== 'assistant' || !Array.isArray(frame.toolCalls)) continue
+    for (const call of frame.toolCalls) {
+      const tool = toolByCall.get(call?.callId)
+      if (tool === undefined || used.has(tool)) continue
+      out.push(tool)
+      used.add(tool)
+    }
+  }
+  // 没有助手消息引用的工具帧：保留在末尾，不吞掉。
+  for (const frame of frames) {
+    if (frame?.kind === 'tool' && !used.has(frame)) out.push(frame)
+  }
+  return out
+}
+
 /** 轮次分割线。 */
 export function renderTurn(frame) {
   const label = frame.turn === 0 ? '准备' : `第 ${String(frame.turn)} 轮`
