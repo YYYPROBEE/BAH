@@ -1,7 +1,7 @@
 # ADR-0009 · 风险测评改为服务端问卷（动作豁免 + 确认留痕）
 
 - 状态：**已采纳**（2026-10-31）
-- 关联：审查报告 C-03（「模型直接提交 5 个数字」）、`docs/contracts/event-table.md` §4.3、`docs/tool-catalog.md` 第 13 行
+- 关联：「模型直接提交 5 个数字」、`docs/contracts/event-table.md` §4.3、`docs/tool-catalog.md` 第 13 行
 - 影响面：`packages/bank/src/core/risk-questionnaire.ts`（新）、`packages/bank/src/tools/{specs,tier,governance,wealth,events,dto,result-schemas}.ts`、`packages/llm/src/demo/router.ts`、`packages/channels/src/{web/frames,web/project,im/render}.ts`、`apps/web/src/views/risk-form.js`
 
 ---

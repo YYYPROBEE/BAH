@@ -537,7 +537,7 @@ describe('mountApp · 对话收口与定位', () => {
     expect(root.querySelector('[data-role="answer-footer"]')).toBeNull()
   })
 
-  it('新消息贴底；用户上翻后不抢滚动；发送动作强制回到底部', async () => {
+  it('新消息定位到顶部；用户上翻后不抢滚动；发送后等 user/message 帧再定位', async () => {
     const api = fakeApi()
     const { root, transport } = mount(api)
     const conversation = root.querySelector('#conversation')
@@ -555,10 +555,13 @@ describe('mountApp · 对话收口与定位', () => {
     const input = root.querySelector('.composer__input')
     input.value = '查余额'
     root.querySelector('#composer').dispatchEvent(new Event('submit', { cancelable: true }))
-    expect(conversation.scrollTop).toBe(1200)
     await Promise.resolve()
     await Promise.resolve()
     expect(api.calls).toEqual([['turn', '查余额']])
+
+    // 新消息帧到达后才定位；jsdom 的矩形全为 0，顶部锚点 = 当前 scrollTop - 8。
+    transport.push({ kind: 'message', seq: 3, at: 3, role: 'user', blocks: [{ type: 'text', text: '查余额' }] })
+    expect(conversation.scrollTop).toBe(92)
   })
 })
 

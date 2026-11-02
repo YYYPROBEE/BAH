@@ -1,18 +1,17 @@
 # ADR-0012 · 卡限额与品类限制落到真实扣款路径（mock 收单 + 同卡滚动 30 天）
 
 - 状态：**已采纳**（2026-10-31）
-- 关联：全能力审查 B-02 / B-03、全能力复审提示词 1（路线 B，原件留仓库外归档）、`docs/contracts/event-table.md` §5、`docs/bank-tools.md` §2/§6/§10
+- 关联：`docs/contracts/event-table.md` §5、`docs/bank-tools.md` §2/§6/§10
 - 影响面：`packages/bank/src/core/{model,provider,mock,merchant}.ts`、`packages/bank/src/tools/{specs,account-ops,queries,approval-details,dto,events}.ts`、`packages/host/src/boot/plugins/{bank-tools,merchant}.ts`、`packages/llm/src/demo/router.ts`
 
 > 编号说明：ADR-0010 已被并行线的授权窗口（`windowResponder`）占用
-> （`docs/adr/0010-window-sign-authorization.md`），0011 预留给 AA 收口单；
 > 本设计按顺序取 0012，避免与在途编号相撞。
 
 ---
 
 ## 1 背景
 
-审查报告的两条事实：
+两条事实：
 
 1. `Card.monthlyLimitCents` **只存不判**——`dailyLimitOf` 只取日限额，月限额从未参与任何风控；
 2. `card_restriction` 的 `kind:'category'` **只落规则与审计**——`cardRestrictionRisk` 只处理
@@ -136,4 +135,4 @@ spend(sessionId, { cardId, merchantCategory, amountCents, memo? })
 - 快照面：`card/spent` 只在新路径发射，既有场景不触发；
 - 计数联动：银行事件键 32 → 33；工具数仍 28（没有新增银行工具）；
 - 负控：临时禁用月限额判定后，`mock.card-limits.test.ts` 2 例 + `transfers.test.ts` 1 例转红，
-  还原后全绿（日志原件留仓库外归档，§5）。
+  还原后全绿（见 §5）。

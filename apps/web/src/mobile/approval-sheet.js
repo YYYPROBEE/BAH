@@ -337,7 +337,7 @@ export function createApprovalSheet(host, handlers, deps = {}) {
       rows: 2,
       maxlength: String(MAX_REASON),
       dataset: { role: 'reason' },
-      placeholder: reasonRequired ? '拒绝理由（必填，会写入审计）' : '拒绝理由（可选，会写入审计）',
+      placeholder: reasonRequired ? '拒绝理由（拒绝时必填，会写入审计）' : '拒绝理由（可选，会写入审计）',
       'aria-label': '拒绝理由',
     })
     const reasonCount = el('span', {
@@ -423,7 +423,7 @@ export function createApprovalSheet(host, handlers, deps = {}) {
         el('label', { class: 'm-sheet-reason' }, [
           el('span', {
             class: 'm-sheet-reason__label',
-            text: `拒绝理由（${reasonRequired ? '必填' : '可选'}）`,
+            text: `拒绝理由（${reasonRequired ? '拒绝时必填' : '可选'}）`,
           }),
           reasonInput,
           reasonCount,

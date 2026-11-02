@@ -16,7 +16,7 @@
  *    对策是按 `at` 单调过滤（方案文档写的"按 seq 过滤"与帧契约不符，已登记 §9 偏差）。
  */
 
-import { clear, el } from '../dom.js'
+import { clear, el, icon } from '../dom.js'
 import { createStore, viewKey } from '../store.js'
 import { bootstrapPasswordGate, readAuthMode } from '../auth.js'
 import { applyFontScale, createFeedbackStore, createPrefs, feedbackKeyOf, isLargeFont, PREF_KEYS } from '../prefs.js'
@@ -41,6 +41,7 @@ import { createChoiceCard } from './choice-card.js'
 import { createComposer } from './composer.js'
 import { createEffectsList } from './effects-list.js'
 import { createLayout } from './layout.js'
+import { createHistorySheet } from './history-sheet.js'
 import { createPlanSteps } from './plan-steps.js'
 
 /**
@@ -91,7 +92,7 @@ export const RECONNECT_DEFAULTS = Object.freeze({  baseMs: 1000,
  * ⚠ 如实登记：共享层 `transport.js` 的 `request()` 只回 `{ ok, status, code, reason }`，
  * **不透出 `retry-after` 响应头** ⇒ 生产路径上这个缺省值会被用到。要精确遵守服务端的
  * retry-after，得给 `request()` 的返回对象加一个字段（纯增量），但该文件正被并行线改写，
- * 本设计不碰（00 §10 处置规矩 3）。已作为交接项写进 handoff 与复审报告。
+ * 本设计不碰这一项。
  */
 export const RATE_LIMIT_FALLBACK_SECONDS = 60
 
@@ -318,7 +319,35 @@ export function createMobileShell(deps) {
   const speaker = createSpeaker(win)
 
   const layout = createLayout(deps.root, { win })
-  const { feed: feedRegion, dock, overlayHost } = layout.regions
+  const { feed: feedRegion, dock, overlayHost, headerActions } = layout.regions
+
+  /**
+   * 历史对话（2026-11-02）。
+   *
+   * 与"新对话"不同，它不需要宿主能力：只读 `GET /api/sessions`，web / mobile / desktop
+   * 三份壳的 HTTP 面完全一样，所以无条件渲染入口。
+   *
+   * 渲染件走 `rendererOf`（移动端自己的帧→交互面映射），deps 传空：历史里
+   * 选择题与风险问卷都不给作答入口，`renderReadonlyFrames` 会把它们降级成记录行。
+   */
+  const historySheet = createHistorySheet(overlayHost, {
+    loadList: () => api.sessions(20),
+    loadSession: (sessionId) => api.sessionTranscript(sessionId),
+    renderFrame: (frame) => rendererOf(frame, {})(frame),
+  })
+  const historyButton = el(
+    'button',
+    {
+      class: 'm-header__tool',
+      type: 'button',
+      'aria-label': '历史对话',
+      title: '历史对话（只读）',
+      dataset: { role: 'm-history' },
+    },
+    [icon('clock', 16)],
+  )
+  historyButton.addEventListener('click', () => void historySheet.open())
+  headerActions.append(historyButton)
 
   // 半途关闭后的"仍有一笔待确认"提醒条挂在 composer **上方**：
   // 挂在下方会被软键盘与安全区挤到屏幕外，等于没有回收口。
@@ -395,13 +424,11 @@ export function createMobileShell(deps) {
   const echoes = new Map()
 
   /**
-   * 滚动策略与桌面同源：发送时跳到底部；本轮第一段助手正文出现时只滚到它的顶部一次，
+   * 滚动策略与桌面同源：发送后把最新一条用户消息钉在视口顶部，回答从它下面长出来；
    * 之后 delta / 工具帧 / 收口块都不再跟随，避免用户往上翻读时被持续拽回底部。
    */
   let scrollInitialized = false
   let lastUserSeq = 0
-  let jumpToAnswerStart = false
-  let answerStartShown = false
   let lastChoiceSeq = 0
 
   function isUserSpeechFrame(frame) {
@@ -424,15 +451,15 @@ export function createMobileShell(deps) {
     if (node === null || node === undefined) return
     const container = feedRegion.getBoundingClientRect()
     const target = feedRegion.scrollTop + node.getBoundingClientRect().top - container.top - 8
+    const previous = feedRegion.style.scrollBehavior
+    feedRegion.style.scrollBehavior = 'auto'
     feedRegion.scrollTop = Math.max(0, target)
+    feedRegion.style.scrollBehavior = previous
   }
 
   function prepareUserSendScroll() {
     scrollInitialized = true
     lastUserSeq = latestUserSeqOf(store.state().frames)
-    jumpToAnswerStart = true
-    answerStartShown = false
-    scrollToBottom(feedRegion)
   }
 
   function syncFeedScroll(state) {
@@ -442,56 +469,78 @@ export function createMobileShell(deps) {
       if (feed.size === 0 && state.streamText.length === 0 && echoes.size === 0) return
       scrollInitialized = true
       lastUserSeq = latestUser
-      jumpToAnswerStart = false
-      answerStartShown = false
       scrollToBottom(feedRegion)
       return
     }
 
     if (latestUser > lastUserSeq) {
       lastUserSeq = latestUser
-      jumpToAnswerStart = true
-      answerStartShown = false
-      scrollToBottom(feedRegion)
-      return
+      const node = conversationHost.querySelector(`.message--user[data-seq="${String(latestUser)}"]`)
+      if (node !== null) scrollFeedToTopOf(node)
+      else scrollToBottom(feedRegion)
     }
-
-    if (!jumpToAnswerStart || answerStartShown) return
-    const draft = conversationHost.querySelector('[data-draft="true"]')
-    let target = draft
-    if (target === null) {
-      target =
-        [...conversationHost.querySelectorAll('.message--assistant')].find(
-          (node) =>
-            Number(node.dataset.seq) > lastUserSeq &&
-            !node.classList.contains('message--tool-only'),
-        ) ?? null
-    }
-    if (target === null) return
-    scrollFeedToTopOf(target)
-    jumpToAnswerStart = false
-    answerStartShown = true
   }
 
   /** 对话末尾的收口块（唯一反馈行 + 两条追问）。 */
   let answerFooter = null
   let answerFooterKey = null
+  let lastAnswerModel = null
+  const modelSuggestions = new Map()
+  const suggestionPending = new Set()
+
+  function suggestionKeyOf(model) {
+    return `${String(store.state().sessionId)}:${String(model.frame.seq)}`
+  }
+
+  function requestModelSuggestions(model, key) {
+    if (modelSuggestions.has(key) || suggestionPending.has(key)) return
+    if (typeof api.suggest !== 'function') {
+      modelSuggestions.set(key, [])
+      return
+    }
+    suggestionPending.add(key)
+    void api
+      .suggest(model.context ?? { user: '', assistant: '' })
+      .then((result) => {
+        const items =
+          result.ok && Array.isArray(result.data?.suggestions)
+            ? result.data.suggestions
+                .map((item) => String(item ?? '').trim())
+                .filter((item) => item !== '')
+                .slice(0, 2)
+            : []
+        modelSuggestions.set(key, items)
+        if (lastAnswerModel !== null && lastAnswerModel.key === key) {
+          syncAnswerFooter(lastAnswerModel.model)
+        }
+      })
+      .catch(() => {
+        modelSuggestions.set(key, [])
+      })
+      .finally(() => {
+        suggestionPending.delete(key)
+      })
+  }
 
   function syncAnswerFooter(model) {
     if (model === null) {
       answerFooter?.remove()
       answerFooter = null
       answerFooterKey = null
+      lastAnswerModel = null
       return
     }
 
     // 会话号也进键：服务重启后 seq 可能重复，不能把上一个会话的反馈状态带进新会话。
-    const key = `${String(store.state().sessionId)}:${String(model.frame.seq)}:${model.suggestions.join('|')}`
+    const requestKey = suggestionKeyOf(model)
+    lastAnswerModel = { key: requestKey, model }
+    const suggestions = modelSuggestions.get(requestKey) ?? model.suggestions
+    const key = `${requestKey}:${suggestions.join('|')}`
     const build = () =>
       renderAnswerFooter({
         value: feedbackDeps.value(model.frame),
         onRate: (value) => feedbackDeps.rate(model.frame, value),
-        suggestions: model.suggestions,
+        suggestions,
         onPick: (text) => {
           echoUserMessage(text)
           return submitTurn(text)
@@ -508,6 +557,7 @@ export function createMobileShell(deps) {
       answerFooterKey = key
     }
     if (footerHost.lastElementChild !== answerFooter) footerHost.append(answerFooter)
+    if (!modelSuggestions.has(requestKey)) requestModelSuggestions(model, requestKey)
   }
 
   let lastSeq = 0

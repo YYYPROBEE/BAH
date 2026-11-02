@@ -144,9 +144,35 @@ export function renderMessage(frame, deps = {}) {
   const hasText = (frame.blocks ?? []).some(
     (block) => block.type !== 'text' || (typeof block.text === 'string' && block.text.trim().length > 0),
   )
+  const calls = Array.isArray(frame.toolCalls) ? frame.toolCalls : []
+  const callList = () =>
+    el(
+      'div',
+      { class: 'message__calls' },
+      calls.map((call) =>
+        el('div', { class: 'message__call' }, [
+          el('span', { class: 'ds-tag', text: String(call.name) }),
+          el('code', { class: 'message__call-id', text: String(call.callId) }),
+        ]),
+      ),
+    )
+
   if (role === 'assistant' && !hasText) {
-    return el('div', { class: 'message message--assistant message--tool-only', dataset: { seq: String(frame.seq) } }, [
-      el('div', { class: 'message__meta' }, [icon('bank', 14), BRAND.speaker, el('span', { class: 'message__seq', text: '发起工具调用' })]),
+    if (calls.length === 0) {
+      return el('div', { class: 'message message--assistant message--tool-only', dataset: { seq: String(frame.seq) } }, [
+        el('div', { class: 'message__meta' }, [icon('bank', 14), BRAND.speaker, el('span', { class: 'message__seq', text: '发起工具调用' })]),
+      ])
+    }
+    return el('details', {
+      class: 'message message--assistant message--tool-only message__calls-details',
+      dataset: { seq: String(frame.seq) },
+    }, [
+      el('summary', { class: 'message__meta message__calls-summary' }, [
+        icon('bank', 14),
+        BRAND.speaker,
+        el('span', { class: 'message__seq', text: `发起工具调用（${String(calls.length)}）` }),
+      ]),
+      callList(),
     ])
   }
 
@@ -174,16 +200,13 @@ export function renderMessage(frame, deps = {}) {
           : []),
       ]),
       body,
-      ...(frame.toolCalls === undefined || frame.toolCalls.length === 0
+      ...(calls.length === 0
         ? []
         : [
-            el(
-              'div',
-              { class: 'message__calls' },
-              frame.toolCalls.map((call) =>
-                el('span', { class: 'ds-tag', text: `${call.name} · ${call.callId}` }),
-              ),
-            ),
+            el('details', { class: 'message__calls-details' }, [
+              el('summary', { class: 'message__calls-summary', text: `工具调用（${String(calls.length)}）` }),
+              callList(),
+            ]),
           ]),
     ],
   )

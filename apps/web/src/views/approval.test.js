@@ -294,6 +294,27 @@ describe('审批弹窗 · 超时（T-WEB-004）', () => {
     expect(root.querySelector('[role="dialog"]')).toBeNull()
   })
 
+  it('结论生效后 body 退出交互：理由框与强验证块都不再可点（2026-11-02）', () => {
+    const { root, controller } = setup(approval({ tier: 'red', challenge: 'sms' }))
+    controller.close({
+      kind: 'approval-closed',
+      seq: 5,
+      ticketId: 'ticket:call-1',
+      decision: 'allowed-once',
+      label: '已批准（一次性）',
+    })
+
+    const body = root.querySelector('.ds-dialog__body')
+    expect(body.hasAttribute('inert')).toBe(true)
+    // 理由框留着（审计要能回看填了什么），但必须不能再打字
+    expect(root.querySelector('.approval__reason').disabled).toBe(true)
+    // 强验证块不能留一个可点的「开始验证」：票已不在待应答集合，
+    // 点下去只会把「结论已生效」覆盖成「验证未通过：没有待应答的票据」
+    const challengeButtons = [...root.querySelectorAll('.approval__challenge button')]
+    expect(challengeButtons.length).toBe(1)
+    expect(challengeButtons.every((button) => button.disabled)).toBe(true)
+  })
+
   it('结论生效后标题栏 X 与 Esc 同口径：只收起，不再提交已不存在的票（2026-10-31 走查）', async () => {
     const { root, calls, controller } = setup(approval())
     controller.close({

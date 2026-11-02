@@ -8,7 +8,7 @@ function mount(search) {
   window.history.replaceState({}, '', `/secure/password${search}`)
 }
 
-describe('安全页：交接票据预填（01 复审 P0-2）', () => {
+describe('安全页：交接票据预填', () => {
   it('?ticket= 预填票据框，并立刻从地址栏抹掉', async () => {
     mount('?ticket=pwd%3Ac-12')
     await startSecurePasswordPage()

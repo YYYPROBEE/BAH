@@ -43,6 +43,10 @@ export const IM_LOG_CODES = [
   'im-seat-denied',
   // 文本帮助菜单（无按钮平台的“常用业务宫格”等价物）
   'im-help',
+  // 历史会话列表：用户问“之前聊过什么”，只打平台与状态码，不含会话内容
+  'im-history',
+  'im-history-idle',
+  'im-history-failed',
 ] as const
 
 /** 日志码类型。 */

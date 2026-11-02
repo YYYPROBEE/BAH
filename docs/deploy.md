@@ -1,4 +1,4 @@
-# 部署与运行说明（M0）
+# 部署与运行说明
 
 > 读者：拿到仓库、要在自己机器上把演示跑起来的人。
 > 本文只写**能照着做**的步骤；所有默认值都回源码核过（`profiles/web/patch.yml`、
@@ -10,8 +10,8 @@
 ## 0. 获取代码
 
 ```bash
-git clone https://github.com/YYYPROBEE/bah-monorepo.git
-cd bah-monorepo
+git clone https://github.com/YYYPROBEE/BAH.git
+cd BAH
 ```
 
 仓库访问需授权。不要把 token 写进 clone URL 或任何文件；`.env.local` 不入库。
@@ -45,7 +45,7 @@ pnpm install          # 同时把 core.hooksPath 指到 .githooks
 | `7551` | 移动 H5 渠道（第二个壳 + 同一套 `/api/*`） | `127.0.0.1` | `profiles/mobile/patch.yml` 的 `channel:mobile.config.port` |
 | `7801` | 知识 RAG sidecar（可选） | `127.0.0.1` | `profiles/web/patch.yml` 的 `bank:knowledge.config.baseUrl` |
 
-移动端入口：`pnpm bah --profile mobile`，`staticRoot` 同为 `apps/web`（单静态根双壳，00 D1），
+移动端入口：`pnpm bah --profile mobile`，`staticRoot` 同为 `apps/web`（单静态根双壳），
 **前端不需要先 build**（纯原生 ES 模块）。`channel:web` 与 `channel:mobile` 共用同一份
 `createHttpChannel`（路由表 / 闸序 / 安全头 / 限流 / CSRF / SSE / 审批端点一份代码）——
 差异只有适配器（能力位）、入口 HTML、默认端口三项。**不要**给移动端进程设 `BAH_ADMIN_TOKEN`
@@ -106,10 +106,10 @@ BAH_ADMIN_TOKEN=<同一串> pnpm bah sentry unfreeze --by ops-1 --reason "客服
 
 ---
 
-## 3.1 saga 审计签名密钥（实现方起补偿需要）
+## 3.1 saga 审计签名密钥（补偿需要）
 
 `saga/comp-issued` 与 `saga/comp-result` 在 Ed25519 签名白名单里（`packages/persistence/src/chain/index.ts` 的
-`SIGNED_TYPES`）。实现方打开自动冲正后，补偿提交会写这两类事件；默认路径
+`SIGNED_TYPES`）。打开自动冲正后，补偿提交会写这两类事件；默认路径
 `keys/saga-ed25519.pem` 不存在时，补偿会以 `commit-failed: signing-key-missing` 失败
 （正向交易不受影响，因为它不写签名事件）。
 
@@ -129,7 +129,7 @@ npx tsx scripts/gen-saga-key.ts          # 手动：写 keys/saga-ed25519.pem（
 - 自定义路径：`bank:saga-audit.config.signingKeyPath`（验签命令要用同一把私钥）；
 - 私钥**不得提交**；仓库当前没有 KMS/HSM，生产托管留待后续（如实写，不要声称已有）。
 
-### 3.2 知识库签名密钥（实现方起 `bank:knowledge` 需要）
+### 3.2 知识库签名密钥（`bank:knowledge` 需要）
 
 知识库签名清单用 HMAC-SHA256；密钥只从 `BAH_KNOWLEDGE_KEY` 读，**库代码没有默认密钥**：
 
@@ -188,9 +188,9 @@ headless 走 `provider: router`（读消息现规划，不是固定磁带），�
 ### 4.4 一键自证（不需要密钥）
 
 ```bash
-pnpm test              # 444 文件 / 5092 用例（2026-11-02 全量实测；前端另有 550 例）
-pnpm test:snapshot     # 13 文件 60 用例全绿（含 实现方subscription-reminder / 实现方birthday-reminder 场景）
-pnpm gate              # 54 项静态与契约检查（并行线在途时可能有未跟踪源码红，见自评 §8）
+pnpm test              # 446 文件 / 5148 用例（2026-11-02 全量实测；前端另有 591 例）
+pnpm test:snapshot     # 13 文件 60 用例全绿（含 `subscription-reminder` / `birthday-reminder` 场景）
+pnpm gate              # 53 项静态与契约检查
 pnpm demo:verifier-fail # 判决件异常 → 结果被挡在模型之外（20 条断言）
 ```
 
@@ -201,7 +201,7 @@ pnpm demo:verifier-fail # 判决件异常 → 结果被挡在模型之外（20 �
 docker build -t bah:local .
 docker run --rm -p 7331:7331 bah:local    # 默认离线 router，不需要 BAH_MODEL_KEY
 
-# 编排（D3）：web 默认起；RAG sidecar 在 `rag` profile 里，按需开
+# 编排：web 默认起；RAG sidecar 在 `rag` profile 里，按需开
 docker compose up -d web
 docker compose --profile rag up -d
 docker compose logs -f web
@@ -257,7 +257,7 @@ pnpm bah audit --dir "<demo:web 打印的会话目录>" --key "<demo:web 打印�
 
 `--no-signature` 只验链连续性与投影（退出码 0，签名状态 `skipped-disabled`），**不等于验签通过**。
 完整验签需要私钥；仓库不带私钥，缺密钥时命令报 `skipped-no-key` 并以退出码 2 结束，不是命令坏了。
-转账已接 saga，演示目录里会有 `<sagaId>/audit.jsonl` 与 `saga.sqlite`；实现方起同一目录还会有
+转账已接 saga，演示目录里会有 `<sagaId>/audit.jsonl` 与 `saga.sqlite`；同一目录还会有
 `<sessionId>/audit.jsonl`（`tool/call` + `sentry/decision` + `approval/decided`）。跑完被审计目录零新增文件。
 
 断链时 `bah audit` 会在 stderr 打 `audit/chain-broken <chainId> brokenAt=<seq>` 并以 1 退出；

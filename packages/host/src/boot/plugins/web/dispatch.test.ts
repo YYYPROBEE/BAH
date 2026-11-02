@@ -167,6 +167,7 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
     tryAudit: () => undefined,
     tryTelemetry: () => undefined,
     trySlo: () => undefined,
+    trySuggest: () => undefined,
     // 交易密码端口（ADR-0014）：矩阵测试不装银行包 ⇒ 端点回 501，闸顺序不受影响
     tryPassword: () => undefined,
     staticRoot: 'this-directory-does-not-exist',

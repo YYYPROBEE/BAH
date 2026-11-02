@@ -55,8 +55,7 @@ pnpm desktop:dev        # 构建 main/preload 并启动窗口
 7. 记录：窗口截图、审计截图、`process.versions.node`、zip 的 sha256。
 
 > 为什么幕 4 不是"重开看历史"：平台没有 session resume（`jsonl:create` 对已存在会话排他失败，
-> `provideSession` 也不回放磁盘）。详见 `apps/desktop/src/session-id.ts` 的模块注释与
-> 偏差表 D-02-4（原件留仓库外归档）。
+> `provideSession` 也不回放磁盘）。详见 `apps/desktop/src/session-id.ts` 的模块注释。
 
 ## 5. 关键设计（读代码前先读这段）
 
@@ -151,8 +150,7 @@ pnpm desktop:accept                 # 全部 16 条
 node scripts/desktop-acceptance.mjs I-DT-02   # 只跑一条
 ```
 
-逐条判据、原始输出与自检是这 16 条的交付证据原件，不随仓库分发（放仓库外归档目录）。
-它和 `pnpm gate`、`pnpm test` **不重复**：
+`pnpm desktop:accept` 逐条跑这 16 条，把判据、原始输出与自检一并打印，可与 `pnpm gate`、`pnpm test` 对照：
 门禁看代码形态、用例看函数行为、这一条看"交付承诺凭什么成立"（产物 sha256、
 包内文件、git 差异、解压目录的写入面）。门禁项数与用例数以 [facts.md](../facts.md) 为准。
 

@@ -44,13 +44,6 @@ function num(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
-/** 微元 → 元的显示串：整数分一次取整，只在显示层。 */
-function yuanText(totalMicro) {
-  const fen = Math.round(totalMicro / 10_000)
-  const whole = Math.floor(fen / 100)
-  return `¥${String(whole)}.${String(fen % 100).padStart(2, '0')}`
-}
-
 /** 数字去掉无意义的尾零（31.50 → 31.5，1.00 → 1）。 */
 function trimNumber(value) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, '')
@@ -132,16 +125,10 @@ function kpiSection(metrics, trace) {
   const p95Text = p95 === null ? '无样本' : `${String(p95)} ms`
   const p95Hint = p50 === null ? 'p50 无样本' : `p50 = ${String(p50)} ms`
 
-  const configured = metrics?.cost?.configured === true
-  const total = num(metrics?.cost?.total)
-  const costText = total === null ? '—' : yuanText(total)
-  const costHint = configured ? 'pricing 已配置 · 累计' : '本地 provider · 无上游账单'
-
   return el('div', { class: 'obs__kpis' }, [
     kpiCard('轮次', turns === null ? '—' : String(turns), steps === null ? 'steps —' : `steps ${String(steps)}`),
     kpiCard('工具错误率', rateText, `${String(errors)}/${String(calls)}`, rateCls),
     kpiCard('工具 p95', p95Text, p95Hint, p95Cls),
-    kpiCard('成本', costText, costHint, configured ? undefined : 'is-muted'),
   ])
 }
 

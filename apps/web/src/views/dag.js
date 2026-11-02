@@ -42,6 +42,72 @@ const STATE = {
 /** 权限级别 → 短标签。 */
 const TIER = { green: '绿', yellow: '黄', red: '红', unknown: '?' }
 
+/** 工具名 → 中文短名（调用图统一“中文 · english”，让非工程读者也能读）。 */
+const TOOL_LABEL = {
+  account_list: '账户列表',
+  account_balance: '余额查询',
+  txn_query: '流水查询',
+  bill_analyze: '账单分析',
+  bill_report: '账单报告',
+  analysis_calc: '计算',
+  transfer_preview: '转账试算',
+  transfer_create: '转账',
+  transfer_schedule: '定时转账',
+  aa_create: 'AA 收款',
+  wealth_list: '理财产品',
+  wealth_compare: '产品对比',
+  wealth_purchase: '理财申购',
+  risk_assess: '风险测评',
+  wealth_positions: '理财持仓',
+  wealth_redeem: '理财赎回',
+  verify_face: '人脸验证',
+  verify_sms: '短信验证',
+  verify_ushield: 'U 盾验证',
+  card_report_lost: '挂失银行卡',
+  fund_lock: '资金锁定',
+  sub_cancel: '取消订阅',
+  sub_list: '订阅查询',
+  sub_watch: '订阅提醒',
+  sub_authorize: '关闭代扣',
+  card_freeze: '冻结卡片',
+  card_unfreeze: '解冻卡片',
+  card_apply: '申请卡片',
+  card_limit_set: '调整限额',
+  card_restriction: '交易限制',
+  password_change: '修改密码',
+  merchant_search: '商户搜索',
+  merchant_order: '商户下单',
+  birthday_plan: '生日计划',
+  plan_wake: '计划唤醒',
+  goal_set: '设定目标',
+  todo_write: '更新清单',
+  intent_resolve: '意图澄清',
+  prompt_ask: '追问',
+}
+
+/** 状态 → 英文短标签（只进 title，与可见中文并存）。 */
+const STATE_EN = {
+  ok: 'Done',
+  pending: 'Pending',
+  denied: 'Denied',
+  blocked: 'Blocked',
+  running: 'Running',
+  failed: 'Failed',
+  incident: 'Incident',
+  skipped: 'Skipped',
+  cancelled: 'Cancelled',
+}
+
+/** 节点标签 → 中英双文（步骤节点补 Step N；工具调用补中文名）。 */
+export function bilingualNodeLabel(node) {
+  const raw = String(node.label ?? '')
+  const step = /^步骤\s*(\d+)$/.exec(raw)
+  if (step !== null) return `${raw} · Step ${step[1]}`
+  if (node.kind !== 'call') return raw
+  const zh = TOOL_LABEL[raw]
+  return zh === undefined ? raw : `${zh} · ${raw}`
+}
+
 /**
  * DAG 帧 → SVG 节点。
  *
@@ -111,7 +177,7 @@ export function renderDag(frame) {
     group.setAttribute('data-blocked', node.state === 'blocked' ? 'true' : 'false')
 
     const title = document.createElementNS('http://www.w3.org/2000/svg', 'title')
-    title.textContent = `${node.label}（${visual.label}${node.kind === 'call' ? ` · ${TIER[node.tier] ?? '?'}级` : ''}）`
+    title.textContent = `${bilingualNodeLabel(node)}（${visual.label} / ${STATE_EN[node.state] ?? 'Pending'}${node.kind === 'call' ? ` · ${TIER[node.tier] ?? '?'}级` : ''}）`
     group.append(title)
 
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
@@ -132,7 +198,7 @@ export function renderDag(frame) {
     label.setAttribute('y', String(position.y + 26))
     label.setAttribute('fill', visual.text)
     // 字号走 CSS 令牌（`--body-sm-font-size`）：硬编码 12px 与文档字阶脱钩。
-    label.textContent = truncate(node.label, 20)
+    label.textContent = truncate(bilingualNodeLabel(node), 30)
     group.append(label)
 
     const badge = document.createElementNS('http://www.w3.org/2000/svg', 'text')

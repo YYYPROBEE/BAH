@@ -199,7 +199,7 @@ R-2（2026-11-01）：`riskCooldownDays` 是风险测评的**重测冷却**（�
 `risk-retest-cooldown`（工具层翻译成「距上次测评不足 N 小时，请在 M 小时后重试」），
 且**不核销新卷**；冷却结束且问卷未过 15 分钟 TTL 时，同一张卷仍可提交。
 判定与状态都在核心（`lastAssessedAt` 只在落档成功时写，失败不启动冷却）；
-状态是进程内 Map，重启清零（自评 R-22）。
+状态是进程内 Map，重启清零。
 
 账户归属在工具边界复核：`bankCore.balance(accountId)` 本身不校验用户，
 工具先用 `listAccounts(userId)` 过滤，越权返回 `account-forbidden`（不泄露账户存在性）。

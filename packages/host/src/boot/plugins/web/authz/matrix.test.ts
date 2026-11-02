@@ -40,8 +40,18 @@ export const MATRIX: readonly MatrixRow[] = [
     path: '/api/session/fork',
     allow: ['customer', 'admin'],
   },
+  // 历史会话（只读，2026-11-02）：全角色可看。一进程一租户，目录里的会话都属于本租户；
+  // 坐席/审计员要看"客户之前说过什么"是正当需求，没有按角色收窄的理由。
+  { method: 'GET', routePath: '/api/sessions', path: '/api/sessions', allow: ROLES },
+  {
+    method: 'GET',
+    routePath: '/api/sessions/',
+    path: '/api/sessions/s-1',
+    allow: ROLES,
+  },
   // 合流 D3：客户专属动作——坐席不能替客户发消息 / 打断 / 放行 / 强验证
   { method: 'POST', routePath: '/api/turn', path: '/api/turn', allow: ['customer'] },
+  { method: 'POST', routePath: '/api/suggest', path: '/api/suggest', allow: ['customer'] },
   { method: 'POST', routePath: '/api/interrupt', path: '/api/interrupt', allow: ['customer'] },
   {
     method: 'POST',

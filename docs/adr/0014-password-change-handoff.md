@@ -1,7 +1,7 @@
 # ADR-0014：交易密码修改 = 交办（安全页交接），不是代改
 
 > 状态：已接受（2026-11-01）
-> 关闭项：赛题"红档典型操作（强验证 + 确认）"里的**交易密码修改**
+> 场景：赛题"红档典型操作（强验证 + 确认）"里的**交易密码修改**
 > 关联：ADR-0003（票据授权）、ADR-0009（服务端问卷与只读动作豁免）、ADR-0012（账本事实型载荷）
 > 事件表：v1.0.2 → **v1.0.3**（新增 2 个键，代码口径 34 → 36）
 
@@ -95,7 +95,7 @@
 状态码：400（新密码不合规 / 旧密码不对）、404（票据未知或不属于本会话——403 会暴露存在性）、
 409（已用 / 已过期）、423（锁定中）、501（该部署没装 `bank:tools`）。
 
-**"无票据 → 401/403"的口径（复审 P2-2 登记）**：任务书 01 §3.7 的这句话指**认证/CSRF 缺失**，
+**"无票据 → 401/403"的口径（登记）**：赛题 §3.7 的这句话指**认证/CSRF 缺失**，
 由 `dispatch.ts` 的闸返回 401/403，handler 不自己写 403。交接票据（`ticketId`）是**请求体字段**：
 缺字段是 400 `web-invalid-ticket` / `web-invalid-body`，未知票是 404。把"body 少一个字段"
 回成 401 会让客户端以为该重新登录，反而误导排障。
@@ -124,12 +124,12 @@
 页面纪律：不写 `localStorage`/`sessionStorage`/cookie、不 `console.*`、成功后立刻清空
 两个密码框；票据号可以从 `?ticket=` 读入，但读完立刻 `history.replaceState` 抹掉。
 
-**URL 别名（复审 P0-1）**：落盘文件是 `apps/web/password.html`，对外的语义地址仍是
+**URL 别名**：落盘文件是 `apps/web/password.html`，对外的语义地址仍是
 `/secure/password`。`packages/host/src/boot/plugins/web/handlers/static.ts` 在 decode 之前
 把它映射到 `password.html`（与 `/operator` → `/operator.html` 同一条路径），再走原有的
 解码/规范化/越界判定。没有这条映射，工具返回的交接地址实测 404。
 
-**演示话术引用工具结果（复审 P0-2）**：`password_change` 的工具正文包含
+**演示话术引用工具结果**：`password_change` 的工具正文包含
 `/secure/password?ticket=<已编码票据>`；离线 router 的收尾用 `outcome.okFromResult`
 原样引用这段正文，不再手写路径，也不会丢掉票据号。`password.js` 的 `?ticket=` 预填
 因此可以直接用——用户不必从工具卡里手抄 `pwd:` 号。

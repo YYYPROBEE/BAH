@@ -1,6 +1,6 @@
 # 沙箱（`@bah/safety` 的 sandbox-policy / sandbox-runtime）
 
-> 设计说明。代码：`packages/safety/src/sandbox-policy/`、`packages/safety/src/sandbox-runtime/`。
+> 代码：`packages/safety/src/sandbox-policy/`、`packages/safety/src/sandbox-runtime/`。
 > 用例：`policy.test.ts`（22 例，行覆盖 100%，已进强制名单）、`runner.test.ts`（11 例，含 worker 硬杀）。
 > 门禁：`pnpm gate` 的 `sandbox` 项。
 

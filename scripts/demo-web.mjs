@@ -33,6 +33,17 @@ const envFile = join(root, '.env.local')
 const runsRoot = join(root, 'sessions')
 mkdirSync(runsRoot, { recursive: true })
 const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+/**
+ * 一次性目录只放**本次运行的密钥与补丁**，不再当会话根。
+ *
+ * 改这一行的原因（2026-11-02）：会话根原先跟着 `mkdtemp` 跑，每次演示都是新目录，
+ * 于是"历史对话"永远只有当前这一条——功能做了也看不见。会话根改为固定的
+ * `runsRoot`（= `sessions`），与缺省启动 `pnpm bah --profile web --serve` 落到
+ * **同一个**租户根 `sessions/<tenant>`，历史才能跨重启累积。
+ *
+ * 密钥留在一次性目录是刻意的：`saga-ed25519.pem` 只对本次 run 的链负责，
+ * 固定目录会让旧密钥残留、新旧链混签。
+ */
 const runDir = mkdtempSync(join(runsRoot, `demo-${stamp}-`))
 
 /** 读 `.env.local`（宽松解析：只认 `KEY=VALUE`，空行与 `#` 注释跳过）。 */
@@ -131,18 +142,18 @@ const tenant =
     ? process.argv[tenantArgIndex + 1]
     : 'demo'
 
-console.log(`[demo:web] 本次会话目录：${runDir}`)
-console.log(`[demo:web] 租户：${tenant}（链与记忆在 ${join(runDir, tenant)} 下）`)
+console.log(`[demo:web] 会话根：${join(runsRoot, tenant)}（历次演示累积在同一处）`)
+console.log(`[demo:web] 本次密钥目录：${runDir}`)
 console.log(
-  `[demo:web] 审计（链连续性，无密钥）：pnpm bah audit --dir "${runDir}" --tenant ${tenant} --no-signature`,
+  `[demo:web] 审计（链连续性，无密钥）：pnpm bah audit --dir "${runsRoot}" --tenant ${tenant} --no-signature`,
 )
 if (sagaKeyPath !== undefined) {
   console.log(
-    `[demo:web] 审计（完整验签，用本次一次性密钥）：pnpm bah audit --dir "${runDir}" --tenant ${tenant} --key "${sagaKeyPath}"`,
+    `[demo:web] 审计（完整验签，用本次一次性密钥）：pnpm bah audit --dir "${runsRoot}" --tenant ${tenant} --key "${sagaKeyPath}"`,
   )
 } else {
   console.log(
-    `[demo:web] 审计（完整验签，需 keys/saga-ed25519.pem）：pnpm bah audit --dir "${runDir}" --tenant ${tenant}`,
+    `[demo:web] 审计（完整验签，需 keys/saga-ed25519.pem）：pnpm bah audit --dir "${runsRoot}" --tenant ${tenant}`,
   )
 }
 
@@ -155,7 +166,7 @@ const child = spawn(
     'web',
     '--serve',
     '--jsonl',
-    runDir,
+    runsRoot,
     '--tenant',
     tenant,
     // B5：签名密钥补丁（层序最外）；密钥生成失败时不传，保持缺钥行为

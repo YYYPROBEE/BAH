@@ -91,7 +91,19 @@ export function createHttpApi(options = {}) {
   return {
     session: () => request('GET', '/api/session'),
     health: () => request('GET', '/api/health'),
+    // 历史会话（只读，2026-11-02）：列表与单会话回放。两条都是 GET，
+    // 不过 CSRF 闸；凭证与其余 API 同一份（`readWebToken`），不另开一套。
+    sessions: (limit) => {
+      const search = new URLSearchParams()
+      if (limit !== undefined) search.set('limit', String(limit))
+      const query = search.toString()
+      return request('GET', `/api/sessions${query === '' ? '' : `?${query}`}`)
+    },
+    sessionTranscript: (sessionId) =>
+      request('GET', `/api/sessions/${encodeURIComponent(String(sessionId))}`),
     turn: (text) => request('POST', '/api/turn', { text }),
+    // 答后追问建议（模型生成；本地 provider / 超时返回空数组，前端回退规则）
+    suggest: (input) => request('POST', '/api/suggest', input),
     interrupt: (reason) => request('POST', '/api/interrupt', { reason }),
     decide: (ticketId, decision, reason, confirmText) =>
       request('POST', `/api/approval/${encodeURIComponent(ticketId)}`, {

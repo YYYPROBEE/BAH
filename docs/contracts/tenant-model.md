@@ -3,7 +3,7 @@
 > 本文件是**租户这一维度**的契约。与 `event-table.md` / `tool-contract.md` / `scenario-dsl.md`
 > 同级：入库、参与 `verify-docs-consistency`，改动要走本文 §8 的流程。
 >
-> 权威序：代码现状 > 本契约 > 设计说明。
+> 权威序：代码现状 > 本契约。
 > 也就是说：**本契约与代码不一致时，以代码为准，然后回来改本契约**。
 >
 > 生效：2026-10-28（租户与鉴权落地）。
@@ -82,7 +82,7 @@ export function normalizePrincipal(input: PrincipalInput): Principal
 2. 去重 + 按 `ROLES` 固定序 ⇒ 两个逻辑相同的主体序列化出**同一串字节**（审计链要对它算哈希）；
 3. 返回**新对象且冻结**（`Object.freeze`）——调用方 `push` 一下，链上的主体哈希就漂了。
 
-**`SessionIdentity.tenantId` 的判定点**（复审 AR-07 / 03 TA-47）：01 只负责把它记录正确；
+**`SessionIdentity.tenantId` 的判定点**：本实现只负责把它记录正确；
 真正的跨租户判定在**业务工具闸** `evaluateCall()`（`packages/bank/src/tools/governance.ts`）：
 会话身份租户与当前进程租户不一致 → `wrong-tenant`，**早于** `no-identity`。
 HTTP 路由级 `authorize()` 只判"身份有无 + 角色"，不判租户——跨租户请求在认证层

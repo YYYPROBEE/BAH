@@ -19,11 +19,13 @@ import type { HaltHandle, SentryHandle } from '@bah/safety'
 import type { TenantId } from '@bah/util'
 
 import type { HandoffHandle } from './handoff.ts'
+import type { SuggestPort } from '../suggest.ts'
 import type { TelemetryHandle } from '../telemetry.ts'
 import type { DecisionAudit } from '../audit-decisions.ts'
 import type { createRateLimiter } from '../web-rate-limit.ts'
 import type { SseHub } from './sse.ts'
 import type { AuthRuntime, RequestIdentity } from './auth/index.ts'
+import type { SessionFiles } from '../persistence.ts'
 
 /** 限流器实例类型（`createRateLimiter` 的返回，不另立接口）。 */
 export type RateLimiter = ReturnType<typeof createRateLimiter>
@@ -50,6 +52,15 @@ export interface SecurePasswordPort {
 export interface WebDeps {
   /** 会话服务（读 `sessionId` / `lastSeq` / `events`）。 */
   readonly session: SessionApi
+  /**
+   * 会话文件根（历史列表与只读回放用）。
+   *
+   * 惰性：没装 `core:persistence` 的 profile（如纯 SDK 嵌入）必须照常起，
+   * 那时两条历史路由回 503「没有装配持久化」，而不是让整个渠道起不来。
+   *
+   * 取值来自 `tryService(ctx, SESSION_FILES)`；`root` 已含租户段，**不要再自己拼一次**。
+   */
+  readonly sessionFiles?: SessionFiles | undefined
   /**
    * 本进程服务的租户（来自 `RunContext.tenantId`，01 TA-16）。
    *
@@ -104,6 +115,8 @@ export interface WebDeps {
   readonly tryTelemetry: () => TelemetryHandle | undefined
   /** 惰性取 SLO 八项（没装 saga 时 `undefined`；`/api/metrics.slo` 显示 null）。 */
   readonly trySlo: () => Record<string, SloSample> | undefined
+  /** 惰性取模型建议端口（没装 core:agent 或本地 provider 时返回空建议）。 */
+  readonly trySuggest: () => SuggestPort | undefined
   /**
    * 惰性取交易密码安全页端口（ADR-0014）。
    *

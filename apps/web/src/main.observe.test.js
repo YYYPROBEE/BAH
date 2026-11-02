@@ -111,12 +111,12 @@ describe('观测 tab · 轮询启停', () => {
     expect(api.calls.filter((call) => call[0] === 'metrics')).toHaveLength(1)
   })
 
-  it('观测面板渲染四张卡（数据到达后）', async () => {
+  it('观测面板渲染三张卡（数据到达后）', async () => {
     const { root } = mount()
     const [, , observeTab] = root.querySelectorAll('.panel__tabs .ds-tab')
     observeTab.click()
     await vi.advanceTimersByTimeAsync(0)
-    expect(root.querySelectorAll('#panel-observe .obs__kpi')).toHaveLength(4)
+    expect(root.querySelectorAll('#panel-observe .obs__kpi')).toHaveLength(3)
   })
 
   it('mountApp 暴露 observe 控制器，close() 可停表', () => {

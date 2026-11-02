@@ -15,7 +15,7 @@
 | 票据 TTL / 计划预算 | **120000 ms / 30000 ms**（预算 < TTL） | `PlanSettings.ticketTtlMs` / `planTimeoutMs`（本行由 planPlugin.validate 实算） |
 | 工具数 | **30 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
 | 注册表条目（项） | **32** | `HOST_PLUGINS` 计数 |
-| 门禁（项） | **54** | `scripts/verify-*.ts` 计数 |
+| 门禁（项） | **53** | `scripts/verify-*.ts` 计数 |
 | 覆盖率 | **89.87%（行口径，49571/55161 行，实测 2026-10-30）；16/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
@@ -219,7 +219,7 @@ npx vitest run packages/safety/src/verify
 ```
 
 端到端的检索能力另有两处证据（不在这条命令里）：评测平面 **K 族 10/10**
-（`.ci-artifacts/eval/summary.md`），对抗集幻觉族 **12/15**（3 条未拦，见
+（`.ci-artifacts/eval/summary.md`），对抗集幻觉族 **13/15**（2 条未拦，见
 [security-design.md](security-design.md) §4 的未实现清单——不藏）。
 
 ## 5. 三条算法的共同边界（讲清楚比讲漂亮重要）
@@ -230,4 +230,4 @@ npx vitest run packages/safety/src/verify
 | plan 内的 `transfer_create` | `saga-bridge` 在 plan 关闭 ⇒ **无补偿** | 需要"第 3 步失败退第 2 步"时，应让 plan 编排一整笔 saga，而不是指望节点内补偿 |
 | plan 的动态 args | 跨不了 `resume`（output 只在内存） | 续跑要重做已扣款的一笔，只能换新 `planId` + 冲正原笔 |
 | 断言核验的覆盖面 | 只覆盖**高影响断言**（金额/余额/费率/日期/尾号） | 定性描述不做事实核验——那是检索质量的问题，不是断言核验的问题 |
-| 知识响应信封 | HP-2 未签名 | 检索结果在传输层没有完整性证明（见安全设计缺口表） |
+| 知识响应信封 | 未签名 | 检索结果在传输层没有完整性证明（见安全设计缺口表） |

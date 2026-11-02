@@ -243,6 +243,6 @@ bundle 实际求值时还有 `evidence`（完整输入 + `inputDigest`）；链�
 | card / subscription 的 Provider 方法 | 九实体与造数已落；读写方法未加入 `BankCoreProvider` | 后续补齐 |
 | 与 `@bah/core` `TicketRef` 的桥接 | 08 已落地（`tools/tickets.ts` + `tools/governance.ts`） | 09 接管审批服务与挑战链 |
 | 金额单位 | 核心面全是「分」；工具参数是「元」 | 08 的工具层用 `yuanToCents` 转换一次 |
-| 日 / 账期 | 固定 UTC 切分 | 夜间大额是唯一本地口径（UTC+8）；如需按客户时区切日，属插件线配置扩展 |
+| 日 / 账期 | 固定 UTC 切分 | 夜间大额是唯一本地口径（UTC+8）；如需按客户时区切日，属 profile 配置扩展 |
 | 状态持久化 | 全内存；重启回到造数初始态 | 真实对接只换 Provider；mock 不落盘 |
 | 文件命名 | 票据状态机落 `core/ticket.ts`（§5 写的是 `core/tickets.ts`） | 以覆盖率名单与 `@bah/bank` 单数模块习惯为准， |

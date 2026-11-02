@@ -1,8 +1,6 @@
 # ADR-0010 · 授权窗口的代签边界（`windowResponder` 与 `responder` 正交，删"无差别放行"）
 
 - 状态：**已采纳**（2026-10-31）
-- 编号说明：本编号由并行线的授权窗口占用；`docs/adr/0012-card-spend.md` 的注记引用本卡片，
-  0011 预留给 AA 收口单（`0011-aa-settlement.md`）。
 - 关联：ADR-0008（票据携带授权来源）、`docs/plan.md` §4、`docs/profile.md`
 - 影响面：`packages/host/src/boot/plugins/approval.ts`、`packages/interaction/src/approval/`、
   `profiles/{web,web-plan,plan,headless,subscription}/patch.yml`、`packages/cli/src/cli/plan.ts`、

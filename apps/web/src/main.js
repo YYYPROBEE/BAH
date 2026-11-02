@@ -38,6 +38,7 @@ import {
 import { createApprovalController } from './views/approval.js'
 import { renderAudit, renderAuditCounts, renderAuditEmpty, renderAuditSummary } from './views/audit.js'
 import { renderDag, renderDagEmpty } from './views/dag.js'
+import { renderHistoryPanel, renderReadonlyView } from './views/history.js'
 import { renderObserve } from './views/observe.js'
 
 /** 连接状态 → 文案与色调。 */
@@ -136,6 +137,19 @@ export function mountApp(options) {
     title: '服务与帮助',
     dataset: { role: 'help' },
   }, [icon('help', 16)])
+  /**
+   * 历史对话入口（2026-11-02）。
+   *
+   * 与"新对话"不同，这个按钮**不需要宿主能力**：它只读 `GET /api/sessions`，
+   * web / mobile / desktop 三份壳的 HTTP 面完全一样，所以无条件渲染。
+   */
+  const historyTool = el('button', {
+    class: 'app-header__tool app-header__tool--labeled',
+    type: 'button',
+    'aria-label': '历史对话',
+    title: '历史对话（只读）',
+    dataset: { role: 'history' },
+  }, [icon('clock', 16), el('span', { class: 'app-header__tool-label', text: '历史' })])
   const fontTool = el('button', {
     class: `app-header__tool${isLargeFont(prefs) ? ' is-on' : ''}`,
     type: 'button',
@@ -345,6 +359,7 @@ export function mountApp(options) {
         sessionLabel,
         statusDot,
         ...(newConversationTool === null ? [] : [newConversationTool]),
+        historyTool,
         helpTool,
         fontTool,
         speakTool,
@@ -378,8 +393,6 @@ export function mountApp(options) {
    */
   let scrollInitialized = false
   let lastUserSeq = 0
-  let jumpToAnswerStart = false
-  let answerStartShown = false
 
   function isUserSpeechFrame(frame) {
     return (
@@ -401,7 +414,11 @@ export function mountApp(options) {
     if (node === null || node === undefined) return
     const container = conversation.getBoundingClientRect()
     const target = conversation.scrollTop + node.getBoundingClientRect().top - container.top - 8
+    // 与 scrollToBottom 同一条纪律：程序化定位必须瞬时，不能和 CSS smooth 抢滚动。
+    const previous = conversation.style.scrollBehavior
+    conversation.style.scrollBehavior = 'auto'
     conversation.scrollTop = Math.max(0, target)
+    conversation.style.scrollBehavior = previous
   }
 
   function syncConversationScroll(conversationFrames, state) {
@@ -411,56 +428,84 @@ export function mountApp(options) {
       if (conversationFrames.length === 0 && state.streamText.length === 0) return
       scrollInitialized = true
       lastUserSeq = latestUser
-      jumpToAnswerStart = false
-      answerStartShown = false
       scrollToBottom(conversation)
       return
     }
 
     if (latestUser > lastUserSeq) {
       lastUserSeq = latestUser
-      jumpToAnswerStart = true
-      answerStartShown = false
-      scrollToBottom(conversation)
-      return
+      // 发送后把最新一条用户消息钉在视口顶部：回答从它下面长出来，
+      // 用户不需要在"自己刚说的话"被顶出屏幕后再往回找。
+      const node = conversation.querySelector(`.message--user[data-seq="${String(latestUser)}"]`)
+      if (node !== null) scrollConversationToTopOf(node)
+      else scrollToBottom(conversation)
     }
-
-    if (!jumpToAnswerStart || answerStartShown) return
-    const draft = conversation.querySelector('[data-draft="true"]')
-    let target = draft
-    if (target === null) {
-      target =
-        [...conversation.querySelectorAll('.message--assistant')].find(
-          (node) =>
-            Number(node.dataset.seq) > lastUserSeq &&
-            !node.classList.contains('message--tool-only'),
-        ) ?? null
-    }
-    if (target === null) return
-    scrollConversationToTopOf(target)
-    jumpToAnswerStart = false
-    answerStartShown = true
   }
 
   /** 对话末尾的收口块（唯一反馈行 + 两条追问）：只在最后一轮完成且没有待选卡时出现。 */
   let answerFooter = null
   let answerFooterKey = null
+  let lastAnswerModel = null
+  const modelSuggestions = new Map()
+  const suggestionPending = new Set()
+
+  /** 以"会话 + 回答序号"为键缓存模型建议：同一轮只请求一次，失败也缓存空数组。 */
+  function suggestionKeyOf(model) {
+    return `${String(store.state().sessionId)}:${String(model.frame.seq)}`
+  }
+
+  function requestModelSuggestions(model, key) {
+    if (modelSuggestions.has(key) || suggestionPending.has(key)) return
+    // 测试桩 / 旧宿主没这条 API：直接落空数组，走规则回退，不让收口块因此报错。
+    if (typeof api.suggest !== 'function') {
+      modelSuggestions.set(key, [])
+      return
+    }
+    suggestionPending.add(key)
+    const context = model.context ?? { user: '', assistant: '' }
+    void api
+      .suggest(context)
+      .then((result) => {
+        const items =
+          result.ok && Array.isArray(result.data?.suggestions)
+            ? result.data.suggestions
+                .map((item) => String(item ?? '').trim())
+                .filter((item) => item !== '')
+                .slice(0, 2)
+            : []
+        modelSuggestions.set(key, items)
+        // 仍然是同一轮才替换；已经翻到下一轮就丢弃这次结果。
+        if (lastAnswerModel !== null && lastAnswerModel.key === key) {
+          syncAnswerFooter(lastAnswerModel.model)
+        }
+      })
+      .catch(() => {
+        modelSuggestions.set(key, [])
+      })
+      .finally(() => {
+        suggestionPending.delete(key)
+      })
+  }
 
   function syncAnswerFooter(model) {
     if (model === null) {
       answerFooter?.remove()
       answerFooter = null
       answerFooterKey = null
+      lastAnswerModel = null
       return
     }
 
     // 会话号也进键：服务重启后 seq 可能重复，不能把上一个会话的反馈状态带进新会话。
-    const key = `${String(store.state().sessionId)}:${String(model.frame.seq)}:${model.suggestions.join('|')}`
+    const requestKey = suggestionKeyOf(model)
+    lastAnswerModel = { key: requestKey, model }
+    const suggestions = modelSuggestions.get(requestKey) ?? model.suggestions
+    const key = `${requestKey}:${suggestions.join('|')}`
     const build = () =>
       renderAnswerFooter({
         value: feedbackDeps.value(model.frame),
         onRate: (value) => feedbackDeps.rate(model.frame, value),
-        suggestions: model.suggestions,
+        suggestions,
         onPick: (text) => submitText(text),
       })
 
@@ -475,6 +520,8 @@ export function mountApp(options) {
     }
     // 新帧会追加在末尾；每次 sync 把收口块挪到最后，保证它永远是会话流的最后一项。
     if (conversation.lastElementChild !== answerFooter) conversation.append(answerFooter)
+    // 模型建议是异步的：先把规则回退渲染出来，拿到结果后再原地替换。
+    if (!modelSuggestions.has(requestKey)) requestModelSuggestions(model, requestKey)
   }
 
   const approvals = createApprovalController(overlay, {
@@ -609,6 +656,70 @@ export function mountApp(options) {
 
   /** 帮助弹窗（服务范围 / 无障碍 / 常用业务）。 */
   const helpDialog = createDialog(overlay)
+
+  /**
+   * 历史对话弹窗（2026-11-02）。
+   *
+   * 复用 `createDialog` 而不是自造遮罩：焦点陷阱、Esc 关闭、关闭后归还焦点都是既有能力，
+   * 再造一份就一定有一份会漏。列表与只读回放共用一个弹窗实例——回放是从列表点进去的
+   * 下一层，另开一个弹窗会让"返回上一步"变成"关掉再开"。
+   */
+  const historyDialog = createDialog(overlay)
+
+  /** 历史列表（`?limit` 与后端缺省一致，20 条够一屏翻）。 */
+  async function openHistory() {
+    historyDialog.show({
+      title: '历史对话',
+      body: renderHistoryPanel({
+        loading: true,
+        onOpen: (sessionId) => void openHistorySession(sessionId),
+        onRefresh: () => void openHistory(),
+      }),
+    })
+    const result = await api.sessions(20)
+    if (!result.ok) {
+      historyDialog.show({
+        title: '历史对话',
+        body: renderHistoryPanel({
+          error: result.reason,
+          onOpen: (sessionId) => void openHistorySession(sessionId),
+          onRefresh: () => void openHistory(),
+        }),
+      })
+      return
+    }
+    historyDialog.show({
+      title: '历史对话',
+      body: renderHistoryPanel({
+        items: result.data?.sessions ?? [],
+        onOpen: (sessionId) => void openHistorySession(sessionId),
+        onRefresh: () => void openHistory(),
+      }),
+    })
+  }
+
+  /** 打开一个历史会话（只读）。失败就退回列表并说明理由，不留一个空白弹窗。 */
+  async function openHistorySession(sessionId) {
+    const result = await api.sessionTranscript(sessionId)
+    if (!result.ok) {
+      notify(result.reason ?? '这个会话打不开', 'error')
+      await openHistory()
+      return
+    }
+    const data = result.data ?? {}
+    historyDialog.show({
+      title: `历史 · ${typeof data.title === 'string' ? data.title : sessionId}`,
+      body: renderReadonlyView({
+        title: typeof data.title === 'string' ? data.title : sessionId,
+        frames: data.snapshot?.frames ?? [],
+        // deps 传空：历史视图里没有任何可写动作（选择题、风险问卷都不给作答入口）
+        renderFrame: (frame) => renderFrame(frame, {}),
+        onBack: () => void openHistory(),
+      }),
+    })
+  }
+
+  historyTool.addEventListener('click', () => void openHistory())
 
   function toggleFont() {
     const next = !isLargeFont(prefs)
@@ -848,12 +959,10 @@ export function mountApp(options) {
     sendButton.disabled = true
     composerRetry.disabled = true
     clearComposerError()
-    // 发送即回到最新位置；随后只滚到本轮回答的顶部一次，正文增长时不再跟随。
+    // 发送后等 user/message 帧到达，再由 syncConversationScroll 把这条消息滚到顶部；
+    // 这里只记录发送前的序号，避免把旧会话的"最新用户消息"误判成新消息。
     scrollInitialized = true
     lastUserSeq = latestUserSeqOf(store.state().frames)
-    jumpToAnswerStart = true
-    answerStartShown = false
-    scrollToBottom(conversation)
     try {
       const result = await api.turn(text)
       if (!result.ok) {

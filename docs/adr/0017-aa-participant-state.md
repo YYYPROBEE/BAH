@@ -99,9 +99,9 @@ export const AA_MAX_EXPIRY_HOURS = 168
 | `close` 或到期 | 剩余 `pending → expired`；`paid > 0` → `completed`，否则 `cancelled` |
 | 最后一位 `pending` 被拒绝 | 有 `paid` → `completed`，无 `paid` → `cancelled` |
 | 对同一人重复 `collect`（组仍 `collecting`） | 返回 `aa-participant-paid`（结构化幂等错误），**不重复入账** |
-| 组 `completed` 后对已 `paid` 的人重复 `collect` | **同为 `aa-participant-paid`**（复审 P1-3：两次重复不该有两种理由码） |
+| 组 `completed` 后对已 `paid` 的人重复 `collect` | **同为 `aa-participant-paid`**（两次重复不该有两种理由码） |
 | 已 `declined/expired` 的人被 `collect` | `aa-participant-closed`，不改状态 |
-| 已过截止时间但 job 尚未运行 | `aa-group-closed`，**不改状态、不入账**（复审 P1-2） |
+| 已过截止时间但 job 尚未运行 | `aa-group-closed`，**不改状态、不入账** |
 
 `settleAaGroup` 是**私有唯一实现**，`collect` / `decline` / `close` / 到期四处调用它。
 三处各写一份判定，必然出现"close 说 completed、到期说 cancelled"的对账事故。
@@ -120,7 +120,7 @@ export const AA_MAX_EXPIRY_HOURS = 168
   启动时补跑一次，与 `plan:scheduler` 同法；
 - 扫描条件：`status === 'collecting' && expiresAt !== undefined && expiresAt < at`
   （**严格小于**：恰好等于截止时刻仍可代收，边界写进测试）；
-- **代收入口同判**（复审 P1-2）：`collectAa` 在记账前判 `expiresAt < now`，过期即抛
+- **代收入口同判**：`collectAa` 在记账前判 `expiresAt < now`，过期即抛
   `aa-group-closed`。到期 job 只是"把组收口"的动作，不定义"窗口还在不在"——job 没跑
   不等于还能收钱。票前预览（`checkAaParticipant`）用同一条件，避免先批后拒；
 - 幂等两层：
@@ -135,7 +135,7 @@ export const AA_MAX_EXPIRY_HOURS = 168
 - Web 的"收款进度"表新增状态列（待收 / 已收 / 已拒绝 / 已过期），
   `aa/participant-updated` 推进同一张表；缺这一步，`declined` 会显示成"待收"。
 
-### 2.8 票据核销边界（复审 P2-4，登记为例外）
+### 2.8 票据核销边界（登记为例外）
 
 `aa_create` 的写动作（`create` / `collect` / `decline` / `close`）都经过治理面的审批与票据签发，
 但工具体**没有**调用 `ticketRefForCall` 去核销票据。同样的情况存在于既有的 `card_limit_set`

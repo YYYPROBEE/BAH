@@ -80,7 +80,10 @@ export function createApprovalController(root, handlers) {
       class: 'ds-textarea approval__reason',
       rows: 2,
       maxlength: 500,
-      placeholder: reasonRequired ? '拒绝理由（必填，会写入审计）' : '拒绝理由（可选，会写入审计）',
+      // 措辞必须说清"必填只约束拒绝"：写成「拒绝理由（必填）」时，用户会以为
+      // 批准也要填，等到结论生效才发现整栏是空的（2026-11-02 走查，与 im-gateway
+      // `approval/page.ts` 的「拒绝时必填」同口径）。
+      placeholder: reasonRequired ? '拒绝理由（拒绝时必填，会写入审计）' : '拒绝理由（可选，会写入审计）',
       'aria-label': '拒绝理由',
     })
     const hint = el('p', { class: 'approval__hint', role: 'status' })
@@ -225,7 +228,7 @@ export function createApprovalController(root, handlers) {
           el('label', {
             class: 'approval__reason-label',
             for: 'approval-reason',
-            text: `拒绝理由（${reasonRequired ? '必填' : '可选'}）`,
+            text: `拒绝理由（${reasonRequired ? '拒绝时必填' : '可选'}）`,
           }),
           reasonInput,
           hint,
@@ -346,6 +349,18 @@ export function createApprovalController(root, handlers) {
     }
     // 遮罩放行（P1-4）：结论生效后只剩"关掉它"，不能让全屏遮罩继续锁住对话。
     current.node.classList.add('approval-backdrop--passive')
+    // 结论已生效：body 整个退出交互。不下这一步，「已批准（一次性）」下面还挂着
+    // 一个能点的「开始验证」——票据早已不在待应答集合，点下去 `hint` 会被覆盖成
+    // 「验证未通过：没有待应答的票据」，比不锁更误导（2026-11-02 走查）。
+    // `inert` 管焦点与点击；`disabled` 兜两件事：jsdom 不实现 inert 行为（测试断言
+    // 只能落在 disabled 上），以及不支持 inert 的老浏览器。
+    const body = current.node.querySelector('.ds-dialog__body')
+    if (body !== null) {
+      body.setAttribute('inert', '')
+      for (const node of body.querySelectorAll('button, textarea, input, select')) {
+        node.disabled = true
+      }
+    }
     const foot = current.node.querySelector('.ds-dialog__foot')
     if (foot !== null) {
       foot.replaceChildren(

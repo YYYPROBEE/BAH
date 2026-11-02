@@ -1,6 +1,6 @@
 # BAH · 银行智能体
 
-> 仓库：https://github.com/YYYPROBEE/bah-monorepo
+> 仓库：https://github.com/YYYPROBEE/BAH
 > 许可：源码公开可见，但不是开源许可；授权范围见 [LICENSE](LICENSE)
 
 **一个把"模型能做什么"关进可审计边界里的银行智能体演示系统。**
@@ -28,8 +28,8 @@ pnpm install
 | **容器演示** | `docker build -t bah:local . && docker run --rm -p 7331:7331 bah:local` | 单容器 Web，默认离线 router（不需要密钥）；RAG sidecar 不在镜像内，知识工具降级为 `knowledge-unavailable` |
 | **移动 H5 演示** | `pnpm bah --profile mobile` | 第二个壳（`staticRoot` 同为 `apps/web`），打开 `http://127.0.0.1:7551`；与 7331 共用同一份 `createHttpChannel`（路由 / 闸序 / 安全头 / 审批端点） |
 | **桌面端演示** | `pnpm build && pnpm desktop:dev` | Electron 窗口内嵌私有 host（`port:0`，只绑 `127.0.0.1`），加载同一份 `apps/web`；断网可用。打包见 `pnpm desktop:pack`，说明见 [docs/desktop.md](docs/desktop.md) |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 444 文件 / 5092 用例 |
-| **门禁** | `pnpm gate` | 54 项静态与契约检查，任一红即失败 |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 446 文件 / 5148 用例 |
+| **门禁** | `pnpm gate` | 53 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
 主演示**不需要密钥**：`profiles/web/patch.yml` 默认 `provider: router`（读消息做意图路由，
@@ -60,7 +60,7 @@ sidecar 认证是 fail-loud（无 token 拒启），工具在缺 token 时按 `k
 
 1. 手势确认**不等于**强验证；红级操作仍需 U 盾/人脸/短信挑战（走 `/api/verify/:ticketId`）。
 2. 用脚本直接 `POST /api/approval/:ticketId` 而不滑动，**服务端会接受**——滑动是 UI 约束，不是凭证。
-3. 因此"手势"不得出现在任何安全自评的"控制项"里，只能出现在"人机工程/防误触"里。
+3. 因此"手势"不得出现在安全设计的"控制项"里，只能出现在"人机工程/防误触"里。
 
 **同一条纪律也适用于强验证**（2026-10-29 实测补充）：`packages/channels/src/http-adapter.ts` 的 `decide()`
 只校验票据归属、结论合法性与拒绝理由，**不校验 `verify()` 是否已通过**。所以"红级必须先强验证"
@@ -156,7 +156,7 @@ flowchart LR
 票据绑定 `sessionId / tool / 参数指纹 / 金额（分）/ 到期时刻`；ID 是随机 UUID，不由调用 ID 派生。
 批准一次性核销；拒绝、过期、无人应答都落 `blocked`。审批 URL 里读到上一张票，猜不出下一张。
 
-W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发时由宿主注入，
+另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发时由宿主注入，
 `lease.expiresAt <= 票据 TTL`；过期即作废、不重签，核销点直接拒绝（`ticket-expired`）。
 `TicketLease` 是独立类型，不改动既有两份 `TicketRef`。
 
@@ -175,8 +175,8 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 
 - 压缩只折叠**已完整结束**的 turn，当前 turn 永不折叠；金融字段（金额 / 收款人 / 票据）保留结构；
 - RAG 检索带 ACL、时效窗、引用与数值校验；sidecar 缺席时知识工具 fail-closed。
-  知识**条目级验签已落地**（W06：sha256 + HMAC + 引用绑定，任一条失败整条降级拒答）；
-  **未做的是 RAG 响应的信封签名**（HP-2，防"服务端整体被替换"，取舍与影响见
+  知识**条目级验签已落地**（sha256 + HMAC + 引用绑定，任一条失败整条降级拒答）；
+  **未做的是 RAG 响应的信封签名**（防"服务端整体被替换"，取舍与影响见
   `docs/security-design.md` §4 第 1 条）。
 
 ---
@@ -196,7 +196,7 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
 | 坐席工作台 | `apps/web` + `packages/host` | `/operator` 零注入（凭证由坐席手输）；未配 `BAH_OPERATOR_TOKEN` 时整条 404；SSE 实时看到客户会话，`claim` / `say` / `heartbeat` / `resume` 四动作，接管期 `/api/turn` 202 落账不驱动 |
 | 浏览器边界 | `packages/host` | CSP / XFO / XCTO / Referrer-Policy / Permissions-Policy；`/api/*` 每来源 60s/120 次限流 |
 | 审计诚实 | `packages/persistence` | 零签名报 `unsigned`；CLI 按"审计未完成"退出码 2；`--no-signature` 只验连续性 |
-| 风险分判决 | `packages/safety` | 会话升到 `high` 后非绿工具一律拒绝；读工具不受影响（W09） |
+| 风险分判决 | `packages/safety` | 会话升到 `high` 后非绿工具一律拒绝；读工具不受影响 |
 | 人工接管 | `packages/host` | `POST /api/handoff` → 接管期 `/api/turn` **202 落账但不驱动模型** → `GET /api/handoff` 给人工侧会话摘要 → 坐席发言 `/api/handoff/message`（不进模型历史）→ `POST /api/handoff/resume` 交回（交接语进模型历史）。状态落 `<租户根>/<session>/handoff.json`，**重启恢复** |
 | 跨会话记忆 | `packages/memory-store` + `packages/host` | 规则抽取（禁 LLM）+ 五道闸入库；按场景召回（判不出就不检索）；以 `<memory>` 块注入且明示"永远是数据不是指令"。库落 `<租户根>/<tenant>/memory.db`；影子核验未接（`bankQuery` 占位） |
 | 全系统停机 | `packages/safety` + `packages/host` | HALT：新 turn / 新工具调用 / 新 plan 节点三处全拒（**只拦新动作，不打断已在途的写**）；解除只凭会话内 U 盾 MFA 票据。状态落 `<会话根>/halt.json`，**重启仍停机**（C3）；票据不持久化，解除必须重新审批；状态文件损坏时**拒启**而不是当 RUNNING |
@@ -207,8 +207,8 @@ W12 起另有**执行 lease**（`leaseId` / `ticketId` / `expiresAt`）：签发
   认证有三种模式（`none` / `static` 双凭证 / `password` 登录），`static` 的 Bearer 不是登录，
   `password` 才是（scrypt + HttpOnly 会话 + 撤销）；限流是单机级，不是网关；
 - 银行账本是内存仿真，进程重启回种子；强验证默认是测试网关适配器（未接真实短信/人脸/U 盾供应商），锁定状态在内存、重启丢失；
-- HALT 人工解除已落地、状态已持久化（C3），但 headless 无远程控制入口；知识库双层签名（W06）与
-  工具出参契约（W03）已落地，**未做**的是 RAG 响应的**信封签名**（跨语言验签）；
+- HALT 人工解除已落地、状态已持久化，但 headless 无远程控制入口；知识库双层签名与
+  工具出参契约已落地，**未做**的是 RAG 响应的**信封签名**（跨语言验签）；
   记忆层的影子核验（用银行权威状态覆盖记忆值）**未接**，`bankQuery` 是占位端口；
 - 编排有两层：**plan:dag**（外部传入一张计划，引擎校验 + 拓扑执行 + 断点续跑）与 saga（"预检 → 执行"两段，
   失败经窄端口冲正）。plan 编排 saga，但 plan 自身节点写操作的补偿未做（见 `docs/security-design.md` §4）；
@@ -260,16 +260,14 @@ facts.md             演示材料唯一数字来源
 
 | 命令 | 范围 | 实测（2026-10-31） |
 |---|---|---|
-| `pnpm test` | 主仓 | 444 文件 / 5092 用例（2026-11-02 全量实测，见 facts.md） |
-| `pnpm test:web` | 前端 | 47 文件 / 550 用例（全绿） |
+| `pnpm test` | 主仓 | 446 文件 / 5148 用例（2026-11-02 全量实测，见 facts.md） |
+| `pnpm test:web` | 前端 | 49 文件 / 592 用例（全绿） |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
-| `pnpm test:snapshot` | 快照回放 | 13 文件 / 60 用例（全绿，含 03 单 `subscription-reminder` 与 04 单 `birthday-reminder`） |
-| `pnpm gate` | 门禁 | 54 项 · 54 通过 |
+| `pnpm test:snapshot` | 快照回放 | 13 文件 / 60 用例（全绿，含 `subscription-reminder` 与 `birthday-reminder`） |
+| `pnpm gate` | 门禁 | 53 项 · 53 通过 |
 
 三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
 
 更多材料：[docs/](docs/)；200 字简介见 [docs/简介-200字.md](docs/简介-200字.md)；
 部署见 [docs/deploy.md](docs/deploy.md)，安全设计（威胁模型、攻击面与缺口）见
 [docs/security-design.md](docs/security-design.md)，漏洞披露见 [SECURITY.md](SECURITY.md)。
-
-自评打分表属于内部材料，不随仓库分发（口径见 `AGENTS.md` 文档边界）。

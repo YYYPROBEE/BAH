@@ -1,4 +1,4 @@
-# 可观测性（D2 + 观测面）
+# 可观测性
 
 > 定位：**单机、单进程**。这是"演示与排障时能看见什么"，不是分布式监控，也没有 APM。
 
@@ -176,7 +176,7 @@ pnpm bah cost --dir sessions/<session-id>
 
 ## 8. 已知缺口（登记不粉饰）
 
-1. **不做跨实例聚合**：单进程单会话；多租户/多实例汇聚是 D4 之后的事。
+1. **不做跨实例聚合**：单进程单会话；多租户/多实例汇聚属多会话宿主。
 2. **无指标留存**：每次抓取现算，重启即归零——Prometheus 侧表现为 counter reset。
 3. **快照回放的时长为 0**：时钟冻结，只有 `durationMs` 类字段是真值，`clock:'frozen'` 时面板明确标注。
 4. **成本只归因到轮**：`byTurn` 能看每轮，不按工具/节点摊派；不编数字。
@@ -199,7 +199,7 @@ pnpm bah cost --dir sessions/<session-id>
 | `bah_nodejs_heap_used_bytes` | gauge | — | bytes | process.memoryUsage().heapUsed |
 | `bah_nodejs_eventloop_lag_p99_seconds` | gauge | — | seconds | monitorEventLoopDelay 的 p99（每次抓取读一次） |
 | `bah_http_requests_total` | counter | `route`, `method`, `status` | count | http.request span 结束 |
-| `bah_http_request_duration_seconds` | histogram | `route` | seconds | 同上，桶见 02 §3.3 |
+| `bah_http_request_duration_seconds` | histogram | `route` | seconds | 同上，桶见 §3.3 |
 | `bah_http_in_flight` | gauge | — | count | 当前未结束的 http.request span 数 |
 | `bah_http_rate_limited_total` | counter | — | count | 429 次数 |
 | `bah_sse_clients` | gauge | — | count | hub.size()（复用既有值） |
