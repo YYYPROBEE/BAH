@@ -562,6 +562,52 @@ describe('mountApp · 对话收口与定位', () => {
     // 新消息帧到达后才定位；jsdom 的矩形全为 0，顶部锚点 = 当前 scrollTop - 8。
     transport.push({ kind: 'message', seq: 3, at: 3, role: 'user', blocks: [{ type: 'text', text: '查余额' }] })
     expect(conversation.scrollTop).toBe(92)
+
+    // 浏览器会在程序化定位后补发一次 scroll 事件：落点相同 ⇒ 不是用户上翻，跟随状态必须保留。
+    conversation.dispatchEvent(new Event('scroll'))
+    transport.push({ kind: 'message', seq: 4, at: 4, role: 'assistant', blocks: [{ type: 'text', text: '余额 0 元' }] })
+    expect(conversation.scrollTop).toBe(84)
+
+    // 用户滚回底部 ⇒ 恢复跟随，下一条新消息继续定位。
+    conversation.scrollTop = 1200
+    conversation.dispatchEvent(new Event('scroll'))
+    transport.push({ kind: 'message', seq: 5, at: 5, role: 'assistant', blocks: [{ type: 'text', text: '还有别的吗' }] })
+    expect(conversation.scrollTop).toBe(1192)
+  })
+
+  it('流式草稿首次出现时定位一次，后续 delta 不重复抢滚动', () => {
+    const { root, transport } = mount()
+    const conversation = root.querySelector('#conversation')
+    Object.defineProperty(conversation, 'scrollHeight', { configurable: true, get: () => 1200 })
+    Object.defineProperty(conversation, 'clientHeight', { configurable: true, get: () => 400 })
+
+    transport.push({ kind: 'message', seq: 1, at: 1, role: 'user', blocks: [{ type: 'text', text: '你好' }] })
+    expect(conversation.scrollTop).toBe(1200)
+
+    transport.push({ kind: 'delta', at: 2, text: '您好' })
+    expect(conversation.scrollTop).toBe(1192)
+    transport.push({ kind: 'delta', at: 3, text: '，请问' })
+    expect(conversation.scrollTop).toBe(1192)
+
+    // 权威助手消息替换草稿：再定位一次到这条消息的顶部。
+    transport.push({ kind: 'message', seq: 2, at: 4, role: 'assistant', blocks: [{ type: 'text', text: '您好，请问' }] })
+    expect(conversation.scrollTop).toBe(1184)
+  })
+
+  it('工具卡 / 提示等新内容帧在跟随状态下也定位到顶部', () => {
+    const { root, transport } = mount()
+    const conversation = root.querySelector('#conversation')
+    Object.defineProperty(conversation, 'scrollHeight', { configurable: true, get: () => 1200 })
+    Object.defineProperty(conversation, 'clientHeight', { configurable: true, get: () => 400 })
+
+    transport.push({ kind: 'message', seq: 1, at: 1, role: 'user', blocks: [{ type: 'text', text: '查余额' }] })
+    expect(conversation.scrollTop).toBe(1200)
+
+    transport.push({ kind: 'tool', seq: 2, at: 2, callId: 'call-1', name: 'account_list', title: '账户', state: 'done' })
+    expect(conversation.scrollTop).toBe(1192)
+
+    transport.push({ kind: 'notice', seq: 3, at: 3, level: 'info', title: '计划已到期' })
+    expect(conversation.scrollTop).toBe(1184)
   })
 })
 

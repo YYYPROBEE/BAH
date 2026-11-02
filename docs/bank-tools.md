@@ -44,10 +44,19 @@ packages/bank/src/
 | 订阅/代扣 | `sub_list`（绿，检测只读） `sub_cancel`（黄，合约期硬拦/到期即断） `sub_watch`（黄，提醒与标注） `sub_authorize`（黄，只关不开） | 绿 / 黄 | `read/subscriptions` `sub/cancelled` `sub/watch-updated` `sub/authorization-revoked` |
 
 完整参数 schema 与「何时用 / 何时不用」见 [tool-catalog.md](tool-catalog.md)。
+按赛题子能力聚合的旅程证据见 [scenario-coverage.md](scenario-coverage.md)（与本节的按工具视图互写引用，不是两个真相源）。
 `tier` **只在 `specs.ts` 声明**，`execute()` 里没有任何权限阈值（`verify-tiers` 门禁 + 评审双保险）。
 
 **金额口径**：模型参数是「元」，核心与事件是「分」（字段名带 `Cents`）。
 工具边界用 `yuanToCents()` 转一次；展示统一 `formatYuan()`（不依赖 locale）。
+
+**两处口径声明**（对应 [scenario-coverage.md](scenario-coverage.md) 的「按备注转账」与「锁定 1,000 元」两行，
+避免被读成已具备）：
+
+- **按备注转账**：`memo` 是转账附言；按备注**检索收款人**未实现——`findPayee` 只认姓名/手机号。
+  同类「上次那笔」体验由记忆复现路径（`eval:T-13` / `eval:U-17`）承担；对外材料不把它说成已具备。
+- **锁定 1,000 元**：计划内锁定＝向本人锁定账户 `a-3(9012)` 的内部划转（`packages/host/src/boot/plugins/plan.ts`，
+  走完整治理面）；对话内单点锁定/释放＝`fund_lock`；两者结果同为可用余额减少、总资产不变。
 
 **`viaCardId` 语义**（`transfer_preview` / `transfer_create` / 宿主内部 `merchant_order` 的可选参数）：
 传了 = 以该卡支付。以卡转账会同时判定卡状态、online/overseas 限制与**同卡近 30 天月限额**；

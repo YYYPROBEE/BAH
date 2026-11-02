@@ -445,8 +445,9 @@ export function createMobileShell(deps) {
   const echoes = new Map()
 
   /**
-   * 滚动策略与桌面同源：发送后把最新一条用户消息钉在视口顶部，回答从它下面长出来；
+   * 移动壳滚动策略：发送后把最新一条用户消息钉在视口顶部，回答从它下面长出来；
    * 之后 delta / 工具帧 / 收口块都不再跟随，避免用户往上翻读时被持续拽回底部。
+   * （桌面壳已改为"跟随状态下新消息逐条定位"，两端策略不再同源。）
    */
   let scrollInitialized = false
   let lastUserSeq = 0

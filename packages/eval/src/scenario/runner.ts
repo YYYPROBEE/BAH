@@ -530,6 +530,13 @@ const TOOL_EVENT: Readonly<Record<string, string>> = {
   verify_ushield: 'verify/ushield',
   card_report_lost: 'card/reported-lost',
   sub_cancel: 'sub/cancelled',
+  // 补齐场景（gaps）：这些领域的 durable 事件把结果整块放在 `result` 里，
+  // 与上面的读工具同构。卡片状态类事件（issued / state-changed / limits-changed /
+  // restrictions-changed）**没有** `result` 包装，改用 `event … where{…}` 钉载荷字段。
+  aa_create: 'aa/created',
+  risk_assess: 'risk/assessed',
+  wealth_positions: 'read/wealth-positions',
+  wealth_redeem: 'wealth/redeemed',
 }
 
 /** 返回第一条不满足的期望（`undefined` = 全部通过）。 */

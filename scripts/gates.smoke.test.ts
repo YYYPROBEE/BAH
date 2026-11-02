@@ -95,6 +95,26 @@ describe('门禁自身冒烟', () => {
     for (const floor of floors) expect(floor).toBeGreaterThan(0)
   })
 
+  /**
+   * 覆盖率两步的先后（fix(ci) 2026-11-02 的回归锁）。
+   *
+   * `test:coverage:all` 是全仓台账数字（行口径 / 包口径）的唯一来源，`test:coverage` 是
+   * 名单内逐文件 100%——更严的那道。反过来排会让前者跑不到：CI 红了且**产不出数字**，
+   * 只能人肉重跑一遍才知道覆盖率是多少。
+   */
+  it('ci.ts 的覆盖率两步：全仓口径必须排在逐文件 100% 之前', () => {
+    const text = source('ci.ts')
+    const names = [...text.matchAll(/kind:\s*'(command|vitest|e2e|rag)',\s*name:\s*'([^']+)'/g)].map(
+      (match) => match[2] ?? '',
+    )
+    const all = names.indexOf('test:coverage:all')
+    const strict = names.indexOf('test:coverage')
+
+    expect(all).toBeGreaterThanOrEqual(0)
+    expect(strict).toBeGreaterThanOrEqual(0)
+    expect(all).toBeLessThan(strict)
+  })
+
   it('coverage-summary.ts 的两个口径阈值与主调用仍在', () => {
     const text = source('coverage-summary.ts')
 

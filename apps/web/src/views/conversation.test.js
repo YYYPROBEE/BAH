@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   CONVERSATION_KINDS,
+  orderToolFrames,
   renderDraft,
   renderEmptyState,
   renderFrame,
@@ -280,5 +281,177 @@ describe('对话流 · 助手正文表格', () => {
     )
     expect(node.querySelector('[data-role="feedback"]')).toBeNull()
     expect(node.textContent).toContain('余额 100 元')
+  })
+})
+
+/** 造一条工具帧（`state` / `card` 按需覆盖）。 */
+function toolFrame(overrides = {}) {
+  return {
+    kind: 'tool',
+    seq: 4,
+    at: 1_700_000_000_004,
+    callId: 'c-1',
+    name: 'account_list',
+    title: '账户',
+    state: 'done',
+    ...overrides,
+  }
+}
+
+/** 造一条带工具调用的消息帧；`blocks` 缺省给一句正文。 */
+function assistantWithCalls(calls, blocks = [{ type: 'text', text: '我查一下账户' }]) {
+  return { kind: 'message', seq: 3, at: 1_700_000_000_003, role: 'assistant', blocks, toolCalls: calls }
+}
+
+/** 由工具帧建 `toolFrameFor` 依赖（与 main.js 的 `toolFramesByCall` 同形态）。 */
+function frameIndex(frames) {
+  const byCall = new Map(frames.map((frame) => [frame.callId, frame]))
+  return { toolFrameFor: (callId) => byCall.get(callId) }
+}
+
+describe('对话流 · 工具卡跟随发起它的助手消息', () => {
+  const kinds = (frames) => frames.map((frame) => `${String(frame.kind)}:${String(frame.callId ?? frame.role ?? '')}`)
+
+  it('事件日志把工具结果落在助手消息之前时，展示顺序把卡挪到消息后面', () => {
+    const tool = toolFrame({ callId: 'c-1' })
+    const user = message({ role: 'user', blocks: [{ type: 'text', text: '查余额' }] })
+    const assistant = assistantWithCalls([{ callId: 'c-1', name: 'account_list' }])
+    expect(kinds(orderToolFrames([tool, user, assistant]))).toEqual(['message:user', 'message:assistant', 'tool:c-1'])
+  })
+
+  it('一条消息引用多个调用时，卡片按调用顺序排（不按落账顺序）', () => {
+    const second = toolFrame({ callId: 'c-2' })
+    const first = toolFrame({ callId: 'c-1' })
+    const assistant = assistantWithCalls([
+      { callId: 'c-1', name: 'account_list' },
+      { callId: 'c-2', name: 'transaction_list' },
+    ])
+    expect(kinds(orderToolFrames([second, first, assistant]))).toEqual([
+      'message:assistant',
+      'tool:c-1',
+      'tool:c-2',
+    ])
+  })
+
+  it('没有工具帧时原样返回，且不改入参数组', () => {
+    const user = message()
+    const assistant = assistantWithCalls([])
+    const input = [user, assistant]
+    const out = orderToolFrames(input)
+    expect(out).not.toBe(input)
+    expect(out).toEqual(input)
+    expect(input).toHaveLength(2)
+  })
+
+  it('没有助手消息引用的工具帧留在末尾，不吞掉', () => {
+    const orphan = toolFrame({ callId: 'c-9' })
+    const notice = { kind: 'notice', seq: 7, level: 'info', text: '已判停' }
+    const out = orderToolFrames([orphan, notice])
+    expect(kinds(out)).toEqual(['notice:', 'tool:c-9'])
+  })
+
+  it('同一工具帧被两条助手消息引用时只出现一次', () => {
+    const tool = toolFrame({ callId: 'c-1' })
+    const first = assistantWithCalls([{ callId: 'c-1', name: 'account_list' }], [{ type: 'text', text: '第一次' }])
+    const second = assistantWithCalls([{ callId: 'c-1', name: 'account_list' }], [{ type: 'text', text: '第二次' }])
+    expect(kinds(orderToolFrames([first, second, tool]))).toEqual([
+      'message:assistant',
+      'tool:c-1',
+      'message:assistant',
+    ])
+  })
+
+  it('引用里混进空项不炸（缺 callId 的调用没有卡可挂）', () => {
+    const tool = toolFrame({ callId: 'c-1' })
+    const assistant = assistantWithCalls([null, { name: 'account_list' }, { callId: 'c-1' }])
+    expect(kinds(orderToolFrames([tool, assistant]))).toEqual(['message:assistant', 'tool:c-1'])
+  })
+})
+
+describe('对话流 · 助手消息展开工具结果', () => {
+  it('已完成的调用展开状态、标题、字段与表格', () => {
+    const tool = toolFrame({
+      card: {
+        title: '账户列表',
+        fields: [{ label: '尾号', value: '1234' }],
+        table: { headers: ['账户', '余额'], rows: [['储蓄账户', '¥1,200.00']] },
+      },
+    })
+    const node = renderMessage(assistantWithCalls([{ callId: 'c-1', name: 'account_list' }]), frameIndex([tool]))
+
+    const tag = node.querySelector('.message__call-result-head .ds-tag')
+    expect(tag.textContent).toBe('已完成')
+    expect(tag.className).toContain('ds-tag--success')
+    expect(node.querySelector('.message__call-result-title').textContent).toBe('账户列表')
+    expect(node.querySelector('.message__call-head .ds-tag').textContent).toBe('account_list')
+    expect(node.querySelector('.message__call-id').textContent).toBe('c-1')
+    expect(node.querySelectorAll('.message__call-field')).toHaveLength(1)
+    expect(node.querySelector('.message__call-field-value').textContent).toBe('1234')
+    expect(node.querySelectorAll('.message__call-table tbody tr')).toHaveLength(1)
+    expect(node.textContent).toContain('¥1,200.00')
+  })
+
+  it('被拦截的调用标 danger 并带出 reason 与 code', () => {
+    const tool = toolFrame({ state: 'denied', reason: '超出单笔限额', code: 'tier-red' })
+    const node = renderMessage(assistantWithCalls([{ callId: 'c-1', name: 'transfer' }]), frameIndex([tool]))
+
+    const tag = node.querySelector('.message__call-result-head .ds-tag')
+    expect(tag.textContent).toBe('已拦截')
+    expect(tag.className).toContain('ds-tag--danger')
+    expect(node.querySelector('.message__call-reason').textContent).toBe('超出单笔限额')
+    expect(node.querySelector('.ds-code').textContent).toBe('tier-red')
+    // 卡片本身兜底成工具标题（card.title 缺省时不给空标题）
+    expect(node.querySelector('.message__call-result-title').textContent).toBe('账户')
+    expect(node.querySelectorAll('.message__call-field')).toHaveLength(0)
+  })
+
+  it('待执行 / 未知状态一律"待执行"+warning，与工具卡的兜底同口径', () => {
+    for (const state of ['pending', 'running', undefined]) {
+      const tool = toolFrame({ state, card: { title: '账户' } })
+      const node = renderMessage(assistantWithCalls([{ callId: 'c-1', name: 'account_list' }]), frameIndex([tool]))
+      const tag = node.querySelector('.message__call-result-head .ds-tag')
+      expect(tag.textContent).toBe('待执行')
+      expect(tag.className).toContain('ds-tag--warning')
+    }
+  })
+
+  it('字段只展开前 8 条、表格只渲染前 6 行（不把整份流水塞进气泡）', () => {
+    const tool = toolFrame({
+      card: {
+        title: '交易流水',
+        fields: Array.from({ length: 12 }, (_, i) => ({ label: `L${String(i)}`, value: `V${String(i)}` })),
+        table: {
+          headers: ['日期', '金额'],
+          rows: Array.from({ length: 9 }, (_, i) => [`2026-11-0${String(i)}`, String(i)]),
+        },
+      },
+    })
+    const node = renderMessage(assistantWithCalls([{ callId: 'c-1', name: 'transaction_list' }]), frameIndex([tool]))
+    expect(node.querySelectorAll('.message__call-field')).toHaveLength(8)
+    expect(node.querySelectorAll('.message__call-table tbody tr')).toHaveLength(6)
+    expect(node.querySelectorAll('.message__call-table thead th')).toHaveLength(2)
+  })
+
+  it('查不到对应工具帧时只列工具名与调用 ID，不产生空结果块', () => {
+    const node = renderMessage(assistantWithCalls([{ callId: 'c-9', name: 'unknown_tool' }]), {
+      toolFrameFor: () => undefined,
+    })
+    expect(node.querySelector('.message__call-result')).toBeNull()
+    expect(node.querySelector('.message__call-head').textContent).toContain('unknown_tool')
+    expect(node.querySelector('.message__call-id').textContent).toBe('c-9')
+  })
+
+  it('其他端不传 toolFrameFor 时照旧渲染（缺依赖不炸）', () => {
+    const node = renderMessage(assistantWithCalls([{ callId: 'c-1', name: 'account_list' }]))
+    expect(node.querySelector('.message__call-result')).toBeNull()
+    expect(node.textContent).toContain('account_list')
+  })
+
+  it('只有工具调用、没有正文的助手消息同样展开结果', () => {
+    const tool = toolFrame({ card: { title: '账户', fields: [{ label: '余额', value: '¥1,200.00' }] } })
+    const node = renderMessage(assistantWithCalls([{ callId: 'c-1', name: 'account_list' }], []), frameIndex([tool]))
+    expect(node.className).toContain('message--tool-only')
+    expect(node.querySelector('.message__call-result')).not.toBeNull()
+    expect(node.textContent).toContain('¥1,200.00')
   })
 })

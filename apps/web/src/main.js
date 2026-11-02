@@ -18,7 +18,7 @@ import { createObservability } from './observability.js'
 import { formatWaited } from './format.js'
 import { applyFontScale, createFeedbackStore, createPrefs, feedbackKeyOf, isLargeFont, PREF_KEYS } from './prefs.js'
 import { createSpeaker } from './speech.js'
-import { scrollToBottom } from './scroll.js'
+import { isNearBottom, scrollToBottom } from './scroll.js'
 import { approvalDecision, createStore, pendingApproval, viewKey } from './store.js'
 import { connectEvents, createHttpApi, createSessionControlClient } from './transport.js'
 import {
@@ -393,16 +393,31 @@ export function mountApp(options) {
   const auditRendered = new Map()
 
   /**
-   * 滚动策略（2026-11-01 走查）：发送时跳到新消息，回答开始后停止跟随。
+   * 滚动策略：新消息到达就定位，用户上翻后不抢滚动。
    *
-   * 之前是"只要在底部就每帧贴底"：回答流式变长时视口一直被拽到底，用户往上翻读前文
-   * 会被反复拉回去。现在只在两个时刻主动滚动：
-   * 1. 出现新的用户消息（或用户点发送）→ 跳到底部，让刚说的话可见；
-   * 2. 当前轮的第一段助手正文出现 → 把这段正文的顶部滚进视口，然后**冻结**。
-   * 之后的 delta / 工具帧 / 轮次结束 / 反馈块一律不再滚动，用户看哪儿就停在哪儿。
+   * 1. 出现新的用户消息（或用户点发送）→ 把这条消息钉在视口顶部，并恢复跟随；
+   * 2. 跟随状态下，新到的助手正文 / 草稿 / 工具卡 / 提示 / 计划卡等把其顶部滚进视口一次；
+   * 3. 用户主动上翻（离底部超过阈值）→ 停止跟随；滚回底部或再次发送 → 恢复跟随；
+   * 4. delta 只更新同一个草稿节点，不重复定位；收口块不参与滚动。
+   *
+   * 程序化滚动会自己触发 scroll 事件，必须用落点识别出来并忽略，
+   * 否则"把用户消息钉到顶部"会被当成用户上翻，后面的回答就再也不定位了。
    */
   let scrollInitialized = false
   let lastUserSeq = 0
+  let lastContentSeq = 0
+  /** 用户是否仍在跟最新消息（上翻后为 false，回到底部或发送后恢复）。 */
+  let followLatest = true
+  /**
+   * 最近程序化滚动的落点集合（用来忽略它们自己触发的 scroll 事件）。
+   *
+   * 不能只记一个落点：一帧里可能连续做两次定位（例如用户消息钉顶后草稿立刻出现），
+   * 浏览器只补发最后一次 scroll 事件；只记一个值时，中间那次会被误判成"用户上翻"，
+   * 后续新消息就再也不定位了（桌面端 2026-11-02 实测）。
+   */
+  const programmaticTops = new Set()
+  /** 当前流式草稿是否已经定位过（delta 只更新文本，不重复滚动）。 */
+  let draftAnchored = false
 
   function isUserSpeechFrame(frame) {
     return (
@@ -420,6 +435,40 @@ export function mountApp(options) {
     return latest
   }
 
+  /** 对话流里最新一条内容帧的序号（轮次分割线不算"新消息"）。 */
+  function latestContentSeqOf(frames) {
+    let latest = 0
+    for (const frame of frames) {
+      if (frame.kind === 'turn' || typeof frame.seq !== 'number') continue
+      latest = Math.max(latest, frame.seq)
+    }
+    return latest
+  }
+
+  function noteProgrammaticScroll() {
+    const top = Math.round(conversation.scrollTop)
+    programmaticTops.add(top)
+    // 落点只在"事件可能晚到"的窗口内有效；过期后同值滚动就是用户自己的动作。
+    setTimeout(() => programmaticTops.delete(top), 500)
+  }
+
+  function scrollToLatestBottom() {
+    scrollToBottom(conversation)
+    noteProgrammaticScroll()
+  }
+
+  conversation.addEventListener('scroll', () => {
+    const top = Math.round(conversation.scrollTop)
+    if (programmaticTops.has(top)) {
+      programmaticTops.delete(top)
+      // 程序化落点恰好在底部可能是"用户自己滚回来了"：恢复跟随不吃亏；
+      // 钉用户消息到顶部时不在底部，保持原跟随状态。
+      if (isNearBottom(conversation)) followLatest = true
+      return
+    }
+    followLatest = isNearBottom(conversation)
+  })
+
   function scrollConversationToTopOf(node) {
     if (node === null || node === undefined) return
     const container = conversation.getBoundingClientRect()
@@ -429,26 +478,58 @@ export function mountApp(options) {
     conversation.style.scrollBehavior = 'auto'
     conversation.scrollTop = Math.max(0, target)
     conversation.style.scrollBehavior = previous
+    noteProgrammaticScroll()
   }
 
   function syncConversationScroll(conversationFrames, state) {
     const latestUser = latestUserSeqOf(conversationFrames)
+    const latestContent = latestContentSeqOf(conversationFrames)
 
     if (!scrollInitialized) {
       if (conversationFrames.length === 0 && state.streamText.length === 0) return
       scrollInitialized = true
       lastUserSeq = latestUser
-      scrollToBottom(conversation)
+      lastContentSeq = latestContent
+      followLatest = true
+      scrollToLatestBottom()
       return
     }
 
     if (latestUser > lastUserSeq) {
       lastUserSeq = latestUser
-      // 发送后把最新一条用户消息钉在视口顶部：回答从它下面长出来，
-      // 用户不需要在"自己刚说的话"被顶出屏幕后再往回找。
+      lastContentSeq = Math.max(lastContentSeq, latestContent)
+      // 用户刚发言 / 刚发出消息：这是一次明确的"看最新"意图，恢复跟随。
+      followLatest = true
       const node = conversation.querySelector(`.message--user[data-seq="${String(latestUser)}"]`)
       if (node !== null) scrollConversationToTopOf(node)
-      else scrollToBottom(conversation)
+      else scrollToLatestBottom()
+      return
+    }
+
+    if (state.streamText.length === 0) draftAnchored = false
+
+    if (latestContent > lastContentSeq) {
+      lastContentSeq = latestContent
+      // 用户上翻阅读前文时不抢滚动；回到底部（或再次发送）后恢复。
+      if (followLatest) {
+        const newest = conversationFrames.filter((frame) => frame.kind !== 'turn' && frame.seq === latestContent).at(-1)
+        const node = newest === undefined ? undefined : rendered.get(viewKey(newest))?.node
+        if (node !== undefined) {
+          scrollConversationToTopOf(node)
+        } else {
+          scrollToLatestBottom()
+        }
+        return
+      }
+    }
+
+    // 流式草稿是"回答的第一个可见节点"：首次出现时定位一次，后续 delta 不再跟随。
+    if (state.streamText.length > 0 && !draftAnchored && followLatest) {
+      const draft = conversation.querySelector('[data-draft="true"]')
+      if (draft !== null) {
+        scrollConversationToTopOf(draft)
+        draftAnchored = true
+      }
     }
   }
 
@@ -986,6 +1067,9 @@ export function mountApp(options) {
     // 这里只记录发送前的序号，避免把旧会话的"最新用户消息"误判成新消息。
     scrollInitialized = true
     lastUserSeq = latestUserSeqOf(store.state().frames)
+    lastContentSeq = latestContentSeqOf(store.state().frames)
+    followLatest = true
+    draftAnchored = false
     try {
       const result = await api.turn(text)
       if (!result.ok) {

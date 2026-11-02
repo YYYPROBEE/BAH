@@ -59,6 +59,7 @@
     "handoff:demo": "tsx scripts/demo-handoff.ts",
     "knowledge:sign": "tsx scripts/sign-knowledge.ts",
     "eval": "tsx scripts/eval.ts",
+    "eval:gaps": "tsx scripts/eval-gaps.ts",
     "replay": "tsx scripts/replay.ts",
     "eval:unit": "vitest run --config vitest.eval.config.ts",
     "eval:smoke": "tsx scripts/eval.ts --smoke",

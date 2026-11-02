@@ -94,6 +94,19 @@ describe('flattenDag（纯函数）', () => {
     expect(flattenDag(undefined)).toEqual([])
   })
 
+  /** 三端同步（2026-11-02）：窄屏不再各自翻译，与桌面 DAG 用同一份双文表。 */
+  it('调用节点的窄屏标签与桌面同口径，未知工具名不编造翻译', () => {
+    const steps = flattenDag(
+      dagFrame([
+        node('call:account_list', 'ok', { kind: 'call', label: 'account_list' }),
+        node('call:brand_new_tool', 'ok', { kind: 'call', label: 'brand_new_tool' }),
+        node('step:1', 'ok', { label: '步骤 1' }),
+      ]),
+    )
+
+    expect(steps.map((step) => step.label)).toEqual(['账户列表 · account_list', 'brand_new_tool', '步骤 1 · Step 1'])
+  })
+
   it('countSettled 用"已了结"口径：ok + skipped + cancelled', () => {
     const steps = flattenDag(
       dagFrame([
