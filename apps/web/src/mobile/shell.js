@@ -486,6 +486,7 @@ export function createMobileShell(deps) {
   let answerFooterKey = null
   let lastAnswerModel = null
   const modelSuggestions = new Map()
+  const suggestionAttempted = new Set()
   const suggestionPending = new Set()
 
   function suggestionKeyOf(model) {
@@ -493,11 +494,12 @@ export function createMobileShell(deps) {
   }
 
   function requestModelSuggestions(model, key) {
-    if (modelSuggestions.has(key) || suggestionPending.has(key)) return
+    if (suggestionAttempted.has(key) || suggestionPending.has(key)) return
     if (typeof api.suggest !== 'function') {
-      modelSuggestions.set(key, [])
+      suggestionAttempted.add(key)
       return
     }
+    suggestionAttempted.add(key)
     suggestionPending.add(key)
     void api
       .suggest(model.context ?? { user: '', assistant: '' })
@@ -509,13 +511,16 @@ export function createMobileShell(deps) {
                 .filter((item) => item !== '')
                 .slice(0, 2)
             : []
-        modelSuggestions.set(key, items)
-        if (lastAnswerModel !== null && lastAnswerModel.key === key) {
-          syncAnswerFooter(lastAnswerModel.model)
+        // 空结果不写入 Map：让 syncAnswerFooter 继续用规则回退，而不是把按钮清空。
+        if (items.length > 0) {
+          modelSuggestions.set(key, items)
+          if (lastAnswerModel !== null && lastAnswerModel.key === key) {
+            syncAnswerFooter(lastAnswerModel.model)
+          }
         }
       })
       .catch(() => {
-        modelSuggestions.set(key, [])
+        // 模型不可用：保留规则回退，不把“没有建议”渲染成空标签。
       })
       .finally(() => {
         suggestionPending.delete(key)
@@ -557,7 +562,7 @@ export function createMobileShell(deps) {
       answerFooterKey = key
     }
     if (footerHost.lastElementChild !== answerFooter) footerHost.append(answerFooter)
-    if (!modelSuggestions.has(requestKey)) requestModelSuggestions(model, requestKey)
+    if (!suggestionAttempted.has(requestKey)) requestModelSuggestions(model, requestKey)
   }
 
   let lastSeq = 0
