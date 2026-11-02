@@ -156,9 +156,15 @@ export function uiErrorOf(result) {
 export function dispatchFrame(frame, ctx) {
   switch (frame.kind) {
     case 'turn':
-    case 'message':
     case 'notice':
       return ctx.feed.append(frame)
+    case 'message': {
+      const node = ctx.feed.append(frame)
+      if (node !== undefined && frame.role === 'assistant' && Array.isArray(frame.toolCalls)) {
+        ctx.feed.moveToolsAfter?.(node, frame.toolCalls.map((call) => call.callId))
+      }
+      return node
+    }
     case 'delta':
       // 显式 no-op：delta 是 ephemeral 帧，由 store 累加成 `streamText`，呈现走 `feed.setDraft()`。
       // 落到 default 会被渲染成"未知帧"，把正常的流式增量误报成异常。
@@ -235,6 +241,18 @@ function createFeed(container, deps = {}) {
       // audit 帧不在 conversation.js 的 switch 里（它会渲染成"未知帧"），走 audit.js 的渲染件；
       // 其余帧按 `SHARED_RENDERERS` 取（风险问卷卡与桌面壳共用同一张卡）。
       return upsert(frame, rendererOf(frame, deps))
+    },
+    /** 把工具卡挪到发起它的助手消息之后（如果工具卡在会话流而不是步骤里）。 */
+    moveToolsAfter(anchor, callIds) {
+      let cursor = anchor
+      for (const callId of callIds ?? []) {
+        const tool = [...container.querySelectorAll('[data-call-id]')].find(
+          (node) => node.dataset.callId === String(callId) && node.parentElement === container,
+        )
+        if (tool === undefined) continue
+        container.insertBefore(tool, cursor.nextSibling)
+        cursor = tool
+      }
     },
     appendUnknown(frame) {
       return upsert(frame, (item) =>
@@ -384,7 +402,10 @@ export function createMobileShell(deps) {
     value: (frame) => feedbackStore.get(feedbackKeyOf(store.state().sessionId, frame.seq)),
     rate: (frame, value) => feedbackStore.rate(feedbackKeyOf(store.state().sessionId, frame.seq), value),
   }
-  const feed = createFeed(conversationHost)
+  const toolFramesByCall = new Map()
+  const feed = createFeed(conversationHost, {
+    toolFrameFor: (callId) => toolFramesByCall.get(callId),
+  })
   const planSteps = createPlanSteps(planHost, { renderTool })
   const effectsList = createEffectsList(effectsHost)
   const auditGroup = createAuditGroup(auditHost)
@@ -639,6 +660,10 @@ export function createMobileShell(deps) {
   /** 全量同步（幂等；每帧都可能触发一次）。 */
   function sync(state) {
     feed.begin()
+    // 先收齐工具帧再分发：助手消息里的「工具调用」展开要能读到刚返回的结果。
+    for (const frame of state.frames) {
+      if (frame.kind === 'tool' && typeof frame.callId === 'string') toolFramesByCall.set(frame.callId, frame)
+    }
     for (const frame of state.frames) dispatchFrame(frame, ctx)
     feed.end()
     auditGroup.update(state.frames.filter((frame) => frame.kind === 'audit'))

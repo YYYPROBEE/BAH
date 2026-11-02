@@ -186,12 +186,48 @@ export function renderMessage(frame, deps = {}) {
     el(
       'div',
       { class: 'message__calls' },
-      calls.map((call) =>
-        el('div', { class: 'message__call' }, [
-          el('span', { class: 'ds-tag', text: String(call.name) }),
-          el('code', { class: 'message__call-id', text: String(call.callId) }),
-        ]),
-      ),
+      calls.map((call) => {
+        const tool = deps.toolFrameFor?.(call.callId)
+        const fields = Array.isArray(tool?.card?.fields) ? tool.card.fields.slice(0, 8) : []
+        const table = tool?.card?.table
+        const resultTitle = String(tool?.card?.title ?? tool?.title ?? '')
+        const stateText = tool?.state === 'done' ? '已完成' : tool?.state === 'denied' ? '已拦截' : '待执行'
+        const stateClass = tool?.state === 'done' ? 'ds-tag--success' : tool?.state === 'denied' ? 'ds-tag--danger' : 'ds-tag--warning'
+        return el('div', { class: 'message__call' }, [
+          el('div', { class: 'message__call-head' }, [
+            el('span', { class: 'ds-tag', text: String(call.name) }),
+            el('code', { class: 'message__call-id', text: String(call.callId) }),
+          ]),
+          ...(tool === undefined
+            ? []
+            : [
+                el('div', { class: 'message__call-result' }, [
+                  el('div', { class: 'message__call-result-head' }, [
+                    el('span', { class: `ds-tag ${stateClass}`.trim(), text: stateText }),
+                    ...(resultTitle === '' ? [] : [el('strong', { class: 'message__call-result-title', text: resultTitle })]),
+                  ]),
+                  ...fields.map((field) =>
+                    el('div', { class: 'message__call-field' }, [
+                      el('span', { class: 'message__call-field-label', text: String(field?.label ?? '') }),
+                      el('span', { class: 'message__call-field-value', text: String(field?.value ?? '') }),
+                    ]),
+                  ),
+                  ...(table === undefined
+                    ? []
+                    : [
+                        el('div', { class: 'message__call-table' }, [
+                          el('table', { class: 'ds-table' }, [
+                            el('thead', {}, [el('tr', {}, table.headers.map((header) => el('th', { text: String(header) })))]),
+                            el('tbody', {}, table.rows.slice(0, 6).map((row) => el('tr', {}, row.map((cell) => el('td', { text: String(cell) }))))),
+                          ]),
+                        ]),
+                      ]),
+                  ...(tool.code === undefined ? [] : [el('code', { class: 'ds-code', text: tool.code })]),
+                  ...(tool.reason === undefined ? [] : [el('span', { class: 'message__call-reason', text: tool.reason })]),
+                ]),
+              ]),
+        ])
+      }),
     )
 
   if (role === 'assistant' && !hasText) {

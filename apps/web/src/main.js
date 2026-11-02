@@ -832,7 +832,12 @@ export function mountApp(options) {
     const conversationFrames = orderToolFrames(
       state.frames.filter((frame) => CONVERSATION_KINDS.has(frame.kind)),
     )
-    syncContainer(conversation, rendered, conversationFrames, (frame) => renderFrame(frame, choiceDeps))
+    const toolFramesByCall = new Map(
+      state.frames.filter((frame) => frame.kind === 'tool').map((frame) => [frame.callId, frame]),
+    )
+    syncContainer(conversation, rendered, conversationFrames, (frame) =>
+      renderFrame(frame, { ...choiceDeps, toolFrameFor: (callId) => toolFramesByCall.get(callId) }),
+    )
 
     // 一律以"最后一轮是否还在跑"决定收口块：运行中 / 流式草稿 / 接管中都不出反馈与追问。
     const running = state.frames.some(
