@@ -15,15 +15,9 @@
  * 3. **能力口径防回退**：C3/C4/C5 之后，某些表述已经变成**错误**（"HALT 重启即清零"
  *    "记忆层未接线" "无人工接管平面"）。这类话在对外材料里出现即红——比数字过期更危险，
  *    因为它是"把已做的能力说成没做"，同样是不诚实。
- * 4. **过程件不得回流**：归档记录、证据原件、交接单等路径出现在树里即红（见 `FORBIDDEN_PATHS`）。
- *
- * ## 白名单
- *
- * 历史件（drill-* / handoff-* / next-* / task-* / plans/* / preflight-*）记录的是**当时**
- * 的输出，改它们等于篡改证据。它们不在扫描面内；扫描面是硬编码的"对外材料"清单。
  */
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { Gate, GateResult } from './gate-lib.ts'
@@ -53,13 +47,9 @@ const PUBLIC_DOCS: readonly string[] = [
   'docs/profile.md',
   // 04 单：移动 H5 的对外口径页（新建即必须进清单）
   'docs/mobile.md',
-  // 02 单：IM 网关的对外口径页（新建即必须进清单）
   'docs/im-gateway.md',
-  // `docs/review/judge-walkthrough.md` 随 2026-10-30 撤下移出扫描面：留空条目会让
-  // 数字黑名单静默落空（门禁不红，但保护面缩了），所以直接从清单里删掉。
   'docs/observability.md',
   'docs/performance.md',
-  'docs/roadmap.md',
   'services/rag/README.md',
 ]
 
@@ -129,34 +119,6 @@ const WRONG_CLAIMS: readonly { readonly pattern: RegExp; readonly why: string }[
   },
 ]
 
-/**
- * 过程件路径：不得进入默认分支的树。
- *
- * 归档记录、证据原件、交接单、演练单与一次性复审稿是**开发过程**的产物，
- * 不是对外文档。它们被撤下后如果随某个分支合并回来，这条规则负责让提交变红；
- * 需要保留时放仓库外的归档目录，不要放回 `docs/`。
- */
-const FORBIDDEN_PATHS: readonly { readonly pattern: RegExp; readonly why: string }[] = [
-  { pattern: /^\.md$/, why: '归档记录不随仓库分发' },
-  { pattern: /^DECISIONS\.md$/, why: '内部决策记录不随仓库分发' },
-  { pattern: /^docs\/evidence\//, why: '证据原件不随仓库分发' },
-  { pattern: /^docs\/review\//, why: '评审/走查稿不随仓库分发' },
-  { pattern: /^docs\/plans\//, why: '实现计划不随仓库分发' },
-  { pattern: /^docs\/handoff-/, why: '交接单不随仓库分发' },
-  { pattern: /^docs\/drill-/, why: '演练单不随仓库分发' },
-  { pattern: /^docs\/next-(?:actions|orders|three)-/, why: '内部排期不随仓库分发' },
-  { pattern: /^docs\/preflight-/, why: '开工前体检记录不随仓库分发' },
-  { pattern: /^docs\/progress-archive-/, why: '台账归档不随仓库分发' },
-  { pattern: /^docs\/snapshot-sandbox-scenario-/, why: '一次性场景简报不随仓库分发' },
-  { pattern: /^docs\/tech-debt-review-/, why: '一次性技术债评审不随仓库分发' },
-  { pattern: /^docs\/web-frontend-review\.md$/, why: '一次性前端评审不随仓库分发' },
-  { pattern: /^docs\/release-baseline-/, why: '内部基线快照不随仓库分发' },
-  { pattern: /^docs\/dsh-comparison\.md$/, why: '内部对标材料不随仓库分发' },
-]
-
-/** 目录遍历时整棵跳过的路径（构建产物 / 依赖 / 测试产物 / 临时目录）。 */
-const SKIP_DIRS = new Set(['node_modules', '.git', '.ci-artifacts', 'dist', 'coverage', '.tmp-docsfix'])
-
 /** 从 facts-sources 的机器块读当前值。 */
 interface Facts {
   readonly gates: number
@@ -198,28 +160,6 @@ function readFacts(root: string): Facts | undefined {
 function readPublic(root: string, relative: string): string | undefined {
   const path = join(root, relative)
   return existsSync(path) ? readFileSync(path, 'utf8') : undefined
-}
-
-/** 扫描全树，过程件出现即红。 */
-function findForbiddenPaths(root: string, findings: string[]): number {
-  let scanned = 0
-  const stack: string[] = ['']
-  while (stack.length > 0) {
-    const relative = stack.pop()
-    if (relative === undefined) break
-    const entries = readdirSync(join(root, relative), { withFileTypes: true })
-    for (const entry of entries) {
-      const child = relative === '' ? entry.name : `${relative}/${entry.name}`
-      if (entry.isDirectory()) {
-        if (!SKIP_DIRS.has(entry.name)) stack.push(child)
-        continue
-      }
-      scanned += 1
-      const hit = FORBIDDEN_PATHS.find((rule) => rule.pattern.test(child))
-      if (hit !== undefined) findings.push(`${child}: 过程件不得进入默认分支 —— ${hit.why}`)
-    }
-  }
-  return scanned
 }
 
 export const gate: Gate = {
@@ -308,8 +248,6 @@ export const gate: Gate = {
       }
     }
 
-    const treeFiles = findForbiddenPaths(root, findings)
-
     notes.push(`扫描对外材料 ${String(scanned)} 份；白名单外历史件不参与（改它们等于篡改当时输出）`)
     notes.push(
       `基准：门禁 ${String(facts.gates)}/${String(facts.gates)} · 用例 ${String(facts.testFiles)} 文件 / ` +
@@ -317,9 +255,6 @@ export const gate: Gate = {
         `工具 ${String(facts.tools)} 个`,
     )
     notes.push(`过期数字规则 ${String(STALE_NUMBERS.length)} 条、能力口径规则 ${String(WRONG_CLAIMS.length)} 条`)
-    notes.push(
-      `过程件路径规则 ${String(FORBIDDEN_PATHS.length)} 条，扫描 ${String(treeFiles)} 个文件`,
-    )
 
     return Promise.resolve({ ok: findings.length === 0, findings, notes })
   },

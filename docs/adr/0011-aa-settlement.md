@@ -1,7 +1,7 @@
 # ADR-0011 · AA 收口：只读分支 + 模拟代收
 
 - 状态：**已采纳**（2026-11-01）
-- 关联：审查报告 B-04 / B-05、设计提示词 2、`docs/contracts/event-table.md` §5
+- 关联：`docs/contracts/event-table.md` §5
 - 影响面：`packages/bank/src/core/{provider,mock,model}.ts`、
   `packages/bank/src/tools/{specs,tier,governance,aa,events,dto}.ts`、
   `docs/{bank-tools,contracts/event-table}.md`
@@ -10,7 +10,7 @@
 
 ## 1 背景
 
-审查报告 B-04 / B-05 指出 AA 拆分收款只完成了一半：
+AA 拆分收款此前只完成了一半：
 
 1. **B-04**：`aa_create` 是动作式工具，但 `spec.event` 只有 `aa/created`；
    `action="status"` 实际落 `read/aa` 却没有声明 `readEvent`，且查询分支仍按黄档签票——
@@ -64,8 +64,8 @@ collectAa(req: { userId, groupId, participant: number | string }): Promise<{
 
 - 组归属：不存在/非本人 → `aa-unknown`（与 `getAa` 同码，不泄露他人组的存在性）；
 - 组状态：`completed` / `cancelled` → `aa-group-closed`；**例外**：`completed` 组对已付
-  参与人的重复 collect 返回 `aa-participant-paid`（ADR-0017 §2.5，复审 P1-3）；
-- 截止时间：`expiresAt < now` → `aa-group-closed`，不等到期 job 先跑（ADR-0017 §2.6，复审 P1-2）；
+  参与人的重复 collect 返回 `aa-participant-paid`（ADR-0017 §2.5；
+- 截止时间：`expiresAt < now` → `aa-group-closed`，不等到期 job 先跑（ADR-0017 §2.6；
 - 参与人：同名多位 → `aa-participant-ambiguous`（必须改用序号）；找不到/序号越界 →
   `aa-participant-unknown`；
 - 已付 → `aa-participant-paid`（幂等错误，**不重复入账**）；
@@ -128,5 +128,5 @@ collectAa(req: { userId, groupId, participant: number | string }): Promise<{
 - 正向：`paidAt` 从死字段变成有写入方的真实状态；
 - 负向：`collect` 的票据金额是预览值，组状态变化会让执行期拒绝（用户需重新批准）；
 - 中性：工具数不变（仍 28），事件键 33 → 34；
-- 中性：演示路由（`parseAa` 的 status/collect 话术）未做（设计说明标注为可选项），
+- 中性：演示路由（`parseAa` 的 status/collect 话术）未做（可选项），
   当前只能由工具面/模型直接调用。

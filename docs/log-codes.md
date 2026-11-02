@@ -1,4 +1,4 @@
-# 结构化日志 code 表（可观测性 02）
+# 结构化日志 code 表
 
 > 本表是 `logJson(level, code, fields)` 的 **code 闭集**：代码里出现的字面量 code 必须在这里有一行，
 > 由 `scripts/verify-observability.ts` 逐条比对（新 code 不登记 = 门禁红）。
@@ -84,6 +84,9 @@
 | `im-seat-forward` | info | `apps/im-gateway/src/handoff/operator.ts` | 运营桥转发（路径/状态码，不含 token） |
 | `im-seat-denied` | warn | `apps/im-gateway/src/handoff/operator.ts` | 运营鉴权失败（code=missing/mismatch） |
 | `im-help` | info | `apps/im-gateway/src/bridge/turn.ts` | 用户请求帮助/菜单（只打平台，不含原文） |
+| `im-history` | info | `apps/im-gateway/src/bridge/turn.ts` | 历史会话列表命中（只打平台，不含会话内容） |
+| `im-history-idle` | info | `apps/im-gateway/src/bridge/turn.ts` | 该用户没有可列出的会话（空闲） |
+| `im-history-failed` | warn | `apps/im-gateway/src/bridge/turn.ts` | 子进程历史列表调用失败（只打状态码） |
 
 > 动态 code：`packages/host/src/boot/plugins/bank-tools.ts` 的 `warnContextSlots(code, …)`
 > 会把 bank 适配器给的 `bank.slots-*` 族直接透传；这些值来自闭集枚举，不是自由文本。

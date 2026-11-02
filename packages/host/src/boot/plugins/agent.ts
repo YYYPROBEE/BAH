@@ -43,6 +43,7 @@ import {
   rejectUnknownKeys,
 } from '../config.ts'
 import { createRuntimeContextResolver } from '../runtime-context.ts'
+import { createSuggestService, SUGGEST_SERVICE } from './suggest.ts'
 
 /** 允许的渠道（与 runtime 的 `ChannelKind` 同源）。 */
 const CHANNELS = ['web', 'mobile', 'im', 'desktop', 'headless', 'sdk'] as const
@@ -152,6 +153,11 @@ export const agentPlugin: HostPlugin<AgentSettings> = {
           ? {}
           : { runtimeContext: resolver }),
       })
+
+      ctx.provide(
+        SUGGEST_SERVICE,
+        createSuggestService({ registry: ctx.get(LLM_ADAPTERS), modelId: config.loop.model }),
+      )
 
       ctx.effect(agents.register(loop))
       // 逆序执行：先关驱动器再摘注册表（否则宿主可能拿到已 dispose 的 agent）

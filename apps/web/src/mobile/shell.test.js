@@ -753,7 +753,7 @@ describe('客户侧信任件（移动壳）', () => {
     expect(root.querySelector('[data-role="safety"]').closest('.m-feed')).not.toBeNull()
   })
 
-  it('新消息贴底；上翻后不抢滚动；发送动作强制回到底部', async () => {
+  it('新消息定位到顶部；上翻后不抢滚动；发送后等 user/message 帧再定位', async () => {
     await start()
     const feed = root.querySelector('#m-feed')
     Object.defineProperty(feed, 'scrollHeight', { configurable: true, get: () => 1200 })
@@ -770,9 +770,12 @@ describe('客户侧信任件（移动壳）', () => {
     const input = root.querySelector('[data-role="composer-input"]')
     input.value = '查余额'
     root.querySelector('[data-role="send"]').click()
-    expect(feed.scrollTop).toBe(1200)
     for (let index = 0; index < 8; index += 1) await Promise.resolve()
     expect(api.turn).toHaveBeenCalledWith('查余额')
+
+    // 新消息帧到达后才定位；jsdom 的矩形全为 0，顶部锚点 = 当前 scrollTop - 8。
+    push({ kind: 'message', seq: 3, at: 3, role: 'user', blocks: [{ type: 'text', text: '查余额' }] })
+    expect(feed.scrollTop).toBe(92)
   })
 
   it('快捷入口发送失败 ⇒ 回显标"发送失败"并可重试；成功后恢复"发送中"', async () => {

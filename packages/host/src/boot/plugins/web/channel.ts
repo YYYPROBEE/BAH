@@ -31,6 +31,7 @@ import { logJson } from '@bah/util'
 import { RUN_SERVICE } from '../../boot.ts'
 import { DECISION_AUDIT } from '../audit-decisions.ts'
 import { SESSION_FILES } from '../persistence.ts'
+import { SUGGEST_SERVICE } from '../suggest.ts'
 import { TELEMETRY } from '../telemetry.ts'
 import { createRateLimiter } from '../web-rate-limit.ts'
 import { generateWebToken, readWebToken } from '../web-auth.ts'
@@ -158,6 +159,8 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
     (config.auth.mode === 'password' ? SEAT_PASSWORD_LOGIN : operator.token !== undefined)
   const deps: WebDeps = {
     session,
+    // 历史面（只读）：没装 core:persistence 时取不到 ⇒ 两条历史路由回 503
+    sessionFiles: tryService(ctx, SESSION_FILES),
     // 本进程服务的租户（01 TA-16）：只能来自启动期，绝不从请求头取
     tenantId: run.tenantId,
     auth,
@@ -185,6 +188,7 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
     tryAudit: () => tryService(ctx, DECISION_AUDIT),
     tryTelemetry: () => tryService(ctx, TELEMETRY),
     trySlo: sloReader(ctx),
+    trySuggest: () => tryService(ctx, SUGGEST_SERVICE),
     // 交易密码安全页端口（ADR-0014）：没装 `bank:tools` 的 profile 取不到 ⇒ 端点回 501
     tryPassword: () => tryService(ctx, PASSWORD_HANDOFF),
     staticRoot,

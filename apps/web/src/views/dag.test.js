@@ -58,6 +58,17 @@ describe('DAG · 阻断传播（T-WEB-006）', () => {
   })
 })
 
+describe('DAG · 中英双文', () => {
+  it('工具调用显示「中文 · english」，步骤显示「步骤 N · Step N」', () => {
+    const svg = renderDag(dagFrame())
+    const preview = svg.querySelector('[data-node-id="call:A"] text').textContent
+    const step = svg.querySelector('[data-node-id="step:1:1"] text').textContent
+    expect(preview).toContain('转账试算')
+    expect(preview).toContain('transfer_preview')
+    expect(step).toContain('Step 1')
+  })
+})
+
 describe('DAG · 可访问性', () => {
   it('图有 role=img 与文字摘要；每个节点有 title', () => {
     const svg = renderDag(dagFrame())
@@ -76,7 +87,7 @@ describe('DAG · 可访问性', () => {
       edges: [],
     })
     const text = svg.querySelector('[data-node-id="call:X"] text')
-    expect(text.textContent.length).toBeLessThanOrEqual(20)
+    expect(text.textContent.length).toBeLessThanOrEqual(30)
     expect(text.textContent).toContain('…')
   })
 

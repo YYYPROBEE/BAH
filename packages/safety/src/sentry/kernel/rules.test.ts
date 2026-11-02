@@ -121,7 +121,7 @@ describe('scanToolArgs·停用位与追加规则', () => {
     ])
   })
 
-  it('追加规则缺省族与说明回落 unknown / 空串（与源一致）', () => {
+  it('追加规则缺省族与说明回落 unknown / 空串（与内核口径一致）', () => {
     expect(scanToolArgs({ text: 'omega' }, { extraRules: [{ id: 'EXTRA-2', pattern: /omega/i }] })).toEqual([
       { id: 'EXTRA-2', family: 'unknown', hit: 'omega', note: '' },
     ])

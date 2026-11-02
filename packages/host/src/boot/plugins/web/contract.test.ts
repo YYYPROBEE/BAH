@@ -41,7 +41,7 @@ function fingerprint(route: (typeof ROUTES)[number]): string {
 }
 
 describe('W16 路由表（拆分前后同一份期望）', () => {
-  it('27 条路由的三元组逐条不变（18 条 main 基线 + 3 条认证 + 5 条人机接管 + 1 条指标 + 1 条改密）', () => {
+  it('30 条路由的三元组逐条不变（19 条 main 基线 + 3 条认证 + 5 条人机接管 + 1 条指标 + 1 条改密 + 2 条历史）', () => {
     expect(ROUTES.map(fingerprint)).toEqual([
       'GET /api/health exact public no-csrf 200 health',
       // 02 新增：登录是**公开但受 CSRF 管**的路由（登录 CSRF 是真实攻击面）
@@ -60,9 +60,13 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
       'GET /api/trace exact web no-csrf 200,400,401,503 trace',
       // 04 新增：回到上一步 = 在 turn 边界分叉新会话（旧会话原样封存）
       'POST /api/session/fork exact web csrf 200,400,401,403,404,405,409,500 fork',
+      // 历史会话（只读，2026-11-02）：prefix 必须排在 exact 之前，见 router.ts 的注释
+      'GET /api/sessions/ prefix web no-csrf 200,400,401,404,503 session-read',
+      'GET /api/sessions exact web no-csrf 200,400,401,503 sessions',
       // 合流：客户/坐席分离改由 roles 表达，`auth` 只剩 public/admin/web/static 四种
       // 客户专属（D3）：坐席不能替客户发消息 / 打断 / 放行 / 强验证
       'POST /api/turn exact web csrf 202,400,401,403,423,503 turn',
+      'POST /api/suggest exact web csrf 200,400,401,403,503 suggest',
       'POST /api/interrupt exact web csrf 200,401,403,503 interrupt',
       'POST /api/approval/ prefix web csrf 200,400,401,403,404,409 approval',
       'POST /api/verify/ prefix web csrf 200,400,401,403,404 verify',
@@ -92,6 +96,7 @@ describe('W16 路由表（拆分前后同一份期望）', () => {
       'logout /api/auth/logout',
       'fork /api/session/fork',
       'turn /api/turn',
+      'suggest /api/suggest',
       'interrupt /api/interrupt',
       'approval /api/approval/',
       'verify /api/verify/',

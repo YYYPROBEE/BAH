@@ -1,4 +1,4 @@
-# 微信测试号接入与回调配置（IM 网关 02）
+# 微信测试号接入与回调配置
 
 > 本文是 `apps/im-gateway` 的**部署手册**：15 分钟内能重新配好回调。
 > 密钥一律从环境变量读，本文不含任何真实值（AppID/AppSecret/Token 只写占位符）。
@@ -134,7 +134,7 @@ pnpm test -- apps/im-gateway/test/platform-contract.test.ts  # 微信 + Mock 同
 | `im-platform-unknown` | 回调 URL 的平台名/账号名写错 | 只注册 `wechat`；账号名默认 `default` |
 | `im-config-missing` | 必填环境变量缺失 | 对照 `docs/im-gateway.md` §env 表 |
 
-## 密钥纪律（复审必查）
+## 密钥纪律（上线前必查）
 
 1. AppID / AppSecret / 回调 Token **只**从环境变量读，源码、profile、测试夹具、文档一律占位符；
 2. 子进程 env **不继承** `BAH_WECHAT_*` 与 `BAH_IM_*`（`supervisor.ts` 的 `SCRUBBED_ENV`）；

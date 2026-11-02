@@ -38,9 +38,13 @@ export function createLayout(root, deps = {}) {
   ])
   const sessionLabel = el('span', { class: 'm-header__session', text: '会话 —' })
 
+  // 头部动作槽（2026-11-02）：历史对话等"进入另一层"的入口放这里。
+  // 只加槽不改三区骨架——feed / dock 的结构与键盘避让逻辑一个字都没动。
+  const headerActions = el('div', { class: 'm-header__actions', dataset: { role: 'm-header-actions' } })
   const header = el('header', { class: 'm-header' }, [
     el('span', { class: 'm-header__title', text: BRAND.name }),
     el('div', { class: 'm-header__meta' }, [sessionLabel, statusNode]),
+    headerActions,
   ])
   const feed = el('main', { class: 'm-feed', id: 'm-feed', 'aria-label': '对话与执行' })
   const dock = el('div', { class: 'm-dock' })
@@ -87,7 +91,7 @@ export function createLayout(root, deps = {}) {
   }
 
   return {
-    regions: { header, feed, dock, overlayHost },
+    regions: { header, feed, dock, overlayHost, headerActions },
     sessionLabel,
     statusNode,
     setStatus(status) {

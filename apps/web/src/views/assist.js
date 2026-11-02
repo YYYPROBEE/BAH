@@ -197,6 +197,14 @@ export function suggestFollowUps(frames = []) {
     if (affirmative !== lastUserText) return [affirmative, negative]
   }
 
+  // 助手在问"哪一张卡"时，按钮应直接回答它；继续推"查卡片状态 / 冻结卡片"
+  // 会答非所问（实测：挂失场景下把已经挂失的卡又推了一次冻结）。
+  const askedWhichCard = /哪一张|哪张卡|要处理的是哪/.test(lastAnswerText)
+  const tails = [...new Set([...lastAnswerText.matchAll(/尾号\s*(\d{4})/g)].map((match) => match[1]))]
+  if (askedWhichCard && tails.length > 0) {
+    return tails.slice(0, 2).map((tail) => `尾号 ${tail} 的卡`)
+  }
+
   const haystack = followUpHaystack(frames, lastUserIndex)
   const rule = FOLLOW_UP_RULES.find((entry) => entry.match.test(haystack))
   const candidates = [...(rule?.items ?? FOLLOW_UP_FALLBACK)]
@@ -246,7 +254,15 @@ export function answerFooterModel(frames = [], options = {}) {
   if (lastAnswer === null) return null
   if (lastAnswerIndex < lastUserIndex) return null
   if (lastChoiceIndex > lastUserIndex) return null
-  return { frame: lastAnswer, suggestions: suggestFollowUps(frames) }
+  return {
+    frame: lastAnswer,
+    suggestions: suggestFollowUps(frames),
+    // 给模型建议端点用的最近一轮原文（规则回退也用它做卡片选择）
+    context: {
+      user: lastUserIndex >= 0 ? messageText(frames[lastUserIndex]) : '',
+      assistant: messageText(lastAnswer),
+    },
+  }
 }
 
 /**

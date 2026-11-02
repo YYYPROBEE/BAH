@@ -1,6 +1,6 @@
-# BAH 事实数字唯一来源（2026-10-28 实测；S4 策略门禁与 policy-externalized 快照；可观测性 01 遥测内核）
+# BAH 事实数字唯一来源
 
-> 本文是 `facts.md`、PPT、视频旁白、自评材料里数字的**唯一取值来源**。
+> 本文是 `facts.md`、PPT、视频旁白里数字的**唯一取值来源**。
 > 改代码后重跑下表命令，先改本文，再改 `facts.md`，最后跑 `npx tsx scripts/verify-facts.ts`。
 > 门禁 `verify-facts` 会从**命令侧重新计算**下列值，与本文和 `facts.md` 逐一比对；不一致退出码 1。
 > 历史文档（`docs/next-actions-*`、`docs/preflight-*`、`文档归档/`）里的旧数**不在此列**，也不许改。
@@ -8,7 +8,7 @@
 ## 1. 机器可读块（门禁只读这一段）
 
 <!-- facts:sources:start -->
-gates=54
+gates=53
 tools=30
 plan_lines=2260
 snapshot_files=13
@@ -18,8 +18,8 @@ coverage_total=55161
 coverage_pct=89.87
 coverage_package_ok=16
 coverage_package_total=18
-tests_main_files=444
-tests_main_cases=5092
+tests_main_files=446
+tests_main_cases=5148
 <!-- facts:sources:end -->
 
 > `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。
@@ -30,16 +30,16 @@ tests_main_cases=5092
 
 | 事实 | 值 | 命令 | 实测输出 |
 |---|---|---|---|
-| 门禁数 | **54** | `ls scripts/verify-*.ts \| grep -v '\.test\.ts$' \| wc -l` | 34 → `verify-facts.ts` 后 35 → … → 移动 H5 03 后 46；租户与鉴权 01–04 新增 `verify-tenant-scope.ts` / `verify-tenant-isolation.ts` / `verify-authz-coverage.ts` 后 49；人机接管 01 新增 `verify-handoff-wiring.ts` 后 50；桌面端 02 新增 `verify-desktop-shell.ts` 后 51；IM 网关 02 新增 `verify-im-gateway.ts` 后 52；主动能力线新增 `verify-proactive.ts` / `verify-audit-cli.ts` / `verify-frame-closure.ts` 后 54 |
+| 门禁数 | **53** | `ls scripts/verify-*.ts \| grep -v '\.test\.ts$' \| wc -l` | 以本命令实测为准 |
 | 工具数 | **30** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 30（与 `result-schemas.ts` 30 个出参键一一对应；官方子能力补齐新增 7 个；2026-11-01 新增 `fund_lock` 与 `password_change`） |
 | plan 非测试行数 | **2,260** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,260（2026-10-30 合流后重算） |
-| 快照文件 / 用例 | **13 / 60** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 13 文件 / 60 例（`pnpm test:snapshot` 同值；实现方新增 `birthday-reminder` 场景 1 文件 6 例：3 天窗口 / 同日幂等 / 生日当天不重复 / 通知帧回放 / 负控） |
+| 快照文件 / 用例 | **13 / 60** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 13 文件 / 60 例（`pnpm test:snapshot` 同值；新增 `birthday-reminder` 场景 1 文件 6 例：3 天窗口 / 同日幂等 / 生日当天不重复 / 通知帧回放 / 负控） |
 | 覆盖率（行） | **89.87%** | `pnpm test:coverage:all`（本机汇总口径） | 覆盖 49571 行 / 参与统计 55161 行（2026-10-30 五线合流后复跑） |
 | 覆盖率（包） | **16/18** | 同上 | 只有 `memory-store` 72.68% 与 `eval` 46.93% 未达 80% |
-| 主仓测试 | **444 文件 / 5092 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 444 文件 / 5092 例（2026-11-02 全量实测；较 443/5084 新增 `packages/saga/src/view/causality.test.ts` 6 例与 `fund-lock` 负控 1 例，另 1 例计入既有补测。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑 17/17 绿），与用例数无关**） |
+| 主仓测试 | **446 文件 / 5148 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 446 文件 / 5148 例（2026-11-02 全量实测；较 444/5092 新增 `web/handlers/sessions.test.ts` 32 例与 `im-gateway/test/gateway-history.test.ts` 24 例。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑 17/17 绿），与用例数无关**） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
-| web 测试 | **47 文件 / 550 例** | `pnpm test:web` | 47 文件 / 550 例，**全绿**（2026-11-01 复审修复后实测；新增 `apps/web/src/password.test.js` 2 例，覆盖交接票 `?ticket=` 预填与地址栏清理） |
-| 快照跑批 | **13 文件 / 60 例** | `pnpm test:snapshot` | **60 passed / 0 failed**（2026-11-01 04/实现方重录后回放；新增 `birthday-reminder` 6 例；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 的录制夹具用 overlay 显式放行审批，生产 profile 仍 `responder: none`） |
+| web 测试 | **49 文件 / 592 例** | `pnpm test:web` | 49 文件 / 592 例，**全绿**（2026-11-02 实测；较 47/550 新增 `views/history.test.js` 27 例与 `mobile/history-sheet.test.js` 14 例，覆盖历史列表、只读回放与“不渲染审批按钮”） |
+| 快照跑批 | **13 文件 / 60 例** | `pnpm test:snapshot` | **60 passed / 0 failed**（2026-11-01 重录后回放；新增 `birthday-reminder` 6 例；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 的录制夹具用 overlay 显式放行审批，生产 profile 仍 `responder: none`） |
 
 ## 3. 覆盖率为什么只有一个值
 
@@ -49,9 +49,3 @@ tests_main_cases=5092
 `docs/coverage-baseline.json` 是机器产物：重跑覆盖率高时先更新它，再跑
 `npx tsx scripts/gen-architecture.ts` 重生成 `architecture.md` / `algorithms.md` / `security-design.md` 的事实块。
 **不许手改那三份文档的生成块。**
-
-## 4. 不在本表、也不许改的数
-
-| 文件 | 原因 |
-|---|---|
-| `文档归档/**`（含已撤下的历史件：决策记录、开工前体检、交接件、过程台账与证据原件） | 归档稿，改数会让复核者失去时间线 |

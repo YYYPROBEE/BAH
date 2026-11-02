@@ -220,6 +220,7 @@
   "packages/host/src/boot/plugins/web/handlers/metrics-handoff.test.ts": 12,
   "packages/host/src/boot/plugins/web/handlers/metrics.test.ts": 16,
   "packages/host/src/boot/plugins/web/handlers/password.test.ts": 23,
+  "packages/host/src/boot/plugins/web/handlers/sessions.test.ts": 58,
   "packages/host/src/boot/plugins/web/handlers/static.test.ts": 77,
   "packages/host/src/boot/plugins/web/handlers/trace.test.ts": 22,
   "packages/host/src/boot/plugins/web/handoff-store.production-path.test.ts": 9,

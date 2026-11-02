@@ -163,6 +163,18 @@ describe('assist · 答后快捷追问', () => {
     expect(items).toEqual(['看看我的理财持仓', '看看在售的理财产品'])
   })
 
+  it('助手在问"哪一张卡"时，按钮直接回答尾号而不是继续推冻结', () => {
+    const items = suggestFollowUps([
+      message(1, 'user', '我要挂失银行卡'),
+      message(
+        2,
+        'assistant',
+        '您要挂失尾号 1234 的实体卡吗？那张卡本次已挂失。如果挂失尾号 5678 的虚拟卡，请告诉我。您要处理的是哪一张？',
+      ),
+    ])
+    expect(items).toEqual(['尾号 1234 的卡', '尾号 5678 的卡'])
+  })
+
   it('运行时上下文里的"订阅/扣款"不把余额回答带偏', () => {
     const items = suggestFollowUps([
       message(1, 'user', '查一下我的余额'),
@@ -183,6 +195,7 @@ describe('assist · 答后快捷追问', () => {
   it('只认最后一条带正文的助手消息；运行中 / 流式中 / 接管中 / 待选卡都不出', () => {
     const frames = [message(1, 'user', '查余额'), message(2, 'assistant', '余额 100 元')]
     expect(answerFooterModel(frames)?.frame.seq).toBe(2)
+    expect(answerFooterModel(frames)?.context).toEqual({ user: '查余额', assistant: '余额 100 元' })
     expect(answerFooterModel(frames, { running: true })).toBeNull()
     expect(answerFooterModel(frames, { streamText: '正在生成' })).toBeNull()
     expect(answerFooterModel(frames, { handoffActive: true })).toBeNull()

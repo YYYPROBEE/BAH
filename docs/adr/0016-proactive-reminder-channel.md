@@ -76,7 +76,7 @@ saga/tick('sub-reminder') 或 boot 补跑
   → 页面收到 `notice` 帧（不提问也看得见；刷新后由快照重放）
 ```
 
-**与任务书 §3.3 的偏差（明写）**：任务书写的是"拿到当前会话的 hub → 推 `NoticeFrame`"。
+**与赛题 §3.3 的偏差（明写）**：赛题写的是"拿到当前会话的 hub → 推 `NoticeFrame`"。
 实现改成"落事件 → 投影器产帧"，三个理由：
 
 1. **hub 不是服务**：`SseHub` 是 `createHttpChannel` 的局部变量，`WEB_SERVER` 只带
@@ -117,7 +117,7 @@ saga/tick('sub-reminder') 或 boot 补跑
 **`dedup` 不落事件**：`deriveNotify` 的 5 分钟去重窗口说明"同 key 刚发过"，
 再落一条"没发"的事件没有任何信息增量。
 
-### 2.5 事件：新增 1 个键（代码口径 36 → **37**，非任务书写的 23 → 24）
+### 2.5 事件：新增 1 个键（代码口径 36 → **37**，非赛题写的 23 → 24）
 
 ```ts
 'proactive/reminder': {
@@ -154,7 +154,7 @@ boot 补跑仍保留：否则"打开页面到第一个 tick 之间"有最长 60s
 `packages/host/src/boot/plugins/resident-tick.test.ts` 钉住这一差异）。代价（已知）：
 每次进程启动按当天规则扫一遍，同一天重启会重发一次（内存账本，见 §2.4）。
 
-**幂等键取扣款月（复审 P1-4）**：`monthKeyOf` 的入参是 `charge.dueAt`，不是判定时刻 `at`。
+**幂等键取扣款月**：`monthKeyOf` 的入参是 `charge.dueAt`，不是判定时刻 `at`。
 用 `at` 时，3 月 30 日提醒 4 月 1 日的扣款得到 `…:2026-03`，4 月 1 日再 tick 得到
 `…:2026-04`，同一笔扣款被提醒两次；改用 `dueAt` 后两个 tick 命中同一个 key。
 
@@ -187,7 +187,7 @@ boot 补跑仍保留：否则"打开页面到第一个 tick 之间"有最长 60s
 ## 4 后果
 
 - 事件键 **36 → 37**（`BANK_SESSION_EVENT_TYPES` 与 `event-table.md` 同批）；
-- 工具数不变（**30**）、门禁数不变（**54**）、`BANK_TOOL_LIMIT` 仍 31；
+- 工具数不变（**30**）、门禁数不变（**53**）、`BANK_TOOL_LIMIT` 仍 31；
 - `packages/saga` 的 tick 联合多一项（`sub-reminder`）：类型面 +1、派发面 +1，行为面不变
   （没登记 job 时 `runTickJob` 静默跳过）；
 - 快照面：`profiles/plan` 多了本插件的行 → `plan` / `proactive` / `cross-scene` 三个场景的
@@ -227,7 +227,7 @@ boot 补跑只是让首个周期不空窗），**不提问**也应看到一条�
 |---|---|
 | 提前量 | **3 天**（`BIRTHDAY_AHEAD_DAYS`；含当天，0–3 天都提醒） |
 | 触发 | `birthday-reminder` tick job（与 `sub-reminder` 同一个 `saga/tick` 时钟源） |
-| 与任务书 04 §3 的冲突 | 任务书写"`aheadDays` 可被 `proactive:reminder` 的 config 覆盖"；本仓**选择固定 3 天**，与本通道"规则不进配置"（§2.3 / §2.6）一致。冲突登记在这里，对外说明按本 ADR 口径回答 |
+| 与赛题 §3 的冲突 | 赛题写"`aheadDays` 可被 `proactive:reminder` 的 config 覆盖"；本仓**选择固定 3 天**，与本通道"规则不进配置"（§2.3 / §2.6）一致。冲突登记在这里，对外说明按本 ADR 口径回答 |
 | 幂等 | `birthday:<factId>:<目标年份>`——同一生日一年只提醒一次 |
 | 闰日 | 2 月 29 日在平年按 **3 月 1 日**（`Date.UTC` 的自然滚动，不另写分支） |
 | 脏数据 | 缺日期 / 非 `YYYY-MM-DD` / 不存在的日期 → **静默跳过**，不抛错 |

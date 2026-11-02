@@ -1867,3 +1867,110 @@ body {
   --body-sm-line-height: 24px;
   --body-base-line-height: 28px;
 }
+
+/* ────────────────────────────── 历史对话（只读，2026-11-02）
+
+   全屏而不是底部抽屉：历史是逐条阅读的列表（标题 + 时间 + 轮数），
+   半屏抽屉要滑两次才看得完 20 条。审批抽屉之所以是抽屉，是因为它只要求一次决策。
+
+   触控尺寸不在这里写：`.m-shell button` 的 44×44 是 blanket 规则（I7），
+   这张面板挂在 `.m-shell` 内，自动继承。 */
+
+.m-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-4);
+}
+
+.m-header__tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-8);
+  background: transparent;
+  color: var(--icon-secondary);
+  transition: background-color 120ms ease-out;
+}
+
+.m-header__tool:hover {
+  background: var(--bg-overlay-l2);
+}
+
+.m-history-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  background: var(--bg-base-default);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.m-history {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+}
+
+.m-history__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacer-12);
+  padding: var(--spacer-12) var(--spacer-16);
+  border-bottom: var(--border-width-default) solid var(--border-neutral-l1);
+}
+
+.m-history__title {
+  font-size: var(--heading-sm-font-size);
+  line-height: var(--heading-sm-line-height);
+  font-weight: var(--heading-sm-font-weight);
+}
+
+.m-history__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-8);
+  background: transparent;
+  color: var(--icon-secondary);
+  transition: background-color 120ms ease-out;
+}
+
+.m-history__close:hover {
+  background: var(--bg-overlay-l2);
+}
+
+.m-history__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--spacer-16);
+}
+
+/* 移动端的列表比桌面宽一档：一屏一条半，滑动手感接近原生列表 */
+.m-history .history {
+  min-width: 0;
+}
+
+.m-history .history__body {
+  max-height: none;
+}
+
+.m-history .history__foot {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacer-8);
+}
+
+.m-history .history-readonly__feed {
+  max-height: none;
+}

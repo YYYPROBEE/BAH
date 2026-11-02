@@ -73,9 +73,9 @@ apps/web · 纯原生 DOM 渲染（只吃帧，不推导业务）
 
 ### 2.3 与§2 "Apple 设计语言"的调和
 
-设计说明要求「严格圆角、cubic-bezier、毛玻璃层次」，BAH DS 要求「quiet by default、避免装饰」。冲突时**视觉取值服从 BAH DS 令牌**，只保留 Apple 的**取向**：
+原设计要求「严格圆角、cubic-bezier、毛玻璃层次」，BAH DS 要求「quiet by default、避免装饰」。冲突时**视觉取值服从 BAH DS 令牌**，只保留 Apple 的**取向**：
 
-| 设计说明表述 | 本工程落地 | 理由 |
+| 原设计表述 | 本工程落地 | 理由 |
 |---|---|---|
 | 严格圆角 | `--radius-8` 容器、`--radius-12` 卡片/弹窗 | 令牌即规范 |
 | cubic-bezier 平滑 | 统一 `--motion-standard: cubic-bezier(0.2, 0, 0, 1)`（时长取 120/200/300ms） | 令牌包无动效变量，时长按 SKILL.md 固定 |
@@ -99,7 +99,7 @@ packages/host        ← channel:web 插件（HTTP/SSE/审批应答者）
 packages/cli         ← 启动面（--serve）
 ```
 
-**翻转说明**：M0 骨架里 `packages/channels` 声明了 `@bah/host` 依赖，但 `src/**` 全是 `export {}`，没有任何实际引用。渠道适配器要投影会话事件、又被宿主插件引用，正确方向是 `host → channels`。本次把 `channels/package.json` 的依赖改为 `@bah/core`，`tsconfig` 引用改为 `../core`；`host` 反向依赖 `channels`。
+**依赖方向**：`packages/channels` 只依赖 `@bah/core`。渠道适配器要投影会话事件、又被宿主插件引用，正确方向是 `host → channels`；反向依赖会形成包级环，`tsc -b` 直接失败。
 
 > 不这么做就只能把插件塞进 channels 再让 `HOST_PLUGINS` 反向 import，形成包级环——`tsc -b` 会直接失败，且"谁依赖谁"再也说不清。
 
@@ -222,7 +222,7 @@ tool/result.code/isError ──▶ 理由码与三态
 
 ### 5.4 DAG 视图
 
-> §2.1 要求"plan 提案 / blocked 标记"，但 `plan/*` 事件属设计说明，当前不存在。**偏差 R-WEB-D1**：本版从 `tool/call` + `tool/result` 派生**调用图**，语义与验收口径一致（节点携带权限级别、失败下游灰显），后续 `plan/` 事件到位后替换数据源、视图不动。
+> §2.1 要求"plan 提案 / blocked 标记"，但 `plan/*` 事件当时不存在。**偏差 R-WEB-D1**：本版从 `tool/call` + `tool/result` 派生**调用图**，语义与验收口径一致（节点携带权限级别、失败下游灰显），后续 `plan/` 事件到位后替换数据源、视图不动。
 
 - 节点：`turn` → `step` → `tool call`（三层泳道）。
 - 边：同 step 内按 `seq` 串行；step 首尾跨 step 连接。
@@ -286,15 +286,18 @@ confirmed(amount, callId) =
 | POST | `/api/auth/logout` | 登出（幂等：没有会话也 200，但会清 cookie；public + CSRF） | 公开 + CSRF | 200 / 403 |
 | GET | `/api/auth/me` | 自查：`{ tenant, userId, roles, expiresAt, mode }`（**不回 sid**） | Web 凭证（任一角色） | 200 / 401 |
 | POST | `/api/admin/sentry/unfreeze` | 人工解冻断路器（默认关闭，见 §7.1） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 503 |
-| POST | `/api/admin/halt` | 人工进入 HALT（W07，见 §7.1.1）；`changed:false` 表示本来就在 HALT | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 503 |
+| POST | `/api/admin/halt` | 人工进入 HALT（见 §7.1.1）；`changed:false` 表示本来就在 HALT | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 503 |
 | POST | `/api/admin/halt/unfreeze-request` | 会话内发起一次 U 盾 MFA 审批，签发解除票据（无应答者 → 409） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 409 / 503 |
 | POST | `/api/admin/halt/unfreeze` | 凭票据解除 HALT（唯一解除路径；没有 `force`） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 409 / 503 |
 | GET | `/api/session` | 会话与能力位：`{ sessionId, lastSeq, capabilities }` | Web 凭证（任一角色） | 200 / 401 |
 | GET | `/api/events` | SSE：先全量快照，再推 frame / delta / 心跳注释；static 模式凭证可用 `?token=`（password 模式只认 cookie）；连接满 → 503 | Web 凭证（任一角色） | 200 / 400 / 401 / 503 |
 | GET | `/api/metrics` | 单机指标：turn / 工具成功失败 / 审批分布 / token 与成本 / 工具耗时分位 / SSE 连接数；第一层带 `tenant` | Web 凭证（任一角色） | 200 / 400 / 401 |
-| GET | `/api/trace` | 轨迹：事件派生的 span 森林；`?format=chrome` 导出 Chrome Trace（Perfetto 可直接打开）；D4：当前按调试面处理（ROLES），生产应收窄到 auditor/admin | Web 凭证（任一角色） | 200 / 400 / 401 / 503 |
+| GET | `/api/trace` | 轨迹：事件派生的 span 森林；`?format=chrome` 导出 Chrome Trace（Perfetto 可直接打开）；当前按调试面处理（ROLES），生产应收窄到 auditor/admin | Web 凭证（任一角色） | 200 / 400 / 401 / 503 |
 | POST | `/api/session/fork` | 在 turn 边界分叉新会话 `{ turn }`（旧会话原样封存；新会话仅进程内存在） | Web 凭证（customer / admin） + CSRF | 200 / 400 / 401 / 403 / 404 / 405 / 409 / 500 |
+| GET | `/api/sessions/:id` | 单会话只读回放 `{ sessionId, title, snapshot }`；snapshot 自带 frames，与 SSE attach 同形 | Web 凭证（任一角色） | 200 / 400 / 401 / 404 / 503 |
+| GET | `/api/sessions` | 历史会话摘要列表 `{ sessions[], total }`（只读；`?limit` 1..100，缺省 20，按最近活动降序） | Web 凭证（任一角色） | 200 / 400 / 401 / 503 |
 | POST | `/api/turn` | 提交一轮输入 `{ text }` → 入队并驱动；202 = 已入队，HALT 期间 423；接管期间 202 落账不驱动 | Web 凭证（customer） + CSRF | 202 / 400 / 401 / 403 / 423 / 503 |
+| POST | `/api/suggest` | 基于最近一轮对话生成两条追问 `{ user, assistant }` → `{ suggestions[], source }`；模型不可用时 suggestions 为空 | Web 凭证（customer） + CSRF | 200 / 400 / 401 / 403 / 503 |
 | POST | `/api/interrupt` | 打断当前 turn `{ reason? }`（理由进审计）；客户专属，坐席 403 | Web 凭证（customer） + CSRF | 200 / 401 / 403 / 503 |
 | POST | `/api/approval/:ticketId` | 提交审批结论 `{ decision, reason? }`；跨会话票据 403；客户专属 | Web 凭证（customer） + CSRF | 200 / 400 / 401 / 403 / 404 / 409 |
 | POST | `/api/verify/:ticketId` | 红级票据的强验证（挑战由 VerifyService 签发）；客户专属 | Web 凭证（customer） + CSRF | 200 / 400 / 401 / 403 / 404 |
@@ -317,7 +320,7 @@ confirmed(amount, callId) =
 Bearer 401 → CSRF 403 → 业务 423/409 → 静态 404 → 405。状态码列只列该路由自身可能产生的码，
 不含 429（逐路由相同）与 500（全局兜底：未归类异常一律 `web-internal`）。
 
-**实现方CSRF**：所有写路由（`POST/PUT/DELETE`）在 Bearer 之后额外校验——同源 `Origin`，
+**CSRF**：所有写路由（`POST/PUT/DELETE`）在 Bearer 之后额外校验——同源 `Origin`，
 或 `bah_csrf` cookie + `X-BAH-CSRF` 请求头双提交一致；缺失 403 `web-csrf-required`，
 不符 403 `web-csrf-forbidden`（详见 §7.2.2）。管理路由豁免（CLI 客户端没有 Origin/cookie）。
 
@@ -379,7 +382,7 @@ HALT 期间新 turn 的 `/api/turn` 返回 **423 `safety-halted`**（不是 500�
 是系统被人工停机）。没有 `safety:sentry` 的 profile 三条路由都 503 `halt-absent`；`safety.halt.enabled=false` 时
 三条路由都 503 `halt-disabled`（回滚开关不许被伪装成“仍在 HALT / 已解除”）。
 
-### 7.2 Web 凭证（D5 最小集）
+### 7.2 Web 凭证（最小集）
 
 三种认证模式（`channel:web.auth.mode`，缺省 `static`）：
 
@@ -387,7 +390,7 @@ HALT 期间新 turn 的 `/api/turn` 返回 **423 `safety-halted`**（不是 500�
 |---|---|---|---|
 | `none` | 无凭证，合成主体 `svc:web` / `customer` | 不可用（不含 agent） | 无登录门 |
 | `static` | `BAH_WEB_TOKEN` → `svc:web` / `customer` | `BAH_OPERATOR_TOKEN` → `svc:operator` / `agent` | token 入口注入 token；坐席页零注入 |
-| `password` | 登录用户（会话 cookie，角色来自用户目录） | 本轮不开放（D2）：坐席面整条 404 | 注入 `bah-auth-mode` + CSRF cookie，不注入 token |
+| `password` | 登录用户（会话 cookie，角色来自用户目录） | 本轮不开放：坐席面整条 404 | 注入 `bah-auth-mode` + CSRF cookie，不注入 token |
 
 除 `GET /api/health` 与管理路由外，所有 `/api/*` 要求已认证主体；
 缺 / 错凭证一律 401 `web-unauthorized`，角色不足 403 `web-forbidden`；请求不会触达 agent。
@@ -445,7 +448,7 @@ HALT 期间新 turn 的 `/api/turn` 返回 **423 `safety-halted`**（不是 500�
 - **前端同批改造**：`apps/web/src/transport.js` 的 `createHttpApi` 在非 GET 请求里回填
   `x-bah-csrf`；没有 cookie 时不伪造（让服务端 403 兜底，而不是前端假装成功）。
 - **豁免**：`/api/admin/*` 使用自己的 admin token + 回环绑定，CLI 没有 Origin/cookie；SSE 是 GET，
-  不受影响。`web.csrf.enabled=false` 是回滚开关，关掉必须在自评报告登记。
+  不受影响。`web.csrf.enabled=false` 是回滚开关，关掉必须在变更登记里说明。
 - **顺序**：限流 → 管理路由 → Bearer（401）→ CSRF（403）→ 业务（HALT 的 423 仍由 `agent.send` 产生）。
   这样缺凭证不会被 CSRF 抢成 403，也不会把停机状态误报成跨站攻击。
 
@@ -564,7 +567,7 @@ pnpm web          # = tsx packages/cli/src/main.ts --profile web --serve
 
 - `verify-web`：① `apps/web` 无框架依赖；② 无远程资源（`http(s)://` 出现在 `src/href/url()`）；③ `styles/ds/*` 与 `design/bah-ds/*` 哈希一致；④ `app.css` 无裸色值。
 - `verify-visual-line`：视觉口径的自研不变量——`design/` 下只能有 `bah-ds` 一个基线目录；全仓的基线路径引用只能是 `design/bah-ds`；命名面文档里的视觉系统自称只能是 BAH DS；锚点文件缺声明即红。判据用正向不变量而非禁用词清单，且必须报出实际扫描文件数（防止"没扫到"被当成绿）。
-- 既有门禁不变：`no-upstream-imports`、`verify-plugin-config`（新行必须在 `HOST_PLUGINS`）、`verify-event-modes`（不新增全局事件）。
+- 既有门禁不变：`verify-plugin-config`（新行必须在 `HOST_PLUGINS`）、`verify-event-modes`（不新增全局事件）。
 - `snapshot-fresh`：`channel:web` 属 `host/boot/` 敏感面，新增场景 `web-channel` 由真实重录背书（不是靠 `BAH_ALLOW_NO_SNAPSHOT` 放行）。
 
 ---
@@ -573,16 +576,16 @@ pnpm web          # = tsx packages/cli/src/main.ts --profile web --serve
 
 | 编号 | 偏差 | 原因 | 回收条件 |
 |---|---|---|---|
-| R-WEB-D1 | DAG 从工具调用派生，非 `plan/*` 事件 | 设计说明未开工，`plan/*` 事件表不存在 | `plan/*` 落地后替换数据源 |
-| R-WEB-D2 | "回到上一步"（fork）未接 | fork 产生**新会话**，单会话服务端需切换会话与 SSE 重连，属§5 范围 | 设计说明落地 |
-| R-WEB-D3 | 坐席接管视图未接 | 无 `handoff/*` 事件；属设计说明| 设计说明落地 |
+| R-WEB-D1 | DAG 从工具调用派生，非 `plan/*` 事件 | 当时 `plan/*` 事件表不存在 | `plan/*` 落地后替换数据源 |
+| R-WEB-D2 | "回到上一步"（fork）未接 | fork 产生**新会话**，单会话服务端需切换会话与 SSE 重连，属§5 范围 | `fork` 落地后 |
+| R-WEB-D3 | 坐席接管视图未接 | 无 `handoff/*` 事件 | 接管事件落地后 |
 | R-WEB-D4 | 流式 `delta` 为 ephemeral，不入会话日志 | 分片不是事实，`assistant/message` 才是；落账分片会让日志膨胀且破坏 `deriveMessages` | 永不回收（设计选择） |
 | R-WEB-D5 | 依赖方向 `host → channels` 翻转 | 见 §3 | 不回收（修正） |
 | R-WEB-D6 | 卡片从 `tool/call.args` + `tool/result.content` 派生，非 `UiCard` | `UiCard` 不落账（`ToolPipeline` 算出后无人持久化），回放场景无 `kind` 可用 | `tool/call` 增 `card` 字段后换 `cards.ts` 输入 |
-| R-WEB-D7 | 渠道适配器未实现 `answerApproval`（改由 `attachApproval` + `decide`） | 人点按钮是**带外**事件，不是同步返回值；设计说明的 `ApprovalResponder` 才是权威接缝 | 不回收（修正） |
+| R-WEB-D7 | 渠道适配器未实现 `answerApproval`（改由 `attachApproval` + `decide`） | 人点按钮是**带外**事件，不是同步返回值；`ApprovalResponder` 才是权威接缝 | 不回收（修正） |
 | R-WEB-D8 | 审批弹窗无倒计时，只有"已等待" | `approval/asked` 不带票据 TTL（`ApprovalView` 也不暴露 `expiresAt`）；编倒计时=在资金操作上说假话 | `approval/asked` 增 `expiresAt` 字段（需事件表变更 + 重录快照） |
 | R-WEB-D9 | 金额单位在运行时口径不一致 | `TicketDraft.amount` 注释写"金额分档"、pipeline 用例传 `50_000`，而 bank governance 实际填 `amountCents / 100`（**元**） | 渠道以**参数金额（元）为准**，事件金额按元兜底；建议后续统一口径并更名 |
-| R-WEB-F1 | `channels/web/` 未进覆盖率强制名单 | 名单扩容会牵动 `pnpm test:coverage` 阈值，且 `apps/web` 是 JS 不在 v8 include 面 | 随设计说明一并扩容（本次已落 53 条投影用例 + 46 条前端用例 + 13 条宿主用例） |
+| R-WEB-F1 | `channels/web/` 未进覆盖率强制名单 | 名单扩容会牵动 `pnpm test:coverage` 阈值，且 `apps/web` 是 JS 不在 v8 include 面 | 随名单一并扩容（本次已落 53 条投影用例 + 46 条前端用例 + 13 条宿主用例） |
 
 ---
 

@@ -1,6 +1,6 @@
 # 组合系统：profile / bundle / patch
 
-> 读者：插件线（07–15）与对外说明评审。
+> 读者：装配插件的人与对外说明评审。
 > 本文只讲"一个应用是怎么被组装起来的"；内核、会话、工具管线、模型层、主循环各自见 `docs/` 下对应文档。
 
 ---
@@ -61,7 +61,7 @@ patch: ./patch.yml  # 可选；相对 profile 目录（层 ②）
 hmr: false          # 可选，缺省 true；config-only HMR 开关
 ```
 
-只有 `.gitkeep` 的 profile 目录 = **占位**：`bah --profile web` 会以 `bah-boot: profile 'web' 只有占位目录…` 退出码 1（渠道 profile 属插件线 13–15）。
+只有 `.gitkeep` 的 profile 目录 = **占位**：`bah --profile web` 会以 `bah-boot: profile 'web' 只有占位目录…` 退出码 1（渠道 profile 见 §8）。
 
 ### bundle 行与 patch 行（同形）
 
@@ -275,7 +275,7 @@ bah --profile <name> [--dump-config] [--prompt <text>]
 
 ---
 
-## 8. 加一个新 profile（插件线 13–15 的接入步骤）
+## 8. 加一个新 profile（接入步骤）
 
 1. `profiles/<name>/profile.yml`：`bundles: [base, <app>]`、`patch: ./patch.yml`、`hmr: true`；
 2. `profiles/<name>/patch.yml`：只写**差异**（渠道注入、模型、语气、工具族），其余走默认值；
@@ -302,19 +302,19 @@ patch: ./patch.yml
 hmr: false
 ```
 
-`profiles/mobile/patch.yml` 与 web 的差异**只有三处**（00 D2）：
+`profiles/mobile/patch.yml` 与 web 的差异**只有三处**：
 
 | # | 行 | web | mobile | 为什么 |
 |---|---|---|---|---|
 | ① | `core:agent.config.channel` | `web` | `mobile` | 系统提示词按 `CHANNEL_HINTS.mobile` 裁剪（"屏幕窄，短句 + 分行要点"） |
-| ② | `channel:*` 行 | `channel:web`，`port: 7331`，无 entry/entries | `channel:mobile`，`port: 7551`，`entry: index.html`、`entries: [index.html]` | 适配器（能力位）、入口 HTML、默认端口——D2 的三项差异 |
+| ② | `channel:*` 行 | `channel:web`，`port: 7331`，无 entry/entries | `channel:mobile`，`port: 7551`，`entry: index.html`、`entries: [index.html]` | 适配器（能力位）、入口 HTML、默认端口——三项渠道差异 |
 | ③ | 随渠道名走的两处 | `bank:knowledge.channel: web`、`demo:echo.prefix: '[web] '` | 同名改 `mobile` | 文案与知识库归属 |
 
 其余各行（`core:model` / `policy:rules` / `core:persistence` / `bank:tools` / `interaction:approval` /
 `safety:sentry` / `bah:memory-store`）与 web **逐字一致**——门禁 `channel-capabilities` 的 I8 会比对
 规范化序列化：一旦分叉就是"两套业务口径"的早期信号。
 
-**实现方新增的两行装配**（是"能力装配"，不是业务口径分叉；`bank:tools` 一行都没改）：
+**mobile 新增的两行装配**（是"能力装配"，不是业务口径分叉；`bank:tools` 一行都没改）：
 
 | 行 | 值 | 为什么 |
 |---|---|---|
@@ -323,7 +323,7 @@ hmr: false
 
 > 为什么没有给移动端单独抬日限额：生日案例三笔合计 600 元 < 默认日限 1000 元，全链黄级；
 > 而给 mobile 单独写 `dailyTransferLimit` 会让 `bank:tools` 在两端出现两套取值——门禁 I8 判红，
-> 也正是 00 D2 要防的"两套账"。演示金额因此取 300/200/100（不是 1000/300/200）。
+> 也正是要防的"两套账"。演示金额因此取 300/200/100（不是 1000/300/200）。
 
 生效树（实测）：
 
@@ -333,10 +333,8 @@ $ BAH_KNOWLEDGE_KEY=demo-key-not-for-prod pnpm bah --profile mobile --dump-confi
 channel:mobile        profile-patch:profiles/mobile/patch.yml  {"port":7551,"host":"127.0.0.1","staticRoot":"apps/web","heartbeatMs":15000,"rateLimit":{"windowMs":60000,"maxRequests":120},"csrf":{"enabled":true},"entry":"index.html","entries":["index.html"]}
 ```
 
-**入口白名单**（`entry` / `entries`，§3.8 / 00 D3）：只有名单里的 HTML 会被注入 Bearer token
+**入口白名单**（`entry` / `entries`，§3.8）：只有名单里的 HTML 会被注入 Bearer token
 并下发 CSRF cookie；其它任何 `.html` 按普通静态资源返回（`cache-control: no-cache`、无 `set-cookie`）。
 两条 fail-loud：`entries` 必须是**非空**字符串数组、禁通配符与路径分隔符、不得重复；`entry` 必须 ∈ `entries`。
 
-> ⚠ 实现方待办：移动壳 `m.html`（放在 `apps/web` 下）落盘后，把 `profiles/mobile/patch.yml` 的 `entry` 改成 `m.html`、
-> `entries` 改成 `[m.html, index.html]`。本设计落 `index.html` 是因为 `apps/web` 当时还没有 `m.html`
-> ——写了就会让 `/` 直接 404。
+> 移动壳 `m.html` 的 `entry` / `entries` 已指向 `m.html`；保留 `index.html` 是为了让 `/` 不 404。

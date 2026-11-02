@@ -101,6 +101,9 @@ function fakeClient(options: { frames?: readonly WebFrame[]; outcome?: TurnOutco
     async seat(): Promise<ChildCallResult> {
       return { status: 200, json: { ok: true }, text: '{"ok":true}' }
     },
+    async history(): Promise<ChildCallResult> {
+      return { status: 200, json: { sessions: [] }, text: '{"sessions":[]}' }
+    },
   }
 }
 

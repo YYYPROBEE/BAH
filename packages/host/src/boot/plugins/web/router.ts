@@ -32,6 +32,7 @@ export type RouteHandler =
   | 'metrics'
   | 'trace'
   | 'turn'
+  | 'suggest'
   | 'interrupt'
   | 'approval'
   | 'verify'
@@ -42,6 +43,8 @@ export type RouteHandler =
   | 'handoff-heartbeat'
   | 'handoff-queue'
   | 'fork'
+  | 'sessions'
+  | 'session-read'
   | 'admin'
   | 'login'
   | 'logout'
@@ -185,7 +188,7 @@ export const ROUTES: readonly RouteSpec[] = [
     csrf: false,
     statuses: ADMIN_STATUSES,
     handler: 'admin',
-    note: '人工进入 HALT（W07，见 §7.1.1）；`changed:false` 表示本来就在 HALT',
+    note: '人工进入 HALT（见 §7.1.1）；`changed:false` 表示本来就在 HALT',
     methodInHandler: true,
   },
   {
@@ -256,7 +259,7 @@ export const ROUTES: readonly RouteSpec[] = [
     statuses: [200, 400, 401, 503],
     handler: 'trace',
     roles: ROLES,
-    note: '轨迹：事件派生的 span 森林；`?format=chrome` 导出 Chrome Trace（Perfetto 可直接打开）；D4：当前按调试面处理（ROLES），生产应收窄到 auditor/admin',
+    note: '轨迹：事件派生的 span 森林；`?format=chrome` 导出 Chrome Trace（Perfetto 可直接打开）；当前按调试面处理（ROLES），生产应收窄到 auditor/admin',
   },
   {
     methods: ['POST'],
@@ -271,6 +274,35 @@ export const ROUTES: readonly RouteSpec[] = [
     note: '在 turn 边界分叉新会话 `{ turn }`（旧会话原样封存；新会话仅进程内存在）',
   },
   {
+    // ⚠ **顺序是判据**：`matchRoute` 按数组顺序做 `path.startsWith(spec.path)`
+    // （router.ts:518-529）。prefix 必须排在 exact `/api/sessions` **之前**——
+    // 否则 `/api/sessions/abc` 会先命中 exact 那条（它以 `/api/sessions` 开头），
+    // `rest` 拿不到 id，回放路由永远 404。整理这段时不要"按字母序重排"。
+    methods: ['GET'],
+    path: '/api/sessions/',
+    kind: 'prefix',
+    auth: 'web',
+    csrf: false,
+    // 400 = ID 非法（`../` 之类）；404 = 没有这个会话；503 = 回放超过 4 MiB
+    statuses: [200, 400, 401, 404, 503],
+    handler: 'session-read',
+    roles: ROLES,
+    note: '单会话只读回放 `{ sessionId, title, snapshot }`；snapshot 自带 frames，与 SSE attach 同形',
+    display: '/api/sessions/:id',
+  },
+  {
+    methods: ['GET'],
+    path: '/api/sessions',
+    kind: 'exact',
+    auth: 'web',
+    csrf: false,
+    // 400 = limit 非法；503 = 本部署没装 core:persistence
+    statuses: [200, 400, 401, 503],
+    handler: 'sessions',
+    roles: ROLES,
+    note: '历史会话摘要列表 `{ sessions[], total }`（只读；`?limit` 1..100，缺省 20，按最近活动降序）',
+  },
+  {
     methods: ['POST'],
     path: '/api/turn',
     kind: 'exact',
@@ -281,6 +313,18 @@ export const ROUTES: readonly RouteSpec[] = [
     // 客户专属（D3）：坐席不代客户发消息；接管期间 202 落账不驱动
     roles: ['customer'],
     note: '提交一轮输入 `{ text }` → 入队并驱动；202 = 已入队，HALT 期间 423；接管期间 202 落账不驱动',
+  },
+  {
+    methods: ['POST'],
+    path: '/api/suggest',
+    kind: 'exact',
+    auth: 'web',
+    csrf: true,
+    statuses: [200, 400, 401, 403, 503],
+    handler: 'suggest',
+    // 客户侧辅助件：只服务当前客户会话，坐席不代客户生成追问
+    roles: ['customer'],
+    note: '基于最近一轮对话生成两条追问 `{ user, assistant }` → `{ suggestions[], source }`；模型不可用时 suggestions 为空',
   },
   {
     methods: ['POST'],

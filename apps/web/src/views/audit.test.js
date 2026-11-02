@@ -117,7 +117,7 @@ describe('renderAuditSummary', () => {
 })
 
 describe('renderAudit · 时刻口径', () => {
-  it('显示本地时刻，UTC 原文留在 title 里对照', () => {
+  it('时刻不进折叠行，title 与明细保留本地/UTC', () => {
     const at = 1_700_000_000_000
     const node = renderAudit(audit({ at, timeText: '22:13:20' }))
     const date = new Date(at)
@@ -125,14 +125,20 @@ describe('renderAudit · 时刻口径', () => {
       .map((value) => String(value).padStart(2, '0'))
       .join(':')
 
-    const time = node.querySelector('.audit__time')
-    expect(time.textContent).toBe(local)
-    expect(time.getAttribute('title')).toContain('UTC 22:13:20')
+    expect(node.querySelector('.audit__time')).toBeNull()
+    expect(node.getAttribute('title')).toContain(local)
+    expect(node.getAttribute('title')).toContain('UTC 22:13:20')
+    const detail = node.querySelector('.audit__expand-body').textContent
+    expect(detail).toContain('时间')
+    expect(detail).toContain(local)
+    expect(detail).toContain('UTC 22:13:20')
   })
 
-  it('没有 at 时退回帧里的 timeText（不渲染 NaN:NaN:NaN）', () => {
+  it('没有 at 时用帧里的 timeText 兜底（不渲染 NaN:NaN:NaN）', () => {
     const node = renderAudit(audit({ at: undefined, timeText: '08:00:00' }))
-    expect(node.querySelector('.audit__time').textContent).toBe('08:00:00')
+    const detail = node.querySelector('.audit__expand-body').textContent
+    expect(detail).toContain('08:00:00')
+    expect(detail).not.toContain('NaN')
   })
 })
 
@@ -215,9 +221,9 @@ describe('renderAudit · 明细展开与零计数说明', () => {
     expect(details).not.toBeNull()
     expect(details.open).toBe(false)
     details.open = true
-    expect([...details.querySelectorAll('dt')].map((item) => item.textContent)).toEqual(['类型', '工具'])
-    expect([...details.querySelectorAll('dd')].map((item) => item.textContent)).toEqual(['tool-call', 'account_balance'])
-    expect(renderAudit(audit()).querySelector('details')).toBeNull()
+    expect([...details.querySelectorAll('dt')].map((item) => item.textContent)).toEqual(['时间', '类型', '工具'])
+    expect([...details.querySelectorAll('dd')].slice(1).map((item) => item.textContent)).toEqual(['tool-call', 'account_balance'])
+    expect([...renderAudit(audit()).querySelectorAll('dt')].map((item) => item.textContent)).toEqual(['时间'])
   })
 
   it('四个判决计数全零且有审计时，明确说明"没有审批事件"而不是静默零', () => {

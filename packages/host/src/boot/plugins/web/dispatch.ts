@@ -42,6 +42,8 @@ import {
   handleHandoffQueue,
 } from './handlers/handoff-message.ts'
 import { handleMetrics } from './handlers/metrics.ts'
+import { handleSessionList, handleSessionRead } from './handlers/sessions.ts'
+import { handleSuggest } from './handlers/suggest.ts'
 import { handleTrace } from './handlers/trace.ts'
 import { sendError } from './http.ts'
 import { METHOD_NOT_ALLOWED_CODE, METHOD_NOT_ALLOWED_STATUS, matchRoute, type RouteHandler } from './router.ts'
@@ -51,10 +53,13 @@ import { startHttpSpan } from './trace.ts'
 const HANDLERS: Readonly<Record<RouteHandler, WebHandler>> = {
   health: handleHealth,
   session: handleSession,
+  sessions: handleSessionList,
+  'session-read': handleSessionRead,
   events: handleEvents,
   metrics: handleMetrics,
   trace: handleTrace,
   turn: handleTurn,
+  suggest: handleSuggest,
   interrupt: handleInterrupt,
   approval: handleApproval,
   verify: handleVerify,

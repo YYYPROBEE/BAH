@@ -437,8 +437,52 @@ textarea {
 
 .message__calls {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: var(--spacer-4);
+  margin-top: var(--spacer-6);
+}
+
+.message__calls-details {
+  margin-top: var(--spacer-6);
+}
+
+.message__calls-summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.message__calls-summary::-webkit-details-marker {
+  display: none;
+}
+
+.message__calls-summary::before {
+  content: '▸';
+  margin-inline-end: var(--spacer-4);
+  color: var(--text-tertiary);
+}
+
+.message__calls-details[open] > .message__calls-summary::before {
+  content: '▾';
+}
+
+.message__call {
+  display: flex;
+  align-items: center;
   gap: var(--spacer-6);
+  padding: var(--spacer-4) 0;
+  border-bottom: 1px solid var(--border-neutral-l1);
+}
+
+.message__call:last-child {
+  border-bottom: 0;
+}
+
+.message__call-id {
+  font-family: var(--code-editor-font-family);
+  font-size: var(--body-xs-font-size);
+  color: var(--text-tertiary);
+  word-break: break-all;
 }
 
 .message--draft .bubble__text::after {
@@ -1327,6 +1371,14 @@ textarea {
   min-height: 20px;
   color: var(--status-warning-default);
   font-size: var(--body-sm-font-size);
+}
+
+/* 结论已生效：body 已 inert，控件退到不可用层。
+   `.ds-textarea` 在 BAH DS 设计系统里没有 `:disabled` 规则（只有 `.ds-input input:disabled`），
+   不补这条，理由框会保持"能打字"的外观却打不动字。 */
+.approval .ds-dialog__body[inert] .ds-textarea,
+.approval .ds-dialog__body[inert] .approval__challenge {
+  opacity: 0.56;
 }
 
 .approval__note {
@@ -2798,4 +2850,159 @@ textarea {
 
 @media (prefers-reduced-motion: reduce) {
   .typing-dots__dot { animation: none; }
+}
+
+/* ────────────────────────────── 历史对话（只读，2026-11-02）
+
+   两条纪律：
+   1. 只用令牌，不写裸色值（`verify-web` 与移动壳的 I4 同口径，改动时别破坏）；
+   2. 只读视图里的每个节点都不可交互，所以这里不写 hover 抬升/点击反馈——
+      那会让用户以为能点。 */
+
+.history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-12);
+  min-width: min(560px, 80vw);
+}
+
+.history__body {
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+}
+
+.history__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history__row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-8);
+}
+
+.history__item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-2);
+  padding: var(--spacer-8) var(--spacer-12);
+  border: 1px solid var(--border-neutral-l1);
+  border-radius: var(--radius-8);
+  background: var(--bg-base-default);
+  color: var(--text-default);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history__item:hover {
+  background: var(--bg-overlay-l1);
+}
+
+.history__title {
+  font-size: var(--body-sm-font-size);
+  line-height: var(--body-sm-line-height);
+}
+
+.history__meta {
+  font-size: var(--body-xs-font-size);
+  line-height: var(--body-xs-line-height);
+  color: var(--text-tertiary);
+}
+
+.history__badge {
+  flex: none;
+  padding: var(--spacer-2) var(--spacer-8);
+  border-radius: var(--radius-8);
+  background: var(--bg-brand);
+  color: var(--text-onbrand);
+  font-size: var(--body-xs-font-size);
+  line-height: var(--body-xs-line-height);
+}
+
+.history__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacer-8);
+  padding: var(--spacer-24);
+  color: var(--text-tertiary);
+  font-size: var(--body-sm-font-size);
+}
+
+.history__empty--error {
+  color: var(--status-error-default);
+}
+
+.history__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacer-12);
+  padding-top: var(--spacer-8);
+  border-top: 1px solid var(--border-neutral-l1);
+}
+
+.history__note {
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+  line-height: var(--body-xs-line-height);
+}
+
+.history-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-8);
+  padding: var(--spacer-8) var(--spacer-12);
+  border: 1px solid var(--border-neutral-l1);
+  border-radius: var(--radius-8);
+  background: var(--bg-overlay-l1);
+  color: var(--text-secondary);
+  font-size: var(--body-xs-font-size);
+  line-height: var(--body-xs-line-height);
+}
+
+.history-banner__text {
+  color: var(--text-default);
+}
+
+.history-banner__hint {
+  flex: 1;
+  color: var(--text-tertiary);
+}
+
+.history-readonly {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-12);
+}
+
+.history-readonly__feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-8);
+  max-height: min(62vh, 560px);
+  overflow-y: auto;
+  padding-right: var(--spacer-4);
+}
+
+.history-record {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-8);
+  padding: var(--spacer-4) var(--spacer-8);
+  border-left: 2px solid var(--border-neutral-l1);
+  color: var(--text-tertiary);
+  font-size: var(--body-xs-font-size);
+  line-height: var(--body-xs-line-height);
+}
+
+.history-record__text {
+  color: var(--text-secondary);
 }

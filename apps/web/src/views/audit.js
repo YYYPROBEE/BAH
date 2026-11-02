@@ -54,14 +54,21 @@ function timeOf(frame) {
  */
 export function renderAudit(frame) {
   const local = timeOf(frame)
+  const timeText = frame.timeText === undefined ? local : `本地 ${local} · UTC ${frame.timeText}`
+  // 时刻不进折叠行：审计行已经用 #seq 表达顺序，时间放明细里，避免把
+  // "这一条是几点发生的"误读成"这一条是几点执行的"（历史回放时尤其容易混）。
+  const detailItems = [
+    ...(local === '' ? [] : [{ label: '时间', value: timeText }]),
+    ...(Array.isArray(frame.detail) ? frame.detail : []),
+  ]
   const detail =
-    Array.isArray(frame.detail) && frame.detail.length > 0
+    detailItems.length > 0
       ? el('details', { class: 'audit__expand' }, [
           el('summary', { class: 'audit__expand-summary', text: '查看明细' }),
           el(
             'dl',
             { class: 'audit__expand-body' },
-            frame.detail.flatMap((item) => [
+            detailItems.flatMap((item) => [
               el('dt', { text: String(item?.label ?? '') }),
               el('dd', { text: String(item?.value ?? '') }),
             ]),
@@ -69,16 +76,18 @@ export function renderAudit(frame) {
         ])
       : null
 
-  return el('li', { class: 'audit__item', dataset: { category: frame.category, seq: String(frame.seq) } }, [
+  return el(
+    'li',
+    {
+      class: 'audit__item',
+      dataset: { category: frame.category, seq: String(frame.seq) },
+      ...(local === '' ? {} : { title: timeText }),
+    },
+    [
     // 与运行时上下文 / 助手消息同一张卡的语言：图标 + 元信息行 + 正文（三端共用）。
     el('div', { class: 'audit__meta' }, [
       icon('doc', 14),
       el('span', { class: `audit__category audit__category--${frame.category}`, text: CATEGORY[frame.category] ?? frame.category }),
-      el('span', {
-        class: 'audit__time',
-        text: local,
-        title: frame.timeText === undefined ? local : `本地 ${local} · UTC ${frame.timeText}`,
-      }),
       el('span', { class: 'audit__seq', text: `#${String(frame.seq)}` }),
     ]),
     el('div', { class: 'audit__body' }, [

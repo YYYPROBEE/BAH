@@ -1,26 +1,24 @@
 # BAH 事实表（演示材料的唯一数字来源）
 
-> 更新：2026-11-01（05 单：AA 参与人状态机 + 到期收口，新增 `aa/participant-updated` 一个事件键，ADR-0017；工具仍 30 个、事件键 **38** 个。门禁 54；用例数按当前工作树实测，见 `docs/facts-sources.md`）。任何 PPT / 视频 / 自评里的数字先查这里；
+> 更新：2026-11-01（AA 参与人状态机 + 到期收口，新增 `aa/participant-updated` 一个事件键，ADR-0017；工具 30 个、事件键 **38** 个。门禁 53；用例数按当前工作树实测，见 `docs/facts-sources.md`）。演示材料里的数字先查这里；
 > 改代码后重跑对应命令再改本表。**不要把三行测试数相加成一个"总用例数"**。
 > 数字的取值命令与原始输出见 `docs/facts-sources.md`；门禁 `verify-facts` 逐项比对，不一致即红。
-> ⚠ 本表上一版停在 2026-10-24，被 W03–W17 甩在后面（门禁还写 27/27、工具还写 14 个、
-> HP-2/3/4 还写"未实现"）。本版已逐条按命令输出重校。
 
 ## 1. 测试与门禁（三行口径）
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **444 文件 / 5092 用例**（2026-11-02 全量实测；较 443/5084 新增 `saga/src/view/causality.test.ts` 6 例与 `fund-lock` 零金额负控 1 例。**如实登记**：全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有 1 例时序偶发失败，单文件重跑 17/17 绿，与用例数口径无关） |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **446 文件 / 5148 用例**（2026-11-02 全量实测；较 444/5092 新增 `web/handlers/sessions.test.ts` 32 例与 `im-gateway/test/gateway-history.test.ts` 24 例，均为历史对话列表。**如实登记**：全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有 1 例时序偶发失败，单文件重跑 17/17 绿，与用例数口径无关） |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
-| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **47 文件 / 550 用例**（全绿；新增交接票预填 2 例） |
+| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **49 文件 / 592 用例**（全绿；较 47/550 新增 `views/history.test.js` 27 例与 `mobile/history-sheet.test.js` 14 例） |
 
 其他口径：
 
 | 命令 | 结果 | 说明 |
 |---|---|---|
-| `pnpm gate` | **54/54** 项已发现（本次 **54 全绿**） | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1；D-03 收口后 `assertions` / `saga-wiring` / `snapshot-fresh` / `tracked-sources` 四项全部转绿 |
+| `pnpm gate` | **53/53** 项已发现（本次 **53 全绿**） | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1 |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
-| `pnpm test:snapshot` | 13 文件 / 60 用例（**60 全绿**） | 04 单新增 `birthday-reminder`（事实库驱动：3 天窗口 / 同日幂等 / 生日当天不重复 / 通知帧回放 / 负控 6 例）；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 用夹具 overlay 显式放行审批（ADR-0010 后 profile 是 `responder: none`），重录只写快照产物，未改生产 profile |
+| `pnpm test:snapshot` | 13 文件 / 60 用例（**60 全绿**） | 新增 `birthday-reminder`（事实库驱动：3 天窗口 / 同日幂等 / 生日当天不重复 / 通知帧回放 / 负控 6 例）；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 用夹具 overlay 显式放行审批（ADR-0010 后 profile 是 `responder: none`），重录只写快照产物，未改生产 profile |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
 | `pnpm test:coverage:all` | **行口径 89.87%**（49571/55161）/ **包口径 16/18** | 两个口径必须一起说；未达 80% 的是 `memory-store` 72.68% 与 `eval` 46.93%（均为评测/记忆 harness 面，见台账注记） |
 评测平面（`pnpm eval`）：
@@ -33,7 +31,7 @@
 
 ## 2. 工具：30 个（14 绿 / 10 黄 / 6 红）
 
-> 口径注脚：`goal_set` / `todo_write`（04 单）与 `intent_resolve` / `prompt_ask`（03 单）是
+> 口径注脚：`goal_set` / `todo_write` 与 `intent_resolve` / `prompt_ask` 是
 > **runtime / interaction 内置绿级工具**，不在"银行工具目录 30 个"里——工具目录由
 > `pnpm tool-catalog` 生成、门禁逐字比对，本套单一个银行工具都没加（D9）。
 
@@ -84,7 +82,7 @@
 | **7801** | RAG sidecar | `127.0.0.1` | `bank:knowledge mode:http`；`required: false`，不起也能跑主场景 |
 | **7551** | 移动 H5 UI / HTTP / SSE | `127.0.0.1` | `pnpm bah --profile mobile`；与 7331 同族，端口占用**不自动换端口** |
 | **0（OS 分配）** | 桌面壳私有 host | `127.0.0.1` | `profiles/desktop` 写 `port: 0`；每次启动端口都不同，主进程从 `DESKTOP_SERVER` 读实际值（**无固定端口**） |
-| **7552** | IM 子进程 HTTP / SSE（仅本机） | `127.0.0.1` | `pnpm bah --profile im`；IM 网关（02 单）逐用户拉起的最小宿主页，**公网不可达** |
+| **7552** | IM 子进程 HTTP / SSE（仅本机） | `127.0.0.1` | `pnpm bah --profile im`；IM 网关逐用户拉起的最小宿主页，**公网不可达** |
 | **8080** | IM 网关公网入口（HTTP 回调） | `0.0.0.0` | `pnpm im:gateway`（`apps/im-gateway`）；反代后可改 `127.0.0.1`；端口占用**不自动换端口** |
 
 静态根 `apps/web`：原生 ES 模块，无构建步骤。
@@ -95,7 +93,7 @@
 | `/` → `m.html` | `channel:mobile`（7551） | 移动壳，`entries: [m.html, index.html]`；`m.html` 也是 token 入口（注入 Bearer + CSRF cookie + `no-store`），其它 HTML 一律不注入 |
 | `/` → `index.html` | `channel:desktop`（0，OS 分配） | Electron 窗加载同一份桌面壳，`entries: [index.html]`；不认 `m.html`（名单外不注入 token） |
 | `/` → `m.html` | `channel:im`（7552） | IM 子进程**不提供 Web UI**：该入口只在本机 loopback 可达，仅供排障与 CSRF cookie 握手；`entries: [m.html]` |
-| `/im/:platform/:accountKey` | `apps/im-gateway`（8080） | 公网回调入口（02 单）：`GET` 握手 / `POST` 消息；未知平台/账号 404；网关不反代子进程 `/api/*` |
+| `/im/:platform/:accountKey` | `apps/im-gateway`（8080） | 公网回调入口：`GET` 握手 / `POST` 消息；未知平台/账号 404；网关不反代子进程 `/api/*` |
 
 「前端不需要先 build」对两个壳同等成立：`m.html` 只引三份外链 css 与一个原生 ESM 入口。
 `pnpm demo:web` 每次新建 `sessions/demo-<stamp>-<随机>/`，日志、Saga 库与审计链都在该目录；
@@ -137,13 +135,12 @@
 - 银行账本是内存仿真，进程重启回种子；不宣称持久。
 - 强验证渠道（短信/人脸/U 盾）语义位齐全，但全部是 mock，未接真实渠道。
 - **已知未做清单以 `docs/security-design.md` §4 的 6 条为准**（每条写了为什么不做 + 影响面）：
-  HP-2 RAG 响应信封签名 / 强验证接真实渠道 /
+  RAG 响应信封签名 / 强验证接真实渠道 /
   对抗集 H-14~H-15 幻觉族召回缺口 / plan 内写工具的补偿 / plan 动态 args 跨 `resume` /
   `incident` 状态的真实触发源。
-  ⚠ 旧版本这里写的"HP-2 / HP-3（HALT 解除）/ HP-4 未实现"**已过期**：
-  HP-2 对应的知识库双层签名（W06）、HP-3 对应的 HALT 闭环（W07）、HP-4 对应的工具出参契约（W03）都已落地。
-- 断言核验门（W05）当前口径：`verified` 原文发 / `needs-evidence` 加`【未核实】`前缀 /
+  知识库双层签名、HALT 闭环、工具出参契约都已落地，不在这份缺口清单里。
+- 断言核验门当前口径：`verified` 原文发 / `needs-evidence` 加`【未核实】`前缀 /
   `reject` 换拒答文本（`reasonCode=assertion-unverified`；收益承诺类为 `prohibited-guarantee`）。对抗集幻觉族 13/15，2 例为已知召回缺口。
-- 意图平面（03）口径：**选择题式追问 ≤2 次**，第 3 次降级为开放式提问并标 `askExhausted`（不计为追问）；
+- 意图平面口径：**选择题式追问 ≤2 次**，第 3 次降级为开放式提问并标 `askExhausted`（不计为追问）；
   复现类意图（`vague`）**恒 `requiresPreview=true`**，参数必须先经 `transfer_preview` 确认；
   隐含意图（`implicit`）**恒 `propose`**，绝不直接执行。这三条都是代码里的硬约束，不是话术。

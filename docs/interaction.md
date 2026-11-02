@@ -1,6 +1,6 @@
 # 审批服务与票据生命周期（`@bah/interaction` · §2–§3）
 
-> 本文是插件线 09 的机制说明：审批仲裁（应答者 / 超时 / 双渠道竞答）、票据账本、
+> 本文是审批与票据的机制说明：审批仲裁（应答者 / 超时 / 双渠道竞答）、票据账本、
 > 红级挑战链与 headless 自动应答者。判定矩阵见 [bank-tools.md](bank-tools.md) §3，
 > 身份绑定见 [bank-tools.md](bank-tools.md) §4。
 
@@ -69,7 +69,7 @@ issued ──approve──▶ approved ──redeem──▶ redeemed ──cons
    └──────────── block ─┴───────────────────┘──▶ blocked
 ```
 
-实现方执行 lease：`approve` 之后、`redeem` 之前还有一道**窗口校验**——
+执行 lease：`approve` 之后、`redeem` 之前还有一道**窗口校验**——
 `leaseId` + `leaseExpiresAt` 由宿主在签发时随票据注入（`interaction` 不 import `@bah/runtime`）；
 `now >= leaseExpiresAt` → 先落 `blocked('ticket-expired')` 再抛 `ticket-expired`，不重签、不放行。
 `renewLease(ticketId, expiresAt, at)` 只前移到期时刻（`leaseId` 不变、≤ 票据 TTL、过期票不可续），
@@ -104,7 +104,7 @@ decide() → ask + challenge('sms'|'face'|'ushield')
   └─ 通过   → allowed-once → 票据 approved
 ```
 
-强验证尝试与锁定仍按设计说明的事件族落账（`verify/face|sms|ushield|locked`），
+强验证尝试与锁定仍按既有事件族落账（`verify/face|sms|ushield|locked`），
 所以"审批弹窗里做的验证"和"模型直接调 `verify_*` 工具"在审计上同构。
 
 ## 7. headless 自动应答者（配置）
@@ -120,7 +120,7 @@ decide() → ask + challenge('sms'|'face'|'ushield')
     autoDelayMs: 1          # 可选，正整数；用于"慢渠道被快渠道抢先"的竞态演练
 ```
 
-**实现方起 `autoDecision` 缺省是 `reject`**：`responder: headless` 但漏写结论时，
+**`autoDecision` 缺省是 `reject`**：`responder: headless` 但漏写结论时，
 自动应答者会拒绝，而不是自动放行。"忘了配置"不再等于"批准"。
 
 `interaction:approval` 行必须排在 `bank:tools` **之后**：bank 的桥接先签五绑定票据，
@@ -131,11 +131,11 @@ decide() → ask + challenge('sms'|'face'|'ushield')
 | 键 | 缺省 | 校验 | 说明 |
 |---|---|---|---|
 | `responder` | `none` | `readEnum` | 默认拒绝；`headless` 才注册自动应答者 |
-| `autoDecision` | `reject` | `readEnum` | 自动应答结论（实现方起缺省拒绝） |
+| `autoDecision` | `reject` | `readEnum` | 自动应答结论（缺省拒绝） |
 | `autoVerify` | `true` | `readBoolean` | 红级是否先验证 |
 | `autoDelayMs` | 无（0） | `readPositiveInteger` | 延迟应答（≥ 1ms） |
 
-### 8.1 HTTP 应答归属（`channel:web`，实现方）
+### 8.1 HTTP 应答归属（`channel:web`）
 
 审批视图带 `sessionId`；Web 适配器在 `apply` 时绑定本会话，**只应答本会话的票据**。
 这一层防的是"有效 token 拿别人的票据 ID 批钱"，与"token 是否有效"是两道独立的门：
@@ -146,7 +146,7 @@ decide() → ask + challenge('sms'|'face'|'ushield')
 | token 无效 | 拒 | 401 | 否 |
 | 有效 token + 他会话的 ticket | 拒 | **403**（`foreign-ticket`） | 否 |
 | 有效 token + 不存在的 ticketId | 拒 | **404**（同一错误信封，不泄露票据元数据） | 否 |
-| 有效 token + 本会话 + 已过期 ticket | 拒 | 409（`ticket-expired`，实现方后生效） | 否 |
+| 有效 token + 本会话 + 已过期 ticket | 拒 | 409（`ticket-expired`） | 否 |
 | 有效 token + 本会话 + 有效 ticket | 放行 | 200 | 是（`approval/decided`） |
 
 > 单会话宿主里正常的跨会话票据根本不会出现在待应答表里（它会被 404 挡住）；
@@ -173,8 +173,8 @@ decide() → ask + challenge('sms'|'face'|'ushield')
 
 | 项 | 现状 | 说明 |
 |---|---|---|
-| 渠道 UI | 未落地（设计说明/15） | 渠道只需 `ctx.get(APPROVAL_SERVICE).attach(responder)` |
+| 渠道 UI | 未落地（渠道 UI） | 渠道只需 `ctx.get(APPROVAL_SERVICE).attach(responder)` |
 | 应答者缓存 | 服务实例按进程存活 | Web 长连接场景在 13 里按会话重建 |
-| `approval/request` 下游 | 只有 bank 桥接 + 仲裁器 | 设计说明的 sentry 归一化可继续挂在更外层（先 `next()`，不抢判决） |
+| `approval/request` 下游 | 只有 bank 桥接 + 仲裁器 | sentry 归一化可继续挂在更外层（先 `next()`，不抢判决） |
 | 挑战重发 | 不重发（一次 ask 一个挑战） | 用户取消后重新发起操作会得到新票据与新挑战 |
 | lease 续租触发 | 账本 API 可用，**生产暂无调用方** | 当前没有自动续租策略；lease 默认窗口 = 票据 TTL，演示不需要。产品规则明确后由 host 接线 |

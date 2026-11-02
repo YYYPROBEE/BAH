@@ -1,6 +1,5 @@
 # 工具管线（七段）与接缝挂点手册
 
-> 规格依据：§2.2（顺序冻结）、§2.3（判决语义）、§2.5（呈现契约）、§5（接缝清单）。
 > **顺序改动 = 破坏性变更**：必须同步更新本文件与架构文档，并跑全量快照（AGENTS.md 第 3 条）。
 
 ## 1. 七段的顺序与分工
@@ -10,12 +9,12 @@
 | ① | `tool/call`（执行前） | `pipeline.ts` | `tool/call` | — |
 | ② | `presentCall(args)` | 工具定义（纯函数） | — | 工具体作者 |
 | ②e | **入参契约校验**（`argsSchema`） | `pipeline.ts` + `contracts.ts` | — | runtime 端口；宿主注入 |
-| ③ | `tools/pre-execute`（waterfall） | **判决平面**：危险规则 → PII → 预算 → 断路器 → 三级权限 | — | 设计说明/10（**唯一阻断点**） |
-| ③e | ask → 签票据 → `approval/request` | `pipeline.ts` | `approval/asked` / `approval/decided` | 设计说明+ 渠道（13/14/15） |
+| ③ | `tools/pre-execute`（waterfall） | **判决平面**：危险规则 → PII → 预算 → 断路器 → 三级权限 | — | **唯一阻断点** |
+| ③e | ask → 签票据 → `approval/request` | `pipeline.ts` | `approval/asked` / `approval/decided` | 渠道 |
 | ④ | 单调 guard | `guard.ts` | — | 内核（插件无权绕过） |
-| ⑤ | `tools/execute`（waterfall 环绕） | 工具体 | — | 设计说明（沙箱/超时）、05（重试/指标） |
+| ⑤ | `tools/execute`（waterfall 环绕） | 工具体 | — | 沙箱/超时、重试/指标 |
 | ⑤e | **出参契约校验**（`resultSchema`） | `pipeline.ts` + `contracts.ts` | — | 同上 |
-| ⑥ | `projectContent` → `tools/post-execute` | 工具定义 + 后置平面 | — | 设计说明（脱敏/改写/纠正上下文） |
+| ⑥ | `projectContent` → `tools/post-execute` | 工具定义 + 后置平面 | — | 脱敏/改写/纠正上下文 |
 | ⑦ | 归一化 → `finalizeContent` → `tools/result`(emit) → `tool/result` → `additionalContexts` → `presentResult` | `pipeline.ts` | `tool/result`、`user/message` | 工具体作者（presenter） |
 
 ## 2. 四个 waterfall 的载荷形状（都是「信封进出」）
@@ -56,7 +55,7 @@ ctx.events.on('tools/pre-execute', (input) =>
 `tools/execute` 的载荷是**执行函数本身**，listener 用 `next(wrapped)` 交还一个包过的函数：
 
 ```ts
-// 超时（设计说明的沙箱/超时策略就用这个形态）
+// 超时（沙箱策略就用这个形态）
 ctx.events.on('tools/execute', async (run, next) => {
   const wrapped = async (call) =>
     Promise.race([
@@ -148,7 +147,7 @@ try {
 
 补记的 `code = 'tool-interrupted'`，与"执行失败"（`tool-failed`）在审计里可区分。
 
-## 8. 契约校验的两个插点（实现方G-1）
+## 8. 契约校验的两个插点（G-1）
 
 工具契约（`argsSchema` / `resultSchema`）由**宿主注入**：runtime 只定义
 `TOOL_CONTRACTS` 端口（`packages/runtime/src/tools/contracts.ts`），

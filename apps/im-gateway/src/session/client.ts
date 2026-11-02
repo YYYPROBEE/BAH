@@ -74,6 +74,12 @@ export interface ChildClient {
   /** 客户侧转人工（`POST /api/handoff`）。 */
   requestHandoff(reason?: string): Promise<ChildCallResult>
   /**
+   * 历史会话摘要（`GET /api/sessions`，只读）。
+   *
+   * 用客户凭证：历史属于这个客户本人，不需要运营面权限。
+   */
+  history(limit?: number): Promise<ChildCallResult>
+  /**
    * 运营桥转发（**子进程 operator token**，不是公网运营 token）。
    *
    * `path` 只允许 `/api/handoff*`（调用方 `handoff/operator.ts` 已按白名单构造）。
@@ -263,6 +269,11 @@ export function createChildClient(deps: ChildClientDeps): ChildClient {
         { ...authHeaders, ...csrfHeaders },
         reason === undefined ? {} : { reason },
       )
+    },
+
+    history(limit): Promise<ChildCallResult> {
+      const query = limit === undefined ? '' : `?limit=${String(limit)}`
+      return callJson('GET', `/api/sessions${query}`, authHeaders)
     },
 
     seat(method, path, body): Promise<ChildCallResult> {
