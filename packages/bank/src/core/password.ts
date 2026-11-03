@@ -33,8 +33,7 @@ export const TXN_PASSWORD_LOCK_MS = 15 * 60_000
 /**
  * 演示用初始交易密码（demo 口令，**不是秘密**）。
  *
- * 写进 `docs/adr/0014-password-change-handoff.md` 与 `docs/security-self-assessment.md`
- * 的"已知风险"一节：任何拿到 demo 会话的人都能用它走通改密流程——演示仓如此，
+ * 写进 `docs/adr/0014-password-change-handoff.md` 的"已知风险"一节：任何拿到 demo 会话的人都能用它走通改密流程——演示仓如此，
  * 真实部署由 `credentials` 面注入，不由本仓给默认口令。
  */
 export const DEMO_TXN_PASSWORD = 'bank1234'

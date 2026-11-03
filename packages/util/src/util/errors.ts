@@ -39,8 +39,7 @@ export function assertNever(value: never, context = 'unreachable'): never {
  *
  * @param error 抛出物（`unknown`：JS 允许抛任何东西）
  * @param fallback 兜底码。**必须显式传**：`tool-failed` 与 `verify-failed` 的差异是有意的，
- *   调用方按 code 分支决定是否重试；给兜底码一个默认值会把这种可判别性悄悄抹平
- *   （`docs/tech-debt-review-2026-10-20.md` 风险提示 3）。
+ *   调用方按 code 分支决定是否重试；给兜底码一个默认值会把这种可判别性悄悄抹平。
  */
 export function errorCodeOf(error: unknown, fallback: string): string {
   if (error instanceof BahError) return error.code

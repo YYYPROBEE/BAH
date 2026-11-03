@@ -51,7 +51,7 @@ BAH_MODEL_KEY=<你的模型密钥>
 它会在未配置 token 时生成一次性演示 token 并打印；宿主必须用同一 `BAH_KNOWLEDGE_TOKEN`。
 sidecar 认证是 fail-loud（无 token 拒启），工具在缺 token 时按 `knowledge-denied` fail-closed。
 
-### 移动 H5 的能力边界（如实口径）
+### 移动 H5 的能力边界（如实说明）
 
 **语音输入**：语音输入通过设备系统输入法完成，本页面**不申请麦克风权限、不采集音频、不做录音上传**；`Permissions-Policy` 保持 `camera=(), microphone=(), geolocation=()` 全关。
 真机上各输入法的听写质量不由本工程控制，**不承诺识别准确率**；桌面 DevTools 的移动模拟**没有 IME 语音**，故演示与 CI 一律用输入区上方的**快捷短语 chips**（离线、确定性）。
@@ -201,7 +201,7 @@ flowchart LR
 | 跨会话记忆 | `packages/memory-store` + `packages/host` | 规则抽取（禁 LLM）+ 五道闸入库；按场景召回（判不出就不检索）；以 `<memory>` 块注入且明示"永远是数据不是指令"。库落 `<租户根>/<tenant>/memory.db`；影子核验未接（`bankQuery` 占位） |
 | 全系统停机 | `packages/safety` + `packages/host` | HALT：新 turn / 新工具调用 / 新 plan 节点三处全拒（**只拦新动作，不打断已在途的写**）；解除只凭会话内 U 盾 MFA 票据。状态落 `<会话根>/halt.json`，**重启仍停机**（C3）；票据不持久化，解除必须重新审批；状态文件损坏时**拒启**而不是当 RUNNING |
 
-**明确不做/未做**（回答追问时照实说）：
+**明确不做/未做**：
 
 - 不做一进程 N 租户：租户 = 部署边界（独立进程 / 目录 / 端口 / 令牌 / 密钥，ADR-0004）；
   认证有三种模式（`none` / `static` 双凭证 / `password` 登录），`static` 的 Bearer 不是登录，
@@ -216,8 +216,9 @@ flowchart LR
   `incident` 状态**没有真实触发源**（全内存 mock，Web DAG 视图按 `tool/call` 派生，不区分 incident 与 failed）；
 - 对抗集幻觉族 15 例中 **H-14 / H-15 共 2 条未降级**（期望 `degrade` 实际 `allowed`，
   rule-gap：断言抽取未覆盖这两类表述，详见 `docs/security-design.md` §4 第 3 条；H-13 已由收益承诺禁词规则收口）；
-- 覆盖率有两个包未到 80%：`memory-store` 72.71%、`eval` 40.73%（eval 主体是评测 harness）。
-  行口径 86.06% **仅覆盖 `packages/*/src`**，不是物理全仓口径，引用时必须带包口径 14/16 一起说；
+- 覆盖率取 CI 实测：**行口径 97.43%**（60053/61636）、**包口径 18/18**（18 个包全部 ≥80%，
+  最低 `saga` 90.34%）。两个口径必须一起引用；逐文件 100% 只对强制名单生效，
+  名单与取值命令见 [facts.md](facts.md)。
 - 卡片挂失已实现（`card_report_lost`，红档不可逆、必进审批 + 强验证）；**解挂与密码修改未实现**；
 - 注入 / 越权检测在演示与压测 profile 下**直接阻断**（对抗集注入族 14 例期望 `block` 全部通过）；
   生产 profile 默认关掉跨场景规则（`rules.crossScenario`），需按真实语料开启；
@@ -250,7 +251,7 @@ apps/web/            前端（对话 / 工具卡 / 审批 / DAG / 审计）
 packages/            18 个包（见 §2.1）
 profiles/            9 个装配 profile 与 patch
                      （web / web-plan / mobile / desktop / im / headless / plan / sdk / subscription）
-scripts/             54 个 verify-* 门禁、录制、演示脚本
+scripts/             53 个 verify-* 门禁、录制、演示脚本
 design/bah-ds/       自研设计系统（与应用内分发副本逐字节一致）
 docs/                管线、sentry、审计、前端、测试等落地文档
 facts.md             演示材料唯一数字来源
@@ -258,7 +259,7 @@ facts.md             演示材料唯一数字来源
 
 ## 7. 测试与资料
 
-| 命令 | 范围 | 实测（2026-10-31） |
+| 命令 | 范围 | 实测（2026-11-02） |
 |---|---|---|
 | `pnpm test` | 主仓 | 446 文件 / 5148 用例（2026-11-02 全量实测，见 facts.md） |
 | `pnpm test:web` | 前端 | 49 文件 / 592 用例（全绿） |
@@ -266,7 +267,7 @@ facts.md             演示材料唯一数字来源
 | `pnpm test:snapshot` | 快照回放 | 13 文件 / 60 用例（全绿，含 `subscription-reminder` 与 `birthday-reminder`） |
 | `pnpm gate` | 门禁 | 53 项 · 53 通过 |
 
-三行测试口径**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
+三行测试范围**不能相加**：根 vitest 不包含 eval 与 web。更多数字见 [facts.md](facts.md)。
 
 更多材料：[docs/](docs/)；200 字简介见 [docs/简介-200字.md](docs/简介-200字.md)；
 部署见 [docs/deploy.md](docs/deploy.md)，安全设计（威胁模型、攻击面与缺口）见

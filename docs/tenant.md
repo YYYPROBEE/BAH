@@ -162,8 +162,7 @@ npx tsx scripts/tenant-matrix.ts
 npx tsx scripts/verify-tenant-isolation.ts
 npx tsx scripts/verify-tenant-isolation.ts --self-test
 
-# 6 条攻击剧本（对外说明逐条念）
-# 见 docs/drill-tenant-6.md
+# 6 条攻击剧本的判据由 verify-tenant-isolation 逐条实现
 ```
 
 ---
