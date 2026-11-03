@@ -32,5 +32,5 @@ The competition submission line is the only supported line until further notice.
 - Face / SMS / U-shield verification providers are mocks.
 - Audit-chain signing is optional; an unsigned chain is reported as
   `unsigned`, not as verified.
-- HP-2 (RAG response signing) is not implemented; HP-3 (HALT) and HP-4
-  (tool output contracts) are implemented. See `docs/security-self-assessment.md`.
+- RAG response signing is not implemented; HALT and tool output contracts
+  are implemented. See `docs/security-design.md`.

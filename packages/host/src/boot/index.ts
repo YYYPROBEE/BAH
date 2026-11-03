@@ -1,5 +1,5 @@
 /**
- * @bah/host · 逻辑模块 boot（施工单 06）。
+ * @bah/host · 逻辑模块 boot。
  *
  * 对外只暴露"组合系统"这一层：命令式启动（`boot`）、层序合并（`mergeLayers`）、
  * 依赖清单（`createCatalog` / `HOST_PLUGINS`）、config HMR（`startConfigHmr`）。
@@ -60,6 +60,8 @@ export { DEFAULT_ROOT, SESSION_FILES, tenantRootOf, type SessionFiles } from './
 // 测试夹具：`RunContext` 工厂（租户与鉴权 01 TA-11）。与 `RunContext` 类型同包，
 // 避免 @bah/test-support 反向依赖 host 造成 project references 成环。
 export { testRunContext } from './test-run-context.ts'
+// 唤醒执行器的一次性标记账本（ADR-0010）：CLI 与测试夹具各自造一个，不共享全局状态
+export { createWakeMarkStore, type WakeGrant, type WakeMark, type WakeMarkStore } from './wake-marks.ts'
 // 管理面的两个常量给 `bah sentry unfreeze` 用：环境变量名与缺省理由只能有一份，
 // 各写一份迟早会漂（改了 host 忘了 cli，命令就静默读错变量）
 export { ADMIN_TOKEN_ENV, DEFAULT_UNFREEZE_REASON } from './plugins/web-admin.ts'

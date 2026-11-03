@@ -523,6 +523,47 @@ describe('TA-30 · 认证事实进审计链（不是会话事件）', () => {
     expect(entries[1]?.data).not.toHaveProperty('password')
     expect(JSON.stringify(entries)).not.toContain('demo1234')
   })
+
+  it('TA-30-2 审计写链失败 → 登录仍成功，只留 warn（认证不被审计旁路阻断）', async () => {
+    const warnings: string[] = []
+    const original = console.error
+    console.error = (...args: unknown[]) => {
+      warnings.push(args.map((arg) => String(arg)).join(' '))
+    }
+    try {
+      const ctx = createContext()
+      ctx.provide(DECISION_AUDIT, {
+        append: () => {
+          throw new Error('audit chain unavailable')
+        },
+        appendActor: () => undefined,
+        verifyAll: () => [],
+      })
+      const runtime = createWebAuthRuntime({
+        ctx,
+        run: { sessionId: 's-audit-fail', tenantId: parseTenantId(TENANT), now: () => NOW },
+        config: {
+          ...DEFAULT_WEB,
+          auth: { ...DEFAULT_WEB.auth, mode: 'password', directory: { path: 'auth/users.example.yml' } },
+        },
+        webToken: WEB_TOKEN,
+        serverCsrf: SERVER_CSRF,
+        warn: () => undefined,
+      } as never)
+
+      const login = await runtime.login({ userId: 'u-1', password: 'demo1234', ip: '10.0.0.9' })
+      expect(login.ok).toBe(true)
+      expect(warnings.join('\n')).toContain('web.auth-audit-write-failed')
+      expect(warnings.join('\n')).toContain('audit chain unavailable')
+
+      // 不只是"返回 ok"：会话真的可解析成主体（登录没有被审计故障回滚）
+      const sid = login.ok ? login.session.sid : ''
+      const identity = runtime.identify(makeReq('GET', '/api/session', { cookie: `bah_sid=${sid}` }), NOW)
+      expect(identity.kind).toBe('principal')
+    } finally {
+      console.error = original
+    }
+  })
 })
 
 describe('TA-27 · 登录把认证身份绑到银行身份', () => {

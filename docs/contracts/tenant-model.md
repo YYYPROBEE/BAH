@@ -3,11 +3,10 @@
 > 本文件是**租户这一维度**的契约。与 `event-table.md` / `tool-contract.md` / `scenario-dsl.md`
 > 同级：入库、参与 `verify-docs-consistency`，改动要走本文 §8 的流程。
 >
-> 权威序（`00-全局约定.md` §0）：代码现状 > `PROGRESS.md` > 本契约 > 施工单。
+> 权威序：代码现状 > 本契约。
 > 也就是说：**本契约与代码不一致时，以代码为准，然后回来改本契约**。
 >
-> 生效：2026-10-28（租户与鉴权施工单 01 落地）。当时点事实：见
-> `docs/evidence/2026-10-28-tenant-auth/01-t1.md`。
+> 生效：2026-10-28（租户与鉴权落地）。
 
 ---
 
@@ -83,7 +82,7 @@ export function normalizePrincipal(input: PrincipalInput): Principal
 2. 去重 + 按 `ROLES` 固定序 ⇒ 两个逻辑相同的主体序列化出**同一串字节**（审计链要对它算哈希）；
 3. 返回**新对象且冻结**（`Object.freeze`）——调用方 `push` 一下，链上的主体哈希就漂了。
 
-**`SessionIdentity.tenantId` 的判定点**（复审 AR-07 / 03 TA-47）：01 只负责把它记录正确；
+**`SessionIdentity.tenantId` 的判定点**：本实现只负责把它记录正确；
 真正的跨租户判定在**业务工具闸** `evaluateCall()`（`packages/bank/src/tools/governance.ts`）：
 会话身份租户与当前进程租户不一致 → `wrong-tenant`，**早于** `no-identity`。
 HTTP 路由级 `authorize()` 只判"身份有无 + 角色"，不判租户——跨租户请求在认证层
@@ -122,7 +121,7 @@ HTTP 路由级 `authorize()` 只判"身份有无 + 角色"，不判租户——�
 | 令牌 / Cookie | 租户 × 用户 | 否 | 进程边界 + 会话级凭证 |
 
 **"跨租户一律 404，不 403"**（T3 落地）：403 等于确认"这个对象存在，只是你没权限"。
-银行场景下"存在性"本身就是信息（某客户号是否在本行）。本单只把这条写进契约；
+银行场景下"存在性"本身就是信息（某客户号是否在本行）。本设计只把这条写进契约；
 实现层当前的等价防线是**认证层 401**（别的租户的 cookie 在本地会话存储里查不到），
 比 404 更强：连"有没有这张票"都不知道。
 
@@ -196,7 +195,7 @@ HTTP 路由级 `authorize()` 只判"身份有无 + 角色"，不判租户——�
 | `saga.sqlite` 按租户分库 | 单库单进程；`verify-saga-wiring` 以固定路径 `sessions/saga.sqlite` 为基线。要改与 saga 单合并立项 |
 | 租户级配额 / 限流 | 单进程只有本租户，配额没有对照物（属平台网关层） |
 | 租户级加密密钥（KMS） | 无外部依赖可用；演示档无真实 PII |
-| 知识库 sidecar 侧的租户隔离 | 本单只做宿主侧取令牌；sidecar（`services/rag`）是独立部署面 |
+| 知识库 sidecar 侧的租户隔离 | 本设计只做宿主侧取令牌；sidecar（`services/rag`）是独立部署面 |
 | `demo` 档仿真数据按租户变化 | `demo` 是固定脚本（王建国 + 预置收款人），7 个快照与 `profiles/*` 的静态画像都依赖它逐字节不变。租户差异化只对 `stress` / `adversarial` 档成立 |
 
 ---
@@ -207,7 +206,7 @@ HTTP 路由级 `authorize()` 只判"身份有无 + 角色"，不判租户——�
 2. 改 `TenantId` 字符集 / `ROLES` 顺序 / 六个注入点之一 / 链行 `tenant` 语义，
    必须同时：升 `v1.x.y`（语义变更升 minor，破坏兼容升 major）、跑
    `pnpm typecheck` + `pnpm test` + `pnpm gate` + `pnpm test:snapshot`、
-   并在 `PROGRESS.md` 记一条"为什么改"；
+   并在 `` 记一条"为什么改"；
 3. 新增第七个注入点 = 契约变更：先在本表加一行，再加门禁判据
    （`scripts/verify-tenant-scope.ts`），最后才写代码；
 4. **不许**为本契约加 `BAH_ALLOW_*` 逃生口（`00` §5）。

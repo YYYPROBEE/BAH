@@ -22,7 +22,7 @@ import { isMainModule, runStandalone, walk, type Gate, type GateResult } from '.
 
 /** 移动端**显式**不消费的帧（每条必须给理由；"忘了"不是理由）。 */
 const MOBILE_IGNORES: Readonly<Record<string, string>> = {
-  'handoff-warn': '移动端不展示 SLA 预警条（接管操作在桌面/坐席端）；未知帧兜底可见，不是静默丢弃',
+  'handoff-warn': '移动端不展示 SLA 预警条（接管操作在桌面/坐席端）；未知帧兜底可，不是静默丢弃',
 }
 
 /** 一次检查的输入（纯数据；单测直接构造坏样本）。 */

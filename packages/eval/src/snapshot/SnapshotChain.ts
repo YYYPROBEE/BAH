@@ -14,7 +14,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { FlatState, Snapshot, SnapshotReason } from '../types.ts'
-import { deepClone } from '../deepClone.ts'
+import { deepClone } from '../deep-clone.ts'
 import { DEFAULT_RUNS_DIR } from '../recorder/TrajectoryRecorder.ts'
 import { leafHash, merkleRoot as rootOf, sampleProofs, type MerkleProof } from './merkle.ts'
 

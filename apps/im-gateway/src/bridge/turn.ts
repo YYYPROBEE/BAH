@@ -1,5 +1,5 @@
 /**
- * 入站一轮的编排（施工单 02 §2.12 / §2.13）。
+ * 入站一轮的编排。
  *
  * 顺序（每一步都不可换）：
  * `限流 → 去重 → 文本指令 → untrusted 标记 → 确保子进程 → 订阅 SSE → POST /api/turn → 投递`。
@@ -46,6 +46,14 @@ import type { RateLimiter } from '../ingress/ratelimit.ts'
 import type { ImLogger } from '../log.ts'
 import type { SessionHub } from '../session/hub.ts'
 import type { ChildHandle, Supervisor } from '../session/supervisor.ts'
+import { IM_HELP_TEXT, isHelpRequest } from './help.ts'
+import {
+  HISTORY_FAILED_TEXT,
+  HISTORY_IDLE_TEXT,
+  HISTORY_MAX_ITEMS,
+  isHistoryRequest,
+  renderHistoryText,
+} from './history.ts'
 import { createTurnCollector, deliverTurn, type PullStore } from './outbound.ts'
 
 /** 等 SSE 连接建立的最长时间（超过就照常发 turn：宁可少一次流式帧，不拖过 5 秒窗口）。 */
@@ -127,6 +135,39 @@ export async function handleInbound(
     // 路由层已校验过一次；走到这里说明路由与注册表不一致（防御性，不静默）
     deps.log.warn('im-platform-unknown', { platform: inbound.platform })
     return immediate(plainReply(reply, OFFLINE_TEXT))
+  }
+
+  // 文本帮助/菜单：公众号没有按钮，这是"常用业务宫格"的文本等价物。
+  // 放在指令解析之前：`?` 之类的文本不该被送去模型绕一圈才回一句菜单。
+  if (isHelpRequest(inbound.text)) {
+    deps.log.info('im-help', { platform: inbound.platform })
+    return immediate(plainReply(reply, IM_HELP_TEXT))
+  }
+
+  // 历史概览（2026-11-02）：与帮助同级，同样先于模型。
+  // 只查**已存在**的子进程（`supervisor.list()`），不用 `ensure()`——那会为了看一句话
+  // 拉起一个新进程，等于用户问一嘴就开一条钱路。
+  if (isHistoryRequest(inbound.text)) {
+    const record = deps.supervisor
+      .list()
+      .find(
+        (item) =>
+          item.platform === inbound.platform &&
+          item.userId === inbound.userId &&
+          item.client !== undefined,
+      )
+    if (record?.client === undefined) {
+      deps.log.info('im-history-idle', { platform: inbound.platform })
+      return immediate(plainReply(reply, HISTORY_IDLE_TEXT))
+    }
+    const result = await record.client.history(HISTORY_MAX_ITEMS)
+    if (result.status !== 200) {
+      deps.log.warn('im-history-failed', { platform: inbound.platform, status: result.status })
+      return immediate(plainReply(reply, HISTORY_FAILED_TEXT))
+    }
+    const listed = (result.json as { sessions?: unknown } | undefined)?.sessions
+    deps.log.info('im-history', { platform: inbound.platform })
+    return immediate(plainReply(reply, renderHistoryText(listed)))
   }
 
   // 文本指令：`0` / 审批 / 转人工先于普通消息；指令面判为"不该拦截"时照常送模型

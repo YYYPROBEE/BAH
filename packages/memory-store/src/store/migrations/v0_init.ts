@@ -1,5 +1,5 @@
 /**
- * `v0_init`：建 3 张表 + `schema_migrations`（施工文档 §2 逐字 DDL）。
+ * `v0_init`：建 3 张表 + `schema_migrations`（设计文档 §2 逐字 DDL）。
  *
  * AccessLog 不入库：它是 append-only 的 ndjson，审计面独立于查询面（§2 注）。
  */

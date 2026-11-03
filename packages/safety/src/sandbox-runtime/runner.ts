@@ -1,12 +1,12 @@
 /**
- * 沙箱执行运行时（施工单 11 §3）。
+ * 沙箱执行运行时。
  *
  * 职责边界：档位由 `sandbox-policy` 解析，"能不能执行"由本文件裁决（登记表 + 能力位 +
  * 载荷预算），**怎么执行**只有两条路——隔离档位进 `worker_threads`（带 `resourceLimits`
  * 与硬杀），`none` 档进程内直调（只给仓内受信任代码）。
  *
  * 三态失败一律转成结局（`refused` / `error` / `timeout`），由宿主转成 `isError` 的
- * 工具结果并落审计；沙箱的失败永远不冒泡到主循环（施工单 03 硬约束 5）。
+ * 工具结果并落审计；沙箱的失败永远不冒泡到主循环。
  */
 
 import { Worker } from 'node:worker_threads'
@@ -243,7 +243,7 @@ export class SandboxRunner {
     else next()
   }
 
-  /** 落审计（施工单 11 §3.1：三类失败都要留痕）。 */
+  /** 落审计（三类失败都要留痕）。 */
   private record(
     outcome: SandboxOutcome<unknown>,
     request: SandboxRunRequest,
@@ -287,7 +287,7 @@ function auditType(outcome: SandboxOutcome<unknown>): string {
   }
 }
 
-/** worker 消息 → 结局（`timeout` 是父侧硬杀的独立判决，不经消息；施工单 11 §3.1）。 */
+/** worker 消息 → 结局（`timeout` 是父侧硬杀的独立判决，不经消息）。 */
 function toOutcome(
   result: SandboxWorkerResult | 'timeout',
   tier: SandboxTier,

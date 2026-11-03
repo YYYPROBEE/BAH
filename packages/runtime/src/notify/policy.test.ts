@@ -27,6 +27,22 @@ describe('inQuietHours', () => {
   it('同起止 = 不设静默', () => {
     expect(inQuietHours(3, [5, 5])).toBe(false)
   })
+
+  it('非跨零点时段 [12,14)：含 12 与 13，不含 11 与 14', () => {
+    expect(inQuietHours(12, [12, 14])).toBe(true)
+    expect(inQuietHours(13, [12, 14])).toBe(true)
+    expect(inQuietHours(11, [12, 14])).toBe(false)
+    expect(inQuietHours(14, [12, 14])).toBe(false)
+  })
+})
+
+describe('deriveNotify：预算可配置，判定沿用同一套边界', () => {
+  it('非跨零点静默时段对 decision 生效，alert 仍照发', () => {
+    const budget = { dailyCap: 6, quietHours: [12, 14] as const, minGapMs: 5 * 60 * 1000 }
+    const noon = Date.UTC(2026, 9, 22, 4, 0) // 12:00 +08
+    expect(deriveNotify([], { priority: 'decision', at: noon }, budget).reason).toBe('quiet-hours')
+    expect(deriveNotify([], { priority: 'alert', at: noon }, budget).send).toBe(true)
+  })
 })
 
 describe('deriveNotify：三档 + 上限 + 静默 + 去重', () => {

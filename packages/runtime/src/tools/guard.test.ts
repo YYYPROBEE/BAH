@@ -1,5 +1,5 @@
 /**
- * 单调 guard 与参数指纹单测（施工单 03 §2.3 第 ④ 段）。
+ * 单调 guard 与参数指纹单测。
  */
 
 import { describe, expect, it } from 'vitest'

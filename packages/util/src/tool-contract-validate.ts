@@ -5,21 +5,26 @@
  *
  * W03 §2 的字面落点写的是「`packages/util/src/tool-contract.ts`：实现校验器子集」，
  * 但 W02 的 `TC-W02-01` 冻结了那个文件：**不得有任何运行时导出**（只 interface / type）。
- * 两条施工单在这里直接冲突。
+ * 两条设计说明在这里直接冲突。
  *
  * 处置：**保住门禁，另起一个文件**。`tool-contract.ts` 继续纯类型，
  * 校验器放这里。这样 TC-W02-01 不被破坏，W03 的能力也落地。
- * （已登记在 PROGRESS 的 W03 偏差里，不悄悄改任何一边。）
+ * （已登记在  的 W03 偏差里，不悄悄改任何一边。）
  *
  * ## 为什么是"子集"而不是 JSON Schema 全量
  *
  * 宪法 R-2 零运行时依赖 ⇒ 不能引 `ajv` / `zod`。
- * 14 个工具的参数实测只需要这些关键字：`type` / `required` / `enum` / `minimum` /
+ * 21 个工具的参数实测只需要这些关键字：`type` / `required` / `enum` / `minimum` /
  * `maximum` / `exclusiveMinimum` / `exclusiveMaximum` / `minLength` / `maxLength` /
  * `pattern` / `multipleOf` / `properties` / `items` / `additionalProperties: false`。
  *
  * **`multipleOf` 是 W03 的 TC 逼出来的**：`TC-W03-02 ④` 要求 `19.999` 被判非法，
  * 而 W03 §2 列的九类规则里没有任何一条能表达"最多两位小数"。所以补这一个。
+ *
+ * **`oneOf` 是 R-8 逼出来的**：`risk_assess` 的 questions / submit 是两种结果形状，
+ * 单对象 + 可选键的写法让 submit 缺 `answers` 也能过 schema。这里补上判别式联合，
+ * 但**只做根级一层 object 分支**——不做递归求值、不做分支内嵌套，遇到嵌套直接
+ * 报 `oneOf-nested`（宁可明确失败，也不要"看起来支持"）。
  *
  * ## 边界：这里**不**做什么
  *
@@ -27,6 +32,7 @@
  * - 不处理"超安全整数"（同上，属 bank 侧的钱校验）；
  * - 不抛异常：**永远返回 `ToolContractViolation | undefined`**。
  *   抛错会让 `pipeline` 的归一化路径多一条分支，而本仓要求"错误只有一种形状"。
+ *   （"嵌套 oneOf 不支持"也走返回值：`code = 'oneOf-nested'`，不 throw。）
  */
 
 import type { ToolContractViolation } from './tool-contract.ts'
@@ -110,6 +116,7 @@ function walk(
   value: unknown,
   path: string,
   phase: ValidatePhase,
+  oneOfDepth = 0,
 ): ToolContractViolation | undefined {
   // ── type ────────────────────────────────────────────────────────────────
   const expectedType = schema['type']
@@ -140,18 +147,93 @@ function walk(
     const itemSchema = schema['items']
     if (isSchema(itemSchema)) {
       for (let index = 0; index < value.length; index += 1) {
-        const nested = walk(itemSchema, value[index], child(path, index), phase)
+        const nested = walk(itemSchema, value[index], child(path, index), phase, oneOfDepth)
         if (nested !== undefined) return nested
       }
     }
   }
 
+  // ── oneOf（根级一层；放在 object 属性之前，先定分支再校验公共约束） ──────
+  const branches = schema['oneOf']
+  if (branches !== undefined) {
+    const branchViolation = checkOneOf(branches, value, path, phase, oneOfDepth)
+    if (branchViolation !== undefined) return branchViolation
+  }
+
   // ── 对象 ────────────────────────────────────────────────────────────────
   if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-    return walkObject(schema, value as Record<string, unknown>, path, phase)
+    return walkObject(schema, value as Record<string, unknown>, path, phase, oneOfDepth)
   }
 
   return undefined
+}
+
+/**
+ * 判别式联合：恰好命中 1 个分支才算通过。
+ *
+ * 分支求值失败时返回**逐个分支的首个错误**（只拼 path + code，不回显值本体，PII 纪律），
+ * 这样调用方能看到"为什么两个分支都不像"。多个分支同时命中则是 schema 写坏了
+ * （分支条件不互斥），单独报 `oneOf-ambiguous`，不能按"随便取一个"放行。
+ *
+ * 不支持的写法一律明确报错，不静默忽略：
+ * - 分支不是 object → `oneOf-non-object`（本仓只声明 object 根）；
+ * - 分支内再出现 `oneOf` → `oneOf-nested`；
+ * - `oneOf` 不是非空数组 → `oneOf-invalid`。
+ */
+function checkOneOf(
+  raw: unknown,
+  value: unknown,
+  path: string,
+  phase: ValidatePhase,
+  oneOfDepth: number,
+): ToolContractViolation | undefined {
+  if (oneOfDepth > 0) {
+    return violation(phase, path, 'oneOf-nested', '不支持嵌套 oneOf（只允许根级一层 object 分支）')
+  }
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return violation(phase, path, 'oneOf-invalid', 'oneOf 必须是非空的分支数组')
+  }
+
+  const branches: StructSchema[] = []
+  for (let index = 0; index < raw.length; index += 1) {
+    const branch: unknown = raw[index]
+    if (!isSchema(branch)) {
+      return violation(phase, path, 'oneOf-invalid', `oneOf 第 ${String(index + 1)} 个分支不是对象`)
+    }
+    if (branch['type'] !== 'object') {
+      return violation(
+        phase,
+        path,
+        'oneOf-non-object',
+        `oneOf 只支持 object 分支（第 ${String(index + 1)} 个分支的 type 不是 object）`,
+      )
+    }
+    branches.push(branch)
+  }
+
+  const failures: string[] = []
+  let matched = 0
+  for (let index = 0; index < branches.length; index += 1) {
+    const first = walk(branches[index]!, value, path, phase, oneOfDepth + 1)
+    if (first === undefined) {
+      matched += 1
+      continue
+    }
+    // 嵌套 oneOf 是 schema 能力问题，不是"这个分支不匹配"——必须原样上抛。
+    if (first.code === 'oneOf-nested') return first
+    failures.push(`分支${String(index + 1)}→${first.path === '' ? '/' : first.path}(${first.code})`)
+  }
+
+  if (matched === 1) return undefined
+  if (matched > 1) {
+    return violation(
+      phase,
+      path,
+      'oneOf-ambiguous',
+      `同时命中 ${String(matched)} 个分支（必须恰好 1 个；分支条件不互斥）`,
+    )
+  }
+  return violation(phase, path, 'oneOf', `没有分支匹配：${failures.join('；')}`)
 }
 
 function walkObject(
@@ -159,6 +241,7 @@ function walkObject(
   value: Record<string, unknown>,
   path: string,
   phase: ValidatePhase,
+  oneOfDepth: number,
 ): ToolContractViolation | undefined {
   const properties = schema['properties']
   const required = schema['required']
@@ -178,7 +261,7 @@ function walkObject(
     for (const [key, subSchema] of Object.entries(table)) {
       if (!isSchema(subSchema)) continue
       if (!(key in value)) continue
-      const nested = walk(subSchema, value[key], child(path, key), phase)
+      const nested = walk(subSchema, value[key], child(path, key), phase, oneOfDepth)
       if (nested !== undefined) return nested
     }
 

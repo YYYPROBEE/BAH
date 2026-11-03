@@ -1,5 +1,5 @@
 /**
- * 服务接缝：按键寻址 + waiting 队列（施工单 02 §5）。
+ * 服务接缝：按键寻址 + waiting 队列。
  *
  * 内核不认识任何具体服务：跨包只认 `ServiceKey`（运行时就是 `id` 字符串），
  * 插件靠 `inject: ['bank:model']` 声明依赖，靠 `ctx.get(key)` 同步取实例。
@@ -10,7 +10,7 @@ import { coreError } from './errors.ts'
 import { once } from './types.ts'
 
 /**
- * 服务键构造器（施工单 02 §5 的冻结签名）。
+ * 服务键构造器。
  *
  * `id` 是运行时键，必须与插件 `inject` 数组里的字符串逐字一致；
  * 空名会让 `inject` 永远等不到，属 misconfiguration，载入即抛。
@@ -27,7 +27,7 @@ export function defineService<T>(name: string): ServiceKey<T> {
  *
  * - `provide` 同名 key 重复注册属 misconfiguration（抛错），注销后可以再次 provide；
  * - `whenReady` 是 waiting 队列的读口：未就绪则**挂起**，就绪后以实例 resolve；
- * - `get` 未注册即抛错（fail-loud），绝不返回 `undefined`（施工单 02 T-CORE-017）。
+ * - `get` 未注册即抛错（fail-loud），绝不返回 `undefined`。
  */
 export class ServiceRegistry implements ServiceSeam {
   /** 已注册服务：`key.id` → 实例（键的类型在取用处还原）。 */

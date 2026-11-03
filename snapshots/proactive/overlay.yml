@@ -1,0 +1,15 @@
+# proactive 快照场景的层 4 overlay（只服务录制/回放夹具，不是生产配置）。
+#
+# ADR-0010 之后 `profiles/plan` 的审批应答者是 `none`。本场景要证明
+# 「武装 → 到期唤醒 → 窗口代签 → 资金腿执行」，其中武装时的强验证与
+# 到期时的窗口核验都在场；这里显式放行**普通 ask**（含武装的审批卡），
+# 窗口代签仍走 `windowResponder: true` 的那条路径。
+#
+# 放行只写进本快照的 rows（scenario.json），不回写 profile。
+
+- id: interaction:approval
+  config:
+    responder: headless
+    autoDecision: allow
+    autoVerify: true
+    windowResponder: true

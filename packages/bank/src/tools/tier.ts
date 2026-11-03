@@ -1,5 +1,5 @@
 /**
- * 三级权限的**判定矩阵**（施工单 09 §1 / §1.1；入口留在本包，见 PROGRESS R89）。
+ * 三级权限的**判定矩阵**。
  *
  * 语义：**取高不取低**——`effectiveTier = max(声明级别, 升级规则结果)`。
  * 升级只上调、永不降级：重试、超时、渠道切换都不能把红变黄。
@@ -68,6 +68,54 @@ export interface DecideInput {
   readonly state: TierState
   /** 转账类的预检（非转账类缺省）。 */
   readonly preview?: TransferPreviewLike
+  /**
+   * 本次调用命中的是**只读动作**（见 `READ_ONLY_ACTIONS`）。
+   *
+   * 语义：按 `green` 放行，且**不参与**升级、组合风险计数与策略咨询。
+   * 这是"工具级 tier 无法表达动作级只读"的唯一补偿点，因此必须是封闭表驱动的，
+   * 不允许任何调用方直接传 `level: 'green'` 绕过声明处。
+   */
+  readonly readOnlyAction?: boolean
+}
+
+/**
+ * 只读动作豁免表（封闭；新增一条必须同步 ADR-0009 与 `docs/contracts/event-table.md`）。
+ *
+ * 为什么需要它：`tier` 是**工具级**声明，`risk_assess` 既是写（提交作答）又是读
+ * （取问卷）。若不给读分支开口，用户点"开始测评"会先看到一张"执行 risk_assess"的
+ * 审批卡——为一个不写库的请求签名，既吓人又让审批变得廉价。
+ *
+ * 纪律（三条，缺一不可）：
+ * 1. **封闭表**：动作值只来自这里，不从 args 里"猜"（`action` 不属于表就照常 ask）；
+ * 2. **只读验证**：豁免分支必须真的不写库（`read/risk-questions` 是审计，不是状态变更）；
+ * 3. **审计留痕**：豁免判决落 `tier/decided`，`level='green'`、`reason='declared'`——
+ *    回放时能看出"这一次为什么没问"，而不是"系统漏问了"。
+ */
+export const READ_ONLY_ACTIONS: readonly {
+  readonly name: string
+  readonly action: string
+}[] = [
+  { name: 'risk_assess', action: 'questions' },
+  // B-04：AA 的状态查询是只读的（不写库、不改组状态），与取问卷同构。
+  // `create` / `collect` 是写操作，不在表里 —— 表外动作照常 ask。
+  { name: 'aa_create', action: 'status' },
+  // 资金锁定的只读查询（2026-11-01）：`status` 不写库、不改账本，
+  // 让用户看一眼"我现在锁了多少钱"不该先签一张审批票。
+  { name: 'fund_lock', action: 'status' },
+  // 交易密码的只读查询（2026-11-01 / ADR-0014）：`status` 只读"上次改密时刻 + 剩余次数"，
+  // 不写凭据、不改计数。`request` 是红档写操作，不在表里——表外动作照常 ask + 强验证。
+  { name: 'password_change', action: 'status' },
+]
+
+/**
+ * 本次调用是否为已登记的只读动作。
+ *
+ * 只认**精确匹配**（工具名 + `args.action` 字面量）：`action` 缺失、大小写不同、
+ * 传数组都返回 false——放宽任何一点，就等于给"任意 action 都能绕过审批"开口子。
+ */
+export function isReadOnlyAction(name: string, args: Readonly<Record<string, unknown>>): boolean {
+  const entry = READ_ONLY_ACTIONS.find((item) => item.name === name)
+  return entry !== undefined && args['action'] === entry.action
 }
 
 /** `decide()` 的判决。 */
@@ -111,7 +159,7 @@ export function higherTier(left: ToolTierLevel, right: ToolTierLevel): ToolTierL
 }
 
 /**
- * 转账类的升级规则（施工单 08 §3.8 / 施工单 09 §1.1 第 1、4 条）。
+ * 转账类的升级规则。
  *
  * - 当日累计**含本笔** > 生效上限 → 红（`daily-limit`）；
  * - 收款人未登记 / `binding = 'new'` → 红（`new-payee`，防"小额试探 + 大额收割"）；
@@ -151,10 +199,12 @@ export function isRiskyOp(config: Pick<TierConfig, 'riskyOps'>, name: string): b
 }
 
 /**
- * 判定矩阵（施工单 09 §1 的三行表 + §1.1 的五条附加规则）。
+ * 判定矩阵。
  *
  * 判定顺序（顺序即安全边界，不可重排）：
  * 1. **未绑定身份 → deny**（绝不用"默认账户"兜底）；
+ * 1.5 **只读动作 → 直接 allow（green）**：豁免表见 `READ_ONLY_ACTIONS`，
+ *     位置必须在身份之后（没身份连只读都不给），在升级之前（读操作不该被金额/收款人规则升红）；
  * 2. **升级**（日累计含本笔 / 新收款人）→ `effectiveTier = max(声明, 升级)`；
  * 3. **锁定中且红 → deny**（强验证三连败后红色操作全 deny）；
  * 4. **组合风险超阈 → 非绿一律 ask**；
@@ -180,6 +230,12 @@ export function decide(input: DecideInput, escalation?: TierDecision): DecideVer
       reason: '当前会话未绑定银行用户身份',
       level: input.declared,
     }
+  }
+
+  // 只读动作豁免：必须在身份之后（没身份连读都不给），在升级之前（读操作没有金额语义）。
+  // `level` 报 green 而不是 `declared`：审计要回答"生效的是什么级别"，不是"声明的是什么"。
+  if (input.readOnlyAction === true) {
+    return { kind: 'allow', level: 'green', reason: 'declared' }
   }
 
   const applied: TierDecision =

@@ -16,3 +16,14 @@
     tickIntervalMs: 200
     # 安全约束：幂等键没传给银行核心，重试 = 真的多扣一次钱
     saga: { maxAttempts: 1 }
+
+# 门禁自己的"演示转账"需要人批准，但 headless 里没有第二个人。
+# 这里是对**回归夹具**的显式放行，不是生产默认：base patch 的 `responder: none`
+# 保持不变，只有本 overlay 叠上来时才装 headless 应答者。
+# 负控：把 autoDecision 改回 reject，本门禁应重新红（证明批准确实来自这一行）。
+- id: interaction:approval
+  config:
+    responder: headless
+    autoDecision: allow
+    autoVerify: true
+    windowResponder: false

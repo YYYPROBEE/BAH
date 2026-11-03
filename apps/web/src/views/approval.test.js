@@ -89,6 +89,19 @@ describe('审批弹窗 · 六要素（T-WEB-003）', () => {
     expect(root.querySelector('.field__pending').textContent).toBe('待确认')
   })
 
+  it('非金额操作（amountText / payeeName 缺省）不渲染金额与收款人行', () => {
+    const { root } = setup(approval({
+      name: 'card_freeze',
+      operation: '冻结银行卡',
+      amountText: undefined,
+      payeeName: undefined,
+    }))
+    const dialog = root.querySelector('[role="dialog"]')
+    expect(dialog.textContent).not.toContain('金额')
+    expect(dialog.textContent).not.toContain('收款人')
+    expect(dialog.querySelector('.field__pending')).toBeNull()
+  })
+
   it('拒绝不填理由 → 提示且不提交', async () => {
     const { root, calls } = setup(approval())
     const buttons = [...root.querySelectorAll('.ds-dialog__foot button')]
@@ -279,6 +292,46 @@ describe('审批弹窗 · 超时（T-WEB-004）', () => {
 
     root.querySelector('[role="dialog"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     expect(root.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('结论生效后 body 退出交互：理由框与强验证块都不再可点（2026-11-02）', () => {
+    const { root, controller } = setup(approval({ tier: 'red', challenge: 'sms' }))
+    controller.close({
+      kind: 'approval-closed',
+      seq: 5,
+      ticketId: 'ticket:call-1',
+      decision: 'allowed-once',
+      label: '已批准（一次性）',
+    })
+
+    const body = root.querySelector('.ds-dialog__body')
+    expect(body.hasAttribute('inert')).toBe(true)
+    // 理由框留着（审计要能回看填了什么），但必须不能再打字
+    expect(root.querySelector('.approval__reason').disabled).toBe(true)
+    // 强验证块不能留一个可点的「开始验证」：票已不在待应答集合，
+    // 点下去只会把「结论已生效」覆盖成「验证未通过：没有待应答的票据」
+    const challengeButtons = [...root.querySelectorAll('.approval__challenge button')]
+    expect(challengeButtons.length).toBe(1)
+    expect(challengeButtons.every((button) => button.disabled)).toBe(true)
+  })
+
+  it('结论生效后标题栏 X 与 Esc 同口径：只收起，不再提交已不存在的票（2026-10-31 走查）', async () => {
+    const { root, calls, controller } = setup(approval())
+    controller.close({
+      kind: 'approval-closed',
+      seq: 7,
+      ticketId: 'ticket:call-1',
+      decision: 'unavailable',
+      label: '无人应答（视为拒绝）',
+    })
+
+    root.querySelector('.ds-dialog__close').click()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(root.querySelector('[role="dialog"]')).toBeNull()
+    // 一次结论都不能再发：发了就是"提交失败：没有待应答的票据"糊在结果卡上
+    expect(calls.length).toBe(0)
   })
 
   it('已批准的收尾显示结论与理由', () => {

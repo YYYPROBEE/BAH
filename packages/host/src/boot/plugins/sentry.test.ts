@@ -1,5 +1,5 @@
 /**
- * `safety:sentry` 宿主行（施工单 10 批次 B 的出口）。
+ * `safety:sentry` 宿主行。
  *
  * 覆盖四件事：
  * 1. 配置 fail-loud（错误消息带 `bah-sentry: ` 前缀）；
@@ -578,6 +578,39 @@ describe('C3 HALT 跨重启（部署级停机）', () => {
       expect(next.ctx.get(HALT_SERVICE).view().restored).toBe(false)
     } finally {
       await next.dispose()
+    }
+  })
+
+  /**
+   * 解冻票的 TTL 必须**随事件出账**。
+   *
+   * 为什么要单独钉：移动壳 / IM 审批页的倒计时只读 `approval/asked.expiresAt`，
+   * 而工具审批与解冻票是两个生产者。工具那条有管线用例守着；这条只有真正走过
+   * 一次 U 盾解冻才存在。漏发一个字段不会报错——只会让解冻卡在没有任何时效交代。
+   */
+  it('解冻的 approval/asked 带 expiresAt：与返回票据同一份事实（渠道不重算）', async () => {
+    const app = await bootIn(dir, [{ text: '在' }])
+    try {
+      const halt = app.ctx.get(HALT_SERVICE)
+      expect(halt.halt('manual', '用例：制造一次 HALT')).toBe(true)
+
+      const requested = await halt.requestUnfreeze()
+      expect(requested.ok).toBe(true)
+      if (!requested.ok) return
+
+      const asked = payloads(app.ctx.get(SESSION_SERVICE).events(), 'approval/asked')
+      expect(asked).toHaveLength(1)
+      expect(asked[0]).toMatchObject({
+        name: 'safety_unfreeze',
+        challenge: 'ushield',
+        ticketId: requested.ticketId,
+      })
+      // 注入钟恒为 1_792_000_000_000：截止时刻必须晚于它，且与票据逐字相同（只有一个来源）
+      expect(typeof asked[0]?.['expiresAt']).toBe('number')
+      expect(Number(asked[0]?.['expiresAt'])).toBeGreaterThan(1_792_000_000_000)
+      expect(asked[0]?.['expiresAt']).toBe(requested.expiresAt)
+    } finally {
+      await app.dispose()
     }
   })
 })

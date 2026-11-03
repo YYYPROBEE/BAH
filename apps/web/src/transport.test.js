@@ -158,6 +158,18 @@ describe('transport · SSE 续订（§8）', () => {
     }
   })
 
+  it('M-01 命名心跳事件派发给宿主（注释行不会被 EventSource 派发）', async () => {
+    globalThis.EventSource = FakeEventSource
+    let beats = 0
+    const transport = connect({ onHeartbeat: () => { beats += 1 } })
+    try {
+      FakeEventSource.instances[0].emit('heartbeat', {})
+      expect(beats).toBe(1)
+    } finally {
+      transport.close()
+    }
+  })
+
   it('password 模式断线探测仍有效（/api/auth/me 200）→ 照常退避重连', async () => {
     vi.useFakeTimers()
     document.head.innerHTML = '<meta name="bah-auth-mode" content="password" />'
@@ -213,6 +225,19 @@ describe('transport · 02 TA-31 会话失效收敛', () => {
     } finally {
       window.removeEventListener('bah:unauthorized', listener)
     }
+  })
+
+  it('M-08 429 的 retry-after 透出为 retryAfterSeconds（界面不再白等 60 秒）', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 429,
+      headers: { get: (name) => (name === 'retry-after' ? '5' : null) },
+      json: async () => ({ error: { code: 'turn-rate-limited', reason: '太频繁' } }),
+    }))
+    const api = createHttpApi({ token: 'web-token' })
+    const result = await api.turn('查余额')
+    expect(result.ok).toBe(false)
+    expect(result.retryAfterSeconds).toBe(5)
   })
 
   it('非 401 的失败不触发登录门（403/500 是单次操作失败，不是会话失效）', async () => {

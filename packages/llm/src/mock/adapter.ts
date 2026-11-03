@@ -1,10 +1,10 @@
 /**
- * llm-mock：确定性 provider（施工单 05 §2.2）。
+ * llm-mock：确定性 provider。
  *
  * 三个用途，一个实现：
  * 1. **无密钥跑通完整 turn**（阶段 5 的主循环集成测试、阶段 6 的 headless 验收）；
  * 2. 离线演示（现场网络/密钥不可用的兜底）；
- * 3. 回放测试的基础（施工单 12）。
+ * 3. 回放测试的基础。
  *
  * 确定性纪律：不读时钟、不读随机数、不发网络请求；同一个脚本 + 同一串输入 → 逐片相同。
  * 分片切法也是确定性的（按 `chunkSize` 等分），所以"增量拼接"路径每次都被真实走到。
@@ -50,6 +50,25 @@ export const MOCK_USAGE: CallUsage = { input: 100, output: 20 }
 /** 分片大小缺省值（字符数）。 */
 const DEFAULT_CHUNK_SIZE = 8
 
+/** 可取消的固定延迟（只给 `stepDelayMs` 演示档用；0 时不创建计时器）。 */
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve()
+      return
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 /** 构造选项。 */
 export interface MockAdapterOptions {
   /** 固定脚本（按调用次序出队）。与 `plan` 二选一。 */
@@ -70,6 +89,13 @@ export interface MockAdapterOptions {
   /** 文本/参数 JSON 的切片大小（默认 8 字符；调大即验证"单块"路径）。 */
   readonly chunkSize?: number
   /**
+   * 每次模型调用前的固定延迟（ms，默认 0）。
+   *
+   * 只为演示可感知性：离线 router 会在同一批帧里刷完整个 turn，
+   * "中断 / 算了"按钮的可见窗口只有几毫秒（M-19）。真模型链路不需要这个旋钮。
+   */
+  readonly stepDelayMs?: number
+  /**
    * 本会话见过的工具结局（条件收尾步的唯一依据）。
    *
    * 由宿主注入（`core:model` 订阅 `session/event` 的 `tool/result`）；缺省为空——
@@ -85,6 +111,7 @@ export class MockLlmAdapter implements LlmAdapter {
   private readonly models: readonly ModelSpec[]
   private readonly usage: CallUsage
   private readonly chunkSize: number
+  private readonly stepDelayMs: number
   private readonly toolOutcomes: () => readonly MockToolOutcome[]
 
   /** 脚本游标：每次 `stream` 消费一步（`plan` 模式不用它）。 */
@@ -107,6 +134,7 @@ export class MockLlmAdapter implements LlmAdapter {
     this.models = options.models ?? [MOCK_MODEL]
     this.usage = options.usage ?? MOCK_USAGE
     this.chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE
+    this.stepDelayMs = Math.max(0, Math.floor(Number(options.stepDelayMs ?? 0)))
     this.toolOutcomes = options.toolOutcomes ?? (() => [])
   }
 
@@ -162,6 +190,15 @@ export class MockLlmAdapter implements LlmAdapter {
   async *stream(call: PreparedCall, signal: AbortSignal): AsyncGenerator<StreamChunk> {
     if (signal.aborted) {
       throw new BahError('llm-aborted', 'mock: 调用已取消（未开始流式）', { model: call.model.id })
+    }
+
+    // 演示节流：默认 0 时连一个 `await` 都不进，确定性回放逐字节不变。
+    if (this.stepDelayMs > 0) {
+      await delay(this.stepDelayMs, signal)
+      if (signal.aborted) {
+        yield { kind: 'finish', reason: 'aborted' }
+        return
+      }
     }
 
     const step = this.stepFor(call.request)

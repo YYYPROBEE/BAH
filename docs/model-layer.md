@@ -1,7 +1,7 @@
-# 模型层与提示词装配（施工单 05 落地说明）
+# 模型层与提示词装配
 
-> 读者：接主循环（阶段 5）、接 provider、写提示词段（插件线）的人。
-> 规格权威仍是 `BAH-施工文档集/05-模型层与提示词装配.md`；本文只讲**本仓怎么落地**与**容易写错的点**。
+> 读者：接主循环、接 provider、写提示词段的人。
+> 本文只讲**本仓怎么落地**与**容易写错的点**。
 
 ## 1. 一张图
 
@@ -67,7 +67,7 @@ registry.resolve('deepseek:deepseek-chat')          // provider:model，或裸 m
 ctx.provide(LLM_ADAPTERS, registry)                 // provideLlm(ctx) 是它的快捷方式
 ```
 
-- 施工单原文写 `ctx.llm.registerAdapter`；`api.ts` 已冻结、`Context` 上没有 `llm`，故按 00 §9「按键寻址」用服务键 `llm:adapters` 落地（语义等价）。
+- 原设计写 `ctx.llm.registerAdapter`；`api.ts` 已冻结、`Context` 上没有 `llm`，故按「按键寻址」用服务键 `llm:adapters` 落地（语义等价）。
 - `resolveModel()` 是**能力位的唯一来源**：模型不支持 function calling，就必须裁掉工具段（否则模型照着编工具名）。
 - `prepareCall()` 返回 `Object.freeze` 的 `PreparedCall`：请求到这里就冻结，后续 listener 不许改写。
 
@@ -146,7 +146,7 @@ const { plan, event } = runCompaction(session, thresholds, overheadTokens)   // 
 - **水位口径**：`system/message` 只计最后一条（每次 attempt 都落一条，真实请求只有一份 system）；
   工具定义不在事件里，由 `estimateRequestTokens` 现算 `tools` schema 作为 `overheadTokens` 传入。
   未配置压缩时不计算该开销。
-- **判定时机**：主循环在**每次请求装配前**判一次、turn 收尾再兜一次（阶段 8）。两处都只折叠
+- **判定时机**：主循环在**每次请求装配前**判一次、turn 收尾再兜一次。两处都只折叠
   **已完整结束**的 turn——当前 turn 永不折叠，否则会拆散 `tool/call ↔ tool/result` 配对并丢掉本轮用户问题；
   因此重复判定幂等（已折叠的 turn 在 `collapseEvents` 阶段就被剔除）。
 - 摘要**确定性生成**（结构化统计 + 每轮对话要点 + 工具结果要点 + 金融字段），不调模型：可回放、零成本、可逐字比对。
@@ -159,7 +159,7 @@ const { plan, event } = runCompaction(session, thresholds, overheadTokens)   // 
   金额未知时 `amount` 缺省、渲染为"金额未知"，不得补成 `¥0.00`；绿色直通调用没有票据时不伪造票号。
 - 幂等：已折叠的 turn 不会重复摘要。
 - 长 turn（多 step）内不会折叠**当前** turn：安全性与可审计性优先（配对不拆、本轮问题不丢）。
-  若单 turn 本身就超过窗口，应在插件线用"工具结果裁剪 / 预算 guard"处理，而不是折叠当前 turn。
+  若单 turn 本身就超过窗口，应在插件层用"工具结果裁剪 / 预算 guard"处理，而不是折叠当前 turn。
 
 ## 9. 常见误用（都踩过）
 

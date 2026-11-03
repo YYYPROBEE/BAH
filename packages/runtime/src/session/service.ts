@@ -1,5 +1,5 @@
 /**
- * 会话服务的接缝与装配（施工单 03 §1.3 / §3 第 9 步的会话侧）。
+ * 会话服务的接缝与装配。
  *
  * 唯一职责：把 append-only 存储 + `session/event` 广播 + 派生投影打包成一个按键取用的服务。
  * 管线只依赖 `SessionSink`（能 append 即可），这样工具侧不必知道存储实现。
@@ -49,11 +49,11 @@ export interface SessionApi extends SessionSink {
   eventsView(): readonly AnySessionEvent[]
   /** 最后一条事件的 `seq`。 */
   lastSeq(): number
-  /** 从日志派生模型历史（施工单 03 §1.4）。 */
+  /** 从日志派生模型历史。 */
   deriveMessages(options?: DeriveOptions): DerivedMessage[]
 }
 
-/** 服务键：跨包只认这个（施工单 00 §9 补充纪律「按键寻址」）。 */
+/** 服务键：跨包只认这个。 */
 export const SESSION_SERVICE: ServiceKey<SessionApi> = defineService<SessionApi>('runtime:session')
 
 /** `provideSession` 的选项。 */

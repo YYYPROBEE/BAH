@@ -169,7 +169,7 @@ describe('createPlanSteps（呈现）', () => {
     expect(rowOf('x').querySelector('.ds-tag--warning').textContent).toContain('未知状态')
   })
 
-  it('TC-MOB-23 三个连续 blocked 夹在 ok 之间 ⇒ 三行全部独立可见，不折进任何容器', () => {
+  it('TC-MOB-23 三个连续 blocked 夹在 ok 之间 ⇒ 三行全部独立可，不折进任何容器', () => {
     view.render(
       dagFrame(
         [node('A', 'ok'), node('B', 'blocked'), node('C', 'blocked'), node('D', 'blocked'), node('E', 'ok')],
@@ -215,20 +215,23 @@ describe('createPlanSteps（呈现）', () => {
   })
 
   it('TC-MOB-24 默认折叠 ok、展开 running/blocked/failed/incident/denied 与首个 pending', () => {
+    // 用 `call:` 前缀的 call 节点：可展开性由内容决定（`step` 节点没有 callId ⇒ 无正文），
+    // 这条用例测的是"哪种状态默认展开"，不是"哪种行有按钮"。
+    const callNode = (id, state) => node(`call:${id}`, state, { kind: 'call' })
     view.render(
       dagFrame([
-        node('a', 'ok'),
-        node('b', 'running'),
-        node('c', 'blocked'),
-        node('d', 'failed'),
-        node('e', 'incident'),
-        node('f', 'denied'),
-        node('g', 'pending'),
-        node('h', 'pending'),
+        callNode('a', 'ok'),
+        callNode('b', 'running'),
+        callNode('c', 'blocked'),
+        callNode('d', 'failed'),
+        callNode('e', 'incident'),
+        callNode('f', 'denied'),
+        callNode('g', 'pending'),
+        callNode('h', 'pending'),
       ]),
     )
 
-    const expanded = (id) => rowOf(id).querySelector('[data-role="step-toggle"]').getAttribute('aria-expanded')
+    const expanded = (id) => rowOf(`call:${id}`).querySelector('[data-role="step-toggle"]').getAttribute('aria-expanded')
     expect(expanded('a')).toBe('false')
     expect(expanded('b')).toBe('true')
     expect(expanded('c')).toBe('true')
@@ -237,7 +240,20 @@ describe('createPlanSteps（呈现）', () => {
     expect(expanded('f')).toBe('true')
     expect(expanded('g')).toBe('true')
     expect(expanded('h')).toBe('false')
-    expect(rowOf('a').querySelector('[data-role="step-body"]').hidden).toBe(true)
+    expect(rowOf('call:a').querySelector('[data-role="step-body"]').hidden).toBe(true)
+  })
+
+  it('step / plan 节点不给 chevron：没有正文的行不许有展开控件（2026-10-31 走查）', () => {
+    view.render(dagFrame([node('步骤 1', 'running'), node('call:c-9', 'running', { kind: 'call' })]))
+
+    const stepRow = rowOf('步骤 1')
+    const callRow = rowOf('call:c-9')
+    expect(stepRow.querySelector('[data-role="step-toggle"]')).toBeNull()
+    expect(stepRow.querySelector('[data-role="step-body"]')).toBeNull()
+    // 摘掉 chevron 不能连带摘掉行本身：状态标签与序号仍然在（清单不缺条目）
+    expect(stepRow.querySelector('.m-step__tags .ds-tag').textContent).toBe('进行中')
+    expect(stepRow.querySelector('.m-step__index').textContent).toBe('1')
+    expect(callRow.querySelector('[data-role="step-toggle"]')).not.toBeNull()
   })
 
   it('TC-MOB-24 展开节点 ⇒ renderTool 恰一次（同一帧重复展开不重画）', () => {
@@ -276,12 +292,12 @@ describe('createPlanSteps（呈现）', () => {
   })
 
   it('折叠集是视图态：整轮 dag 帧替换后用户的手动折叠仍然保留', () => {
-    view.render(dagFrame([node('a', 'running')]))
-    rowOf('a').querySelector('[data-role="step-toggle"]').dispatchEvent(new Event('click'))
-    expect(rowOf('a').querySelector('[data-role="step-toggle"]').getAttribute('aria-expanded')).toBe('false')
+    view.render(dagFrame([node('call:c-1', 'running', { kind: 'call' })]))
+    rowOf('call:c-1').querySelector('[data-role="step-toggle"]').dispatchEvent(new Event('click'))
+    expect(rowOf('call:c-1').querySelector('[data-role="step-toggle"]').getAttribute('aria-expanded')).toBe('false')
 
-    view.render(dagFrame([node('a', 'running')], [], { seq: 5 }))
-    expect(rowOf('a').querySelector('[data-role="step-toggle"]').getAttribute('aria-expanded')).toBe('false')
+    view.render(dagFrame([node('call:c-1', 'running', { kind: 'call' })], [], { seq: 5 }))
+    expect(rowOf('call:c-1').querySelector('[data-role="step-toggle"]').getAttribute('aria-expanded')).toBe('false')
   })
 
   it('goal 帧渲染会话级目标条（只读一行，跨 turn 替换）', () => {

@@ -1,11 +1,8 @@
 /**
- * `verify-docs-paths` 的例外名单（门禁扩容 07 §2-4）。
+ * `verify-docs-paths` 的例外名单。
  *
- * 只收两类：
- * 1. **上游坐标**（`UPSTREAM_PATHS`）：`docs/dsh-comparison.md` 的左列是 DeepSeek Harness
- *    的包路径，用来标"该机制在上游的落位"。它们本来就不在本仓，不该被本仓门禁判红。
- * 2. **登记在案的"暂不存在"**：施工单/评审里引用的、已明确记录为待补或历史路径。
- *    每条都指向 `PROGRESS.md` 的偏差编号，便于回溯。
+ * 只收**运行期目录与构建产物**：干净 clone 上本来就不存在，文档里以路径形式
+ * 提到它们是排障线索，不是声称仓库里有这些文件。
  *
  * 纪律：
  * - 已实装包里的失效引用是**真 bug**：改文档，不许进名单。
@@ -19,63 +16,7 @@ export interface DocsPathExclusion {
   readonly why: string
 }
 
-/** `docs/dsh-comparison.md` 引用的上游（dsh）包路径：不是本仓资产。 */
-const UPSTREAM_PATHS: readonly string[] = [
-  'docs/subsystems/',
-  'packages/settings',
-  'packages/identity',
-  'packages/feedback',
-  'packages/storage',
-  'packages/spill',
-  'packages/compaction',
-  'packages/sandbox',
-  'packages/boot',
-  'packages/todo',
-  'packages/goal',
-  'packages/plan/plan-mode',
-  'packages/guard',
-  'packages/context/agent-instructions',
-  'packages/core/scope',
-  'packages/session-query',
-  'packages/session-title',
-  'packages/interaction/tool-ask-user',
-  'packages/client',
-  'packages/sdk',
-  'packages/web',
-]
-
-const UPSTREAM_WHY = 'dsh 上游路径（对照表左列 / 落位坐标），不是本仓资产'
-
-/**
- * 本仓**不发布**的内部件：按 `.git/info/exclude` 不入库，只在作者工作区存在。
- *
- * 为什么要单列一类：`PROGRESS.md` / 交接单 / 事实台账当初确实是按这些路径引用的，
- * 而它们**永远不会**进仓库。两种修法里，改历史记录等于篡改当时的输入（`docs-consistency`
- * 也是这个口径），所以只能把它们登记成"不是本仓资产"——和 `UPSTREAM_PATHS` 同类，
- * 区别只是那些是别人仓库的坐标，这些是本仓自己的、但按提交纪律不入库。
- *
- * 代价写在这里，不假装它们存在：读者在 clone 里打不开这些路径。
- */
-const PRIVATE_PLANNING_PATHS: readonly string[] = [
-  'docs/preflight-2026-10-25.md',
-  'docs/owners-2026-10-25.md',
-  'docs/capacity-plan-b-2026-10-25.md',
-  'docs/staffing-plan-2026-10-25.md',
-  'docs/one-person-plan-2026-10-25.md',
-  'docs/task-w10-2026-10-25.md',
-  'docs/next-three-w11-w12-w05-2026-10-26.md',
-  'docs/handoff-2026-10-25-w07-done.md',
-  'docs/handoff-2026-10-25-w08-done.md',
-  'docs/handoff-2026-10-25-w16-done.md',
-  'docs/handoff-2026-10-26-w20-next.md',
-]
-
-const PRIVATE_PLANNING_WHY =
-  '内部规划/交接件：按 .git/info/exclude 不入库，只在作者工作区存在（历史记录按当时路径引用，改文档等于篡改当时输入）'
-
 export const DOCS_PATH_EXCLUSIONS: readonly DocsPathExclusion[] = [
-  ...UPSTREAM_PATHS.map((path) => ({ path, why: UPSTREAM_WHY })),
-  ...PRIVATE_PLANNING_PATHS.map((path) => ({ path, why: PRIVATE_PLANNING_WHY })),
   // 运行期目录：内容一律不入库（`*.sqlite` 知识库、fastembed 模型缓存），
   // 干净 clone 上本就不该有 —— `store.py:202` 自建父目录，容器按 `-v` 挂载宿主目录。
   {
@@ -90,16 +31,10 @@ export const DOCS_PATH_EXCLUSIONS: readonly DocsPathExclusion[] = [
     path: 'services/rag/models/',
     why: '同上；门禁按精确串匹配，文档里带尾斜杠的写法需单列',
   },
+  // 构建产物：`.gitignore` 忽略 `dist/`，只有 `pnpm build` 之后才存在。
+  // 文档里写它是"旧 dist 会造成 .js 回退"排障线索，不是声称仓库里有这个目录。
   {
-    path: 'snapshots/tsconfig.json',
-    why: 'PROGRESS R25 登记的待补配置：快照面目前只经 vitest 转译，阶段 7 扩 harness 时才补',
-  },
-  {
-    path: 'packages/runtime/src/tier/decide.ts',
-    why: 'PROGRESS R89 记录的"施工单 09 原路径"：已拍板三级判决落在 bank/src/tools/tier.ts',
-  },
-  {
-    path: 'packages/xxx/src/yyy.ts',
-    why: '施工单 07 §2-4 里的示意写法（xxx/yyy 占位），不是真实文件',
+    path: 'packages/cli/dist',
+    why: 'CLI 构建产物目录：`pnpm build` 从 packages/cli/bundles/base/index.ts 转译生成，dist/ 已忽略，干净 clone 上不该有',
   },
 ]

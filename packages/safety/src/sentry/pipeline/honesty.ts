@@ -1,7 +1,7 @@
 /**
- * 幻觉防护（施工单 10 §4）。
+ * 幻觉防护。
  *
- * 四个机制里本文件负责三个（第四个 `wealth.*` 的 disclaimer / `txnRef` 由施工单 08 落地，
+ * 四个机制里本文件负责三个（第四个 `wealth.*` 的 disclaimer / `txnRef` 由 落地，
  * 这里只在报告里做接线断言）：
  * 1. `tools/post-execute` 数值对账：声明值 vs `tool/result` 权威值，不一致 → `block`，
  *    纠正文本由七段管线自动追加进上下文（`additionalContexts`）；
@@ -11,7 +11,7 @@
  *    办理成功 / 已到账"，但本 turn 的工具结局不支持 → 纠正；纠正过一次仍不改口 → 判停。
  *
  * 纠正为什么走 `nudge`（宿主注入）而不是直接 append：turn-stopping 的纠正必须作为
- * **下一条 next-step 用户消息**回到模型，才能真的改变下一次生成（施工单 04 §2.1 的注释）。
+ * **下一条 next-step 用户消息**回到模型，才能真的改变下一次生成。
  * `nudge` 会让主循环在本 turn 内再跑一个 step——这就是"block 掉正常收尾"的实现方式。
  */
 
@@ -184,7 +184,7 @@ export function createNumericListener(
       detail: reason,
       at,
     })
-    // 管线会把 block 的 reason 作为纠正上下文追加（施工单 03 §2.2 ⑥）
+    // 管线会把 block 的 reason 作为纠正上下文追加
     return { ...downstream, verdict: { kind: 'block', code: 'honesty-number-mismatch', reason } }
   }
 }

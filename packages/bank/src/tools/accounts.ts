@@ -1,5 +1,5 @@
 /**
- * 账户与身份解析（施工单 08 §3.1 / 施工单 09 §4 的兜底）。
+ * 账户与身份解析。
  *
  * 纪律：**绝不隐式使用默认账户**。身份由 `BankIdentity` 给出（09 落地为会话绑定；
  * 08 的 headless 演示由 profile 显式配置 `demoUserId`），没有身份就抛 `no-identity`。
@@ -26,7 +26,7 @@ export function requireUserId(deps: BankToolDeps, sessionId: SessionId): string 
   if (userId === undefined || userId.trim().length === 0) {
     throw new BahError(
       'no-identity',
-      'bank-tools: 当前会话未绑定银行用户身份（施工单 09 §4：业务工具一律拒绝）',
+      'bank-tools: 当前会话未绑定银行用户身份（业务工具一律拒绝）',
       { sessionId },
     )
   }

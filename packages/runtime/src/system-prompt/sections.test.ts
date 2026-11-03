@@ -1,5 +1,5 @@
 /**
- * 六段内建提示词单测（施工单 05 §4：能力位裁剪 + 工具 schema 自动汇入）。
+ * 六段内建提示词单测（能力位裁剪 + 工具 schema 自动汇入）。
  */
 
 import { describe, expect, it } from 'vitest'
@@ -40,7 +40,7 @@ function contextOf(overrides: Partial<PromptContext> = {}): PromptContext {
   }
 }
 
-describe('能力位裁剪（施工单 05 §3 / §4）', () => {
+describe('能力位裁剪', () => {
   it('T-LLM-006 无 toolCall 能力 → bank.capabilities 不装配（也不装配审批段）', () => {
     const registry = createDefaultPromptRegistry()
     const composed = registry.compose(
@@ -256,6 +256,14 @@ describe('renderRuntimeContext：bank 路径（运行时快照）', () => {
 })
 
 describe('style：渠道适配', () => {
+  it('零值账单也必须用表格（结构化字段两个以上即成表）', () => {
+    const registry = createDefaultPromptRegistry()
+    const header = registry.compose(contextOf({ channel: 'desktop' })).header
+    expect(header).toContain('全为 0 的账单')
+    expect(header).toContain('| 收入 | ¥0.00 |')
+    expect(header).toContain('| 异常 | 0 条 |')
+  })
+
   it('六个渠道各有专属提示（穷尽 ChannelKind）', () => {
     const registry = createDefaultPromptRegistry()
     const channels: readonly ChannelKind[] = ['web', 'mobile', 'im', 'desktop', 'headless', 'sdk']
@@ -264,6 +272,16 @@ describe('style：渠道适配', () => {
       const header = registry.compose(contextOf({ channel })).header
       expect(header).toContain('渠道适配：')
       expect(header).toContain(channelHint(channel))
+    }
+  })
+
+  it('客户渠道带客服口径；开发者渠道不带（确定性输出不被语气段污染）', () => {
+    const registry = createDefaultPromptRegistry()
+    for (const channel of ['web', 'mobile', 'im', 'desktop'] as const) {
+      expect(registry.compose(contextOf({ channel })).header).toContain('客服口径')
+    }
+    for (const channel of ['headless', 'sdk'] as const) {
+      expect(registry.compose(contextOf({ channel })).header).not.toContain('客服口径')
     }
   })
 

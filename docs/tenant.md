@@ -1,6 +1,6 @@
 # 租户部署形态（tenant as deployment boundary）
 
-> 租户与鉴权 04 · TA-53。本文是**运维直接抄**的那一份：边界、目录、环境变量、反代、常见事故。
+> 本文是**运维直接抄**的那一份：边界、目录、环境变量、反代、常见事故。
 > 立场一句话：**租户 = 进程**。同一套代码、同一台机器并存 N 个租户，靠目录 / 端口 / 令牌 / 密钥
 > 四道物理边界隔开；**一进程 N 租户明确不做**（ADR-0004）。
 
@@ -37,7 +37,7 @@
     …同构
 ```
 
-**`saga.sqlite` 是进程级状态**（01 §5 的裁剪决策）：它落在部署根、不在租户根。
+**`saga.sqlite` 是进程级状态**：它落在部署根、不在租户根。
 两个租户共用同一个部署根时，它们会写同一个 sqlite。04 起启动期会读同目录的
 `saga.tenant` 标记：
 
@@ -120,7 +120,7 @@ BAH_TENANT=acme  BAH_WEB_TOKEN=... \
 - `password`：HttpOnly `bah_sid` 会话 cookie；`/api/auth/me` 自查；登录 / 登出 / 撤销落
   `auth/*` 审计；`?token=` 不再被接受；口令失败同形（不区分"用户不存在"）。
 
-> 坐席台的边界（合流 2026-10-29 / D2）：坐席前端只在 `static` 模式下开放（`/operator` 与 5 条坐席
+> 坐席台的边界（合流 2026-10-29）：坐席前端只在 `static` 模式下开放（`/operator` 与 5 条坐席
 > API）；`password` 模式下坐席登录卡片尚未实现，`seatEnabled=false` ⇒ 整条 404（**不是** 401，
 > 401 会暴露存在性）。坐席凭证与客户凭证必须分离：同一串 token 启动即失败。
 - `none`：不验凭证，只用于内网测试装置。
@@ -162,8 +162,7 @@ npx tsx scripts/tenant-matrix.ts
 npx tsx scripts/verify-tenant-isolation.ts
 npx tsx scripts/verify-tenant-isolation.ts --self-test
 
-# 6 条攻击剧本（答辩逐条念）
-# 见 docs/drill-tenant-6.md
+# 6 条攻击剧本的判据由 verify-tenant-isolation 逐条实现
 ```
 
 ---

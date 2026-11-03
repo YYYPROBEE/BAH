@@ -1,8 +1,9 @@
 /**
- * 审批弹窗（施工单 13 §3.2 六要素 + §5 T-WEB-003 / 004）。
+ * 审批弹窗。
  *
  * 六要素：操作类型、金额、收款人、风险级别、等待时长、拒绝理由输入框。
  * 有数据时再补两项：收款人手机（已脱敏）与手续费（来自本 turn 的预演结果）。
+ * 非金额操作（卡片冻结/挂失等）不渲染金额与收款人行，避免出现 ¥0.00 / “—”。
  *
  * 两个刻意的决定：
  * 1. **不做倒计时**：`approval/asked` 不带票据 TTL（偏差 R-WEB-D8），编一个倒计时等于
@@ -79,7 +80,10 @@ export function createApprovalController(root, handlers) {
       class: 'ds-textarea approval__reason',
       rows: 2,
       maxlength: 500,
-      placeholder: reasonRequired ? '拒绝理由（必填，会写入审计）' : '拒绝理由（可选，会写入审计）',
+      // 措辞必须说清"必填只约束拒绝"：写成「拒绝理由（必填）」时，用户会以为
+      // 批准也要填，等到结论生效才发现整栏是空的（2026-11-02 走查，与 im-gateway
+      // `approval/page.ts` 的「拒绝时必填」同口径）。
+      placeholder: reasonRequired ? '拒绝理由（拒绝时必填，会写入审计）' : '拒绝理由（可选，会写入审计）',
       'aria-label': '拒绝理由',
     })
     const hint = el('p', { class: 'approval__hint', role: 'status' })
@@ -97,6 +101,9 @@ export function createApprovalController(root, handlers) {
             'aria-label': `确认词：${confirmText}`,
           })
     const waited = el('span', { class: 'approval__waited', text: '已等待 00:00' })
+    // 服务端签发的执行明细（`ApprovalFrame.details`）：空数组/缺省都按"没有"处理。
+    const details = Array.isArray(frame.details) ? frame.details : []
+    const hasDetails = details.length > 0
     // 红级挑战是否已通过；提交是否在飞。两者决定"批准"入口与 Esc 是否可用。
     let verified = false
     let submitting = false
@@ -188,6 +195,13 @@ export function createApprovalController(root, handlers) {
             type: 'button',
             'aria-label': '关闭（视为取消）',
             onclick: async () => {
+              // 与 Esc 同口径：结论已生效后这张票在服务端不存在了，再 submit 只会拿回
+              // "没有待应答的票据"，把一句吓人的失败糊在结果卡上（2026-10-31 走查）。
+              // 这时 X 的语义就是"收起"，不是"再表一次态"。
+              if (current !== null && current.closed === true) {
+                destroy()
+                return
+              }
               await submit('cancelled')
             },
           }, [icon('close', 16)]),
@@ -195,10 +209,12 @@ export function createApprovalController(root, handlers) {
         el('div', { class: 'ds-dialog__body' }, [
           el('dl', { class: 'approval__grid' }, [
             field('操作类型', frame.operation),
-            amountField(frame),
-            field('收款人', frame.payeeName ?? '—'),
-            ...(frame.payeePhone === undefined ? [] : [field('收款手机', frame.payeePhone)]),
-            ...(frame.feeText === undefined ? [] : [field('手续费', frame.feeText)]),
+            // 有服务端明细时，金额/收款人/手续费只从明细出——同一笔钱在同一个弹窗里
+            // 出现两个来源，用户只能猜哪个是真的（也顺手修掉"非金额操作显示 ¥ —"）。
+            ...(hasDetails || frame.amountText === undefined ? [] : [amountField(frame)]),
+            ...(hasDetails || frame.payeeName === undefined ? [] : [field('收款人', frame.payeeName)]),
+            ...(hasDetails || frame.payeePhone === undefined ? [] : [field('收款手机', frame.payeePhone)]),
+            ...(hasDetails || frame.feeText === undefined ? [] : [field('手续费', frame.feeText)]),
             el('div', { class: 'field' }, [
               el('dt', { class: 'field__label', text: '风险级别' }),
               el('dd', { class: 'field__value' }, [el('span', { class: tier.cls, text: tier.label })]),
@@ -208,10 +224,11 @@ export function createApprovalController(root, handlers) {
               el('dd', { class: 'field__value' }, [waited]),
             ]),
           ]),
+          ...(hasDetails ? [detailsBlock(frame)] : []),
           el('label', {
             class: 'approval__reason-label',
             for: 'approval-reason',
-            text: `拒绝理由（${reasonRequired ? '必填' : '可选'}）`,
+            text: `拒绝理由（${reasonRequired ? '拒绝时必填' : '可选'}）`,
           }),
           reasonInput,
           hint,
@@ -332,6 +349,18 @@ export function createApprovalController(root, handlers) {
     }
     // 遮罩放行（P1-4）：结论生效后只剩"关掉它"，不能让全屏遮罩继续锁住对话。
     current.node.classList.add('approval-backdrop--passive')
+    // 结论已生效：body 整个退出交互。不下这一步，「已批准（一次性）」下面还挂着
+    // 一个能点的「开始验证」——票据早已不在待应答集合，点下去 `hint` 会被覆盖成
+    // 「验证未通过：没有待应答的票据」，比不锁更误导（2026-11-02 走查）。
+    // `inert` 管焦点与点击；`disabled` 兜两件事：jsdom 不实现 inert 行为（测试断言
+    // 只能落在 disabled 上），以及不支持 inert 的老浏览器。
+    const body = current.node.querySelector('.ds-dialog__body')
+    if (body !== null) {
+      body.setAttribute('inert', '')
+      for (const node of body.querySelectorAll('button, textarea, input, select')) {
+        node.disabled = true
+      }
+    }
     const foot = current.node.querySelector('.ds-dialog__foot')
     if (foot !== null) {
       foot.replaceChildren(
@@ -387,5 +416,41 @@ function amountField(frame) {
           ]
         : []),
     ]),
+  ])
+}
+
+/**
+ * 执行明细块（服务端签发，`ApprovalFrame.details`）。
+ *
+ * 视觉口径：强调只用**字体与 `ds-tag`**，不画左侧竖色条——边条既是"颜色即状态"的
+ * 二次编码，也在窄屏上吃掉本就不多的行宽（`scripts/verify-no-left-accent.ts` 门禁）。
+ *
+ * 这里不做任何格式化：`detail.value` 已经是服务端算好并签发的文本，
+ * 前端再 `formatCents` 一次就等于建立第二份金额口径。
+ */
+function detailsBlock(frame) {
+  const rows = frame.details.map((detail) => {
+    const emphasis = detail.emphasis
+    const valueClass =
+      emphasis === 'amount' ? 'field__value field__value--mono' : 'field__value'
+    const value =
+      emphasis === 'risk'
+        ? el('dd', { class: valueClass }, [
+            el('span', { class: 'ds-tag ds-tag--warning', text: detail.value }),
+          ])
+        : emphasis === 'date'
+          ? el('dd', { class: valueClass }, [el('time', { text: detail.value })])
+          : el('dd', { class: valueClass, text: detail.value })
+    return el('div', { class: 'field', dataset: { emphasis: emphasis ?? 'plain' } }, [
+      el('dt', { class: 'field__label', text: detail.label }),
+      value,
+    ])
+  })
+  return el('section', { class: 'approval__details', dataset: { role: 'details' } }, [
+    el('h3', { class: 'approval__details-title', text: '执行明细' }),
+    el('dl', { class: 'approval__grid' }, rows),
+    ...(frame.detailsTruncated === true
+      ? [el('p', { class: 'approval__note', text: '明细较多，已省略其余项；完整内容见审计。' })]
+      : []),
   ])
 }

@@ -1,5 +1,5 @@
 /**
- * seeded 伪随机（mulberry32，施工单 07 §4.1 / 施工单 12 §7）。
+ * seeded 伪随机（mulberry32， / ）。
  *
  * 为什么放在 `@bah/util`：仿真银行的造数（07）与快照夹具（12）必须共享**同一个**随机源——
  * `scenario.json` 里录下的 `randomSeed` 要能重放出 bank-forge 的同一套账户与交易，

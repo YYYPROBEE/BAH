@@ -2,7 +2,7 @@
  * 录制快照（阶段 8 R66）：`pnpm snapshot:record`。
  *
  * 为什么不是一条 shell 环境变量赋值：Windows 的 `cmd` 与 PowerShell 写法不同，
- * 而施工单 00 §10 要求"不写 shell"。这里用 Node 起子进程，把
+ * 而 要求"不写 shell"。这里用 Node 起子进程，把
  * `BAH_SNAPSHOT_RECORD=1` 注入环境后跑 snapshot 面——行为在 Windows / CI 一致。
  *
  * `stdio: 'inherit'`：录制是**人工操作**，输出直接给人看；也不要通过管道捕获子进程输出

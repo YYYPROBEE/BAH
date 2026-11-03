@@ -1,7 +1,7 @@
 /**
  * 标识符生成：ULID（Crockford Base32）。
  *
- * 为什么不用 `randomUUID`：`memory_unit` 的血统链（`superseded_by`）在答辩时要按时间
+ * 为什么不用 `randomUUID`：`memory_unit` 的血统链（`superseded_by`）在对外说明时要按时间
  * 顺序读，UUIDv4 无序、读出来是乱的。ULID 前 10 字符是 48 位毫秒时间戳，字典序即时序，
  * 且不引入任何依赖。
  *

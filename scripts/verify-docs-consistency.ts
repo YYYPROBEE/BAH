@@ -3,9 +3,9 @@
  *
  * ## 为什么需要它
  *
- * `verify-facts` 只比对 `facts.md` 与源码重算值；它**不看** README / deploy /
- * security-self-assessment 里的数字。结果就是"facts 对了、deploy 还写 27 项门禁"——
- * 评委随手点开哪份文档，看到的就是哪份的旧数。
+ * `verify-facts` 只比对 `facts.md` 与源码重算值；它**不看** README / deploy 等
+ * 对外材料里的数字。结果就是"facts 对了、deploy 还写 27 项门禁"——
+ * 审阅者随手点开哪份文档，看到的就是哪份的旧数。
  *
  * 本门禁补三件事：
  *
@@ -15,11 +15,6 @@
  * 3. **能力口径防回退**：C3/C4/C5 之后，某些表述已经变成**错误**（"HALT 重启即清零"
  *    "记忆层未接线" "无人工接管平面"）。这类话在对外材料里出现即红——比数字过期更危险，
  *    因为它是"把已做的能力说成没做"，同样是不诚实。
- *
- * ## 白名单
- *
- * 历史件（drill-* / handoff-* / next-* / task-* / plans/* / preflight-*）记录的是**当时**
- * 的输出，改它们等于篡改证据。它们不在扫描面内；扫描面是硬编码的"对外材料"清单。
  */
 
 import { existsSync, readFileSync } from 'node:fs'
@@ -29,9 +24,9 @@ import type { Gate, GateResult } from './gate-lib.ts'
 import { projectRoot } from './gate-lib.ts'
 
 /**
- * 对外材料清单（评委可能直接点开的文件）。
+ * 对外材料清单（审阅者可能直接点开的文件）。
  *
- * 刻意**不**用 `walk` 扫 docs/：那会把历史件与内部施工单一起卷进来，
+ * 刻意**不**用 `walk` 扫 docs/：那会把历史件与内部设计说明一起卷进来，
  * 于是要么写一堆白名单例外，要么只能把判据放宽到没用。
  */
 const PUBLIC_DOCS: readonly string[] = [
@@ -41,7 +36,6 @@ const PUBLIC_DOCS: readonly string[] = [
   // （清单从 README 开始，facts 由 verify-facts 守）
   'docs/deploy.md',
   'docs/testing.md',
-  'docs/security-self-assessment.md',
   'docs/security-design.md',
   'docs/web-frontend.md',
   'docs/tenant.md',
@@ -53,21 +47,13 @@ const PUBLIC_DOCS: readonly string[] = [
   'docs/profile.md',
   // 04 单：移动 H5 的对外口径页（新建即必须进清单）
   'docs/mobile.md',
-  // 02 单：IM 网关的对外口径页（新建即必须进清单）
   'docs/im-gateway.md',
-  'docs/review/judge-walkthrough.md',
   'docs/observability.md',
   'docs/performance.md',
-  'docs/roadmap.md',
-  'docs/简介-200字.md',
-  // `docs/dsh-comparison.md` 刻意不扫：它是 2026-10-19 的对位评审报告，
-  // 里面引用的"gate 12/12"是**当时的事实**（并在报告里被定性为治理缺陷）。
-  // 改它等于篡改证据——历史件一律不进扫描面。
   'services/rag/README.md',
 ]
 
-/** 已确定过期的数字（出现即红）。 */
-const STALE_NUMBERS: readonly { readonly pattern: RegExp; readonly why: string }[] = [
+/** 已确定过期的数字（出现即红）。 */const STALE_NUMBERS: readonly { readonly pattern: RegExp; readonly why: string }[] = [
   { pattern: /27\s*项/, why: '门禁数曾是 27，现在见 facts（不要写具体数就写"见 facts.md"）' },
   { pattern: /29\/29/, why: '门禁数曾是 29/29' },
   { pattern: /34\/34/, why: '门禁数曾是 34/34' },
@@ -76,7 +62,7 @@ const STALE_NUMBERS: readonly { readonly pattern: RegExp; readonly why: string }
   { pattern: /41\/41/, why: '门禁数曾是 41/41，现在见 facts' },
   { pattern: /42\/42/, why: '门禁数曾是 42/42，现在见 facts' },
   { pattern: /43\/43/, why: '门禁数曾是 43/43，现在见 facts' },
-  { pattern: /18\/18/, why: '快照数曾是 18/18（现在是 6 文件 23 例）' },
+  { pattern: /(?:快照|snapshot)[^|\n]{0,12}18\/18|18\/18[^|\n]{0,12}(?:快照|snapshot)/, why: '快照数曾是 18/18（现在是 13 文件 60 例）' },
   { pattern: /1811\s*用例/, why: '用例数曾是 1811' },
   { pattern: /1951\s*用例/, why: '用例数曾是 1951' },
   { pattern: /2019\s*用例/, why: '用例数曾是 2019' },

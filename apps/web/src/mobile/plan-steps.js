@@ -1,5 +1,5 @@
 /**
- * DAG → 单列分步清单（`dagView: 'steps'`，施工单 02 §3.7）。
+ * DAG → 单列分步清单（`dagView: 'steps'`）。
  *
  * 三条口径：
  * 1. **排序真相源在后端**：`flattenDag` 不重排、不拓扑——帧里的 `nodes` 顺序已经是
@@ -16,6 +16,7 @@
  */
 
 import { clear, el, icon } from '../dom.js'
+import { bilingualNodeLabel } from '../views/dag.js'
 
 /**
  * 9 态的窄屏呈现表。`tag` 为空串表示"只降文字色，不挂徽标"（skipped/cancelled 是中性终态，
@@ -53,7 +54,7 @@ export function flattenDag(dag) {
     const callId = node.kind === 'call' && node.id.startsWith('call:') ? node.id.slice('call:'.length) : undefined
     return {
       id: node.id,
-      label: node.label,
+      label: bilingualNodeLabel(node),
       state: node.state,
       kind: node.kind,
       tier: node.tier,
@@ -69,7 +70,7 @@ export function flattenDag(dag) {
 /**
  * "第 n/m 步"的 n：**已了结**口径 = `ok + skipped + cancelled`。
  *
- * ⚠ 待核（施工单 02 §3.7 与 04 单的口径对齐点）：`denied / failed / incident` 也是终态，
+ * ⚠ 待核：`denied / failed / incident` 也是终态，
  * 但它们是"没走完"，算进"第 n 步"会让人以为进度在推进。04 单若定别的口径，改这一个函数。
  */
 export function countSettled(steps) {
@@ -161,21 +162,38 @@ export function createPlanSteps(host, deps) {
     return step.state === 'pending' && index === firstPendingIndex()
   }
 
+  /**
+   * 这一行到底有没有可展开的正文。
+   *
+   * WHY 要先问这个：`step` / `plan` 节点既没有 `code` 也没有 `callId`（见 `flattenDag`
+   * 的注释），`buildBody` 对它们只能产出一个空 div。chevron 照画的话就是一个**死控件**——
+   * 用户点一下，箭头转 180°，下面什么都不出现，看起来像渲染坏了（2026-10-31 走查）。
+   * 与其补一句"没有明细"，不如不给这个按钮：可展开性必须由内容决定。
+   */
+  function hasBody(step) {
+    return step.code !== undefined || step.callId !== undefined
+  }
+
   function renderStep(step, index) {
     const view = STEP_VIEW[step.state] ?? { label: `未知状态：${String(step.state)}`, tag: 'ds-tag ds-tag--warning' }
-    const expanded = isExpanded(step, index)
+    const expandable = hasBody(step)
+    const expanded = expandable && isExpanded(step, index)
 
-    const toggle = el('button', {
-      class: 'm-step__toggle',
-      type: 'button',
-      dataset: { role: 'step-toggle', nodeId: step.id },
-      'aria-expanded': String(expanded),
-      'aria-label': `${expanded ? '收起' : '展开'}步骤 ${String(index + 1)}：${step.label}`,
-    }, [icon('chevron-down', 16)])
-    toggle.addEventListener('click', () => {
-      toggled.set(step.id, !expanded)
-      rerender()
-    })
+    const toggle = expandable
+      ? el('button', {
+          class: 'm-step__toggle',
+          type: 'button',
+          dataset: { role: 'step-toggle', nodeId: step.id },
+          'aria-expanded': String(expanded),
+          'aria-label': `${expanded ? '收起' : '展开'}步骤 ${String(index + 1)}：${step.label}`,
+        }, [icon('chevron-down', 16)])
+      : null
+    if (toggle !== null) {
+      toggle.addEventListener('click', () => {
+        toggled.set(step.id, !expanded)
+        rerender()
+      })
+    }
 
     return el('li', {
       class: `m-step m-step--${String(step.state)}`,
@@ -188,10 +206,10 @@ export function createPlanSteps(host, deps) {
         el('span', { class: 'm-step__tags' }, [
           el('span', { class: view.tag === '' ? 'ds-tag' : view.tag, text: view.label }),
         ]),
-        toggle,
+        ...(toggle === null ? [] : [toggle]),
       ]),
       ...(step.state === 'blocked' ? [blockedReason(step)] : []),
-      buildBody(step, expanded),
+      ...(expandable ? [buildBody(step, expanded)] : []),
     ])
   }
 
@@ -238,7 +256,7 @@ export function createPlanSteps(host, deps) {
       body.replaceWith(fresh)
       return toolNodes.get(toolFrame.callId)?.node ?? null
     },
-    /** 会话级目标条（04 单语义，本单只渲染；跨 turn 存续靠帧键 `goal` 的替换语义）。 */
+    /** 会话级目标条（04 单语义，本设计只渲染；跨 turn 存续靠帧键 `goal` 的替换语义）。 */
     setGoal(goalFrame) {
       clear(goalSlot)
       goalSlot.append(
@@ -260,7 +278,7 @@ export function createPlanSteps(host, deps) {
     },
     /**
      * 待办渲染位（04 单派生帧，D8 不落账）。
-     * 本单只呈现**只读列表**：勾选交互语义归 04，这里不实现，也不假装可点。
+     * 本设计只呈现**只读列表**：勾选交互语义归 04，这里不实现，也不假装可点。
      */
     setTodos(todoFrame) {
       clear(todoSlot)

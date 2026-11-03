@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <!--
       viewport-fit=cover 是 env(safe-area-inset-*) 生效的前提：不加它，刘海屏与圆角屏的
-      安全区变量恒为 0，底部抽屉会被系统手势条压住（施工单 02 §3.1 差异 1）。
+      安全区变量恒为 0，底部抽屉会被系统手势条压住。
     -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <!--
@@ -15,12 +15,12 @@
     -->
     <meta name="theme-color" content="#FFFFFF" />
     <!--
-      BAH DS 是 Light-only 基线（施工单 00 §11「不做暗色模式」）：显式声明 color-scheme，
+      BAH DS 是 Light-only 基线：显式声明 color-scheme，
       否则浏览器会按系统深色偏好给表单控件与滚动条套一层 UA 暗色样式。
     -->
     <meta name="color-scheme" content="light" />
-    <link rel="icon" href="./assets/icons/ai.svg" type="image/svg+xml" />
-    <title>BAH · 移动</title>
+    <link rel="icon" href="./assets/icons/Bank.svg" type="image/svg+xml" />
+    <title>智能银行助手</title>
     <!--
       访问凭证由 host 静态处理器注入：m.html 在 channel:mobile 的凭证入口白名单
       （profiles/mobile/patch.yml 的 entries）里，响应时会在 head 结束标记前插入一条
@@ -44,7 +44,7 @@
     <!--
       空壳：全部 DOM 由 src/mobile/shell.js 生成（textContent 纪律，见 src/dom.js 头注释）。
       刻意不引 styles/app.css——那是桌面壳的页面局部样式；双壳各自独立，
-      公共基座只有上面两份 DS 副本（施工单 00 D1、02 §3.1 差异 4）。
+      公共基座只有上面两份 DS 副本。
     -->
     <div id="app" class="m-shell"></div>
     <script type="module" src="./src/mobile/shell.js"></script>

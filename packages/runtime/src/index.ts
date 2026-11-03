@@ -7,7 +7,7 @@
  * - 阶段 5：主循环 `agent-loop/`、agent 接口与活体注册表 `agent/`
  * - 插件线：编排原语 `plan/`（`plan:dag` 的纯引擎，宿主装配在 `@bah/host`）
  * - 04 单：`goal/`（意图账本）、`todo/`（plan 事件的派生清单）
- * 后续：`guard/`（施工单 14 / 插件线）。
+ * 后续：`guard/`。
  */
 export * from './agent/index.ts'
 export * from './agent-loop/index.ts'

@@ -394,7 +394,7 @@ export function deriveSpans(
         const nodeId = str(data, 'nodeId')
         if (planId === undefined || nodeId === undefined) break
         // 被阻塞的节点从未 `node-started`（阻塞 = 没调度）。若不做这一步，
-        // "为什么这个计划没跑完"在图里完全看不见。合成一条 0 时长 span 并标 `blocked`。
+        // "为什么这个计划没跑完"在图里完全看不。合成一条 0 时长 span 并标 `blocked`。
         const draft = openSpan(
           'plan.node',
           `${planId}/${nodeId}#blocked`,

@@ -1,5 +1,5 @@
 /**
- * 票据生命周期账本（施工单 09 §3；从 `bank/src/tools/governance.ts` 的内存 `pending` Map 迁来）。
+ * 票据生命周期账本。
  *
  * 三步分工，谁都不越界：
  * 1. **bank-core** 仍是核销唯一属主（`TicketStore.redeem()` 的同步 CAS）；
@@ -71,7 +71,7 @@ export interface TicketIssueInput {
     readonly leaseId: string
     readonly expiresAt: number
   }
-  /** 授权来源（ADR-0006；缺省 = 人工点击）。 */
+  /** 授权来源（ADR-0008；缺省 = 人工点击）。 */
   readonly authorization?: AuthorizationRef
   /** 签发时刻。 */
   readonly at: number
@@ -92,7 +92,7 @@ export interface TicketLedgerOptions {
  *    │                    │                   │
  *    └──────────── block ─┴───────────────────┘──▶ blocked（consume 后的票据不能再阻断）
  * ```
- * 重复的同向转移是**幂等 no-op**（重复应答 / 重复收尾很常见，不该炸）；
+ * 重复的同向转移是**幂等 no-op**（重复应答 / 重复收尾很常，不该炸）；
  * 反向或越级转移一律 `ticket-closed` / `ticket-not-approved`——那是程序错了，必须响。
  */
 export class TicketLedger {
@@ -218,7 +218,7 @@ export class TicketLedger {
   /**
    * 批准（`issued → approved`）。
    *
-   * `authorization` 缺省 = 人工签署（ADR-0006：老调用方零改动）。
+   * `authorization` 缺省 = 人工签署（ADR-0008：老调用方零改动）。
    *
    * @throws `BahError('ticket-unknown')` / `BahError('ticket-closed')`
    */

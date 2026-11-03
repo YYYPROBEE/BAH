@@ -241,7 +241,7 @@ async function main(): Promise<void> {
   console.log('\n—— 结论 ——')
   if (failures === 0) {
     console.log('两条路径都证明：判决件异常时，原始结果没有进入模型可见内容，且证据已落账。')
-    console.log('答辩口径：这不是"规则命中"，是"核验组件失效时仍然不放行"。')
+    console.log('对外说明口径：这不是"规则命中"，是"核验组件失效时仍然不放行"。')
   } else {
     console.log(`共 ${String(failures)} 条断言失败——演示不成立，别拿去讲。`)
   }

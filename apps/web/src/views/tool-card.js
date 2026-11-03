@@ -1,5 +1,5 @@
 /**
- * 工具卡片（施工单 13 §2.1「三态」+ §2.2「金额降级」）。
+ * 工具卡片。
  *
  * 三态用**三重编码**表达，不只靠颜色（色弱/投影仪下也能读）：
  * 颜色（`--status-*`）+ 文案（待执行/已完成/已拦截/执行失败）+ 图标。
@@ -9,6 +9,7 @@
  */
 
 import { el, icon } from '../dom.js'
+import { reasonLabelOf } from '../format.js'
 
 /** 状态 → 文案与色调。 */
 const STATE = {
@@ -36,6 +37,23 @@ function tagClass(tone) {
 /** 字段色调 → class（`default` 不额外着色）。 */
 function toneClass(tone) {
   return tone === undefined || tone === 'default' ? '' : `field__value--${tone}`
+}
+
+/**
+ * 把工具正文里的合规提示整理成客户可读的一句话。
+ *
+ * 原始正文形如「风险提示：wealth-risk-v1（必须向用户展示，理财非存款、投资有风险）」：
+ * 「必须向用户展示」是给模型的指令，不该出现在客户界面；ID 由旁边的 chip 单独展示。
+ * 只去掉这层包装，不改写任何风险表述；认不出格式就原样显示。
+ */
+function disclaimerTextOf(raw) {
+  const text = String(raw ?? '').trim()
+  const cleaned = text
+    .replace(/^风险提示[：:]\s*\S+?\s*[（(]\s*/, '')
+    .replace(/^必须向用户展示[，,、]?\s*/, '')
+    .replace(/\s*[）)]\s*$/, '')
+    .trim()
+  return cleaned === '' ? text : cleaned
 }
 
 /**
@@ -103,10 +121,10 @@ export function renderTool(frame) {
         : [
             el('div', { class: 'ds-alert ds-alert--warning tool-card__disclaimer' }, [
               el('span', { class: 'ds-alert__icon' }, [icon('error', 16)]),
-              el('div', {}, [
-                el('div', { class: 'ds-alert__title', text: '风险提示（必须展示）' }),
-                el('p', { class: 'ds-alert__desc', text: card.disclaimer.text }),
-                el('code', { class: 'ds-code', text: card.disclaimer.id }),
+              el('div', { class: 'tool-card__disclaimer-body' }, [
+                el('div', { class: 'ds-alert__title', text: '风险提示' }),
+                el('p', { class: 'ds-alert__desc', text: disclaimerTextOf(card.disclaimer.text) }),
+                el('code', { class: 'ds-code tool-card__disclaimer-id', text: card.disclaimer.id }),
               ]),
             ]),
           ]),
@@ -115,8 +133,10 @@ export function renderTool(frame) {
         ? []
         : [
             el('footer', { class: 'tool-card__foot' }, [
-              ...(frame.code === undefined ? [] : [el('code', { class: 'ds-code', text: frame.code })]),
-              ...(frame.reason === undefined ? [] : [el('span', { text: frame.reason })]),
+              ...(frame.code === undefined
+                ? []
+                : [el('code', { class: 'ds-code', text: reasonLabelOf(frame.code) })]),
+              ...(frame.reason === undefined ? [] : [el('span', { text: reasonLabelOf(frame.reason) })]),
               ...(frame.durationMs === undefined
                 ? []
                 : [el('span', { class: 'tool-card__duration', text: `${String(frame.durationMs)}ms` })]),

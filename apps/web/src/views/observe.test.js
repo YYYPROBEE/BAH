@@ -1,5 +1,5 @@
 /**
- * 观测面板渲染（03 §S3.1 的 12 条 + 成本换算 / 截断 / 陈旧提示）。
+ * 观测面板渲染（03 §S3.1 的 12 条 + 截断 / 陈旧提示）。
  *
  * 视图层是纯函数：用例只塞 state、读 DOM，不碰网络与时钟。
  */
@@ -105,7 +105,7 @@ describe('观测面板 · 空态与错误态', () => {
     const onRefresh = vi.fn()
     const { box } = render(state({ error: { code: 'network-error', reason: '断网' }, onRefresh }))
     expect(box.textContent).toContain('指标读取失败（network-error）')
-    expect(box.querySelectorAll('.obs__kpi')).toHaveLength(4)
+    expect(box.querySelectorAll('.obs__kpi')).toHaveLength(3)
     expect(box.querySelector('.obs__kpi .obs__kpi-value').textContent).toBe('3')
     box.querySelector('.obs__error button').click()
     expect(onRefresh).toHaveBeenCalledTimes(1)
@@ -138,20 +138,6 @@ describe('观测面板 · 四张 KPI', () => {
     expect(box.querySelector('.obs__kpi:nth-child(3) .obs__kpi-value').classList.contains('is-danger')).toBe(true)
   })
 
-  it('成本：configured=false 解释「本地 provider · 无上游账单」，不显示免费', () => {
-    const { box } = render(state({ metrics: metrics({ cost: { configured: false, total: 0 } }) }))
-    const card = box.querySelector('.obs__kpi:nth-child(4)')
-    expect(card.textContent).toContain('¥0.00')
-    expect(card.textContent).toContain('本地 provider · 无上游账单')
-    expect(card.textContent).not.toContain('免费')
-  })
-
-  it('成本：整数微元换算成两位小数（1234567 微元 = ¥1.23）', () => {
-    const { box } = render(state({ metrics: metrics({ cost: { configured: true, total: 1234567 } }) }))
-    const card = box.querySelector('.obs__kpi:nth-child(4)')
-    expect(card.textContent).toContain('¥1.23')
-    expect(card.textContent).toContain('pricing 已配置')
-  })
 })
 
 describe('观测面板 · SLO 八行', () => {

@@ -1,4 +1,4 @@
-# 结构化日志 code 表（可观测性 02）
+# 结构化日志 code 表
 
 > 本表是 `logJson(level, code, fields)` 的 **code 闭集**：代码里出现的字面量 code 必须在这里有一行，
 > 由 `scripts/verify-observability.ts` 逐条比对（新 code 不登记 = 门禁红）。
@@ -27,6 +27,15 @@
 | `host.plan-wake-refused` | warn | `packages/host/src/boot/plugins/scheduler.ts` | 判定时刻越界，唤醒被拒（一条都不执行） |
 | `host.plan-wake-failed` | error | `packages/host/src/boot/plugins/scheduler.ts` | 唤醒流程抛错（计划内节点失败另走 plan/*） |
 | `host.plan-catchup-unavailable` | warn | `packages/host/src/boot/plugins/scheduler.ts` | 启动补跑等不到 `bah:plan-wake`（plan 插件未装配） |
+| `host.proactive-scan-failed` | error | `packages/host/src/boot/plugins/proactive.ts` | 订阅提醒扫描抛错（tick 来源；不阻断后续 job） |
+| `host.proactive-push-failed` | warn | `packages/host/src/boot/plugins/proactive.ts` | 单条提醒投递失败（其余条目照常） |
+| `host.proactive-catchup-unavailable` | warn | `packages/host/src/boot/plugins/proactive.ts` | 启动补跑等不到 `bank:tools` 的取数口（未装配银行工具） |
+| `host.proactive-catchup-failed` | error | `packages/host/src/boot/plugins/proactive.ts` | 启动补跑扫描抛错 |
+| `host.birthday-scan-failed` | error | `packages/host/src/boot/plugins/proactive.ts` | 生日扫描抛错（tick 来源；不阻断订阅 job） |
+| `host.birthday-push-failed` | warn | `packages/host/src/boot/plugins/birthday.ts` | 单条生日提醒投递失败（其余条目照常） |
+| `host.birthday-catchup-unavailable` | warn | `packages/host/src/boot/plugins/proactive.ts` | 启动补跑等不到 `bah:fact`（事实库未装配） |
+| `host.birthday-catchup-failed` | error | `packages/host/src/boot/plugins/proactive.ts` | 生日启动补跑扫描抛错 |
+| `host.aa-expire-failed` | error | `packages/host/src/boot/plugins/aa-expiry.ts` | AA 到期收口 job 抛错（不向 tick 抛） |
 | `saga-alert` | warn / error | `packages/host/src/boot/plugins/saga.ts` | saga 告警汇的 stderr 出口（P0 → error） |
 | `bank.saga-store-tenant-unmarked` | warn | `packages/host/src/boot/plugins/saga-store.ts` | 已存在 sqlite 但缺创建者标记，无法判断租户 |
 | `bank.saga-store-tenant-mismatch` | warn | `packages/host/src/boot/plugins/saga-store.ts` | sqlite 由别的租户创建（共用会把两租户事务混一起） |
@@ -74,6 +83,10 @@
 | `im-handoff-request` | info | `apps/im-gateway/src/bridge/turn.ts` | 用户请求转人工 |
 | `im-seat-forward` | info | `apps/im-gateway/src/handoff/operator.ts` | 运营桥转发（路径/状态码，不含 token） |
 | `im-seat-denied` | warn | `apps/im-gateway/src/handoff/operator.ts` | 运营鉴权失败（code=missing/mismatch） |
+| `im-help` | info | `apps/im-gateway/src/bridge/turn.ts` | 用户请求帮助/菜单（只打平台，不含原文） |
+| `im-history` | info | `apps/im-gateway/src/bridge/turn.ts` | 历史会话列表命中（只打平台，不含会话内容） |
+| `im-history-idle` | info | `apps/im-gateway/src/bridge/turn.ts` | 该用户没有可列出的会话（空闲） |
+| `im-history-failed` | warn | `apps/im-gateway/src/bridge/turn.ts` | 子进程历史列表调用失败（只打状态码） |
 
 > 动态 code：`packages/host/src/boot/plugins/bank-tools.ts` 的 `warnContextSlots(code, …)`
 > 会把 bank 适配器给的 `bank.slots-*` 族直接透传；这些值来自闭集枚举，不是自由文本。

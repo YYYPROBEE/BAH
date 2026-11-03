@@ -120,7 +120,7 @@ export const sagaPlugin: HostPlugin<ReturnType<typeof parseSagaSettings>> = {
           recoverAll(ctx, settings)
         })
         .catch((error: unknown) => {
-          // 内核不提供 start 钩子；启动恢复失败必须可见，不能静默吞错。
+          // 内核不提供 start 钩子；启动恢复失败必须可，不能静默吞错。
           const reason = describeThrown(error)
           // D2：改成单行 JSON（code 可枚举），不再是拼接串
           logJson('error', 'saga-recovery-failed', { reason })

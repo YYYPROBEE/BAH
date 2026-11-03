@@ -737,6 +737,23 @@ describe('channel:web 静态资源安全', () => {
     }
   })
 
+  it('交接页语义地址 /secure/password 真的打开 password.html（复审 P0-1 端到端）', async () => {
+    const harness = await boot()
+    try {
+      const response = await authedFetch(`${harness.url}secure/password`)
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toContain('text/html')
+      const html = await response.text()
+      // 命中的是真实安全页，不是 404 兜底；它仍在入口白名单里（token + no-store）
+      expect(html).toContain('id="secure-password"')
+      expect(html).toContain(`name="bah-web-token" content="${WEB_TOKEN}"`)
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      expect(response.headers.get('set-cookie') ?? '').toContain('bah_csrf=')
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
   it('password 模式下 index 不注入口令（缺口 1），但仍下发 CSRF cookie 供登录用', async () => {
     const harness = await boot({
       auth: { ...DEFAULT_WEB.auth, mode: 'password', directory: { path: 'auth/users.example.yml' } },
@@ -916,7 +933,7 @@ describe('channel:web 请求边界', () => {
 })
 
 describe('channel:web 实时链路', () => {
-  it('会话事件推 frame，llm/stream 文本分片推 delta，心跳是注释行', async () => {
+  it('会话事件推 frame，llm/stream 文本分片推 delta，心跳是命名事件', async () => {
     const harness = await boot({ heartbeatMs: 1 })
     const controller = new AbortController()
     try {
@@ -947,8 +964,9 @@ describe('channel:web 实时链路', () => {
       for await (const chunk of tapped({} as never, new AbortController().signal)) void chunk
       expect(await readUntil(reader, decoder, '"kind":"delta"')).toContain('"kind":"delta"')
 
-      // ③ 心跳是不带 event: 的注释行，前端 EventSource 不会当事件派发
-      expect(await readUntil(reader, decoder, ': ping')).toContain(': ping')
+      // ③ 心跳是命名事件：EventSource 能把 `event: heartbeat` 派发给监听者，
+      // 客户端据此判断"连接还在"（注释行不会派发，断网黑洞时也就无法判死）。
+      expect(await readUntil(reader, decoder, 'event: heartbeat')).toContain('event: heartbeat')
     } finally {
       controller.abort()
       await shutdown(harness)
@@ -1286,7 +1304,7 @@ describe('channel:web 实时链路', () => {
 })
 
 /**
- * 管理路由（施工单 HP-0 §3.2 的 HP0-05…11）。
+ * 管理路由。
  *
  * 这一组的顺序感很重要：**先"路由存不存在"，再"你是谁"，最后"你要干什么"**。
  * 把 404 放在 401 前面不是洁癖——没配 token 时连"这里有个管理口"都不该被探到。
@@ -2272,6 +2290,40 @@ describe('03 TA-44/45 · 操作者不可伪造（追加用例，不改既有行�
       // 操作者是登录主体（static 模式 = svc:operator），显示名另取 BAH_OPERATOR_NAME
       expect(summary.operatorId).toBe('svc:operator')
       expect(summary.operator).toBe(OPERATOR_NAME)
+    } finally {
+      await shutdown(harness)
+    }
+  })
+})
+
+describe('能力位缺失时的诚实降级（真实通道，不是桩 deps）', () => {
+  it('没装 bah:suggest ⇒ /api/suggest 回 200 unavailable（建议是辅助件，不报 5xx）', async () => {
+    const harness = await boot()
+    try {
+      const res = await authedFetch(`${harness.url}api/suggest`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ user: '查余额', assistant: '余额 1298.00 元' }),
+      })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ suggestions: [], source: 'unavailable' })
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('没装 bank:tools ⇒ /api/secure/password 回 501 password-handoff-unavailable', async () => {
+    const harness = await boot()
+    try {
+      const res = await authedFetch(`${harness.url}api/secure/password`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ticketId: 'h-1', oldPassword: 'bank1234', newPassword: 'NewPass1' }),
+      })
+      expect(res.status).toBe(501)
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        'password-handoff-unavailable',
+      )
     } finally {
       await shutdown(harness)
     }

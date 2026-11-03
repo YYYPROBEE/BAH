@@ -1,5 +1,5 @@
 /**
- * 工具注册表单测（施工单 03 §3 第 6 步 / §4 的 T-TOOL-001、T-TOOL-002）。
+ * 工具注册表单测。
  */
 
 import { describe, expect, it } from 'vitest'

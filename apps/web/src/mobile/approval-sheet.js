@@ -1,5 +1,5 @@
 /**
- * 底部抽屉审批（施工单 02 §3.4）。
+ * 底部抽屉审批。
  *
  * 与桌面弹窗（`views/approval.js`）的关系是**契约对齐、DOM 与状态机独立**（§9.2）：
  * 渲染字段集逐项等于 `ApprovalFrame`（`packages/channels/src/web/frames.ts:135-162`），
@@ -60,6 +60,44 @@ function clockText(ms) {
   const mm = String(Math.floor(total / 60)).padStart(2, '0')
   const ss = String(total % 60).padStart(2, '0')
   return `${mm}:${ss}`
+}
+
+/**
+ * 执行明细块（服务端签发，`ApprovalFrame.details`）。
+ *
+ * 与桌面壳同口径：只改字体与 `ds-tag`，**不画左侧竖色条**；值原样渲染，
+ * 前端不重算金额（`detail.value` 就是服务端签发的那串字符）。
+ */
+function detailsBlock(frame) {
+  const rows = frame.details.map((detail) => {
+    const emphasis = detail.emphasis
+    const valueClass =
+      emphasis === 'amount' ? 'field__value field__value--mono' : 'field__value'
+    const value =
+      emphasis === 'risk'
+        ? el('dd', { class: valueClass }, [
+            el('span', { class: 'ds-tag ds-tag--warning', text: detail.value }),
+          ])
+        : emphasis === 'date'
+          ? el('dd', { class: valueClass }, [el('time', { text: detail.value })])
+          : el('dd', { class: valueClass, text: detail.value })
+    return el('div', { class: 'field', dataset: { label: detail.label, emphasis: emphasis ?? 'plain' } }, [
+      el('dt', { class: 'field__label', text: detail.label }),
+      value,
+    ])
+  })
+  return el('div', { class: 'm-sheet-details', dataset: { role: 'details' } }, [
+    el('h3', { class: 'm-sheet-details__title', text: '执行明细' }),
+    el('dl', { class: 'm-sheet-facts' }, rows),
+    ...(frame.detailsTruncated === true
+      ? [
+          el('p', {
+            class: 'm-gesture__note',
+            text: '明细较多，已省略其余项；完整内容见审计。',
+          }),
+        ]
+      : []),
+  ])
 }
 
 /**
@@ -160,8 +198,8 @@ export function createApprovalSheet(host, handlers, deps = {}) {
     return field(label, el('span', { text: value }))
   }
 
-  /** 金额行：审批帧的 `amountConfirmed` **恒为 false**（frames.ts:145-149 的口径注释），
-   *  所以这里必然挂"待核实"——不是漏推导，是"待批准的数字不得渲染成已确认"。 */
+  /** 金额行：`amountText` 缺省（非金额操作）时由调用方跳过；`amountConfirmed=false`
+   *  仍挂"待核实"——待批准的数字不得渲染成已确认。 */
   function amountField(frame) {
     const unconfirmed = frame.amountConfirmed !== true
     return el('div', { class: 'field', dataset: { label: '金额' } }, [
@@ -222,7 +260,7 @@ export function createApprovalSheet(host, handlers, deps = {}) {
       if (remainMs <= 0 && !expired) {
         expired = true
         // 到期 = 半途关闭语义：**零 decision**，结论只认服务端 `approval-closed` 帧。
-        // 文案落进 resultHost（feed）而不是抽屉里——抽屉马上就要关，写在里面等于没人看得见。
+        // 文案落进 resultHost（feed）而不是抽屉里——抽屉马上就要关，写在里面等于没人看得。
         announceLocal('票据在本地已过期，未提交任何结论；以服务端裁决为准。', 'unavailable')
         closeByUser()
       }
@@ -268,6 +306,9 @@ export function createApprovalSheet(host, handlers, deps = {}) {
   function build(frame) {
     const reasonRequired = frame.rejectReasonRequired === true
     const needsChallenge = frame.challenge !== undefined
+    // 服务端签发的执行明细：有它就不再单独渲染金额/收款人/手续费（同一笔钱两个来源）
+    const details = Array.isArray(frame.details) ? frame.details : []
+    const hasDetails = details.length > 0
     // 打字确认（删除 / 撤销类操作）：前端只做提示与提前拦截，判定在服务端。
     const confirmText = frame.confirmText
     const confirmInput =
@@ -296,7 +337,7 @@ export function createApprovalSheet(host, handlers, deps = {}) {
       rows: 2,
       maxlength: String(MAX_REASON),
       dataset: { role: 'reason' },
-      placeholder: reasonRequired ? '拒绝理由（必填，会写入审计）' : '拒绝理由（可选，会写入审计）',
+      placeholder: reasonRequired ? '拒绝理由（拒绝时必填，会写入审计）' : '拒绝理由（可选，会写入审计）',
       'aria-label': '拒绝理由',
     })
     const reasonCount = el('span', {
@@ -368,20 +409,21 @@ export function createApprovalSheet(host, handlers, deps = {}) {
       el('div', { class: 'ds-drawer__body m-sheet__body' }, [
         el('dl', { class: 'm-sheet-facts' }, [
           textField('操作类型', frame.operation),
-          amountField(frame),
-          textField('收款人', frame.payeeName ?? '—'),
-          ...(frame.payeePhone === undefined ? [] : [textField('收款手机', frame.payeePhone)]),
-          ...(frame.feeText === undefined ? [] : [textField('手续费', frame.feeText)]),
+          ...(hasDetails || frame.amountText === undefined ? [] : [amountField(frame)]),
+          ...(hasDetails || frame.payeeName === undefined ? [] : [textField('收款人', frame.payeeName)]),
+          ...(hasDetails || frame.payeePhone === undefined ? [] : [textField('收款手机', frame.payeePhone)]),
+          ...(hasDetails || frame.feeText === undefined ? [] : [textField('手续费', frame.feeText)]),
           tierField(frame),
           createExpiry(frame, liveNode),
         ]),
+        ...(hasDetails ? [detailsBlock(frame)] : []),
         ...(challengeBox === null ? [] : [challengeBox]),
         gestureEnabled ? gestureHost : null,
         ...(confirmInput === null ? [] : [confirmInput]),
         el('label', { class: 'm-sheet-reason' }, [
           el('span', {
             class: 'm-sheet-reason__label',
-            text: `拒绝理由（${reasonRequired ? '必填' : '可选'}）`,
+            text: `拒绝理由（${reasonRequired ? '拒绝时必填' : '可选'}）`,
           }),
           reasonInput,
           reasonCount,
@@ -694,7 +736,7 @@ export function createApprovalSheet(host, handlers, deps = {}) {
     deps.resultHost?.append(resultNode)
   }
 
-  /** 本地事件（票据到期等）的可见交代：抽屉已经关了，话必须落在 feed 里才有人看得见。 */
+  /** 本地事件（票据到期等）的可见交代：抽屉已经关了，话必须落在 feed 里才有人看得。 */
   function announceLocal(message, tone) {
     deps.resultHost?.append(
       el('div', {

@@ -1,10 +1,10 @@
 /**
- * base bundle · `bank:tools`：仿真银行工具族（施工单 08/09）。
+ * base bundle · `bank:tools`：仿真银行工具族。
  *
  * 装配四样东西：
  * 1. **mock 银行核心**（`MockBankCore` + demo / stress / adversarial 造数；日限额与 Config 同源）；
  * 2. **14 个 P0 工具**（注册进 `core:tools` 的注册表）；
- * 3. **治理平面**（pre-execute 三级判定 + 审批票据桥接；施工单 09 §1–§3）；
+ * 3. **治理平面**（pre-execute 三级判定 + 审批票据桥接；–§3）；
  * 4. **票据账本与强验证端口**：账本来自 `@bah/interaction`（`ticket/*` 事件），
  *    端口 `bank:challenge` 供审批插件在红级挑战链里调用。
  *
@@ -24,6 +24,7 @@ import {
   specOf,
   type BankToolName,
   MockBankCore,
+  PASSWORD_HANDOFF,
   SessionIdentityStore,
   VerifyService,
   buildBankDataset,
@@ -32,6 +33,7 @@ import {
   createBankTools,
   createGatewayVerifyProvider,
   createMockVerifyProvider,
+  createPasswordHandoffPort,
   DEFAULT_CONTEXT_SLOTS,
   provideBankGovernance,
   restoreSessionIdentity,
@@ -40,11 +42,16 @@ import {
   type BankAudit,
   type BankToolDeps,
   type BankToolsConfig,
+  type CardId,
+  type CardSpendReq,
+  type CardSpendResult,
   type ContextSlotSettings,
   type ForgeTier,
   type IdentityBoundData,
+  type MerchantCategory,
   type StrongAuth,
   type TicketGuard,
+  type UpcomingCharge,
   type UserId,
 } from '@bah/bank'
 import { TicketLedger } from '@bah/interaction'
@@ -64,7 +71,8 @@ import {
   provideToolContracts,
 } from '@bah/runtime'
 import type { PolicyDescriptor, SessionApi } from '@bah/runtime'
-import { defineService, type ServiceKey } from '@bah/core'
+import { defineService, type ServiceKey, type SessionId } from '@bah/core'
+import { registerTickJob } from '@bah/saga'
 import { BahError, seededRandom } from '@bah/util'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
@@ -72,6 +80,7 @@ import { RUN_SERVICE } from '../boot.ts'
 import {
   asRecord,
   bootError,
+  describeValue,
   readBoolean,
   readEnum,
   readPositiveInteger,
@@ -79,6 +88,7 @@ import {
   readStringArray,
   rejectUnknownKeys,
 } from '../config.ts'
+import { createAaExpiryJob } from './aa-expiry.ts'
 import { logJson } from './log.ts'
 
 /** `bank:tools` 的配置。 */
@@ -125,6 +135,13 @@ export interface BankToolsSettings extends BankToolsConfig {
   readonly policy: {
     readonly engine: 'legacy' | 'bundle'
   }
+  /**
+   * 风险测评重测冷却（天；R-2）。0 = 关闭（演示档），缺省 1 天（保守值）。
+   *
+   * 判定在核心（`RiskQuestionnaireBook`）：本键只决定交给核心的毫秒数，
+   * 配置面不复写一遍"冷却内该不该拒"的逻辑。
+   */
+  readonly riskCooldownDays: number
 }
 
 /** 默认配置（只有随部署可调的值；身份必须显式给）。 */
@@ -143,7 +160,7 @@ export const DEFAULT_BANK_TOOLS: Omit<BankToolsSettings, 'demoUserId'> = {
    */
   dailyTransferLimit: 1_000,
   /**
-   * 计入组合风险的工具名（施工单 09 §1.1 第 5 条）。
+   * 计入组合风险的工具名。
    *
    * 场景 5 把 `sub_cancel` / `sub_authorize` 纳入：连续多次退订/关协议本身就是需要
    * 解释的高风险组合（第 4 次起理由从 `declared` 变 `risky-calls`，不是升级档位）。
@@ -167,6 +184,8 @@ export const DEFAULT_BANK_TOOLS: Omit<BankToolsSettings, 'demoUserId'> = {
   contextSlots: DEFAULT_CONTEXT_SLOTS,
   // 策略外置：S2 默认 legacy（零行为变化）；S3 由各 profile 显式写 bundle
   policy: { engine: 'legacy' },
+  // R-2：重测冷却保守缺省 1 天；演示档可在 profile 里写 0 关闭
+  riskCooldownDays: 1,
 }
 
 /** 允许的强验证渠道。 */
@@ -228,6 +247,130 @@ export const BANK_BALANCE_PROBE: ServiceKey<BalanceProbe> = defineService<Balanc
   'bank:balance-probe',
 )
 
+/** 定时转账明细要用的「当日已用 / 当日剩余」（来自 `previewTransfer` 的只读试算）。 */
+export interface TransferProbeUsage {
+  readonly dailyUsedCents: number
+  readonly dailyLimitCents: number
+  readonly remainingCents: number
+}
+
+/**
+ * 转账预检探针（`transfer_schedule` 审批明细的「当日已用 / 剩余」取数口）。
+ *
+ * 为什么单独开窄端口：`plan-details` 是纯函数，宿主不握账本；只交出"按用户试算一次"
+ * 这一个只读方法，不暴露账本、流水或任意查询面。**只读**：不签票、不落账、不扣款。
+ *
+ * 读不到（无身份 / 没有账户 / 核心拒绝）一律返回 `undefined`——明细按省略纪律整条不写，
+ * 不拿入参金额冒充"服务端算过的事实"。
+ */
+export interface TransferProbe {
+  readonly preview: (
+    userId: string,
+    amountYuan: number,
+    payeeName: string,
+    viaCardId?: string,
+  ) => Promise<TransferProbeUsage | undefined>
+}
+
+/** 服务键：`bank:transfer-probe`。 */
+export const BANK_TRANSFER_PROBE: ServiceKey<TransferProbe> = defineService<TransferProbe>(
+  'bank:transfer-probe',
+)
+
+/** 卡消费请求（宿主侧窄面：只有已审批的商户工具能走到它）。 */
+export interface CardSpendProbeReq {
+  readonly cardId: string
+  readonly merchantCategory: MerchantCategory
+  readonly amountCents: number
+  readonly memo?: string
+  readonly idempotencyKey?: string
+}
+
+/**
+ * 卡消费探针（`merchant_order` 的 `viaCardId` 落点）。
+ *
+ * 只交出"按会话身份以卡消费"一个方法：身份从 `bank:identity` 解析，调用方不能传 userId，
+ * 从结构上堵掉"拿别人的会话身份刷自己的卡"。账本事件 `card/spent` 与扣款同处落账。
+ */
+export interface CardSpendProbe {
+  readonly spend: (sessionId: string, req: CardSpendProbeReq) => Promise<CardSpendResult>
+}
+
+/** 服务键：`bank:card-spend`。 */
+export const BANK_CARD_SPEND: ServiceKey<CardSpendProbe> = defineService<CardSpendProbe>(
+  'bank:card-spend',
+)
+
+/**
+ * 卡消费探针的唯一构造点（纯依赖注入，便于单测"无身份即拒"）。
+ *
+ * 身份解析器由调用方给：生产接 `bank:identity`，测试接固定映射。
+ * 这里**不接受**调用方传入的 userId——身份只能来自会话。
+ */
+export function createCardSpendProbe(options: {
+  readonly spend: (req: CardSpendReq) => Promise<CardSpendResult>
+  readonly resolveUserId: (sessionId: string) => string | undefined
+  readonly audit: BankAudit
+}): CardSpendProbe {
+  return {
+    spend: async (sessionId, req) => {
+      const userId = options.resolveUserId(sessionId)
+      if (userId === undefined) {
+        throw new BahError('no-identity', 'bank-tools: 卡消费需要已绑定的会话身份', {
+          sessionId,
+        })
+      }
+      const result = await options.spend({
+        userId: userId as UserId,
+        cardId: req.cardId as CardId,
+        merchantCategory: req.merchantCategory,
+        amountCents: req.amountCents,
+        ...(req.memo === undefined ? {} : { memo: req.memo }),
+        ...(req.idempotencyKey === undefined ? {} : { idempotencyKey: req.idempotencyKey }),
+      })
+      options.audit.append('card/spent', {
+        cardId: result.cardId,
+        tail: result.tail,
+        txnId: result.txnId,
+        merchantCategory: result.merchantCategory,
+        amountCents: result.amountCents,
+        at: result.at,
+      })
+      return result
+    },
+  }
+}
+
+/**
+ * 订阅提醒取数口（ADR-0016：`proactive:reminder` 的只读输入）。
+ *
+ * 为什么是一个窄端口，而不是把 `bank-core` 交出去：提醒插件不握账本，也**不该**
+ * 自己算周期——"还有几天扣款"的权威口径在 `core.upcomingCharges`（复用
+ * `detect/recurring.ts` 的推断与 `Subscription.nextChargeAt`）。这里只交出两个只读方法：
+ *
+ * 1. `upcoming`：窗口内即将扣款的**活跃**订阅（已取消/已暂停的自然不在里面）；
+ * 2. `idleIds`：被用户标注「我不用了」（`note='idle'`）的订阅 ID——`upcomingCharges`
+ *    不带这个字段，而"标注过不用了就别再提醒"是产品规则，不能靠调用方猜。
+ */
+export interface SubscriptionProbe {
+  readonly upcoming: (userId: string, withinDays: number) => Promise<readonly UpcomingCharge[]>
+  readonly idleIds: (userId: string) => Promise<readonly string[]>
+}
+
+/** 服务键：`bank:subscription-probe`。 */
+export const BANK_SUBSCRIPTION_PROBE: ServiceKey<SubscriptionProbe> =
+  defineService<SubscriptionProbe>('bank:subscription-probe')
+
+/**
+ * 领域事件发射面（宿主侧）：**非工具**插件落领域事件的唯一入口。
+ *
+ * 为什么必须暴露它：`proactive:reminder` 不是工具调用，没有工具管线的 `deps.audit`；
+ * 但"领域事件只有一处发射面"这条纪律不能因为换了个调用方就破例——否则
+ * `session.appendDomain` 会从两处冒出来，第二处就是第二个口径（`ignorable` 漏写、类型不走
+ * `BankSessionEventMap`）。这里交出的就是 `bank:tools` 内部那份 `BankAudit` 本体。
+ */
+export const BANK_AUDIT: ServiceKey<BankAudit> = defineService<BankAudit>('bank:audit')
+
 export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
   id: 'bank:tools',
 
@@ -250,6 +393,10 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         data: dataset,
         now: run.now,
         limits: { ...dataset.limits, dailyTransferLimitCents: yuanToCents(config.dailyTransferLimit) },
+        // R-2：冷却判定在核心；这里只把"天"换成毫秒（0 = 不传 = 关闭）
+        ...(config.riskCooldownDays <= 0
+          ? {}
+          : { riskCooldownMs: config.riskCooldownDays * 86_400_000 }),
       })
       const verify = new VerifyService({
         provider:
@@ -261,8 +408,8 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         now: run.now,
       })
       // 票据状态机的宿主出口（状态读取 + 熔断批量吊销；核销入口不外泄）。
-      // 施工单 10 §5：sentry 的断路器只通过这个窄端口吊销在途票据，不自己核销。
-      // 只交出两个方法——`issue/approve/block/redeem` 留在 bank-core，不跨包可见。
+      // ：sentry 的断路器只通过这个窄端口吊销在途票据，不自己核销。
+      // 只交出两个方法——`issue/approve/block/redeem` 留在 bank-core，不跨包可。
       const ticketGuard: TicketGuard = {
         status: (ticketId) => core.tickets.status(ticketId),
         revokeAll: (reason, at) => core.tickets.revokeAll(reason, at),
@@ -300,6 +447,42 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         }),
       )
 
+      /**
+       * 转账预检探针（提示词 4-1）：只调 `previewTransfer`，不签票、不落账。
+       *
+       * 多账户时逐个试：`viaCardId` 只属于其中一张卡，试错的那几个会被核心拒绝——
+       * 这不是异常，是"这张账户对不上这张卡"的正常判定。全部试不下来就整条省略。
+       */
+      ctx.effect(
+        ctx.provide(BANK_TRANSFER_PROBE, {
+          preview: async (userId, amountYuan, payeeName, viaCardId) => {
+            if (!Number.isFinite(amountYuan) || amountYuan <= 0) return undefined
+            const amountCents = yuanToCents(amountYuan)
+            const accounts = await core.listAccounts(userId as UserId)
+            for (const account of accounts) {
+              try {
+                const preview = await core.previewTransfer({
+                  fromAccountId: account.id,
+                  payee: { name: payeeName },
+                  amountCents,
+                  channel: 'app',
+                  ...(viaCardId === undefined ? {} : { viaCardId: viaCardId as CardId }),
+                })
+                return {
+                  dailyUsedCents: preview.dailyUsedCents,
+                  dailyLimitCents: preview.dailyLimitCents,
+                  remainingCents: preview.remainingCents,
+                }
+              } catch {
+                // 该账户不适用（不是这张卡的户 / 额度参数不合法）：换下一个
+                continue
+              }
+            }
+            return undefined
+          },
+        }),
+      )
+
       const session = ctx.get(SESSION_SERVICE)
       const identity = new SessionIdentityStore()
       ctx.effect(ctx.provide(BANK_IDENTITY, identity))
@@ -319,7 +502,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         })
       }
 
-      // 身份绑定渠道（施工单 09 §4）：mock 短信登录 / IM 映射 / Web 登录页接缝。
+      // 身份绑定渠道：mock 短信登录 / IM 映射 / Web 登录页接缝。
       // 三个渠道最终都只调 `identity.bind` + 落 `identity/bound`（事件名沿用 08 的 R87）。
       const credentials = new CredentialsService({
         login: new MockSmsLoginService({
@@ -369,13 +552,50 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
           session.appendDomain(type, data, { ignorable: true })
         },
       }
-      // 票据生命周期账本（施工单 09 §3）：每次转移落 `ticket/*`，核销属主仍是 bank-core
+      // 事件发射面（ADR-0016）：非工具插件（`proactive:reminder`）也走这一份，不另起一处 appendDomain
+      ctx.effect(ctx.provide(BANK_AUDIT, audit))
+      // 订阅提醒取数口（ADR-0016）：只读两方法，不交出账本/票据/任意查询面
+      ctx.effect(
+        ctx.provide(BANK_SUBSCRIPTION_PROBE, {
+          upcoming: (userId, withinDays) =>
+            core.upcomingCharges(userId as UserId, withinDays),
+          idleIds: async (userId) =>
+            (await core.listSubscriptions(userId as UserId))
+              .filter((item) => item.note === 'idle')
+              .map((item) => item.id as string),
+        }),
+      )
+      // 卡消费探针（B-03）：`merchant_order(viaCardId)` 经它扣款。
+      // 身份只能按会话解析——调用方传不进来 userId，跨会话刷别人的卡在结构上不成立。
+      ctx.effect(
+        ctx.provide(
+          BANK_CARD_SPEND,
+          createCardSpendProbe({
+            spend: (req) => core.spendOnCard(req),
+            resolveUserId: (sessionId) => identity.resolve(sessionId as SessionId),
+            audit,
+          }),
+        ),
+      )
+      // 票据生命周期账本：每次转移落 `ticket/*`，核销属主仍是 bank-core
       const tickets = new TicketLedger({
         record: (record) => {
           session.appendDomain(record.type, record.data, { ignorable: true })
         },
       })
-      // 强验证端口：审批服务用它在红级 ask 里签发 / 提交挑战（施工单 09 §6）
+      // 交易密码安全页端口（ADR-0014）：web 的 `POST /api/secure/password` 走这里。
+      // 身份只从会话解析（static 模式的 HTTP 主体是 `svc:web`，不是客户号）。
+      ctx.effect(
+        ctx.provide(
+          PASSWORD_HANDOFF,
+          createPasswordHandoffPort({
+            core,
+            audit,
+            resolveUserId: (sessionId) => identity.resolve(sessionId as SessionId),
+          }),
+        ),
+      )
+      // 强验证端口：审批服务用它在红级 ask 里签发 / 提交挑战
       ctx.effect(
         ctx.provide(
           BANK_CHALLENGE,
@@ -397,6 +617,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
           dailyTransferLimit: config.dailyTransferLimit,
           riskyOps: config.riskyOps,
           riskyCallThreshold: config.riskyCallThreshold,
+          riskCooldownDays: config.riskCooldownDays,
         },
         now: run.now,
         // `safety:sandbox` 在场时走 worker 硬隔离。
@@ -424,6 +645,17 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
       for (const definition of createBankTools(deps)) {
         ctx.effect(registry.register(definition))
       }
+
+      /**
+       * AA 到期收口（ADR-0017）。
+       *
+       * 时钟源复用 `saga/tick`（与 janitor / recon / plan-wake / sub-reminder 同一个），
+       * 不另起定时器；常驻 profile（web / mobile / web-plan）的 saga-bridge 是 tick-only，
+       * 批次型 `plan` profile 没有 tick 来源，所以启动时仍补跑一次（同 `plan:scheduler`）。
+       */
+      const aaExpiry = createAaExpiryJob({ core, audit, now: run.now })
+      ctx.effect(registerTickJob('aa-expire', () => { void aaExpiry.run() }))
+      queueMicrotask(() => { void aaExpiry.run() })
 
       /**
        * 契约注册表（W03）：把本包的工具目录包成 `runtime:tool-contracts` 的实现。
@@ -515,6 +747,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
         'ticketLease',
         'contextSlots',
         'policy',
+        'riskCooldownDays',
       ],
       'bank:tools',
     )
@@ -621,6 +854,24 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
       breakerOpenMs: bounded('breakerOpenMs', 1_000, 60_000, DEFAULT_CONTEXT_SLOTS.breakerOpenMs),
     }
 
+    // R-2：0 是合法值（关闭冷却），所以不能走 `readPositiveInteger`。
+    // 只接受"非负整数天"：写一个 1.5 天或负数都不会被静默收敛，而是启动即报错。
+    const rawCooldownDays = config['riskCooldownDays']
+    if (
+      rawCooldownDays !== undefined &&
+      (typeof rawCooldownDays !== 'number' ||
+        !Number.isInteger(rawCooldownDays) ||
+        rawCooldownDays < 0)
+    ) {
+      throw bootError(
+        'invalid-config',
+        `bank:tools.riskCooldownDays 必须是非负整数（收到 ${describeValue(rawCooldownDays)}）`,
+        { where: 'bank:tools', key: 'riskCooldownDays', value: rawCooldownDays },
+      )
+    }
+    const riskCooldownDays =
+      typeof rawCooldownDays === 'number' ? rawCooldownDays : DEFAULT_BANK_TOOLS.riskCooldownDays
+
     return {
       ...(demoUserId === undefined ? {} : { demoUserId }),
       seed: readPositiveInteger(config, 'seed', 'bank:tools') ?? DEFAULT_BANK_TOOLS.seed,
@@ -648,6 +899,7 @@ export const bankToolsPlugin: HostPlugin<BankToolsSettings> = {
       },
       contextSlots,
       policy: { engine: policyEngine },
+      riskCooldownDays,
       verify: {
         provider:
           readEnum(verify, 'provider', 'bank:tools.verify', VERIFY_PROVIDERS) ??

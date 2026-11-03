@@ -85,6 +85,9 @@ function noHome(): string {
 
 const snapshotTicketId = (callId: string): TicketId => `ticket:${callId}` as TicketId
 
+/** 本场景的 overlay（层 4）：只给录制夹具一个显式放行的审批应答者（ADR-0010 后 profile 是 `none`）。 */
+const OVERLAY = join(REPO_ROOT, 'snapshots', CASE.name, 'overlay.yml')
+
 async function runPrompts(agent: Agent, prompts: readonly string[]): Promise<void> {
   for (const prompt of prompts) {
     agent.send(prompt)
@@ -105,7 +108,7 @@ export async function runRecord(): Promise<{
 }> {
   const profile = readProfile(REPO_ROOT, CASE.profile)
   const bundles = await loadBundles(REPO_ROOT, profile.bundles)
-  const { layers } = readLayers(REPO_ROOT, profile, { home: noHome(), overlays: [] })
+  const { layers } = readLayers(REPO_ROOT, profile, { home: noHome(), overlays: [OVERLAY] })
 
   const clock = fixedClock(CASE.clock)
   const scratch = mkdtempSync(join(tmpdir(), 'bah-cross-scene-record-'))

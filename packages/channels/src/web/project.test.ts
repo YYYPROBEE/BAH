@@ -1,5 +1,5 @@
 /**
- * 投影器用例（施工单 13 §5 T-WEB-002 / 005 / 006 / 007 + 审批六要素 / 审计 / 幂等）。
+ * 投影器用例。
  *
  * 纪律：这里只喂**事件**，断言**帧**。不碰 DOM、不碰 HTTP、不读时钟——
  * 一旦某条断言需要真实时间，说明投影层混进了副作用。
@@ -190,6 +190,156 @@ describe('WebProjector · 审批六要素', () => {
     expect(approval.expiresAt).toBeUndefined()
     expect(approval.rejectReasonRequired).toBe(true)
     // 审批时还没有结果 → 金额未确认
+    expect(approval.amountConfirmed).toBe(false)
+  })
+
+  it('tier/decided 上升红级后，工具卡与 DAG 节点都画 red（不是声明黄级）', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('step/start', { turn: 1, step: 1 }))
+    projector.apply(
+      ev('tool/call', {
+        callId: 'call-red',
+        name: 'transfer_create',
+        args: { amount: 800, payee: { name: '李四' } },
+        fingerprint: 'fp-red',
+        tier: { level: 'yellow' },
+      }),
+    )
+    projector.apply(
+      ev('tier/decided', {
+        callId: 'call-red',
+        name: 'transfer_create',
+        level: 'red',
+        reason: 'new-payee',
+        verdict: 'ask',
+      }),
+    )
+    projector.apply(
+      ev('tool/result', {
+        callId: 'call-red',
+        name: 'transfer_create',
+        isError: false,
+        content: [{ type: 'text', text: '转账成功：¥800.00' }],
+      }),
+    )
+    const frames = projector.frames()
+    const tool = frames.filter((frame) => frame.kind === 'tool').at(-1) as ToolFrame
+    expect(tool.tier).toBe('red')
+    const dag = frames.filter((frame) => frame.kind === 'dag').at(-1) as DagFrame
+    const node = dag.nodes.find((item) => item.id === 'call:call-red')
+    expect(node?.tier).toBe('red')
+  })
+
+  it('同 turn 成功预演且收款人+金额一致 → 审批金额已确认；不一致仍是待确认', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('step/start', { turn: 1, step: 1 }))
+    projector.apply(
+      ev('tool/call', {
+        callId: 'call-preview',
+        name: 'transfer_preview',
+        args: { amount: 800, payee: { name: '王建国' } },
+        fingerprint: 'fp-preview',
+        tier: { level: 'green' },
+      }),
+    )
+    projector.apply(
+      ev('tool/result', {
+        callId: 'call-preview',
+        name: 'transfer_preview',
+        isError: false,
+        content: [{ type: 'text', text: '试算：向 王建国 转账 ¥800.00' }],
+      }),
+    )
+    projector.apply(
+      ev('tool/call', {
+        callId: 'call-create',
+        name: 'transfer_create',
+        args: { amount: 800, payee: { name: '王建国' } },
+        fingerprint: 'fp-create',
+        tier: { level: 'yellow' },
+      }),
+    )
+    projector.apply(
+      ev('approval/asked', {
+        ticketId: 'ticket:call-create',
+        callId: 'call-create',
+        name: 'transfer_create',
+        amount: 800,
+      }),
+    )
+    const approval = projector.frames().find((frame) => frame.kind === 'approval') as ApprovalFrame
+    expect(approval.amountConfirmed).toBe(true)
+
+    reset()
+    const mismatch = new WebProjector()
+    mismatch.apply(ev('turn/start', { turn: 1 }))
+    mismatch.apply(ev('step/start', { turn: 1, step: 1 }))
+    mismatch.apply(
+      ev('tool/call', {
+        callId: 'call-preview-2',
+        name: 'transfer_preview',
+        args: { amount: 500, payee: { name: '王建国' } },
+        fingerprint: 'fp-preview-2',
+        tier: { level: 'green' },
+      }),
+    )
+    mismatch.apply(
+      ev('tool/result', {
+        callId: 'call-preview-2',
+        name: 'transfer_preview',
+        isError: false,
+        content: [{ type: 'text', text: '试算：向 王建国 转账 ¥500.00' }],
+      }),
+    )
+    mismatch.apply(
+      ev('tool/call', {
+        callId: 'call-create-2',
+        name: 'transfer_create',
+        args: { amount: 800, payee: { name: '王建国' } },
+        fingerprint: 'fp-create-2',
+        tier: { level: 'yellow' },
+      }),
+    )
+    mismatch.apply(
+      ev('approval/asked', {
+        ticketId: 'ticket:call-create-2',
+        callId: 'call-create-2',
+        name: 'transfer_create',
+        amount: 800,
+      }),
+    )
+    const pending = mismatch.frames().find((frame) => frame.kind === 'approval') as ApprovalFrame
+    expect(pending.amountConfirmed).toBe(false)
+  })
+
+  it('非金额操作（card_freeze，amount=0）的审批帧不产 amountText', () => {
+    reset()
+    const projector = new WebProjector()
+    projector.apply(ev('turn/start', { turn: 1 }))
+    projector.apply(ev('step/start', { turn: 1, step: 1 }))
+    projector.apply(
+      ev('tool/call', {
+        callId: 'call-card',
+        name: 'card_freeze',
+        args: { cardId: 'c-1' },
+        fingerprint: 'fp-card',
+        tier: { level: 'yellow' },
+      }),
+    )
+    projector.apply(
+      ev('approval/asked', {
+        ticketId: 'ticket:call-card',
+        callId: 'call-card',
+        name: 'card_freeze',
+        amount: 0,
+      }),
+    )
+    const approval = projector.frames().find((frame) => frame.kind === 'approval') as ApprovalFrame
+    expect(approval.amountText).toBeUndefined()
     expect(approval.amountConfirmed).toBe(false)
   })
 
@@ -629,7 +779,7 @@ function planNode(id: string, state: DagNode['state'], overrides: Partial<DagNod
   }
 }
 
-describe('projectTodo · 待办派生（TC-MCH-22..24，施工单 01 §3.5）', () => {
+describe('projectTodo · 待办派生（TC-MCH-22..24）', () => {
   it('同输入连调两次逐字节相同；nodes 逆序后仍相同（确定性）', () => {
     const nodes = [planNode('b', 'running'), planNode('a', 'ok'), planNode('c', 'blocked')]
     const input = { turn: 1, seq: 9, at: 9, planId: 'p-1', nodes }
@@ -739,7 +889,7 @@ describe('projectTodo · 待办派生（TC-MCH-22..24，施工单 01 §3.5）', 
   })
 })
 
-describe('projectEffects · 影响面派生（TC-MCH-25..26，施工单 01 §3.5 / V3）', () => {
+describe('projectEffects · 影响面派生（TC-MCH-25..26， / V3）', () => {
   const base = { turn: 1, seq: 4, at: 4 }
 
   it('黄级成功 ⇒ 产出；红级 ⇒ 产出', () => {

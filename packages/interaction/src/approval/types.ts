@@ -1,11 +1,11 @@
 /**
- * 审批服务的渠道无关词汇表（施工单 09 §2 / §2.1）。
+ * 审批服务的渠道无关词汇表。
  *
  * 三条纪律：
  * 1. **不依赖 `@bah/runtime`**：本包只认「票据视图 + 应答 + 挑战」这组结构，
  *    运行时的 `ApprovalInput` 在形状上与本文件的 `ApprovalInputLike` 兼容（宿主负责桥接）；
  * 2. **默认拒绝**：没有应答者、超时、非法返回、缺挑战端口——任何缺省路径都只能是
- *    `unavailable`（施工单 09 §2 表「超时 / 不可达 / 非法返回 → unavailable → 拒绝」）；
+ *    `unavailable`；
  * 3. **时间与定时全量注入**：`now` 与 `Timer` 都由调用方给，竞态与超时的先后顺序
  *    只由注入时钟决定，不依赖真实时间或 sleep（插件线 09 硬约束 7）。
  */
@@ -15,7 +15,7 @@ import type { SessionId, TicketAuthorization } from '@bah/core'
 import type { InteractionRecordSink } from './events.ts'
 
 /**
- * 授权来源（ADR-0006）：`human` = 用户点击；`window` = 授权窗口代签。
+ * 授权来源（ADR-0008）：`human` = 用户点击；`window` = 授权窗口代签。
  *
  * 与 `@bah/core` 的 `TicketAuthorization` 同形（不是第二份真相源：别名而非复制）。
  */
@@ -24,7 +24,7 @@ export type AuthorizationRef = TicketAuthorization
 /** 审批结论（与运行时的 `ApprovalDecision` 同值集；本包不 import 运行时）。 */
 export type ApprovalOutcome = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 
-/** 全部合法结论（门禁用；顺序与施工单 09 §2 一致）。 */
+/** 全部合法结论（门禁用；顺序与 一致）。 */
 export const APPROVAL_OUTCOMES: readonly ApprovalOutcome[] = [
   'allowed-once',
   'rejected',
@@ -55,6 +55,13 @@ export interface ApprovalTicketView {
   readonly expiresAt: number
 }
 
+/** 一条操作明细（结构化展示面；与 `@bah/core` 的 `TicketDetail` 形状一致）。 */
+export interface ApprovalSummaryDetail {
+  readonly label: string
+  readonly value: string
+  readonly emphasis?: 'amount' | 'date' | 'risk'
+}
+
 /** 审批卡片摘要（渠道按此渲染；业务逻辑不进渠道）。 */
 export interface ApprovalSummary {
   /** 卡片标题（如「执行 transfer_create」）。 */
@@ -63,6 +70,13 @@ export interface ApprovalSummary {
   readonly amount?: number
   /** 生效级别（绿 / 黄 / 红）。 */
   readonly tier: string
+  /**
+   * 服务端签发的操作明细（**只展示**，缺省 = 该工具还没有明细）。
+   *
+   * 结构内联而不是 import `@bah/core`：审批服务与运行时/核心是两个物理包，
+   * 这里只承诺形状兼容（与 `ApprovalInputLike` 同一条纪律）。
+   */
+  readonly details?: readonly ApprovalSummaryDetail[]
 }
 
 /** 一次应答（渠道回复给仲裁器的结论）。 */
@@ -91,12 +105,20 @@ export interface ApprovalInputLike {
   /** 红级操作要求的强验证渠道；缺省 = 不需要挑战。 */
   readonly challenge?: ChallengeChannel
   /**
-   * 授权来源（ADR-0006）。
+   * 授权来源（ADR-0008）。
    *
    * 缺省 = 人工点击。窗口代签只由受控执行器（`plan_wake`）经管线注入；
    * 渠道面（Web / IM）永远不写这个字段——页面端不可自证"我是窗口"。
    */
   readonly authorization?: AuthorizationRef
+  /**
+   * 采纳者（`SettledApproval.by` 的回写；ADR-0010）。
+   *
+   * **只在窗口代签时出现**：人工渠道的签署人由渠道自己记，再加一个字段只会让
+   * 历史日志与全部快照抖动。它的作用是把"这一笔是 `window-responder` 代签的"
+   * 落到 durable 的 `approval/decided.by` 上，供回放核对。
+   */
+  readonly by?: string
   /** 当前结论（默认 `unavailable` = 无人应答即拒绝）。 */
   readonly decision: ApprovalAnswer
 }
@@ -147,6 +169,13 @@ export interface ApprovalView {
   readonly summary: ApprovalSummary
   /** 红级挑战句柄（仅红级 ask 有）。 */
   readonly challenge?: ChallengeView
+  /**
+   * 票据自带的授权来源（ADR-0008）。
+   *
+   * 缺省 = 人工票据（渠道照常弹卡片）。窗口代签应答者**只认**
+   * `kind === 'window'` 的那一份，其余一律不回答——见 `window-responder.ts`。
+   */
+  readonly authorization?: AuthorizationRef
   /** 请求关闭信号（超时 / 已有结论 / dispose 时 abort）。 */
   readonly signal: AbortSignal
   /** 提交应答；返回「是否被采纳」。 */
@@ -163,6 +192,14 @@ export interface ApprovalView {
 export interface ApprovalResponder {
   /** 渠道 id（审计与去重报警用）。 */
   readonly id: string
+  /**
+   * 本渠道**能不能答这一张票据**（可选；缺省 = 任何票据都能答）。
+   *
+   * 为什么需要它：窗口代签应答者只答带窗口授权的票据。若把它算进"有应答者"，
+   * 一张普通的人工票据就会从"无人应答 → 立即拒绝"退化成"等满 TTL 再拒"
+   * （120s 的假等待）。注册了但它不认领 ⇒ 与没注册等价，立即 `approval-no-responder`。
+   */
+  accepts?(input: ApprovalInputLike): boolean
   /** 登记到一次审批请求上。 */
   attach(view: ApprovalView): void | Promise<void>
 }
@@ -176,7 +213,7 @@ export type ChallengeIssue =
  * 强验证挑战端口（由宿主用银行侧 `VerifyService` 实现；本包只认这三个动作）。
  *
  * 为什么把签发放在审批服务而不是判定函数：签发需要会话 ID 与“这次 ask 正在等人应答”
- * 这个事实，二者都只在这里可见（施工单 09 §6 的挑战链）。
+ * 这个事实，二者都只在这里可。
  */
 export interface ChallengePort {
   /** 签发一条挑战（`VerifyService.issue` 自此有生产调用点）。 */

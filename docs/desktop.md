@@ -1,6 +1,5 @@
 # 桌面端（Electron）
 
-> 施工单：[15 §2](../../BAH-桌面端施工方案-2026-10-29/00-总施工文档.md) · 分步 01/02/03
 > 一句话：**Electron 主进程内嵌私有 host，窗口加载 `http://127.0.0.1:<随机端口>/`，UI 与 Web 完全同源。**
 
 ## 1. 它是什么 / 不是什么
@@ -22,7 +21,7 @@ pnpm desktop:dev        # 构建 main/preload 并启动窗口
 
 窗口打开后：
 
-- 标题栏是页面标题（`BAH · 银行智能体`），不是 `BrowserWindow` 的 `title`——Electron 用页面
+- 标题栏是页面标题（`智能银行助手`），不是 `BrowserWindow` 的 `title`——Electron 用页面
   `<title>` 覆盖窗口标题，这是预期行为；
 - 控制台（主进程 stdout）会依次打印 4 条 JSON 日志：
   `desktop.starting` → `desktop.host-ready`（带实际端口）→ `desktop.ipc-received`（`bah:boot/ready`）
@@ -35,6 +34,7 @@ pnpm desktop:dev        # 构建 main/preload 并启动窗口
 
 | 动作 | 位置 | 说明 |
 |---|---|---|
+| 新对话 | 顶栏「新对话」按钮 / 菜单「文件 → 新对话」（`Ctrl+N`） | 先 dispose 宿主再 `app.relaunch()`；新进程生成新的 `sessionId`，旧会话保留在会话目录。会中断正在进行的一轮 |
 | 审计视图 | 菜单「视图 → 审计视图」（`Ctrl+Shift+A`） | 点的是 Web 的 `id="tab-audit"`；页面里没有这个 id 会留一条 `desktop.audit-view-missing` 告警 |
 | 打开会话目录 | 菜单「文件 → 打开会话目录」 | `%APPDATA%\bah-desktop\sessions`（`shell.openPath`，只开目录不开 URL） |
 | 重新载入 | 菜单「视图 → 重新载入」（`Ctrl+R`） | 等价于页面刷新；会话状态不受影响（宿主没重启） |
@@ -55,8 +55,7 @@ pnpm desktop:dev        # 构建 main/preload 并启动窗口
 7. 记录：窗口截图、审计截图、`process.versions.node`、zip 的 sha256。
 
 > 为什么幕 4 不是"重开看历史"：平台没有 session resume（`jsonl:create` 对已存在会话排他失败，
-> `provideSession` 也不回放磁盘）。详见 `apps/desktop/src/session-id.ts` 的模块注释与
-> `docs/evidence/2026-10-30-desktop/` 的偏差表 D-02-4。
+> `provideSession` 也不回放磁盘）。详见 `apps/desktop/src/session-id.ts` 的模块注释。
 
 ## 5. 关键设计（读代码前先读这段）
 
@@ -87,6 +86,21 @@ pnpm desktop:dev        # 构建 main/preload 并启动窗口
 
 见 §4 幕 4 与 `apps/desktop/src/session-id.ts`。
 
+### 5.5 「新对话」= 重启进程，不是页面刷新
+
+桌面宿主一个进程只服务一个会话（与 web/mobile 渠道同一套单会话装配），**没有**在进程内
+切换 agent/session 的能力。所以顶栏「新对话」按钮和菜单 `文件 → 新对话`（`Ctrl+N`）
+都走同一条真实路径：
+
+1. 渲染进程只发一条**零载荷** IPC（`newConversation`），不能指定会话或身份；
+2. 主进程先 `stopDesktopHost` dispose 宿主（会话/审计落盘、SSE 断开），再 `app.relaunch()`
+   并退出旧进程；
+3. 新进程重新 `startDesktopHost`，生成新的 `sessionId`，打开空白会话；
+4. 旧会话的目录与审计链原样保留，可用 `pnpm bah audit --dir <旧会话目录>` 回放。
+
+边界：点击会中断正在进行的一轮；普通 Web 版没有这个按钮（单进程单会话，需重启 web
+进程），移动壳也没有。
+
 ## 6. 打包（便携 zip）
 
 ```bash
@@ -104,7 +118,7 @@ pnpm desktop:pack      # → dist-desktop/BAH-desktop-<version>-win-x64.zip
 | 体量 | 132 MB（Electron 运行时 130 MB + `resources/app` 约 2 MB） |
 | `resources/app` 文件数 | 601 |
 | 主进程产物 | `dist/main.mjs` 30 KB（接线层） |
-| sha256 | 见 `docs/evidence/2026-10-30-desktop/desktop-sha256.txt`（每次打包覆写） |
+| sha256 | 打包产物旁的 `desktop-sha256.txt`（每次打包覆写） |
 
 脚本做的六件事（`scripts/pack-desktop.mjs`）：
 
@@ -136,11 +150,9 @@ pnpm desktop:accept                 # 全部 16 条
 node scripts/desktop-acceptance.mjs I-DT-02   # 只跑一条
 ```
 
-逐条判据、原始输出与自检见
-[04-逐项验收.md](evidence/2026-10-30-desktop/04-逐项验收.md)。
-它和 `pnpm gate`（51 项静态门禁）、`pnpm test`（303 文件 / 3389 例）**不重复**：
+`pnpm desktop:accept` 逐条跑这 16 条，把判据、原始输出与自检一并打印，可与 `pnpm gate`、`pnpm test` 对照：
 门禁看代码形态、用例看函数行为、这一条看"交付承诺凭什么成立"（产物 sha256、
-包内文件、git 差异、解压目录的写入面）。
+包内文件、git 差异、解压目录的写入面）。门禁项数与用例数以 [facts.md](../facts.md) 为准。
 
 ## 8. 故障排查
 
@@ -164,10 +176,10 @@ node scripts/desktop-acceptance.mjs I-DT-02   # 只跑一条
 | 面 | 做法 | 门禁 |
 |---|---|---|
 | 窗口 | `contextIsolation` / `nodeIntegration:false` / `sandbox` / `webSecurity` 四项硬值 | G1 |
-| IPC | 只有四条 `bah:boot/*`；注入载荷不含 token | G3 |
+| IPC | 四条 `bah:boot/*` + 一条零载荷 `newConversation`；注入载荷不含 token | G3 |
 | preload | 只 `contextBridge.exposeInMainWorld('bahDesktop', {onInjections,onFatal,onShutdown,sendReady})` | G2 |
 | 导航 | `will-navigate` 只放行同源 loopback；`window.open` 一律 deny；`webview` 拦 | G4 |
 | 权限 | 请求与查询两个处理器都全拒（摄像头/麦克风/通知/剪贴板/地理位置） | G1 |
 | 加载面 | 只 `loadURL(instance.url)`；源码里没有远程/`file://` 字面量 | G5 |
 | 供应链 | 无自动更新、无外链打开、无崩溃上报 | G6 |
-| 落盘 | 会话/记忆/saga 只在 `%APPDATA%\bah-desktop`，`resources/app` 只读 | 03 单 T-DTB-012 |
+| 落盘 | 会话/记忆/saga 只在 `%APPDATA%\bah-desktop`，`resources/app` 只读 | T-DTB-012 |

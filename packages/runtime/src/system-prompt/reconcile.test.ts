@@ -1,5 +1,5 @@
 /**
- * 运行时上下文 reconcile 单测（施工单 05 §4.1 四条）。
+ * 运行时上下文 reconcile 单测。
  */
 
 import { asSessionId, withTestContext } from '@bah/test-support'

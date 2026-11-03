@@ -1,7 +1,7 @@
 /**
- * 审批 / 票据生命周期的 durable 会话事件（施工单 09 §3、§2）。
+ * 审批 / 票据生命周期的 durable 会话事件。
  *
- * 为什么由本包声明：施工单 03 §1.2 的规矩是「领域事件由各自插件包用模块增强追加」。
+ * 为什么由本包声明： 的规矩是「领域事件由各自插件包用模块增强追加」。
  * `approval/asked` 与 `approval/decided` 由七段管线（`@bah/runtime`）落账，本包补齐
  * 两者之间的**仲裁过程**与**票据状态转移**：
  *
@@ -12,7 +12,7 @@
  *                                              └─▶ ticket/blocked（拒绝 / 超时 / 执行失败）
  * ```
  *
- * 纪律：全部 `ignorable: true` 落账（施工单 09 硬约束 6）——平台 reader（`deriveMessages`）
+ * 纪律：全部 `ignorable: true` 落账——平台 reader（`deriveMessages`）
  * 不认识领域族，漏标会让下一次请求装配抛 `session-unknown-event`。
  */
 
@@ -34,7 +34,7 @@ export interface TicketIssuedData {
   readonly amountCents?: number
   /** 过期时刻（epoch ms）。 */
   readonly expiresAt: number
-  /** 授权来源（ADR-0006；缺省 = 人工点击，老日志天然兼容）。 */
+  /** 授权来源（ADR-0008；缺省 = 人工点击，老日志天然兼容）。 */
   readonly authorization?: AuthorizationRef
   /** 转移时刻（注入时钟）。 */
   readonly at: number
@@ -45,7 +45,7 @@ export interface TicketApprovedData {
   readonly ticketId: string
   readonly callId: string
   readonly name: string
-  /** 授权来源（ADR-0006；缺省 = 人工点击）。 */
+  /** 授权来源（ADR-0008；缺省 = 人工点击）。 */
   readonly authorization?: AuthorizationRef
   readonly at: number
 }

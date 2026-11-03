@@ -23,7 +23,7 @@
 
 import { createHash } from 'node:crypto'
 
-import { isPlainObject } from '../plainObject.ts'
+import { isPlainObject } from '../plain-object.ts'
 
 /** 令牌前缀（00 §6 指定的三种形态）。 */
 export const TOKEN_PREFIX = {

@@ -10,7 +10,7 @@
  *    `.js` 回退 + `node_modules` 的 **@bah 闭包**（真实目录、不带 pnpm 符号链接）。
  * 3. **压成 zip**：用系统自带的 bsdtar（`C:\Windows\System32\tar.exe`），
  *    不引第三方库、不依赖 Git Bash 里的 GNU tar（后者不支持 zip）。
- * 4. **打 sha256**：写进证据目录，供答辩现场核对"发出去的包就是这个包"。
+ * 4. **打 sha256**：写进证据目录，供对外说明现场核对"发出去的包就是这个包"。
  *
  * ## 为什么 `resources/app` 里必须有 `node_modules`
  *

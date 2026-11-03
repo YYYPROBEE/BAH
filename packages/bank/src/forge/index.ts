@@ -1,5 +1,5 @@
 /**
- * 造数（施工单 07 §4）：seeded 可复现的仿真银行数据集。
+ * 造数：seeded 可复现的仿真银行数据集。
  *
  * 四档：
  * - `demo`：演示用的小数据；**预置王建国为白名单收款人**（首笔早于演示），保证 800 元转账
@@ -10,7 +10,7 @@
  *   固定脚本（不用随机源），`demo` 档因此保持字节不变。
  *
  * 随机源来自 `@bah/util` 的 `seededRandom`（与快照夹具同源）：同 seed 同数据，
- * 答辩、回放与"数据速查表"都能逐字复现。种子由调用方记录（施工单 12 的会话元数据）。
+ * 对外说明、回放与"数据速查表"都能逐字复现。种子由调用方记录。
  */
 
 import { assertNever, seededRandom, sha256Hex } from '@bah/util'
@@ -89,7 +89,7 @@ export interface BankDataset {
 export const DEMO_NOW = Date.UTC(2026, 9, 19, 2, 0, 0)
 
 /**
- * 默认风控阈值（施工单 07 §4.3；部署时可整体替换）。
+ * 默认风控阈值。
  *
  * 日累计转账限额与赛题分级线的示例值对齐：**1000 元（100,000 分）**。
  * 旧值 5000 元（500,000 分）与 `bank:tools.dailyTransferLimit` 的默认 1000 元并存，
@@ -219,6 +219,10 @@ function buildDemo(now: number): DatasetParts {
   const cards: Card[] = [
     card(bankIds.card('c-1'), current, '1234', 'physical', 100_000, 2_000_000),
     card(bankIds.card('c-2'), current, '5678', 'virtual', 200_000, 800_000),
+    // 信用额度卡（ADR-0015）：授信 5,000 元，已用 0；日/月限额缺省 = 授信额度
+    // （额度是天花板，再套更小的交易限额会让"额度内可用却刷不出去"）。
+    // 刻意用新尾号：c-1 / c-2 的介质与限额语义一个字都不动。
+    card(bankIds.card('c-3'), current, '2468', 'virtual', 500_000, 500_000, 500_000),
   ]
 
   // 王建国：已绑定白名单，首笔 30 天前（演示幕 3 的 800 元转账靠它走黄级流程）
@@ -708,8 +712,21 @@ function card(
   type: Card['type'],
   dailyLimitCents: number,
   monthlyLimitCents: number,
+  /** 给了就是信用产品（ADR-0015）：授信额度（分），已用 0。 */
+  creditLimitCents?: number,
 ): Card {
-  return { id, accountId, tail, type, status: 'normal', dailyLimitCents, monthlyLimitCents }
+  return {
+    id,
+    accountId,
+    tail,
+    type,
+    status: 'normal',
+    dailyLimitCents,
+    monthlyLimitCents,
+    ...(creditLimitCents === undefined
+      ? {}
+      : { kind: 'credit' as const, creditLimitCents, usedCreditCents: 0 }),
+  }
 }
 
 function txn(
@@ -788,7 +805,7 @@ function defaultProducts(): readonly WealthProduct[] {
   ]
 }
 
-/** 汇总某一账期的历史账单快照（施工单 07 §1 的 Bill 实体）。 */
+/** 汇总某一账期的历史账单快照。 */
 function buildBill(period: string, transactions: readonly Transaction[]): Bill {
   const byCategory: Partial<Record<TxnCategory, number>> = {}
   let totalInCents = 0

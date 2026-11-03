@@ -1,6 +1,6 @@
-# desktop profile patch（层 2）。施工单 15 §2 / 桌面端 01。
+# desktop profile patch（层 2）。 / 桌面端 01。
 #
-# 语义是**整块替换**（施工单 06 §0 第 3 条）：每行 config 一出现就完全取代 base 的值。
+# 语义是**整块替换**：每行 config 一出现就完全取代 base 的值。
 # 与 profiles/web/patch.yml 的差异**只有四处**：
 #   ① `core:agent.config.channel` = desktop；
 #   ② 渠道行 id/use = `channel:desktop`，且 port / entry / entries 不同；
@@ -15,9 +15,12 @@
     provider: router
     model: router-chat
     chunkSize: 4
+    # 演示节流：让 running 态（中断按钮）可见。core:model 必须与 web 逐字一致
+    # （verify-channel-capabilities I8），所以各渠道成对修改。
+    stepDelayMs: 250
     # ── 可替换真实模型（DeepSeek V4.1 Flash / DashScope 兼容端点）──
     # 切换时必须**同时**改这里与 core:agent.loop.model（两处成对，见 docs/deploy.md）：
-    # 把上面三行换成下面整块，并把 loop.model 改成 deepseek:deepseek-v4.1-flash-1017。
+    # 把上面四行换成下面整块，并把 loop.model 改成 deepseek:deepseek-v4.1-flash-1017。
     # provider: deepseek
     # model: deepseek-v4.1-flash-1017
     # baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
@@ -119,7 +122,7 @@
   use: demo:echo
   config: { prefix: '[desktop] ' }
 
-# 渠道行（施工单 15 §2）：必须放在 interaction:approval 之后——本行 inject 审批服务，
+# 渠道行：必须放在 interaction:approval 之后——本行 inject 审批服务，
 # 直接注册桌面渠道应答者。
 #
 # ⚠ `port: 0` 是桌面内嵌的**唯一正确值**（I-DT-02）：端口随每次启动变化，
@@ -148,3 +151,12 @@
     # 与 web 同值，换部署时可调。
     handoff:
       slaMs: 180000
+
+# ── TODO（ADR-0016）：`proactive:reminder` 刻意**没有**在此 profile 装配 ──
+# 理由：本 profile 没有"主动发消息"的出口。
+#   · im：`apps/im-gateway` 只做"收到消息 → 回消息"，没有服务端主动外呼的通道；
+#     要开就得先有 IM 侧的主动发送 API（飞书/企微的机器人消息），否则开关只是摆设。
+#   · desktop：与 web 共用同一个 host 装配，但它有独立的 profile 行；
+#     桌面窗口要主动提醒同样走 SSE（与 web 一致），本设计先把行留在 web/mobile/web-plan/plan，
+#     桌面端待"内嵌 host 的页面生命周期"复核后再加上（避免打开就弹一条没人看的提醒）。
+# 加行前先确认：`PROACTIVE_SERVICE.push` 的投递渠道已覆盖该渠道（见 ADR-0016 §投递目标）。

@@ -2,11 +2,11 @@
  * 门禁：视觉口径的自研不变量（NOTICE.md「BAH DS 自研设计系统」声明的工程化版本）。
  *
  * 为什么不做「禁用词清单」：清单要求把被禁字面量写进脚本，于是脚本自身永远成为
- * 一次命中（`verify-no-upstream-imports.ts` 就因此把 `scripts/` 排除在扫描面外）。
+ * 一次命中，只能靠把自己排除在扫描面外来收场。
  * 本门禁改为正向断言——只认唯一合法的基线名与唯一合法的自称，任何别的取值即红，
  * 因此不需要存储任何被禁字面量，也不依赖 `grep -I` 那类会漏报二进制、误报词形的扫法。
  *
- * 复审记录（2026-10-21）：上一轮人工核查踩到三个判据陷阱，本门禁逐条堵掉：
+ * 三个判据陷阱，本门禁逐条堵掉：
  * ① 只扫文件内容、不扫文件名 → 漏；② `grep -I` 跳二进制 → 漏，不跳又误报 base64；
  * ③ 子串匹配把 `extra*` / `intra*` 系列驼峰标识符当命中（它们内部恰好含被追查字串的连续字母）→ 假警。
  * 所以这里只按「规范名的形态」判定，并且必须报告实际扫描到的文件数（见 fail-closed 那条）。
@@ -64,8 +64,8 @@ const SCAN_DIRS = [
   'tests',
 ]
 
-/** 根级单文件（PROGRESS.md 等施工记录也在口径范围内）。 */
-const ROOT_FILES = ['NOTICE.md', 'PROGRESS.md', 'README.md', 'AGENTS.md', 'package.json']
+/** 根级单文件（归档记录不随仓库分发，不在面内）。 */
+const ROOT_FILES = ['NOTICE.md', 'README.md', 'AGENTS.md', 'package.json']
 
 /**
  * 「有资格给视觉系统命名」的文件面。R3 只在这里生效——
@@ -74,9 +74,7 @@ const ROOT_FILES = ['NOTICE.md', 'PROGRESS.md', 'README.md', 'AGENTS.md', 'packa
  */
 const NAMING_SURFACE = [
   'NOTICE.md',
-  'PROGRESS.md',
   'docs/web-frontend.md',
-  'docs/web-frontend-review.md',
   'apps/web/index.html',
   'apps/web/styles/app.css',
   'design/bah-ds/README.md',

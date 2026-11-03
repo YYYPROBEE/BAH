@@ -1,22 +1,22 @@
 /**
  * BAH 内核公开契约 —— `@bah/core` 的冻结面。
  *
- * 冻结时点：M0 · 阶段 1（施工单 01 §8）。签审通过后本文件即为接缝，
- * 任何改动都必须走施工单 00 §9 第 3 条「破坏性变更」流程：同步更新架构文档 + 跑全量快照。
+ * 冻结时点：M0 · 阶段 1。签审通过后本文件即为接缝，
+ * 任何改动都必须走 第 3 条「破坏性变更」流程：同步更新架构文档 + 跑全量快照。
  *
  * 本文件只声明契约，不含任何实现。实现分别落在
- * `context.ts` / `events.ts` / `service.ts` / `plugin.ts` / `scope.ts`（施工单 02）。
+ * `context.ts` / `events.ts` / `service.ts` / `plugin.ts` / `scope.ts`。
  *
  * ## 六项契约与本文件的对应
  *
- * | # | 契约（施工单 01 §8） | 本文件对应 |
+ * | # | 契约 | 本文件对应 |
  * |---|---|---|
- * | ① | Context 公开成员 | `Context`（施工单 02 §2） |
- * | ② | 五种事件派发模式 | `Events` / `EventMode`（施工单 02 §3） |
- * | ③ | Service provide/inject + waiting 队列 | `ServiceKey` / `ServiceSeam` / `PluginV2.inject`（施工单 02 §5） |
- * | ④ | Plugin 契约 | `PluginV2` / `ConfigSchema`（施工单 02 §7） |
- * | ⑤ | SessionEvent envelope | `SessionEvent` / `SessionEventMap`（施工单 03 §1.1） |
- * | ⑥ | ToolDefinition 契约（含 tier） | `ToolDefinition` / `ToolTier` / `PreExecuteVerdict` / `TicketRef`（施工单 03 §2） |
+ * | ① | Context 公开成员 | `Context` |
+ * | ② | 五种事件派发模式 | `Events` / `EventMode` |
+ * | ③ | Service provide/inject + waiting 队列 | `ServiceKey` / `ServiceSeam` / `PluginV2.inject` |
+ * | ④ | Plugin 契约 | `PluginV2` / `ConfigSchema` |
+ * | ⑤ | SessionEvent envelope | `SessionEvent` / `SessionEventMap` |
+ * | ⑥ | ToolDefinition 契约（含 tier） | `ToolDefinition` / `ToolTier` / `PreExecuteVerdict` / `TicketRef` |
  *
  * 纪律：本文件只放类型。跨包只认服务键（`ServiceKey`）与事件名，不认实现类。
  */
@@ -31,28 +31,28 @@ import type { Branded } from '@bah/util'
 /**
  * 撤销句柄：调用即撤销一次贡献，**幂等**（重复调用不报错）。
  *
- * 全仓纪律（施工单 00 §9 第 1 条）：注册即可逆——一切贡献都返回 disposer。
+ * 全仓纪律：注册即可逆——一切贡献都返回 disposer。
  */
 export type Disposer = () => void
 
 /**
  * `ctx.effect()` 登记的清理函数：dispose 时**逆序**执行，并收到 dispose 原因。
  *
- * 例：插件注册了一个定时器或一条服务，dispose 时按后进先出回滚（施工单 02 T-CORE-003/019）。
+ * 例：插件注册了一个定时器或一条服务，dispose 时按后进先出回滚。
  */
 export type EffectDisposer = (reason?: string) => void
 
 /** 插件名，全仓唯一，形如 `bank:tools`、`core:model`。 */
 export type PluginName = string
 
-/** 会话 ID：跨边界不透明，禁止与会话标题等裸字符串互传（施工单 00 §10）。 */
+/** 会话 ID：跨边界不透明，禁止与会话标题等裸字符串互传。 */
 export type SessionId = Branded<'session-id'>
 
-/** 审批票据 ID：跨边界不透明（状态机属主在 bank-core，施工单 07 §3）。 */
+/** 审批票据 ID：跨边界不透明（状态机属主在 bank-core）。 */
 export type TicketId = Branded<'ticket-id'>
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Service 接缝：按键寻址 + waiting 队列（施工单 02 §5）
+ * Service 接缝：按键寻址 + waiting 队列
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -67,12 +67,12 @@ export interface ServiceKey<T> {
 }
 
 /**
- * provide / inject 的签名与 waiting 队列语义（施工单 01 §8 第 ③ 项）。
+ * provide / inject 的签名与 waiting 队列语义。
  *
  * - `provide` 注册实例并返回注销句柄；同名 key 在注销前重复 provide 属 misconfiguration（抛错）。
  * - `whenReady` 是 waiting 队列的读口：依赖未就绪时**挂起**，依赖 ready 后以实例 resolve；
  *   已就绪则立即 resolve。`inject` 声明的依赖在 `start` 阶段走这条路径注入。
- * - 等待图成环 → 启动即抛，错误里打印环路径（施工单 02 T-CORE-005）。
+ * - 等待图成环 → 启动即抛，错误里打印环路径。
  */
 export interface ServiceSeam {
   /** 注册服务实例；返回的 disposer 注销该注册。 */
@@ -82,12 +82,12 @@ export interface ServiceSeam {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 事件五模式（施工单 02 §3 / §4）
+ * 事件五模式
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
  * 五种派发模式。**`@mode` 是公开契约**：每个事件在 JSDoc 用 `@mode` 标注，
- * 门禁 `verify-event-modes` 比对「声明 mode」与「实际派发点」（施工单 00 §9）。
+ * 门禁 `verify-event-modes` 比对「声明 mode」与「实际派发点」。
  */
 export type EventMode = 'emit' | 'serial' | 'parallel' | 'waterfall' | 'bail'
 
@@ -95,7 +95,7 @@ export type EventMode = 'emit' | 'serial' | 'parallel' | 'waterfall' | 'bail'
  * 事件总表。
  *
  * M0 只冻结「表存在、事件名是字符串」这一事实；具体事件键与其 `@mode`
- * 在施工单 04 §6 冻结为接缝总表（`docs/` 里的七段管线挂点表同源）。
+ * 在 冻结为接缝总表（`docs/` 里的七段管线挂点表同源）。
  * 届时本接口由空索引签名收窄为逐键声明，属**扩展**而非破坏性变更。
  *
  * 逐键声明（`context/*`）已经落地：内核自己的事件在这里显式声明，
@@ -126,7 +126,7 @@ export type EventName = keyof BahEventMap & string
  * waterfall 的「交还控制权」函数：调用 `next()` 把当前值交还给链上的下一个 handler。
  *
  * 不调 `next()` 的 handler **拥有该判决**——后续 handler 不再执行（这是有意的拦截用法，
- * 见施工单 09 审批）。链长上限 32 级，超出即抛（施工单 02 §4 第 3 条）。
+ * 见 审批）。链长上限 32 级，超出即抛。
  */
 export type WaterfallNext<T> = (value: T) => Promise<T>
 
@@ -134,7 +134,7 @@ export type WaterfallNext<T> = (value: T) => Promise<T>
  * 事件监听器。
  *
  * 五种模式共用同一形状：`emit` / `serial` / `parallel` 的监听器忽略 `next`；
- * `waterfall` / `bail` 的监听器必须显式 `await next()` 交还（施工单 02 §4 第 1 条）。
+ * `waterfall` / `bail` 的监听器必须显式 `await next()` 交还。
  */
 export type Listener<K extends EventName = EventName> = (
   payload: BahEventMap[K],
@@ -208,14 +208,14 @@ export interface Events {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Context 公开成员（施工单 02 §2 / §6）
+ * Context 公开成员
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
  * 单 agent 作用域：键值注册原语，随所属 Context dispose 自动清理。
  *
  * 这是「单 agent 的隔离注册表」，不是多 realm 隔离——多渠道差异一律用 profile 组合解决
- * （裁剪决策见施工单 00 §11）。
+ * （裁剪决策见）。
  */
 export interface AgentScope {
   /** 注册作用域值；返回的 disposer 立即清除该键。 */
@@ -227,10 +227,10 @@ export interface AgentScope {
 /**
  * 插件运行环境：插件想要的一切都取自 ctx。
  *
- * 生命周期三段（施工单 02 §2）：`install`（插件 apply，可 inject 等待服务）
+ * 生命周期三段：`install`（插件 apply，可 inject 等待服务）
  * → `start`（就绪钩子）→ `ready`；`dispose(reason)` 逆序回滚全部 effect。
  *
- * 实现约束（施工单 02 §2 要点）：`services` / `waiting` / `disposers` 必须是私有结构，
+ * 实现约束：`services` / `waiting` / `disposers` 必须是私有结构，
  * `get` 是服务取用的唯一入口，测试只通过公开 API 验证行为。
  */
 export interface Context extends ServiceSeam {
@@ -243,7 +243,7 @@ export interface Context extends ServiceSeam {
   /**
    * 服务 getter（同步）：按 key 取接口实例。
    *
-   * 未注册即抛错（fail-loud）——不返回 `undefined`，杜绝调用方静默降级（施工单 02 T-CORE-017）。
+   * 未注册即抛错（fail-loud）——不返回 `undefined`，杜绝调用方静默降级。
    */
   get<T>(key: ServiceKey<T>): T
 
@@ -264,20 +264,20 @@ export interface Context extends ServiceSeam {
   /**
    * 键屏蔽代理：事件与贡献**共享父级**，仅屏蔽指定服务键的 `get`。
    *
-   * 收敛版 isolate——只做键屏蔽，不做多 realm 隔离（施工单 00 §11 裁剪决策）。
+   * 收敛版 isolate——只做键屏蔽，不做多 realm 隔离。
    */
   isolate(...keys: ServiceKey<unknown>[]): Context
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 插件契约（施工单 02 §7）
+ * 插件契约
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
  * 配置 schema（schemastery 式）。
  *
  * 校验在 `apply()` **之前**执行，失败即抛（fail-loud，前缀 `bah-core: invalid config for <name>: `）：
- * 未知键、类型错误、阈值越界、正则编译失败都不许静默回退（施工单 00 §9）。
+ * 未知键、类型错误、阈值越界、正则编译失败都不许静默回退。
  */
 export type ConfigSchema<T> = Schema<T>
 
@@ -285,7 +285,7 @@ export type ConfigSchema<T> = Schema<T>
  * 插件契约（三段生命周期 + 依赖声明 + 可校验配置）。
  *
  * 插件之间**不能显式相互 import**——只能通过服务键或事件协作，
- * 以保证「贡献可回滚、依赖可等待」（施工单 02 §8 第 2 条）。
+ * 以保证「贡献可回滚、依赖可等待」。
  */
 export interface PluginV2<Config = unknown> {
   /** 插件名，全仓唯一（如 `bank:tools`）。重名时后者覆盖前者且前者 effect 回滚（T-CORE-020）。 */
@@ -331,11 +331,11 @@ export interface ErasedPlugin {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * SessionEvent envelope（施工单 03 §1.1）
+ * SessionEvent envelope
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
- * 会话事件总表（durable 事件族级索引见施工单 03 §1.2）。
+ * 会话事件总表（durable 事件族级索引见）。
  *
  * M0 只冻结 envelope；各事件的 `data` 形态在阶段 3 随 `session/types.ts` 冻结。
  * 届时本接口由索引签名收窄为逐键声明。
@@ -350,7 +350,7 @@ export type SessionEventType = keyof SessionEventMap & string
 /**
  * 会话事件 envelope —— 全仓**唯一**的会话日志行格式。
  *
- * 不变量（施工单 03 §1.1 / §1.3）：
+ * 不变量：
  * - `seq` 单调、连续、不可覆写；`append` 即分配（前值 + 1）
  * - 只追加：不提供 update / delete——append-only 是不变量，不是约定
  * - `ignorable: true` 时旧 reader 可跳过；缺 `ignorable` 即 required-on-read，
@@ -373,13 +373,13 @@ export interface SessionEvent<U extends SessionEventType = SessionEventType> {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 工具契约（施工单 03 §2.1 / §2.3 / §2.4）
+ * 工具契约
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
  * 权限级别：绿（直接放行）/ 黄（需审批）/ 红（需审批 + 强验证挑战）。
  *
- * 判定解释权归治理平面（施工单 09），工具体不许自带阈值。
+ * 判定解释权归治理平面，工具体不许自带阈值。
  */
 export type ToolTierLevel = 'green' | 'yellow' | 'red'
 
@@ -387,7 +387,7 @@ export type ToolTierLevel = 'green' | 'yellow' | 'red'
  * 权限级别随工具定义声明。
  *
  * `amountPath` 指向参数里代表金额的字段（如 `args.amount` 的 `'amount'`），
- * 供治理平面按金额分档——阈值只许出现在 Config，不许硬编码在工具体（施工单 01 §6）。
+ * 供治理平面按金额分档——阈值只许出现在 Config，不许硬编码在工具体。
  */
 export interface ToolTier {
   level: ToolTierLevel
@@ -402,11 +402,20 @@ export interface ToolJsonSchema {
   readonly [keyword: string]: unknown
 }
 
-/** 工具参数 schema：必须是 object 根。 */
+/** 工具 schema：必须是 object 根。 */
 export interface ToolSchema {
   type: 'object'
   properties?: Readonly<Record<string, ToolJsonSchema>>
   required?: readonly string[]
+  /**
+   * 判别式联合（出参契约用，如 `risk_assess` 的 questions / submit 两个结果形状）。
+   *
+   * 语义：**恰好命中 1 个分支**才算通过；分支必须是 object，且只允许根级一层
+   * （嵌套 `oneOf` 由校验器明确拒绝，不静默放过）。
+   * 本接口只声明形状；执行在 `@bah/util` 的 `validateAgainstSchema`（core 依赖 util，
+   * 不能反向 import，因此校验逻辑不放这里）。
+   */
+  oneOf?: readonly ToolSchema[]
 }
 
 /** 工具结果的内容块（project / finalize 阶段的单位）。 */
@@ -417,7 +426,7 @@ export type ContentBlock =
 /**
  * UI 卡片：渠道无关的纯数据。
  *
- * 渠道（Web / IM / 移动）渲染同一份数据，业务逻辑不许塞进渠道（施工单 03 §2.5）。
+ * 渠道（Web / IM / 移动）渲染同一份数据，业务逻辑不许塞进渠道。
  */
 export interface UiCard {
   /** 卡片种类（渠道按此选模板）。 */
@@ -449,8 +458,8 @@ export interface ToolExecContext {
 /**
  * 工具定义契约。
  *
- * `tier` 是相对上游的**领域扩展**：权限级别在定义处声明，由治理平面统一解释（施工单 09），
- * 避免策略散落在工具体里（施工单 03 §2.1）。
+ * `tier` 是相对上游的**领域扩展**：权限级别在定义处声明，由治理平面统一解释，
+ * 避免策略散落在工具体里。
  */
 export interface ToolDefinition<A = unknown, R = unknown> {
   /** 全局唯一、模型可见的工具名。 */
@@ -471,7 +480,7 @@ export interface ToolDefinition<A = unknown, R = unknown> {
   /** 工具体。抛错由管线归一化为 `isError` 结果，不冒泡到主循环（T-TOOL-007）。 */
   execute(args: A, ctx: ToolExecContext): Promise<R>
   /**
-   * 模型可见面（ADR-0006 配套，D-F）。
+   * 模型可见面（ADR-0008 配套，D-F）。
    *
    * 缺省 `'model'`（与既有行为逐字节一致）；`'internal'` = 只由宿主/CLI 调用，
    * **不进模型可见 schema**。为什么缺省不是 `internal`：那会让所有既有工具静默消失，
@@ -489,9 +498,9 @@ export interface ToolDefinition<A = unknown, R = unknown> {
 }
 
 /**
- * 票据的授权来源（ADR-0006）。
+ * 票据的授权来源（ADR-0008）。
  *
- * - `human` = 用户点击批准（缺省路径，与 ADR-0006 之前的行为等价）；
+ * - `human` = 用户点击批准（缺省路径，与 ADR-0008 之前的行为等价）；
  * - `window` = 授权窗口代签：`ref` 是窗口 id，`digest` 是判决输入的规范化摘要，
  *   回放时据此重算 `checkWindow()`（门禁 I13）。
  */
@@ -502,7 +511,7 @@ export interface TicketAuthorization {
 }
 
 /**
- * `tools/pre-execute` 的判决（施工单 03 §2.3）。
+ * `tools/pre-execute` 的判决。
  *
  * 判决顺序不可重排：危险规则 → PII 审计 → 预算 → 断路器冻结 → 三级权限。
  */
@@ -519,10 +528,34 @@ export type PreExecuteVerdict =
     }
 
 /**
+ * 一条审批明细的强调语义（只影响**展示**，不影响判定）。
+ *
+ * `amount`：金额类，等宽字体；`date`：时刻类，`<time>`；`risk`：风险/合规结论，用 `ds-tag`。
+ */
+export type TicketDetailEmphasis = 'amount' | 'date' | 'risk'
+
+/**
+ * 服务端签发的结构化操作明细（审批卡逐行渲染）。
+ *
+ * **只用于展示，不参与 fingerprint**：`fingerprint` 的口径是「工具名 + 参数」，
+ * 明细里出现的余额、当日已用、适当性结论等会随后续事实变化，
+ * 把它算进指纹会让「同一笔转账换个时刻就签不出票」。
+ * 也不参与票据绑定与核销判决——票据的权威仍是 `fingerprint / amount / expiresAt`。
+ *
+ * 纪律：`value` 必须是**确定性事实的字符串化**（core 现读，或本次调用的意图值），
+ * 不得放模型生成的自由文本，也不得放占位符（读不到就整条省略）。
+ */
+export interface TicketDetail {
+  readonly label: string
+  readonly value: string
+  readonly emphasis?: TicketDetailEmphasis
+}
+
+/**
  * 票据草稿：`ask` 判决请求签发时提交的绑定信息（最小冻结面）。
  *
- * 五绑定细节（会话 / 工具 / 参数指纹 / 金额 / 时效 TTL）由施工单 09 冻结；
- * M0 只冻结「指纹 + 金额 + 时效」这三项在 api 层必须可见。
+ * 五绑定细节（会话 / 工具 / 参数指纹 / 金额 / 时效 TTL）由 冻结；
+ * M0 只冻结「指纹 + 金额 + 时效」这三项在 api 层必须可。
  */
 export interface TicketDraft {
   /** 参数指纹：参数变化即失效。 */
@@ -531,13 +564,20 @@ export interface TicketDraft {
   amount?: number
   /** 票据时效（毫秒）。 */
   ttlMs: number
+  /**
+   * 结构化操作明细（**可选、只展示**）。
+   *
+   * 由治理面在 `ask` 判决里签发，管线原样带进 `approval/asked` 与审批摘要；
+   * 渠道只做投影与排版，不重新计算任何数字（否则同一笔金额会出现两份口径）。
+   */
+  details?: readonly TicketDetail[]
 }
 
 /**
- * 票据引用（施工单 03 §2.4）。
+ * 票据引用。
  *
  * 状态机：`issued(pending)` → `approved(allowed-once)` → `redeemed(consumed)` | `blocked`。
- * **核销唯一属主 = bank-core**（施工单 07 §3）；工具面只做生命周期记账，不改状态。
+ * **核销唯一属主 = bank-core**；工具面只做生命周期记账，不改状态。
  */
 export interface TicketRef {
   ticketId: TicketId
@@ -546,4 +586,11 @@ export interface TicketRef {
   amount?: number
   /** 过期时刻（epoch ms），TTL 由签发时确定。 */
   expiresAt: number
+  /**
+   * 结构化操作明细（只展示；**不参与**指纹与核销判决）。
+   *
+   * 与 `TicketDraft.details` 同一份对象引用：管线不做拷贝、不做二次加工，
+   * 保证「审批卡上写的」与「票据上挂的」逐字相同。
+   */
+  details?: readonly TicketDetail[]
 }

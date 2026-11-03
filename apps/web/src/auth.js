@@ -14,6 +14,7 @@
  * 3. **口令只 POST 一次、不落任何存储**（不写 localStorage/sessionStorage，A1）。
  */
 
+import { BRAND } from './brand.js'
 import { el } from './dom.js'
 
 /** 登录态失败时的统一文案（A2：不给"用户不存在"）。 */
@@ -117,7 +118,7 @@ export function renderLoginCard(options) {
   const submit = el('button', { class: 'ds-btn ds-btn--primary', type: 'submit', text: '登录' })
 
   const form = el('form', { class: 'login-card' }, [
-    el('h1', { class: 'login-card__title', text: 'BAH · 银行智能体' }),
+    el('h1', { class: 'login-card__title', text: BRAND.name }),
     el('p', { class: 'login-card__hint', text: '请使用客户号与口令登录' }),
     userId,
     password,

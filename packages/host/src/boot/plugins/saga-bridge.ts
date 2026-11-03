@@ -462,7 +462,19 @@ export const sagaBridgePlugin: HostPlugin<SagaBridgeSettings> = {
               now: ctx.get(SAGA_CLOCK).now(),
               // `plan-wake` 是 G2 的到期扫描 job：与 janitor / recon / anchor 共用**同一个**时钟源
               // （第二个定时器 = 两份 due 判定，演示当天一定对不上）。
-              dueJobs: ['janitor', 'recon', 'anchor', 'plan-wake'],
+              // `sub-reminder` 是 03 单的订阅续费提醒 job（ADR-0016）：同一个理由，
+              // 提醒扫描不自建 interval——时钟源只有这一个。
+              // `birthday-reminder` 是 04 单的生日扫描（复用同一条主动通道）；
+              // `aa-expire` 是 ADR-0017 的 AA 到期收口。
+              dueJobs: [
+                'janitor',
+                'recon',
+                'anchor',
+                'plan-wake',
+                'sub-reminder',
+                'birthday-reminder',
+                'aa-expire',
+              ],
             })
             .catch((error: unknown) => {
               // 定时器里抛错没人接：只能落日志；job 自身失败另有告警汇。

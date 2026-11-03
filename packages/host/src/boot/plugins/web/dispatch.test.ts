@@ -167,8 +167,11 @@ function makeDeps(overrides: Partial<WebDeps> = {}): WebDeps {
     tryAudit: () => undefined,
     tryTelemetry: () => undefined,
     trySlo: () => undefined,
+    trySuggest: () => undefined,
+    // 交易密码端口（ADR-0014）：矩阵测试不装银行包 ⇒ 端点回 501，闸顺序不受影响
+    tryPassword: () => undefined,
     staticRoot: 'this-directory-does-not-exist',
-    // 施工单 01：单个 indexPath 泛化为 token 入口白名单（D3）；矩阵测试不落盘
+    // ：单个 indexPath 泛化为 token 入口白名单（D3）；矩阵测试不落盘
     defaultEntry: 'this-directory-does-not-exist/index.html',
     tokenEntries: ['this-directory-does-not-exist/index.html'],
     operatorEntry: 'this-directory-does-not-exist/operator.html',
@@ -811,6 +814,51 @@ describe('03 TA-42 · 授权接进 dispatch（一个调用点）', () => {
     })
     expect(probe.status).toBe(200)
     expect(calls).toEqual([])
+  })
+
+  it('TA-46-1d 审计写 actor 失败 → 审批仍照常落结论（证据旁路不阻断资金路径）', async () => {
+    const calls: string[] = []
+    const warnings: string[] = []
+    const original = console.error
+    // 告警走 `logJson`（console.error 一行 JSON）：抓住它才能证明失败分支真的执行了
+    console.error = (...args: unknown[]) => {
+      warnings.push(args.map((arg) => String(arg)).join(' '))
+    }
+    try {
+      const deps = makeDeps({
+        auth: fixedRuntime(identityWith('customer')),
+        adapter: {
+          decide: () => {
+            calls.push('decide')
+            return { ok: true }
+          },
+          verify: () => Promise.resolve({ ok: true }),
+          attachApproval: () => undefined,
+          dispose: () => undefined,
+          pendingTickets: () => ['t-1'],
+          inbound: ({ text }: { text: string }) => ({ text }),
+        } as never,
+        tryAudit: () =>
+          ({
+            append: () => undefined,
+            appendActor: () => {
+              throw new Error('audit disk full')
+            },
+            verifyAll: () => [],
+          }) as never,
+      })
+      const probe = await call('POST', '/api/approval/t-1', {
+        deps,
+        headers: { ...SAME_ORIGIN },
+        body: '{}',
+      })
+      expect(probe.status).toBe(200)
+      expect(calls).toEqual(['decide'])
+      expect(warnings.join('\n')).toContain('web.approval-actor-write-failed')
+      expect(warnings.join('\n')).toContain('audit disk full')
+    } finally {
+      console.error = original
+    }
   })
 })
 

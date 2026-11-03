@@ -216,9 +216,48 @@ def search(
     return SearchResult(evidence=evidence_from_rows(ordered), trace=trace)
 
 
-def _cell_score(query: str, row_key: str, header_text: str, col_key: str, unit: str) -> float:
-    haystack = f"{row_key} {header_text} {col_key} {unit}".lower()
+# 产品限定词：问句里出现这些词，说明用户已经点名了某个产品变体。
+# 三份说明书的 row_key 完全同名（起购金额/风险等级/期限），不按文档归属加减分就会串产品
+# ——实测「稳盈90天增强版起购金额」曾被答成 100 元（W-001），正确值 1000 元（W-003）。
+PRODUCT_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("增强版", ("增强版",)),
+    ("90天b", ("b（vip", "vip")),
+    ("vip专享", ("b（vip", "vip")),
+)
+PRODUCT_WEIGHT = 6.0
+
+
+def _product_score(query: str, doc_title: str) -> float:
+    """点名了产品变体就按文档归属加减分；没点名返回 0（对普通题零影响）。"""
+
+    lowered = query.lower()
+    title = doc_title.lower()
     score = 0.0
+    hinted = False
+    for trigger, title_marks in PRODUCT_HINTS:
+        if trigger not in lowered:
+            continue
+        hinted = True
+        if any(mark in title for mark in title_marks):
+            score += PRODUCT_WEIGHT
+        else:
+            score -= PRODUCT_WEIGHT
+    if not hinted and ("增强版" in title or "b（vip" in title):
+        # 没点名产品时，「稳盈90天」默认指标准版；变体轻微降权，避免靠入库顺序抢先。
+        score -= 3.0
+    return score
+
+
+def _cell_score(
+    query: str,
+    row_key: str,
+    header_text: str,
+    col_key: str,
+    unit: str,
+    doc_title: str = "",
+) -> float:
+    haystack = f"{row_key} {header_text} {col_key} {unit}".lower()
+    score = _product_score(query, doc_title) if doc_title else 0.0
     for term in extract_terms(query):
         if term in haystack:
             score += 2.0
@@ -255,7 +294,10 @@ def lookup(
         header = str(cell["header_text"] or "")
         col_key = str(cell["col_key"] or "")
         unit = str(cell["unit"] or "")
-        score = _cell_score(query, row_key, header, col_key, unit)
+        # `cells_for` 一定带出 doc_title（已 JOIN docs），这里直接取，不用 keys() 兜底
+        # —— sqlite3.Row 的 `in` 走的是值迭代而不是列名，兜底写法反而会误判。
+        doc_title = str(cell["doc_title"] or "")
+        score = _cell_score(query, row_key, header, col_key, unit, doc_title)
         if score <= 0:
             continue
         label = header if header == row_key else f"{header}（{row_key}）"

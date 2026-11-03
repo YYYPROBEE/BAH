@@ -63,11 +63,11 @@ describe('移动布局', () => {
     root.remove()
   })
 
-  it('三区骨架 + 遮罩挂载点，且顺序是 header → feed → dock → overlay', () => {
+  it('三区骨架 + 遮罩挂载点，且顺序是 skip → header → feed → dock → overlay', () => {
     const layout = createLayout(root, { win })
     const children = [...root.children].map((node) => node.className)
 
-    expect(children).toEqual(['m-header', 'm-feed', 'm-dock', 'm-overlay-host'])
+    expect(children).toEqual(['m-skip', 'm-header', 'm-feed', 'm-dock', 'm-overlay-host'])
     expect(layout.regions.feed.id).toBe('m-feed')
     expect(layout.regions.overlayHost.id).toBe('m-overlay')
     expect(layout.regions.feed.getAttribute('aria-label')).toBe('对话与执行')
@@ -142,7 +142,7 @@ describe('移动布局', () => {
     const layout = createLayout(root)
 
     expect(layout.keyboardInset()).toBe(0)
-    expect(root.children.length).toBe(4)
+    expect(root.children.length).toBe(5)
     layout.dispose()
   })
 

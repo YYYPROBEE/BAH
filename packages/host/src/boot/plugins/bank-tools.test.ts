@@ -1,9 +1,9 @@
 /**
- * `bank:tools` 插件（施工单 08 §0 第 6 条：headless 端到端）。
+ * `bank:tools` 插件（headless 端到端）。
  *
  * 两条链路：
  * 1. 真实 `HOST_PLUGINS` + 自定义行启动，mock 模型调 `account_balance` → 绿级放行 → 卡片数据落账；
- * 2. 不写 `demoUserId` → 未绑定身份，业务工具 deny `no-identity`（施工单 09 §4）。
+ * 2. 不写 `demoUserId` → 未绑定身份，业务工具 deny `no-identity`。
  */
 
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -24,6 +24,7 @@ import {
   BANK_RESULT_SCHEMAS,
   BANK_TOOL_NAME_SET,
   DEFAULT_CONTEXT_SLOTS,
+  PASSWORD_HANDOFF,
   SessionIdentityStore,
   restoreSessionIdentity,
   specOf,
@@ -35,6 +36,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { boot, type BootOptions } from '../boot.ts'
 import { createCatalog } from './index.ts'
 import {
+  BANK_CARD_SPEND,
+  BANK_TRANSFER_PROBE,
+  BANK_USER_DIRECTORY,
   DEFAULT_BANK_TOOLS,
   bankToolsPlugin,
   warnContextSlots,
@@ -160,6 +164,12 @@ describe('bank:tools 配置（fail-loud）', () => {
     expect(settings.riskyCallThreshold).toBe(2)
   })
 
+  it('R-2 重测冷却：缺省 1 天，0 合法（关闭），其它非负整数原样透传', () => {
+    expect(bankToolsPlugin.validate({}).riskCooldownDays).toBe(1)
+    expect(bankToolsPlugin.validate({ riskCooldownDays: 0 }).riskCooldownDays).toBe(0)
+    expect(bankToolsPlugin.validate({ riskCooldownDays: 3 }).riskCooldownDays).toBe(3)
+  })
+
   it('未知键 / 非法类型 / 非法枚举全部拒绝', () => {
     const cases: readonly [string, Readonly<Record<string, unknown>>, string][] = [
       ['顶层未知键', { nope: 1 }, 'unknown-config-key'],
@@ -172,6 +182,9 @@ describe('bank:tools 配置（fail-loud）', () => {
       ['日限额非正整数', { dailyTransferLimit: 0 }, 'invalid-config'],
       ['风险名单含未知工具', { riskyOps: ['transfer_creat'] }, 'invalid-config'],
       ['风险次数非正整数', { riskyCallThreshold: 0 }, 'invalid-config'],
+      ['冷却天数非整数', { riskCooldownDays: 1.5 }, 'invalid-config'],
+      ['冷却天数为负', { riskCooldownDays: -1 }, 'invalid-config'],
+      ['冷却天数写成字符串', { riskCooldownDays: '1' }, 'invalid-config'],
     ]
     for (const [name, config, code] of cases) {
       const error = captureThrown(() => bankToolsPlugin.validate(config))
@@ -180,7 +193,33 @@ describe('bank:tools 配置（fail-loud）', () => {
   })
 })
 
-describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
+describe('riskCooldownDays = 0：关闭冷却（该键整条不传，核心用自己的缺省）', () => {
+  it('装配成功且余额工具可用 —— 0 走"不传 riskCooldownMs"这一支，不是传 0 毫秒', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-cooldown-'))
+    const app = await bootWith(
+      { demoUserId: 'u-1', seed: 7, datasetTier: 'demo', riskCooldownDays: 0 },
+      's-cooldown',
+      dir,
+    )
+    try {
+      const definition = app.ctx.get(TOOLS_SERVICE).get('account_balance')
+      const result = await definition.execute(
+        {},
+        {
+          sessionId: asSessionId('s-cooldown'),
+          callId: 'c-bal',
+          signal: new AbortController().signal,
+        },
+      )
+      expect(result).toBeTruthy()
+    } finally {
+      await app.dispose('test')
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('headless 端到端', () => {
   it('D5① fail-closed：未装 safety:sandbox 时 analysis_calc 拒绝执行，不回退进程内', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bah-bank-calc-'))
     const app = await bootWith({ demoUserId: 'u-1', seed: 7, datasetTier: 'demo' }, 's-bank-calc', dir)
@@ -265,7 +304,7 @@ describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
       expect(result.isError).toBe(false)
       expect(result.content.some((block) => block.text?.includes('¥12,345.67'))).toBe(true)
 
-      // 卡片从事件数据派生（施工单 08 §4）
+      // 卡片从事件数据派生
       const tool = app.ctx.get(TOOLS_SERVICE).get('account_balance')
       const card = tool.presentResult?.({}, read.result as never) as { kind?: string } | undefined
       expect(card?.kind).toBe('bank.balance')
@@ -278,12 +317,12 @@ describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
     }
   })
 
-  it('T-IDN-001 21 个工具全部注册；不写 demoUserId 时业务工具 deny no-identity', async () => {
+  it('T-IDN-001 30 个工具全部注册；不写 demoUserId 时业务工具 deny no-identity', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bah-bank-noid-'))
     const app = await bootWith({}, 's-bank-noid', dir)
     try {
       const registry = app.ctx.get(TOOLS_SERVICE)
-      expect(registry.list()).toHaveLength(21)
+      expect(registry.list()).toHaveLength(30)
       expect(registry.has('account_balance')).toBe(true)
       expect(registry.has('transfer_create')).toBe(true)
       expect(registry.has('verify_face')).toBe(true)
@@ -365,7 +404,7 @@ describe('headless 端到端（施工单 08 §0 第 6 条）', () => {
       expect(readFileSync(file, 'utf8')).toContain('identity/bound')
       expect(readFileSync(file, 'utf8')).toContain('mock-login')
 
-      // 回放：用同一批事件重建身份（施工单 12 的快照回放走同一条路径）
+      // 回放：用同一批事件重建身份
       const restored = new SessionIdentityStore()
       restoreSessionIdentity(restored, sessionId, events)
       expect(restored.resolve(sessionId)).toBe('u-1')
@@ -812,6 +851,46 @@ describe('02 TA-27 · 登录身份绑定（session-auth）', () => {
       })
     } finally {
       await app.dispose('test')
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('bank:tools 交出的探针与端口（身份只从会话解析）', () => {
+  it('风险冷却按天换算成毫秒；用户目录、转账探针、卡消费与改密端口各有判据', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-probes-'))
+    const app = await bootWith({ demoUserId: 'u-1', riskCooldownDays: 30 }, 's-probes', dir)
+    try {
+      const directory = app.ctx.get(BANK_USER_DIRECTORY)
+      expect(directory.has('u-1')).toBe(true)
+      expect(directory.has('u-ghost')).toBe(false)
+      expect(directory.list()).toContain('u-1')
+
+      const probe = app.ctx.get(BANK_TRANSFER_PROBE)
+      // 金额非法，或卡号对不上任何被试账户 ⇒ 试完即省略（undefined），不把异常抛给签票面
+      expect(await probe.preview('u-1', 0, '王建国')).toBeUndefined()
+      expect(await probe.preview('u-1', 100, '王建国', 'c-不存在')).toBeUndefined()
+      expect(await probe.preview('u-1', 100, '王建国')).toBeDefined()
+
+      const spend = app.ctx.get(BANK_CARD_SPEND)
+      const spent = await captureRejection(() =>
+        spend.spend('s-probes', { cardId: 'c-ghost', merchantCategory: 'dining', amountCents: 1_000 }),
+      )
+      expect(String(spent.code)).toMatch(/^card-/)
+      // 未绑定身份的会话解析不出 userId：探针不接收调用方传入的 userId
+      await expect(
+        spend.spend('s-unbound', { cardId: 'c-ghost', merchantCategory: 'dining', amountCents: 1_000 }),
+      ).rejects.toMatchObject({ code: 'no-identity' })
+
+      await expect(
+        app.ctx.get(PASSWORD_HANDOFF).submit('s-unbound', {
+          ticketId: 'h-1',
+          oldPassword: 'bank1234',
+          newPassword: 'NewPass1',
+        }),
+      ).rejects.toMatchObject({ code: 'no-identity' })
+    } finally {
+      await app.dispose('test-done')
       rmSync(dir, { recursive: true, force: true })
     }
   })

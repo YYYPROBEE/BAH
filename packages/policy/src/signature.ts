@@ -1,5 +1,5 @@
 /**
- * bundle 签名（施工方案 01 §9）。
+ * bundle 签名（设计方案 01 §9）。
  *
  * 签的是**身份**，不是文件字节：`kind/name/version/两个摘要/engine/owners`。
  * 所以"改注释"会换 sourceDigest（签名失效），"重排 YAML" 只换 sourceDigest、

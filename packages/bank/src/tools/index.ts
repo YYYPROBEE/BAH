@@ -1,5 +1,5 @@
 /**
- * @bah/bank · tools（施工单 08：银行工具族）。
+ * @bah/bank · tools（银行工具族）。
  *
  * 导出面按用途收口：
  * - `specs.ts` / `render.ts`：目录与文档生成（门禁读这一层，不装配 Provider）；
@@ -10,13 +10,16 @@
  */
 
 export * from './account-ops.ts'
+export * from './approval-details.ts'
 export * from './catalog.ts'
 export * from './compute.ts'
 export * from './dto.ts'
 export * from './events.ts'
+export * from './fund-lock.ts'
 export * from './governance.ts'
 export * from './identity.ts'
 export * from './presenters.ts'
+export * from './password.ts'
 export * from './policy.ts'
 export * from './render.ts'
 export * from './result-schemas.ts'

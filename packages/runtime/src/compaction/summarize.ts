@@ -1,5 +1,5 @@
 /**
- * 上下文压缩（施工单 05 §5）：阈值判定 → 结构化摘要 → 折叠投影。
+ * 上下文压缩：阈值判定 → 结构化摘要 → 折叠投影。
  *
  * ```text
  * 判定   shouldCompact()   完整 turn 数 / token 估算 ≥ 配置阈值，且折叠后仍剩原文
@@ -10,7 +10,7 @@
  *
  * 摘要**不调模型**（确定性生成、可回放、零成本）：它由结构化统计 + 金融特例字段拼成。
  * 模型生成的散文摘要会引入不确定性与额外成本，且无法被快照回放逐字校验——
- * 需要时再作为可选增强（本阶段不做，见 PROGRESS 偏离记录）。
+ * 需要时再作为可选增强（本阶段不做，见  偏离记录）。
  */
 
 import { BahError, assertNever } from '@bah/util'
@@ -61,7 +61,7 @@ function isCjk(codePoint: number): boolean {
   )
 }
 
-/** 允许的配置键（未知键 fail-loud，施工单 00 §9「misconfiguration 必须 fail-loud」）。 */
+/** 允许的配置键（未知键 fail-loud，「misconfiguration 必须 fail-loud」）。 */
 const CONFIG_KEYS = new Set(['maxTokens', 'maxTurns', 'keepRecentTurns'])
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -178,7 +178,7 @@ export function estimateEventTokens(event: AnySessionEvent): number {
  * 一次**请求**的 token 估算：消息正文 + 工具 schema。
  *
  * 为什么不能只看会话事件：工具定义不在事件里（每次请求由注册表现算），
- * 只按事件估水位会漏掉 18 个工具的 name / description / JSON schema。
+ * 只按事件估水位会漏掉 21 个工具的 name / description / JSON schema。
  * 图片与推理块不计（与 `estimateEventTokens` 同口径：图片不折算文本，推理块不回放）。
  */
 export function estimateRequestTokens(request: LlmRequest): number {
@@ -396,7 +396,7 @@ export function planCompaction(input: PlanCompactionInput): CompactionPlan {
 }
 
 /**
- * 抽取金融特例字段（施工单 05 §5：涉及金额 / 收款人 / 审批的条目必须结构化保留）。
+ * 抽取金融特例字段（涉及金额 / 收款人 / 审批的条目必须结构化保留）。
  *
  * 数据来源三条：
  * - `tool/call.args` 里的 `amount` / `payee`（模型要求动多少钱、给谁）；

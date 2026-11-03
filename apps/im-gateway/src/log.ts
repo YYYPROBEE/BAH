@@ -1,5 +1,5 @@
 /**
- * 网关日志（施工单 02 §2.15）。
+ * 网关日志。
  *
  * 三条纪律：
  * 1. 只走 `@bah/util` 的 `logJson`（`console.*` 在 packages 面被 `verify-observability` 判红，
@@ -41,6 +41,12 @@ export const IM_LOG_CODES = [
   'im-handoff-request',
   'im-seat-forward',
   'im-seat-denied',
+  // 文本帮助菜单（无按钮平台的“常用业务宫格”等价物）
+  'im-help',
+  // 历史会话列表：用户问“之前聊过什么”，只打平台与状态码，不含会话内容
+  'im-history',
+  'im-history-idle',
+  'im-history-failed',
 ] as const
 
 /** 日志码类型。 */

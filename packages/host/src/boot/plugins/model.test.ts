@@ -312,7 +312,7 @@ describe('core:model 装配面：router 与自定义 deepseek 模型表', () => 
       if (chunk.kind === 'text-delta') pieces.push(chunk.text)
     }
     expect(pieces[0]).toHaveLength(5)
-    expect(pieces.join('')).toContain('我现在只会三件事')
+    expect(pieces.join('')).toContain('我现在能办')
 
     // ② 条件收尾步：会话里还没有 transfer_create 的结局 → 必须拒绝出话（mock-outcome-absent），
     //    而不是编一句"已完成"——这同时证明 toolOutcomes 读口真的被注入且每次现读。
@@ -522,6 +522,72 @@ describe('core:model · 重试观测', () => {
     } finally {
       globalThis.fetch = original
       stderr.mockRestore()
+      await ctx.dispose('test')
+    }
+  })
+})
+
+/**
+ * `stepDelayMs`（演示节流）的配置面与装配面。
+ *
+ * 为什么要单独钉：这个键从 profile 到适配器要过四只手
+ * （`LOCAL_KEYS` → `readPositiveInteger` → `ModelSettings` → `createAdapter` 的两个分支），
+ * 少传任何一只都**不会报错**——离线演示只是"又变回刷完整个 turn"，
+ * 中断按钮的可见窗口悄悄消失。装配面那条用例是这里唯一能证明"参数真的到了适配器"的断言。
+ */
+describe('core:model stepDelayMs（演示节流）', () => {
+  it('router / mock 可写并进 settings；deepseek 写了按 local-only 拒', () => {
+    expect(modelPlugin.validate({ provider: 'router', stepDelayMs: 250 }).stepDelayMs).toBe(250)
+    expect(() =>
+      modelPlugin.validate({ provider: 'deepseek', apiKeyEnv: 'X', stepDelayMs: 250 }),
+    ).toThrow(/只对 provider=mock \/ router/)
+  })
+
+  it('非正整数一律 invalid-config（0 / 负数 / 小数 / 字符串都不能静默生效）', () => {
+    for (const value of [0, -1, 1.5, '250', Number.NaN]) {
+      expect(() => modelPlugin.validate({ provider: 'router', stepDelayMs: value })).toThrow(
+        /stepDelayMs.*必须是正整数/,
+      )
+    }
+  })
+
+  it('没写就是没写：settings 里不出现该键（装配走适配器缺省 0，不注入假节流）', () => {
+    expect(Object.keys(modelPlugin.validate({ provider: 'router' }))).not.toContain('stepDelayMs')
+  })
+
+  it('装配面不漏：provider=router + stepDelayMs 后，第一次模型调用前真的等过', async () => {
+    const ctx = createContext()
+    await ctx.use(modelPlugin.plugin, modelPlugin.validate({ provider: 'router', stepDelayMs: 30 }))
+    await ctx.start()
+    try {
+      const { adapter } = ctx.get(LLM_ADAPTERS).resolve('router:router-chat')
+      const prepared = await adapter.prepareCall({
+        modelId: 'router-chat',
+        messages: [{ role: 'user', content: [{ kind: 'text', text: '今天天气好吗' }] }],
+      })
+      const startedAt = performance.now()
+      expect(await streamAllText(adapter, prepared)).toContain('我现在能办')
+      // 只钉下界：计时器不会提前到期，"等过"因此是可证明的；上界留余量免得机器负载造成假红
+      expect(performance.now() - startedAt).toBeGreaterThanOrEqual(20)
+    } finally {
+      await ctx.dispose('test')
+    }
+  })
+
+  it('mock 分支同样接得住：provider=mock + stepDelayMs 后脚本照常出话，且确实等过', async () => {
+    const ctx = createContext()
+    await ctx.use(
+      modelPlugin.plugin,
+      modelPlugin.validate({ provider: 'mock', model: 'mock-chat', chunkSize: 100, stepDelayMs: 30, script: [{ text: '余额 100' }] }),
+    )
+    await ctx.start()
+    try {
+      const { adapter } = ctx.get(LLM_ADAPTERS).resolve('mock:mock-chat')
+      const prepared = await adapter.prepareCall({ modelId: 'mock-chat', messages: [] })
+      const startedAt = performance.now()
+      expect(await streamAllText(adapter, prepared)).toBe('余额 100')
+      expect(performance.now() - startedAt).toBeGreaterThanOrEqual(20)
+    } finally {
       await ctx.dispose('test')
     }
   })

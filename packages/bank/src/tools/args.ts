@@ -1,5 +1,5 @@
 /**
- * 工具参数读取原语（施工单 08 §8：description 质量差会导致模型误调，参数校验必须 fail-loud）。
+ * 工具参数读取原语（description 质量差会导致模型误调，参数校验必须 fail-loud）。
  *
  * 模型给的参数是**不可信输入**：类型错、缺字段、多字段都可能发生。所有读取都抛出
  * 结构化 `BahError('tool-args-invalid')`，由七段管线归一化成 `isError` 结果回灌给模型，
@@ -108,6 +108,20 @@ export function readOptionalPositiveInteger(
   if (value === undefined || value === null) return undefined
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     throw argsError(`${where}.${key} 必须是正整数`, { key, where })
+  }
+  return value
+}
+
+/** 读可选整数（**允许负数**：账期偏移 -1 = 上个月）。 */
+export function readOptionalInteger(
+  source: Readonly<Record<string, unknown>>,
+  key: string,
+  where: string,
+): number | undefined {
+  const value = source[key]
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throw argsError(`${where}.${key} 必须是整数`, { key, where })
   }
   return value
 }

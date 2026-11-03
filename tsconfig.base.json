@@ -20,7 +20,7 @@
     // 增量状态必须和产物同生共死：放在 dist-types/ 内，否则删产物后
     // tsc -b 会因残留的 tsbuildinfo 认为"已是最新"而跳过 emit，下游解析直接失败。
     "tsBuildInfoFile": "${configDir}/dist-types/tsconfig.tsbuildinfo",
-    // 施工单 00 §10：包内相对导入带 `.ts`；由 emit 阶段改写为 `.js`，
+    // 设计说明 00 §10：包内相对导入带 `.ts`；由 emit 阶段改写为 `.js`，
     // 保证产物面仍是合法的 Node ESM。
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true

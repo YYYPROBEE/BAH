@@ -1,7 +1,7 @@
 /**
  * 票据桥接（`@bah/core` 的三字段 `TicketRef` ↔ bank-core 的五绑定 `TicketRef`）。
  *
- * 施工单 07 把核销属主留在 bank-core，施工单 08/09 在**工具边界**补齐会话与工具名：
+ *  把核销属主留在 bank-core， 在**工具边界**补齐会话与工具名：
  * ```ts
  * { ticketId, binding: { sessionId, tool, fingerprint, amountCents, expiresAt } }
  * ```

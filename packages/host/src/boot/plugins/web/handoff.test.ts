@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { captureThrown } from '@bah/test-support'
+import { BahError } from '@bah/util'
 
 import { HandoffRegistry, createHandoff, type HandoffSummary } from './handoff.ts'
 import type { HandoffSnapshot } from './handoff-store.ts'
@@ -442,6 +443,51 @@ describe('人机接管 01：认领 / 发言 / 心跳 / 恢复', () => {
     })
     // 等待时长按新进程的 now 与旧 at 算
     expect(restarted.summary().waitedMs).toBe(10_000)
+  })
+
+  // 构造期读快照的 catch 体：接管状态读不出来时，既不能裸抛非结构化错误，
+  // 也不能静默当成"没人在接管"（后者会让 AI 抢答客户已经要求人工的消息）。
+  it('T-37 落盘端口抛原始 IO 异常 → 归一成 handoff-state-unreadable，理由留在 detail', () => {
+    const error = captureThrown(
+      () =>
+        new HandoffRegistry({
+          session: { sessionId: 's', lastSeq: () => 0, events: () => [] } as unknown as SessionApi,
+          now: () => 10_000,
+          append: () => undefined,
+          pendingTickets: () => 0,
+          store: {
+            load: () => {
+              throw new Error('EIO: 接管状态文件读取失败')
+            },
+            save: () => undefined,
+            clear: () => undefined,
+          },
+        }),
+    )
+    expect(error.code).toBe('handoff-state-unreadable')
+    expect((error.detail as { reason?: string }).reason).toContain('EIO')
+  })
+
+  it('T-38 落盘端口已给结构化失败 → 原样透传，不二次包装掉原始理由', () => {
+    const error = captureThrown(
+      () =>
+        new HandoffRegistry({
+          session: { sessionId: 's', lastSeq: () => 0, events: () => [] } as unknown as SessionApi,
+          now: () => 10_000,
+          append: () => undefined,
+          pendingTickets: () => 0,
+          store: {
+            load: () => {
+              throw new BahError('handoff-state-unreadable', '接管状态文件不可读：/s-1/handoff.json')
+            },
+            save: () => undefined,
+            clear: () => undefined,
+          },
+        }),
+    )
+    expect(error.code).toBe('handoff-state-unreadable')
+    // 透传的判据：消息来自端口原文（带路径），而不是 registry 的兜底文案
+    expect(error.message).toContain('/s-1/handoff.json')
   })
 })
 

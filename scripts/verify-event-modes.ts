@@ -94,7 +94,7 @@ const gate: Gate = {
       const declaration = declared.get(dispatch.event)
       if (declaration === undefined) {
         findings.push(
-          `${dispatch.file}:${dispatch.line} 事件 "${dispatch.event}" 按 ${dispatch.mode} 派发，但没有对应的 @mode 声明（施工单 00 §9 / 04 §6）`,
+          `${dispatch.file}:${dispatch.line} 事件 "${dispatch.event}" 按 ${dispatch.mode} 派发，但没有对应的 @mode 声明`,
         )
         continue
       }

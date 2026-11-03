@@ -1,5 +1,5 @@
 /**
- * 沙箱档位解析用例（施工单 11 §5 中与 policy 相关的 T-SBX-006 / T-SBX-007，
+ * 沙箱档位解析用例（ 中与 policy 相关的 T-SBX-006 / T-SBX-007，
  * 以及两条恒等规则与批准时效的对抗性用例）。
  */
 
@@ -66,7 +66,7 @@ describe('沙箱档位词汇表', () => {
     expect(isSandboxTier(1)).toBe(false)
   })
 
-  it('缺省规格按施工单 11 §1：query-only 2s、compute-bounded 5s，且隔离档一律零能力', () => {
+  it('缺省规格按：query-only 2s、compute-bounded 5s，且隔离档一律零能力', () => {
     expect(DEFAULT_TIER_SPECS['query-only'].timeoutMs).toBe(2_000)
     expect(DEFAULT_TIER_SPECS['compute-bounded'].timeoutMs).toBe(5_000)
     expect(DEFAULT_TIER_SPECS['query-only'].capabilities).toEqual([])

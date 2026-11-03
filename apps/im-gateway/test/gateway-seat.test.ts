@@ -11,6 +11,7 @@ import { createRegistry } from '../src/platform/registry.ts'
 import { createGatewayServer } from '../src/server.ts'
 import { createSessionHub } from '../src/session/hub.ts'
 import { configFor, fakeChild, fakeSupervisor, recordOf } from './harness-03.ts'
+import { listenOnSafePort } from './safe-port.ts'
 
 const NOW = 1_793_000_000_000
 const SESSION = 'im-0123456789abcdef'
@@ -59,11 +60,7 @@ async function startServer(input: {
     seat: (request, res) =>
       handleSeatRequest({ config, log, supervisor, hub }, request, res),
   })
-  await new Promise<void>((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve())
-  })
-  const address = server.address()
-  const port = typeof address === 'object' && address !== null ? address.port : 0
+  const port = await listenOnSafePort(server)
   return {
     base: `http://127.0.0.1:${String(port)}`,
     supervisor,
@@ -217,6 +214,56 @@ describe('转发（T-IM-017 后半）', () => {
     })
     expect(response.status).toBe(409)
     expect(((await response.json()) as { error: { code: string } }).error.code).toBe('handoff-not-active')
+    await app.close()
+  })
+})
+
+describe('运营桥白名单与上游故障（安全边界）', () => {
+  it('白名单外的路径 → 404，且不向子进程转发', async () => {
+    const child = fakeChild()
+    const app = await startServer({ withOperator: true, child })
+    for (const path of ['/seat/foo', `/seat/${SESSION}/handoff/ban`, '/seat/sessions/extra']) {
+      const response = await call(app.base, path, { token: OPERATOR })
+      expect(response.status).toBe(404)
+      expect(await response.text()).toContain('im-seat-unknown')
+    }
+    expect(child.calls.seats).toEqual([])
+    await app.close()
+  })
+
+  it('会话列表只读：POST /seat/sessions → 405，且不向子进程转发', async () => {
+    const child = fakeChild()
+    const app = await startServer({ withOperator: true, child })
+    const response = await call(app.base, '/seat/sessions', {
+      token: OPERATOR,
+      method: 'POST',
+      body: '{}',
+    })
+    expect(response.status).toBe(405)
+    expect(await response.text()).toContain('im-seat-method')
+    expect(child.calls.seats).toEqual([])
+    await app.close()
+  })
+
+  it('子进程不可达 / 返回非 JSON → 502，绝不把上游异常当成功回传', async () => {
+    const child = fakeChild()
+    const app = await startServer({ withOperator: true, child })
+
+    child.setSeat({ status: 0, json: undefined, text: '' })
+    const down = await call(app.base, `/seat/${SESSION}/handoff/claim`, {
+      token: OPERATOR,
+      method: 'POST',
+      body: '{}',
+    })
+    expect(down.status).toBe(502)
+    expect(await down.text()).toContain('im-seat-upstream')
+
+    child.setSeat({ status: 200, json: undefined, text: 'oops' })
+    const malformed = await call(app.base, `/seat/${SESSION}/handoff/queue`, { token: OPERATOR })
+    expect(malformed.status).toBe(502)
+    expect(await malformed.text()).toContain('im-seat-upstream')
+
+    expect(child.calls.seats).toHaveLength(2)
     await app.close()
   })
 })

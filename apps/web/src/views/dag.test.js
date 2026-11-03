@@ -1,7 +1,7 @@
 /**
  * DAG 视图用例（T-WEB-006）。
  *
- * 验收口径来自施工单 13 §2.1：节点带权限级别、失败节点下游可见且标记阻断。
+ * 验收口径来自：节点带权限级别、失败节点下游可见且标记阻断。
  */
 
 import { describe, expect, it } from 'vitest'
@@ -58,6 +58,17 @@ describe('DAG · 阻断传播（T-WEB-006）', () => {
   })
 })
 
+describe('DAG · 中英双文', () => {
+  it('工具调用显示「中文 · english」，步骤显示「步骤 N · Step N」', () => {
+    const svg = renderDag(dagFrame())
+    const preview = svg.querySelector('[data-node-id="call:A"] text').textContent
+    const step = svg.querySelector('[data-node-id="step:1:1"] text').textContent
+    expect(preview).toContain('转账试算')
+    expect(preview).toContain('transfer_preview')
+    expect(step).toContain('Step 1')
+  })
+})
+
 describe('DAG · 可访问性', () => {
   it('图有 role=img 与文字摘要；每个节点有 title', () => {
     const svg = renderDag(dagFrame())
@@ -76,13 +87,29 @@ describe('DAG · 可访问性', () => {
       edges: [],
     })
     const text = svg.querySelector('[data-node-id="call:X"] text')
-    expect(text.textContent.length).toBeLessThanOrEqual(12)
+    expect(text.textContent.length).toBeLessThanOrEqual(30)
     expect(text.textContent).toContain('…')
   })
 
   it('没有节点也不崩（空图有 viewBox 与摘要）', () => {
     const svg = renderDag({ kind: 'dag', seq: 1, at: 1, turn: 1, nodes: [], edges: [], summary: '空' })
     expect(svg.getAttribute('viewBox')).toContain('0 0')
+  })
+
+  it('step 从上往下排、节点同列，图宽不超过侧栏（不再横向滚）', () => {
+    const svg = renderDag(dagFrame())
+    const rectOf = (id) => svg.querySelector(`[data-node-id="${id}"] rect`)
+    const xOf = (id) => Number(rectOf(id).getAttribute('x'))
+    const yOf = (id) => Number(rectOf(id).getAttribute('y'))
+
+    expect(xOf('step:1:1')).toBe(xOf('call:A'))
+    expect(xOf('call:A')).toBe(xOf('call:C'))
+    expect(yOf('step:1:1')).toBeLessThan(yOf('call:A'))
+    expect(yOf('call:A')).toBeLessThan(yOf('call:B'))
+    expect(yOf('call:B')).toBeLessThan(yOf('step:1:2'))
+    expect(yOf('step:1:2')).toBeLessThan(yOf('call:C'))
+    // 400px 侧栏 - 32px 内边距：图必须放得下，不产生横向滚动条
+    expect(Number(svg.getAttribute('width'))).toBeLessThanOrEqual(368)
   })
 
   it('按自然尺寸渲染（width/height 属性 = viewBox），不交给 CSS 等比缩放', () => {

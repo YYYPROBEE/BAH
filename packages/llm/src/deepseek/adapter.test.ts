@@ -62,7 +62,7 @@ async function collect(chunks: AsyncIterable<StreamChunk>): Promise<StreamChunk[
   return out
 }
 
-describe('DeepSeekAdapter（施工单 05 §2.1，注入假 fetch）', () => {
+describe('DeepSeekAdapter', () => {
   it('SSE 流式：文本与工具调用参数增量正确装配，usage 与结束原因到位', async () => {
     const { fetch, calls } = recordingFetch(
       () => new Response(sseBody(HAPPY_PARTS), { status: 200 }),

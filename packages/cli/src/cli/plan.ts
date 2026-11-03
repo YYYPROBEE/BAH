@@ -222,6 +222,8 @@ export async function runPlan(
           return await runTool(app, io, 'plan_disarm', { windowId: parsed.command.windowId }, now)
         }
         default:
+          // 构造不可达：`parsePlanArgs` 只产出上面四个 kind，未知子命令在 `!parsed.ok` 分支就返回 2 了。留这道守卫是为了新增 kind 时不静默走空。
+          /* v8 ignore next 2 */
           return 2
       }
     } finally {
@@ -257,11 +259,40 @@ async function bootForPlan(
     home: common.home ?? env['BAH_HOME'] ?? join(homedir(), '.bah'),
     overlays: [],
   })
+  /**
+   * CLI 就是"人工渠道"（ADR-0010）：操作者在终端敲 `bah plan arm` 等于本人点了批准。
+   *
+   * 为什么必须显式装，而不是靠 profile 的默认值：profile 自本设计起是
+   * `responder: none + windowResponder: true`（无差别放行已删），不装的话
+   * `bah plan arm` 会直接 `approval-no-responder`——运维入口被自己的安全默认值锁死。
+   *
+   * 三条边界：
+   * 1. `autoVerify: false`：**红级不代验**。终端做不了人脸/短信，审批服务会把
+   *    "未验过挑战的批准"归一化为 `challenge-required`（拒绝）——宽档武装只能在
+   *    Web / 移动端完成，CLI 绝不替用户盖章；
+   * 2. `headless` 不认领窗口票据，所以 `bah plan wake` 仍然只能由窗口核验端口签；
+   * 3. 这是 overlay 层（最后合并），不改 profile 文件，审计里看得到 `from: 'cli:plan'`。
+   */
+  const cliChannel = {
+    layer: 'overlay' as const,
+    from: 'cli:plan',
+    rows: [
+      {
+        id: 'interaction:approval',
+        config: {
+          responder: 'headless',
+          autoDecision: 'allow',
+          autoVerify: false,
+          windowResponder: true,
+        },
+      },
+    ],
+  }
   void io
   return boot({
     profile,
     bundles,
-    layers,
+    layers: [...layers, cliChannel],
     catalog: createCatalog(),
     run: {
       sessionId: rawSessionId as never,
@@ -272,6 +303,8 @@ async function bootForPlan(
       restoreSession: true,
       ...(common.jsonl === undefined ? {} : { jsonlDir: common.jsonl }),
     },
+    // 只有 boot 期告警（例如知识令牌回退）才会调用这条出口；CLI 用例都跑无告警的最小装配。属已知测试缺口，不是不可达代码。
+    /* v8 ignore next */
     warn: (message) => io.err(`bah plan: ${message}`),
   })
 }

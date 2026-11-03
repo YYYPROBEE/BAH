@@ -1,5 +1,5 @@
 /**
- * boot：装配、注入顺序、回滚、fail-loud 与 config 重载（施工单 06 §4 / §6 的 T-PRF-004、T-PRF-005）。
+ * boot：装配、注入顺序、回滚、fail-loud 与 config 重载。
  *
  * 用夹具（内存里的 bundle + 依赖清单）测，不依赖 `profiles/` 的真实文件：
  * boot 的每条分支都应该能在内存里跑到；真实文件的解析在 `@bah/cli` 的用例里。

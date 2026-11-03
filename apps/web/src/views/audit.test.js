@@ -1,7 +1,7 @@
 /**
  * 审计计数条用例（T-WEB-009 计数口径）。
  *
- * 为什么单独立一条：计数条是答辩时"三秒指给人看"的那几个数字，
+ * 为什么单独立一条：计数条是对外说明时"三秒指给人看"的那几个数字，
  * 它和时间线打架比"没数字"更糟——曾经超时未应答显示 `0 拒绝 0 阻断`，
  * 而同一屏的时间线明写"票据已阻断 / 无人应答（视为拒绝）"。
  * 判据的事实源是投影端 `packages/channels/src/web/audit.ts`，这里按它的真实帧形造数据。
@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { renderAudit, renderAuditSummary } from './audit.js'
+import { countAuditCategories, renderAudit, renderAuditCounts, renderAuditSummary } from './audit.js'
 
 /** 造一条审计帧（字段与投影端一一对应）。 */
 function audit(overrides) {
@@ -117,7 +117,7 @@ describe('renderAuditSummary', () => {
 })
 
 describe('renderAudit · 时刻口径', () => {
-  it('显示本地时刻，UTC 原文留在 title 里对照', () => {
+  it('时刻不进折叠行，title 与明细保留本地/UTC', () => {
     const at = 1_700_000_000_000
     const node = renderAudit(audit({ at, timeText: '22:13:20' }))
     const date = new Date(at)
@@ -125,13 +125,113 @@ describe('renderAudit · 时刻口径', () => {
       .map((value) => String(value).padStart(2, '0'))
       .join(':')
 
-    const time = node.querySelector('.audit__time')
-    expect(time.textContent).toBe(local)
-    expect(time.getAttribute('title')).toContain('UTC 22:13:20')
+    expect(node.querySelector('.audit__time')).toBeNull()
+    expect(node.getAttribute('title')).toContain(local)
+    expect(node.getAttribute('title')).toContain('UTC 22:13:20')
+    const detail = node.querySelector('.audit__expand-body').textContent
+    expect(detail).toContain('时间')
+    expect(detail).toContain(local)
+    expect(detail).toContain('UTC 22:13:20')
   })
 
-  it('没有 at 时退回帧里的 timeText（不渲染 NaN:NaN:NaN）', () => {
+  it('没有 at 时用帧里的 timeText 兜底（不渲染 NaN:NaN:NaN）', () => {
     const node = renderAudit(audit({ at: undefined, timeText: '08:00:00' }))
-    expect(node.querySelector('.audit__time').textContent).toBe('08:00:00')
+    const detail = node.querySelector('.audit__expand-body').textContent
+    expect(detail).toContain('08:00:00')
+    expect(detail).not.toContain('NaN')
+  })
+})
+
+describe('renderAudit · 分类文案', () => {
+  it('订阅域事件显示「订阅」，不退回英文 category', () => {
+    const node = renderAudit(audit({ category: 'subscription', label: '订阅清单', summary: '2 项订阅 · 推断 1 条' }))
+
+    expect(node.querySelector('.audit__category').textContent).toBe('订阅')
+    expect(node.querySelector('.audit__category--subscription')).not.toBeNull()
+  })
+
+  it('风险测评两键（R-6）：标签与摘要照投影端的原文渲染，分类复用「工具」', () => {
+    const assess = renderAudit(
+      audit({ category: 'tool', label: '风险测评', summary: '风险测评：R2 → R5（5 题）', toolName: 'risk_assess' }),
+    )
+    expect(assess.querySelector('.audit__category').textContent).toBe('工具')
+    expect(assess.querySelector('.audit__category--tool')).not.toBeNull()
+    expect(assess.querySelector('.audit__label').textContent).toBe('风险测评')
+    expect(assess.querySelector('.audit__detail').textContent).toBe('风险测评：R2 → R5（5 题）')
+
+    const questions = renderAudit(
+      audit({
+        category: 'tool',
+        label: '查看风险问卷',
+        summary: '查看风险问卷 · 5 题 · risk-q/v1',
+        toolName: 'risk_assess',
+      }),
+    )
+    expect(questions.querySelector('.audit__label').textContent).toBe('查看风险问卷')
+    expect(questions.querySelector('.audit__detail').textContent).toBe('查看风险问卷 · 5 题 · risk-q/v1')
+    // 没有理由码就不渲染 code 节点（不拿空字符串占位）
+    expect(questions.querySelector('.audit__code')).toBeNull()
+  })
+})
+
+describe('审计分类计数', () => {
+  it('按固定顺序统计，未知分类排最后', () => {
+    const frames = [
+      audit({ category: 'tool' }),
+      audit({ category: 'safety' }),
+      audit({ category: 'safety' }),
+      audit({ category: 'approval' }),
+      audit({ category: 'mystery' }),
+    ]
+    expect(countAuditCategories(frames)).toEqual([
+      { category: 'safety', label: '安全防护', count: 2 },
+      { category: 'tool', label: '工具调用', count: 1 },
+      { category: 'approval', label: '审批', count: 1 },
+      { category: 'mystery', label: 'mystery', count: 1 },
+    ])
+  })
+
+  it('计数条只数审计帧，别的帧不参与', () => {
+    const node = renderAuditCounts([
+      audit({ category: 'safety' }),
+      audit({ category: 'tool' }),
+      { kind: 'message', seq: 9, role: 'assistant', blocks: [] },
+    ])
+    expect([...node.querySelectorAll('.audit__count')].map((item) => item.textContent)).toEqual([
+      '安全防护1',
+      '工具调用1',
+    ])
+  })
+})
+
+describe('renderAudit · 明细展开与零计数说明', () => {
+  it('有 detail 时默认收起，展开后按标签/值显示；无 detail 不渲染空展开钮', () => {
+    const node = renderAudit(
+      audit({
+        category: 'safety',
+        label: '安全防护',
+        summary: 'sentry/trace · tool-call · account_balance',
+        detail: [
+          { label: '类型', value: 'tool-call' },
+          { label: '工具', value: 'account_balance' },
+        ],
+      }),
+    )
+    const details = node.querySelector('details.audit__expand')
+    expect(details).not.toBeNull()
+    expect(details.open).toBe(false)
+    details.open = true
+    expect([...details.querySelectorAll('dt')].map((item) => item.textContent)).toEqual(['时间', '类型', '工具'])
+    expect([...details.querySelectorAll('dd')].slice(1).map((item) => item.textContent)).toEqual(['tool-call', 'account_balance'])
+    expect([...renderAudit(audit()).querySelectorAll('dt')].map((item) => item.textContent)).toEqual(['时间'])
+  })
+
+  it('四个判决计数全零且有审计时，明确说明"没有审批事件"而不是静默零', () => {
+    const node = renderAuditSummary([
+      audit({ category: 'safety', label: '安全防护', summary: 'sentry/trace · tool-call' }),
+      audit({ category: 'tool', label: '工具完成', summary: 'account_balance' }),
+    ])
+    expect(node.textContent).toContain('没有审批事件')
+    expect(node.textContent).toContain('只读工具')
   })
 })

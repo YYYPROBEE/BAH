@@ -29,6 +29,8 @@ export const ROUTER_MODEL: ModelSpec = {
 export interface DemoRouterOptions {
   /** 分片大小（字符数；缺省 8）。 */
   readonly chunkSize?: number
+  /** 每次模型调用前的演示延迟（ms；缺省 0）。 */
+  readonly stepDelayMs?: number
   /** 每步上报的用量（缺省与 mock 一致）。 */
   readonly usage?: CallUsage
   /** 本会话的工具结局（`outcome` / `reflect` 步的依据）。 */
@@ -42,12 +44,18 @@ export interface DemoRouterOptions {
  * 任意收款人的转账，也能对认不出的问题追问。
  */
 export function createDemoRouter(options: DemoRouterOptions = {}): MockLlmAdapter {
+  let callSeq = 0
   return new MockLlmAdapter({
-    plan: planFromRequest,
+    // 每个模型调用一个唯一前缀：同一轮内稳定，跨轮不重复（见 prefixCallIds 的注释）。
+    plan: (request) => {
+      callSeq += 1
+      return planFromRequest(request, `call-${String(callSeq)}`)
+    },
     providerId: 'router',
     models: [ROUTER_MODEL],
     usage: options.usage ?? MOCK_USAGE,
     ...(options.chunkSize === undefined ? {} : { chunkSize: options.chunkSize }),
+    ...(options.stepDelayMs === undefined ? {} : { stepDelayMs: options.stepDelayMs }),
     ...(options.toolOutcomes === undefined ? {} : { toolOutcomes: options.toolOutcomes }),
   })
 }

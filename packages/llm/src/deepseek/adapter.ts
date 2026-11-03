@@ -1,8 +1,8 @@
 /**
- * DeepSeek provider（施工单 05 §2.1）。
+ * DeepSeek provider。
  *
  * 只做 wire 交互，策略一律外置：
- * - 密钥/端点只从环境变量读（施工单硬约束 2：仓库任何文件不得出现硬编码 key）；
+ * - 密钥/端点只从环境变量读（仓库任何文件不得出现硬编码 key）；
  * - 降级/重试/限流属 `route.ts`（本 adapter 只负责"这一枪打得准不准"）；
  * - 参数修复属 `repair.ts`（本 adapter 只负责把 `tool-call-delta` 如实吐出来）。
  *
@@ -36,7 +36,7 @@ import {
 /** `fetch` 的最小形状（可注入假实现）。 */
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
-/** 已知模型的规格表（能力位是提示词装配的唯一来源，施工单 05 §4）。 */
+/** 已知模型的规格表（能力位是提示词装配的唯一来源）。 */
 export const DEEPSEEK_MODELS: readonly ModelSpec[] = [
   {
     id: 'deepseek-chat',

@@ -1,19 +1,18 @@
 /**
  * 门禁：文档里的仓库路径必须真实存在（门禁扩容 07 §2-4）。
  *
- * 为什么必须做：`verify-tool-catalog.ts` 只保护 `docs/tool-catalog.md`，其余 11 份
- * `docs/*.md` 完全裸奔。而本项目的取证方式高度依赖"路径 + 行号"（`tech-debt-review` 里
- * 大量证据是 `packages/xxx/src/yyy.ts:123`）——路径一旦失效，评审就会基于不存在的文件做决策。
+ * 为什么必须做：`verify-tool-catalog.ts` 只保护 `docs/tool-catalog.md`，其余 `docs/*.md`
+ * 没有路径校验。而本项目的取证方式高度依赖"路径 + 行号"——路径一旦失效，
+ * 评审就会基于不存在的文件做决策。
  *
  * 规则：
- * 1. 抽取 `docs/*.md`、`AGENTS.md`、`PROGRESS.md` 里反引号包裹的仓库路径引用；
+ * 1. 抽取 `docs/*.md`、`AGENTS.md` 里反引号包裹的仓库路径引用；
  * 2. 剥掉 `:行号` 后缀（`foo.ts:123` 与 `foo.ts:12-34` 都算同一个文件）；
  * 3. 跳过省略写法（含 `...`）与通配（含 `*`）、占位（含 `<`）——它们无法静态判定；
  * 4. 存在性检查；不在例外名单里的失效引用 → 违规。
  *
- * 例外名单（`scripts/docs-path-excludes.ts`）只收**规划中、尚未实装**的能力域路径：
- * 在文档里以规划路径出现是合理的（`tech-debt-review` D1 列过这批空壳能力域）。
- * 已实装包的失效引用一律改文档，不许进名单。
+ * 例外名单（`scripts/docs-path-excludes.ts`）只收**运行期目录与构建产物**：
+ * 干净 clone 上本就不存在，文档里提到它们是排障线索。已实装包的失效引用一律改文档，不许进名单。
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
@@ -23,7 +22,7 @@ import { DOCS_PATH_EXCLUSIONS } from './docs-path-excludes.ts'
 import { isMainModule, runStandalone, type Gate } from './gate-lib.ts'
 
 /** 受保护的文档面。 */
-const DOC_FILES = ['AGENTS.md', 'PROGRESS.md']
+const DOC_FILES = ['AGENTS.md']
 
 /** 引用必须落在这些顶层目录之一（其余如 `node_modules/...` 不是仓库自己的资产）。 */
 const ROOTS = ['packages/', 'scripts/', 'services/', 'apps/', 'snapshots/', 'design/', 'docs/']

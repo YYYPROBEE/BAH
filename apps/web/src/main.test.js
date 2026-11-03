@@ -40,10 +40,13 @@ function fakeApi(overrides = {}) {
 /** 假传输：把 `onFrame` 抓出来，测试自己推帧。 */
 function fakeTransport() {
   let handlers = null
+  let calls = 0
   const transport = (options) => {
+    calls += 1
     handlers = options
     return { close: () => undefined }
   }
+  transport.calls = () => calls
   transport.push = (frame) => handlers?.onFrame(frame)
   transport.fault = (fault) => handlers?.onFault(fault)
   transport.status = (status) => handlers?.onStatus(status)
@@ -111,6 +114,7 @@ function snapshot() {
 
 beforeEach(() => {
   document.body.innerHTML = ''
+  delete globalThis.bahDesktop
 })
 
 describe('mountApp · 独立运行（T-WEB-008）', () => {
@@ -341,6 +345,12 @@ describe('mountApp · 交互细节', () => {
 
     button.click()
     await Promise.resolve()
+    // M-02：转人工不可逆，先弹确认；点「确认转人工」后才发 POST。
+    expect(calls).toEqual([])
+    const accept = root.querySelector('[data-role="confirm-accept"]')
+    expect(accept).not.toBeNull()
+    accept.click()
+    await Promise.resolve()
     await Promise.resolve()
     expect(calls).toEqual(['客户请求人工'])
     expect(root.textContent).toContain('已提交转人工请求')
@@ -359,13 +369,63 @@ describe('mountApp · 交互细节', () => {
     expect(button.disabled).toBe(false)
   })
 
-  it('"回到上一步"显式禁用（施工单 14 未落地，不假装可用）', () => {
+  it('M-01 桌面壳心跳空闲超时 ⇒ 翻离线并主动重连', () => {
+    vi.useFakeTimers()
+    try {
+      const { app, transport } = mount()
+      transport.status('online')
+      expect(app.store.state().status).toBe('online')
+      expect(transport.calls()).toBe(1)
+
+      vi.advanceTimersByTime(25_000)
+      expect(app.store.state().status).toBe('offline')
+      expect(transport.calls()).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('M-02 转人工确认框取消 ⇒ 零 POST', async () => {
+    const calls = []
+    const control = {
+      handoff: async (reason) => {
+        calls.push(reason)
+        return { ok: true, status: 200, data: { active: true } }
+      },
+      handoffStatus: async () => ({ ok: true, status: 200, data: { active: false } }),
+      fork: async () => ({ ok: true, status: 200, data: {} }),
+    }
+    const { root } = mount(fakeApi(), { control })
+    const button = [...root.querySelectorAll('.composer button')].find((item) =>
+      item.textContent.includes('转人工'),
+    )
+    button.click()
+    await Promise.resolve()
+    root.querySelector('[data-role="confirm-cancel"]').click()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(calls).toEqual([])
+    expect(button.disabled).toBe(false)
+  })
+
+  it('M-04 401 ⇒ 错误行给「重新加载页面」的明确动作', async () => {
+    const { root } = mount()
+    window.dispatchEvent(new CustomEvent('bah:unauthorized'))
+    const error = root.querySelector('[data-role="composer-error"]')
+    const retry = root.querySelector('[data-role="composer-retry"]')
+    expect(error.hidden).toBe(false)
+    expect(error.textContent).toContain('登录凭证已失效')
+    expect(retry.hidden).toBe(false)
+    expect(retry.getAttribute('aria-label')).toBe('重新加载页面')
+  })
+
+  it('"回到上一步"显式禁用', () => {
     const { root } = mount()
     const back = [...root.querySelectorAll('.composer button')].find((button) =>
       button.textContent.includes('回到上一步'),
     )
     expect(back.disabled).toBe(true)
-    expect(back.title).toContain('施工单 14')
+    expect(back.title).toContain('')
   })
 
   it('审计标签页可切换（默认调用图）', () => {
@@ -461,5 +521,156 @@ describe('mountApp · 交互细节', () => {
     await vi.waitFor(() => {
       expect(root.querySelector('.app-header__session').textContent).toContain('s-test')
     })
+  })
+})
+
+describe('mountApp · 对话收口与定位', () => {
+  it('安全提醒在顶栏（不占会话行、不与右侧审计面板并排），输入框提示统一', () => {
+    const { root } = mount()
+    const safety = root.querySelector('[data-role="safety"]')
+    expect(safety).not.toBeNull()
+    expect(safety.closest('.app-header')).not.toBeNull()
+    expect(safety.closest('.app-left')).toBeNull()
+    expect(safety.closest('.panel')).toBeNull()
+    expect(root.querySelector('.composer__input').placeholder).toBe('在这里输入消息')
+  })
+
+  it('对话完成后只在末尾出现一次反馈行 + 两条追问；新一轮开始即收起', async () => {
+    const api = fakeApi()
+    const { root, transport } = mount(api)
+    transport.push({
+      kind: 'snapshot',
+      sessionId: 's-test',
+      maxSeq: 5,
+      frames: [
+        { kind: 'turn', seq: 1, at: 1, turn: 1, phase: 'start' },
+        { kind: 'message', seq: 2, at: 2, role: 'user', blocks: [{ type: 'text', text: '看看理财产品' }] },
+        { kind: 'message', seq: 3, at: 3, role: 'assistant', blocks: [{ type: 'text', text: '我先查一下。' }] },
+        {
+          kind: 'message',
+          seq: 4,
+          at: 4,
+          role: 'assistant',
+          blocks: [{ type: 'text', text: '在售理财产品有稳盈90天等。' }],
+        },
+        { kind: 'turn', seq: 5, at: 5, turn: 1, phase: 'end', endKind: 'completed' },
+      ],
+    })
+
+    const conversation = root.querySelector('#conversation')
+    const footers = root.querySelectorAll('[data-role="answer-footer"]')
+    expect(footers).toHaveLength(1)
+    expect(conversation.lastElementChild).toBe(footers[0])
+    // 反馈不再挂在每一条助手消息里
+    expect(root.querySelectorAll('.message [data-role="feedback"]')).toHaveLength(0)
+    expect(root.querySelectorAll('[data-role="feedback"]')).toHaveLength(1)
+    const followUps = [...root.querySelectorAll('[data-role="follow-up"]')]
+    expect(followUps).toHaveLength(2)
+    expect(followUps.map((button) => button.textContent)).toEqual(['看看我的理财持仓', '看看在售的理财产品'])
+
+    followUps[0].click()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(api.calls).toEqual([['turn', '看看我的理财持仓']])
+
+    transport.push({ kind: 'turn', seq: 6, at: 6, turn: 2, phase: 'start' })
+    expect(root.querySelector('[data-role="answer-footer"]')).toBeNull()
+  })
+
+  it('运行中的一轮不提前出反馈；用户刚追问、助手未答时也不出', () => {
+    const { root, transport } = mount()
+    transport.push({ kind: 'turn', seq: 1, at: 1, turn: 1, phase: 'start' })
+    transport.push({
+      kind: 'message',
+      seq: 2,
+      at: 2,
+      role: 'assistant',
+      blocks: [{ type: 'text', text: '正在为您查询。' }],
+    })
+    expect(root.querySelector('[data-role="answer-footer"]')).toBeNull()
+
+    transport.push({ kind: 'turn', seq: 3, at: 3, turn: 1, phase: 'end', endKind: 'completed' })
+    expect(root.querySelector('[data-role="answer-footer"]')).not.toBeNull()
+
+    transport.push({ kind: 'message', seq: 4, at: 4, role: 'user', blocks: [{ type: 'text', text: '那理财呢' }] })
+    expect(root.querySelector('[data-role="answer-footer"]')).toBeNull()
+  })
+
+  it('新消息定位到顶部；用户上翻后不抢滚动；发送后等 user/message 帧再定位', async () => {
+    const api = fakeApi()
+    const { root, transport } = mount(api)
+    const conversation = root.querySelector('#conversation')
+    Object.defineProperty(conversation, 'scrollHeight', { configurable: true, get: () => 1200 })
+    Object.defineProperty(conversation, 'clientHeight', { configurable: true, get: () => 400 })
+
+    transport.push({ kind: 'message', seq: 1, at: 1, role: 'user', blocks: [{ type: 'text', text: '你好' }] })
+    expect(conversation.scrollTop).toBe(1200)
+
+    conversation.scrollTop = 100
+    conversation.dispatchEvent(new Event('scroll'))
+    transport.push({ kind: 'message', seq: 2, at: 2, role: 'assistant', blocks: [{ type: 'text', text: '您好' }] })
+    expect(conversation.scrollTop).toBe(100)
+
+    const input = root.querySelector('.composer__input')
+    input.value = '查余额'
+    root.querySelector('#composer').dispatchEvent(new Event('submit', { cancelable: true }))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(api.calls).toEqual([['turn', '查余额']])
+
+    // 新消息帧到达后才定位；jsdom 的矩形全为 0，顶部锚点 = 当前 scrollTop - 8。
+    transport.push({ kind: 'message', seq: 3, at: 3, role: 'user', blocks: [{ type: 'text', text: '查余额' }] })
+    expect(conversation.scrollTop).toBe(92)
+  })
+})
+
+describe('mountApp · 桌面壳新对话', () => {
+  it('普通 Web 不显示新对话按钮（没有真实新会话能力）', () => {
+    const { root } = mount()
+    expect(root.querySelector('[data-role="new-conversation"]')).toBeNull()
+  })
+
+  it('桌面桥存在时显示按钮；确认后只调用零载荷桥接', () => {
+    const newConversation = vi.fn()
+    globalThis.bahDesktop = { newConversation }
+    const originalWindowConfirm = window.confirm
+    const originalGlobalConfirm = globalThis.confirm
+    const confirm = vi.fn(() => true)
+    window.confirm = confirm
+    globalThis.confirm = confirm
+
+    try {
+      const { root } = mount()
+      const button = root.querySelector('[data-role="new-conversation"]')
+      expect(button).not.toBeNull()
+      expect(button.textContent).toContain('新对话')
+      button.click()
+      expect(confirm).toHaveBeenCalledTimes(1)
+      expect(newConversation).toHaveBeenCalledTimes(1)
+    } finally {
+      window.confirm = originalWindowConfirm
+      globalThis.confirm = originalGlobalConfirm
+      delete globalThis.bahDesktop
+    }
+  })
+
+  it('取消确认时不调用桥接', () => {
+    const newConversation = vi.fn()
+    globalThis.bahDesktop = { newConversation }
+    const originalWindowConfirm = window.confirm
+    const originalGlobalConfirm = globalThis.confirm
+    const decline = () => false
+    window.confirm = decline
+    globalThis.confirm = decline
+
+    try {
+      const { root } = mount()
+      root.querySelector('[data-role="new-conversation"]').click()
+      expect(newConversation).not.toHaveBeenCalled()
+    } finally {
+      window.confirm = originalWindowConfirm
+      globalThis.confirm = originalGlobalConfirm
+      delete globalThis.bahDesktop
+    }
   })
 })

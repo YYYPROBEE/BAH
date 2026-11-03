@@ -1,5 +1,5 @@
 /**
- * 中断：每 turn 一个 AbortController（施工单 04 §3「中断」/ T-LOOP-005 的传播前提）。
+ * 中断：每 turn 一个 AbortController。
  *
  * 三条被钉住的语义：新 turn 换新 controller（旧 latch 失效）、无 turn 时 abort 是无操作、
  * `end()` 之后信号不再代表任何在跑的 turn。

@@ -8,6 +8,7 @@
  * 没有浏览器存储与真实网络时，三条路径（无凭证 / idle / serving）照样能跑。
  */
 
+import { BRAND } from '../brand.js'
 import { clear, el, icon } from '../dom.js'
 import { createStore } from '../store.js'
 import { connectEvents } from '../transport.js'
@@ -161,7 +162,7 @@ export function mountSeat(options) {
       'aria-label': '坐席凭证',
     })
     const error = message === undefined || message === '' ? null : el('p', { class: 'seat-gate__error', text: message })
-    const button = el('button', { class: 'ds-btn ds-btn--brand ds-btn--md', type: 'submit' }, [icon('user', 16), '进入工作台'])
+    const button = el('button', { class: 'ds-btn ds-btn--brand ds-btn--md', type: 'submit' }, [icon('login', 16), '进入工作台'])
     const form = el('form', { class: 'seat-gate__form' }, [input, button])
     form.addEventListener('submit', async (event) => {
       event.preventDefault()
@@ -175,7 +176,7 @@ export function mountSeat(options) {
     })
     gateOverlay.replaceChildren(
       el('div', { class: 'seat-gate__card' }, [
-        el('div', { class: 'seat-gate__brand' }, [icon('ai', 24), 'BAH · 坐席工作台']),
+        el('div', { class: 'seat-gate__brand' }, [icon('bank', 24), BRAND.seat]),
         el('p', {
           class: 'seat-gate__desc',
           text: '粘贴 BAH_OPERATOR_TOKEN。凭证只存在本标签页（sessionStorage），关闭标签即失效。',

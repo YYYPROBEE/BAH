@@ -1,5 +1,5 @@
 /**
- * 窄屏三区骨架与安全区（施工单 02 §3.3）。
+ * 窄屏三区骨架与安全区。
  *
  * 只做三件事：搭骨架、把软键盘的顶起量翻译成 dock 的位移、把 resize 转成通知。
  * **不做**任何业务推导，也**不缓存**宽高——横竖屏切换时单列弹性 CSS 自己承担重排，
@@ -9,6 +9,7 @@
  * 布局响应视口是 JS 的活，布局响应刘海是 CSS 的活，混在一起就没人说得清谁赢了。
  */
 
+import { BRAND } from '../brand.js'
 import { el } from '../dom.js'
 
 /**
@@ -31,22 +32,39 @@ export function createLayout(root, deps = {}) {
   const win = deps.win ?? globalThis.window
 
   const statusText = el('span', { class: 'm-status__text', text: '连接中' })
-  const statusNode = el('span', { class: 'm-status m-status--connecting' }, [
+  const statusNode = el('span', {
+    class: 'm-status m-status--connecting',
+    role: 'status',
+    'aria-live': 'polite',
+    'aria-atomic': 'true',
+  }, [
     el('span', { class: 'm-status__dot', 'aria-hidden': 'true' }),
     statusText,
   ])
   const sessionLabel = el('span', { class: 'm-header__session', text: '会话 —' })
 
+  // 头部动作槽（2026-11-02）：历史对话等"进入另一层"的入口放这里。
+  // 只加槽不改三区骨架——feed / dock 的结构与键盘避让逻辑一个字都没动。
+  const headerActions = el('div', { class: 'm-header__actions', dataset: { role: 'm-header-actions' } })
   const header = el('header', { class: 'm-header' }, [
-    el('span', { class: 'm-header__title', text: 'BAH · 移动' }),
+    el('span', { class: 'm-header__title', text: BRAND.name }),
     el('div', { class: 'm-header__meta' }, [sessionLabel, statusNode]),
+    headerActions,
   ])
+  // 键盘用户的第一站：跳过头部、历史入口与 6 颗常用业务，直接落到输入框（M-13）。
+  // 不用正 `tabindex`——它会把整个文档的焦点顺序拧成无法预测的跳跃。
+  const skipLink = el('a', {
+    class: 'm-skip',
+    href: '#m-composer-input',
+    dataset: { role: 'skip-to-composer' },
+    text: '跳到输入框',
+  })
   const feed = el('main', { class: 'm-feed', id: 'm-feed', 'aria-label': '对话与执行' })
   const dock = el('div', { class: 'm-dock' })
   // `display: contents`：挂载点自己不产生盒子，抽屉的 position:fixed 直接对视口定位
   const overlayHost = el('div', { class: 'm-overlay-host', id: 'm-overlay' })
 
-  root.append(header, feed, dock, overlayHost)
+  root.append(skipLink, header, feed, dock, overlayHost)
 
   /** 键盘顶起的订阅者（返回退订函数）。 */
   const keyboardListeners = new Set()
@@ -56,7 +74,7 @@ export function createLayout(root, deps = {}) {
    * 软键盘占掉的像素 = 布局视口高 − 可视视口高。
    *
    * 无 `visualViewport`（旧安卓 WebView）时恒为 0 ⇒ **降级为不避让**，
-   * 输入框靠浏览器原生滚动保持可见。这比"猜一个键盘高度"诚实。
+   * 输入框靠浏览器原生滚动保持可。这比"猜一个键盘高度"诚实。
    */
   function measure() {
     const viewport = win?.visualViewport
@@ -86,7 +104,7 @@ export function createLayout(root, deps = {}) {
   }
 
   return {
-    regions: { header, feed, dock, overlayHost },
+    regions: { header, feed, dock, overlayHost, headerActions },
     sessionLabel,
     statusNode,
     setStatus(status) {

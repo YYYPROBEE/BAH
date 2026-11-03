@@ -6,7 +6,7 @@
  * - 实现类与工厂：`createContext` / `BahContext` / `BahEvents` / `BahScope` / `ServiceRegistry` / `defineService`
  *
  * 跨包使用纪律：一律 `import { createContext, defineService } from '@bah/core'`，
- * 不直接 import 另一包的实现类（施工单 00 §9 补充纪律「按键寻址」）。
+ * 不直接 import 另一包的实现类。
  */
 export * from './api.ts'
 

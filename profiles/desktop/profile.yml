@@ -1,4 +1,4 @@
-# desktop（施工单 15 §2 / 桌面端 01）：Electron 桌面壳内嵌私有宿主用的 profile。
+# desktop：Electron 桌面壳内嵌私有宿主用的 profile。
 #
 # 与 web 的差别只有四处（00 §5 / 01 §2.3）：
 #   ① `core:agent.config.channel = desktop`（系统提示词按 CHANNEL_HINTS.desktop 裁剪）；

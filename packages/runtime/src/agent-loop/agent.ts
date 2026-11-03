@@ -1,5 +1,5 @@
 /**
- * turn / step 状态机（施工单 04 §2 伪代码**逐行**落地）。
+ * turn / step 状态机。
  *
  * ```text
  * turn/start
@@ -211,6 +211,9 @@ export class AgentLoop implements Agent {
 
   private readonly runtimeContext: RuntimeContextProvider | undefined
 
+  /** 本 turn 最后一次装配出的运行时上下文文本（`agent/reply` 的核验证据之一）。 */
+  private contextTexts: readonly string[] = []
+
   /** 入队前的全系统闸（HALT；缺省 = 不设防，由宿主决定）。 */
   private readonly beforeSend: (() => void) | undefined
 
@@ -300,7 +303,7 @@ export class AgentLoop implements Agent {
   }
 
   /**
-   * 在指定 turn 边界分叉新会话（施工单 04 §3「回退」）。
+   * 在指定 turn 边界分叉新会话。
    *
    * 新 agent 在 `request.ctx` 里注册自己的 `runtime:session`；原会话一个字节不动。
    */
@@ -336,7 +339,7 @@ export class AgentLoop implements Agent {
     this.inbox.close()
   }
 
-  /* ── 状态机主体（施工单 04 §2） ───────────────────────────────────────── */
+  /* ── 状态机主体 ───────────────────────────────────────── */
 
   /**
    * 跑一个 turn。
@@ -353,7 +356,7 @@ export class AgentLoop implements Agent {
     let turnEnds: TurnEndReason | null = null
     let steps = 0
 
-    // 单调 guard 是"本 turn 内已判 deny 维持 deny"，turn 边界清空（施工单 03 §2.3 ④）
+    // 单调 guard 是"本 turn 内已判 deny 维持 deny"，turn 边界清空
     this.guard.reset()
     this.session.append('turn/start', { turn })
 
@@ -477,7 +480,7 @@ export class AgentLoop implements Agent {
   /**
    * 一个 step：装配 → `agent/request` → 冻结（`prepareCall`）→ 提交 → 流式 → 工具调度。
    *
-   * 取消边界（施工单 04 §2.2）：`agent/request` 与 `prepareCall` 阶段取消时**什么都不提交**——
+   * 取消边界：`agent/request` 与 `prepareCall` 阶段取消时**什么都不提交**——
    * 提交点（`commitAttempt`）在这两个异步阶段之后。
    */
   private async step(input: StepInput): Promise<TurnEndReason | null> {
@@ -558,6 +561,7 @@ export class AgentLoop implements Agent {
       ...(this.channel === undefined ? {} : { channel: this.channel }),
       ...(runtime === undefined ? {} : { runtime }),
     })
+    this.contextTexts = assembly.contextTexts
 
     // ③ agent/request（waterfall）：降级 / 成本控制在这里改写路由与参数
     const asked = await dispatchRequest(this.ctx, {
@@ -602,7 +606,7 @@ export class AgentLoop implements Agent {
 
     // ⑧ 工具调度 → assistant/message 收尾落账
     //
-    // 落账顺序按施工单 04 §7 T-LOOP-001：`tool/call → tool/result → assistant/message`
+    // 落账顺序按 T-LOOP-001：`tool/call → tool/result → assistant/message`
     // （工具跑完，assistant 消息才收尾）。wire 侧的「带 tool_calls 的 assistant 必须在
     // tool 消息之前」由 `deriveMessages` 的两遍投影恢复（见 session/derive.ts）。
     //
@@ -652,6 +656,7 @@ export class AgentLoop implements Agent {
         step,
         text: originalText,
         toolResults: this.toolResultsOfTurn(turn),
+        contextTexts: this.contextTexts,
         hasToolCalls: toolCalls.length > 0,
         signal,
       }
@@ -695,7 +700,7 @@ export class AgentLoop implements Agent {
   /**
    * 逐个执行工具（七段管线）。
    *
-   * 中途抛错时先把「已开始、未完成」的调用补记成 `tool/result`（施工单 03 §0 第 4 条），
+   * 中途抛错时先把「已开始、未完成」的调用补记成 `tool/result`，
    * 保证 `tool/call ↔ tool/result` 不出现空洞；再把错抛给上层的 step 收尾。
    */
   private async runToolCalls(
@@ -918,7 +923,7 @@ function requestOverheadTokens(model: ModelSpec, tools: ToolRegistry): number {
 }
 
 /**
- * 粘性结束原因：已判定的原因不被后续 step 覆盖（施工单 04 §2.1 `sticky()`）。
+ * 粘性结束原因：已判定的原因不被后续 step 覆盖。
  *
  * 例：模型先以 `max-tokens` 结束，本 turn 内又因转向跑了一步并正常收尾——
  * `turn/end.reason` 仍是 `max-tokens`（T-LOOP-007）。

@@ -152,7 +152,7 @@ describe('哈希链', () => {
   })
 })
 
-describe('连续性与验签拆分（施工单 16）', () => {
+describe('连续性与验签拆分', () => {
   it('verifyContinuity 不读密钥也能定位断链', () => {
     const dir = root()
     const chain = audit(dir)

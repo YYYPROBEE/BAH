@@ -1,5 +1,5 @@
 /**
- * 强验证工具（施工单 08 §3.12–§3.14 / 施工单 09 §6）。
+ * 强验证工具。
  *
  * T-TOOLS-007：独立调用无挑战链 → `no-challenge`；
  * T-TOOLS-008：三连败 → 锁 30 分钟 + `verify/locked`。
@@ -37,6 +37,8 @@ describe('强验证渠道', () => {
     expect(h.tools.get('verify_face')?.presentResult?.({}, result)).toMatchObject({
       kind: 'bank.verify',
     })
+    const content = h.tools.get('verify_face')?.projectContent?.(result) ?? []
+    expect((content[0] as { text: string }).text).toBe('verify_face 通过（第 1 次）。')
   })
 
   it('渠道不符：challenge-channel-mismatch', async () => {
@@ -69,6 +71,11 @@ describe('强验证渠道', () => {
     const third = (await h.call('verify_sms', { challengeId: challenge.id })) as VerifyResult
     expect(third.success).toBe(false)
     expect(third.lockedUntil).toBe(clock.now + 30 * 60 * 1000)
+    const thirdText = (
+      (h.tools.get('verify_sms')?.projectContent?.(third) ?? [])[0] as { text: string }
+    ).text
+    expect(thirdText).toContain('剩余 0 次')
+    expect(thirdText).toContain('红色操作已锁定')
     expect(h.auditsOf('verify/locked')).toHaveLength(1)
     expect(h.auditsOf('verify/locked')[0]?.channel).toBe('sms')
     expect(verify.isLocked(h.ctx.sessionId)).toBe(true)

@@ -1,5 +1,5 @@
 /**
- * Web 渠道适配器（施工单 13 §1）——**薄工厂**（施工单 01 §3.2 瘦身）。
+ * Web 渠道适配器——**薄工厂**。
  *
  * 历史：本文件原先承载 238 行的完整实现（入站转换 / 审批翻译 / 强验证）。
  * 01 单把与渠道身份无关的部分整段平移到 `../http-adapter.ts`，与 mobile 共用一份实现
@@ -20,7 +20,7 @@ import {
 /**
  * Web 渠道的公开面。
  *
- * @deprecated 施工单 01 起请用 `HttpChannelAdapter`（web 与 mobile 共用的公开面）。
+ * @deprecated  起请用 `HttpChannelAdapter`（web 与 mobile 共用的公开面）。
  * 本别名只为不破既有 import（`web/deps.ts`、`dispatch.test.ts`、`plugins/web.ts`）而保留，
  * 限期到 02 单合并后删除。
  */

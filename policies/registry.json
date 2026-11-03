@@ -6,7 +6,7 @@
         "bank-tier/1.0.0": {
           "path": "policies/bank-tier/1.0.0",
           "semanticDigest": "97764bc1298834d62ab888e6647966d47f96734cb9e0cefbad8f922dc4f8ca6a",
-          "sourceDigest": "c5093f5be4cf585c090715516a5a5d16b78e7a0d3fd28eaf4759ee22d7c54a5f",
+          "sourceDigest": "90ad9721727689eea9aae0f7bb201aa766f841b31107841ccf111e982595d9a5",
           "engine": "1.0.0",
           "installedAt": 1761700000000
         },

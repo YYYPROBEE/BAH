@@ -1,5 +1,5 @@
 /**
- * 主循环模块入口（施工单 04 Part C）。
+ * 主循环模块入口。
  *
  * 实现分散在 `inbox.ts`（认领队列）/ `interrupt.ts`（每 turn 一个 AbortController）/
  * `request.ts`（装配 + 冻结 + 提交）/ `tool-calls.ts`（七段管线接线 + 失败补记）/

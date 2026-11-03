@@ -1,10 +1,10 @@
 /**
- * profile 解析器（施工单 06 §5 第 1 步）。
+ * profile 解析器。
  *
  * 三层概念里的"数据面"全在这里：profile 清单（`profiles/<name>/profile.yml`）、
  * 四层 patch 的文件读取与校验。boot 侧只接收**已解析的行**，不碰文件系统。
  *
- * 校验纪律（施工单 06 §4）：未知键、类型错误、引用了不存在的文件 → 载入即抛
+ * 校验纪律：未知键、类型错误、引用了不存在的文件 → 载入即抛
  * （`bah-boot: ` 前缀），绝不静默回退。
  */
 
@@ -20,7 +20,7 @@ import { parse } from 'yaml'
 /** profile 目录下的清单文件名。 */
 const PROFILE_MANIFEST = 'profile.yml'
 
-/** home patch 的文件名（施工单 06 §1：项目里叫 `bah.patch.yml`）。 */
+/** home patch 的文件名（项目里叫 `bah.patch.yml`）。 */
 export const HOME_PATCH_FILE = 'bah.patch.yml'
 
 /** 解析后的 profile。 */

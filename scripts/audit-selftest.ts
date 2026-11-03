@@ -1,5 +1,5 @@
 /**
- * `bah audit` 端到端自证（施工单 16 §4 步骤 4）。
+ * `bah audit` 端到端自证。
  *
  * 临时目录造一条 42 事件的签名链 → 跑 `runAudit` → 断言通过 → 校验源目录零新增 → 清理。
  * 不触碰仓库 `sessions/`。
@@ -42,9 +42,12 @@ async function main(): Promise<void> {
     const keyPath = join(root, 'saga-ed25519.pem')
     writeFileSync(keyPath, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 })
 
+    // 租户化后链目录是 `<部署根>/<tenant>/<saga>`；`--dir` 传部署根，CLI 自己拼 tenant。
+    const tenantRoot = join(chains, 'demo')
     const writer = createSagaAudit({
       now: () => 1_700_000_000_000,
-      rootDir: chains,
+      rootDir: tenantRoot,
+      tenant: 'demo',
       signingKeyPath: keyPath,
       signedTypes: [...SIGNED_TYPES],
       fsync: false,
@@ -62,15 +65,40 @@ async function main(): Promise<void> {
     const out: string[] = []
     const err: string[] = []
     const code = await runAudit(
-      ['--dir', chains, '--key', keyPath, '--no-projection', '--format', 'json'],
+      [
+        '--dir', chains,
+        '--tenant', 'demo',
+        '--saga', 'selftest',
+        '--key', keyPath,
+        '--no-projection',
+        '--format', 'json',
+      ],
       { out: (line) => out.push(line), err: (line) => err.push(line) },
       { root, now: () => 1_700_000_000_000 },
     )
     const after = list(root)
 
-    const report = JSON.parse(out.join('\n')) as {
+    // 空输出时 JSON.parse("") 只会抛 SyntaxError，把真正的退出码/错误行吞掉。
+    const output = out.join('\n').trim()
+    if (output === '') {
+      console.error(
+        `audit-selftest: 审计没有输出（exit=${String(code)}）：${err.join('; ') || 'stderr 为空'}`,
+      )
+      process.exitCode = 1
+      return
+    }
+    let report: {
       ok: boolean
       chains: Array<{ events: number; signatureState: string; chainOk: boolean }>
+    }
+    try {
+      report = JSON.parse(output) as typeof report
+    } catch (error) {
+      console.error(
+        `audit-selftest: 审计输出不是 JSON（exit=${String(code)}）：${output.slice(0, 500)}；${String(error)}`,
+      )
+      process.exitCode = 1
+      return
     }
     const failures: string[] = []
     if (code !== 0) failures.push(`退出码 ${code}`)

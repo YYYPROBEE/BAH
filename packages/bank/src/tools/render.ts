@@ -1,5 +1,5 @@
 /**
- * 工具目录渲染（施工单 08 §5 第 6 步）。
+ * 工具目录渲染。
  *
  * 纯函数：输入 `BANK_TOOL_SPECS`，输出 `docs/tool-catalog.md` 的全文。
  * 生成器 `scripts/build-tool-catalog.ts` 与门禁 `scripts/verify-tool-catalog.ts` 共用，
@@ -14,11 +14,11 @@ import type { BankToolSpec } from './specs.ts'
  * 渲染完整目录文档。
  *
  * @param specs 目录（顺序即文档顺序）
- * @param limit 数量上限（施工单 08 §2：28）
+ * @param limit 数量上限（28）
  */
 export function renderToolCatalog(specs: readonly BankToolSpec[], limit: number): string {
   const lines: string[] = [
-    '# 银行工具目录（施工单 08）',
+    '# 银行工具目录',
     '',
     '> 本文件由 `pnpm tool-catalog` 从 `packages/bank/src/tools/specs.ts` 生成，**不要手改**。',
     '> 门禁 `verify-tool-catalog` 会逐字比对；改工具定义后请重新生成。',
@@ -30,10 +30,16 @@ export function renderToolCatalog(specs: readonly BankToolSpec[], limit: number)
   ]
 
   specs.forEach((spec, index) => {
+    // 动作式工具有两条落账路径：只读分支（`readEvent`）必须与写分支并列显示，
+    // 否则目录会把「取问卷」说成「改等级」。
+    const events =
+      spec.readEvent === undefined
+        ? `\`${spec.event}\``
+        : `\`${spec.event}\`（读分支：\`${spec.readEvent}\`）`
     lines.push(
       `| ${index + 1} | \`${spec.name}\` | ${spec.tier.level} | ${spec.scenario} | ${describeParams(
         spec.schema,
-      )} | \`${spec.event}\` | ${escapeCell(spec.description)} |`,
+      )} | ${events} | ${escapeCell(spec.description)} |`,
     )
   })
 
@@ -42,7 +48,7 @@ export function renderToolCatalog(specs: readonly BankToolSpec[], limit: number)
     '## 说明',
     '',
     '- **tier**：`green` 自动执行；`yellow` 展示详情 + 确认（签发票据）；`red` 强验证 + 确认。',
-    '- **落账事件**：成功执行后写入会话日志的领域事件；卡片由事件 + 持久化结果派生（施工单 08 §4）。',
+    '- **落账事件**：成功执行后写入会话日志的领域事件；卡片由事件 + 持久化结果派生。',
     '- **金额单位**：模型参数是「元」，核心与事件是「分」（字段名带 `Cents`）。',
     '- **上限**：新增工具先删旧的（28 上限由门禁强制）。',
   )

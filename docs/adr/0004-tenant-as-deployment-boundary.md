@@ -1,8 +1,8 @@
 # ADR-0004 · 租户 = 部署边界（进程内多租户不做）
 
 - 状态：**已采纳**（2026-10-28）
-- 决策者：租户与鉴权施工单 01 的评审与执行
-- 关联：`docs/contracts/tenant-model.md`、`docs/evidence/2026-10-28-tenant-auth/01-t1.md`
+- 决策者：项目负责人
+- 关联：`docs/contracts/tenant-model.md`
 
 ---
 

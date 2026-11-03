@@ -1,7 +1,8 @@
 """演示语料（骨架版）。
 
 10 篇文档覆盖：费率表 / 产品说明书 / 业务规则 / FAQ / 旧版 / VIP / 地区专属 /
-未授权来源（tier 9）/ 跨渠道限额。每篇一个 chunk；费率表额外落 cell。
+未授权来源（tier 9）/ 跨渠道限额。每篇一个 chunk；费率表与三份产品书额外落 cell
+（三份产品书的「产品要素」同名列必须齐备，否则按名取值会串产品）。
 
 真实语料应由 ingest 管线从 PDF/表格解析；本文件只用于骨架跑通与 pytest 锚点。
 """
@@ -186,13 +187,40 @@ DEMO_DOCS: list[dict[str, Any]] = [
         "cells": [
             {
                 "sheet": "产品要素",
+                "row_key": "风险等级",
+                "col_key": "等级",
+                "header_text": "风险等级",
+                "value_text": "R2",
+                "num_value": None,
+                "unit": "",
+            },
+            {
+                "sheet": "产品要素",
+                "row_key": "期限",
+                "col_key": "天数",
+                "header_text": "期限",
+                "value_text": "90",
+                "num_value": 90.0,
+                "unit": "天",
+            },
+            {
+                "sheet": "产品要素",
                 "row_key": "起购金额",
                 "col_key": "金额",
                 "header_text": "起购金额",
                 "value_text": "50000",
                 "num_value": 50000.0,
                 "unit": "元",
-            }
+            },
+            {
+                "sheet": "产品要素",
+                "row_key": "预期年化收益率",
+                "col_key": "收益率",
+                "header_text": "预期年化收益率",
+                "value_text": "3.2",
+                "num_value": 3.2,
+                "unit": "%",
+            },
         ],
     },
     {
@@ -217,13 +245,40 @@ DEMO_DOCS: list[dict[str, Any]] = [
         "cells": [
             {
                 "sheet": "产品要素",
+                "row_key": "风险等级",
+                "col_key": "等级",
+                "header_text": "风险等级",
+                "value_text": "R2",
+                "num_value": None,
+                "unit": "",
+            },
+            {
+                "sheet": "产品要素",
+                "row_key": "期限",
+                "col_key": "天数",
+                "header_text": "期限",
+                "value_text": "180",
+                "num_value": 180.0,
+                "unit": "天",
+            },
+            {
+                "sheet": "产品要素",
                 "row_key": "起购金额",
                 "col_key": "金额",
                 "header_text": "起购金额",
                 "value_text": "1000",
                 "num_value": 1000.0,
                 "unit": "元",
-            }
+            },
+            {
+                "sheet": "产品要素",
+                "row_key": "预期年化收益率",
+                "col_key": "收益率",
+                "header_text": "预期年化收益率",
+                "value_text": "3.5",
+                "num_value": 3.5,
+                "unit": "%",
+            },
         ],
     },
     {

@@ -25,7 +25,7 @@ export type ContractStage = 'pre-execute' | 'post-execute'
 /**
  * 一个工具的完整契约。
  *
- * `validateAt` 的语义（本单冻结，见 `docs/contracts/tool-contract.md` §2.3）：
+ * `validateAt` 的语义（本设计冻结，见 `docs/contracts/tool-contract.md` §2.3）：
  * 它只描述**入参**的校验时机；**出参校验恒定在 `post-execute`**
  * —— 入参在工具体跑之前就该拦住，出参只可能在跑完之后才有。
  * 单一字段无法表达两个时点，这是 W02 冻结时留下的已知窄口，

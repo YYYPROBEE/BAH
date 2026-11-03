@@ -1,4 +1,4 @@
-# 微信测试号接入与回调配置（IM 网关 02）
+# 微信测试号接入与回调配置
 
 > 本文是 `apps/im-gateway` 的**部署手册**：15 分钟内能重新配好回调。
 > 密钥一律从环境变量读，本文不含任何真实值（AppID/AppSecret/Token 只写占位符）。
@@ -39,7 +39,7 @@ pnpm im:gateway
 
 - URL：`https://<你的域名>/im/wechat/default`
 - Token：与 `BAH_WECHAT_TOKEN` 一致
-- 消息加解密方式：**明文模式**（本单不做 AES 安全模式）
+- 消息加解密方式：**明文模式**（本设计不做 AES 安全模式）
 
 点「提交」后观察网关日志：应出现 `im-gateway-start`，且**没有** `im-sig-invalid`。
 若微信提示「配置失败」，按 §4 排查。
@@ -64,15 +64,14 @@ pnpm im:gateway
 
 | 项 | 结论 | 证据 |
 |---|---|---|
-| 回调握手 | （待填：通过 / 失败 + 错误码） | 测试号页面截图 + 网关日志 |
-| 被动回复 | （待填） | 微信对话截图 |
-| 客服消息 | （待填：可用 / `48001` / `45015`） | 网关日志 `im-push-failed` |
-| 最终 `BAH_IM_PUSH_MODE` | （待填：auto / pull） | 部署环境变量 |
+| 回调握手 | 通过（HTTP 200，`echostr` 原样回显） | 测试号页面截图 + 网关日志 |
+| 被动回复 | 通过（真机「查余额」回复成功） | 微信对话截图 |
+| 客服消息 | 未验证（本轮未触发 `48001` / `45015`） | 网关日志 `im-push-failed` |
+| 最终 `BAH_IM_PUSH_MODE` | 未定（由部署环境变量决定） | 部署环境变量 |
 
-> **现状（2026-10-30 真机）**：测试号凭据已到位，公网入口 `http://203.0.113.10/im/wechat/default`
+> **现状（2026-10-30 真机）**：测试号凭据已到位，公网入口形如 `http://<部署主机>/im/wechat/default`
 > （nginx 80 → 8081）。已实测：回调握手 200、真机「查余额」被动回复成功。客服消息与审批指令
-> 待补测；H5 真机因公网是 http IP 而阻塞（H5 链接只允许 `https://` 或本机 `127.0.0.1`）。
-> 结论表与截图见 `docs/evidence/2026-11-im-gateway/`。
+> 尚未验证；H5 真机因公网是 http IP 而阻塞（H5 链接只允许 `https://` 或本机 `127.0.0.1`）。
 
 ## 回调
 
@@ -135,7 +134,7 @@ pnpm test -- apps/im-gateway/test/platform-contract.test.ts  # 微信 + Mock 同
 | `im-platform-unknown` | 回调 URL 的平台名/账号名写错 | 只注册 `wechat`；账号名默认 `default` |
 | `im-config-missing` | 必填环境变量缺失 | 对照 `docs/im-gateway.md` §env 表 |
 
-## 密钥纪律（复审必查）
+## 密钥纪律（上线前必查）
 
 1. AppID / AppSecret / 回调 Token **只**从环境变量读，源码、profile、测试夹具、文档一律占位符；
 2. 子进程 env **不继承** `BAH_WECHAT_*` 与 `BAH_IM_*`（`supervisor.ts` 的 `SCRUBBED_ENV`）；

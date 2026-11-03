@@ -2,7 +2,8 @@
 
 判定顺序（与 O5 状态机的输入契约）：
 1. 每个 claim 必须带 `[K#]`，marker 必须解析到 evidence（否则 RED）；
-2. 字面层：claim 与**所引证据**做规范化对齐（子串或相似度 ≥0.55）；
+2. 字面层：claim 与**所引证据**做规范化对齐（子串，或相似度 ≥0.55；
+   证据是一段多要素说明时，允许退到"几乎等于某一个分句"的档位，阈值 0.9）；
 3. 含数字的 claim 跳过 SequenceMatcher，直接走数值对账（单位必须一致）；
 4. 数值只与**本 claim 所引证据**的 cell/正文对账，不允许跨证据或全局 corpus 背书；
 5. 字面失败且无数值 → 蕴含层二元判定（可注入；None=跳过）。
@@ -31,7 +32,13 @@ T_PLUS_RE = re.compile(r"(?<![A-Za-z0-9])[Tt]\+(\d+)")
 NUMBER_RE = re.compile(r"(?<![A-Za-z0-9+])(\d+(?:\.\d+)?)\s*(%|元|天|年|个月|个)?")
 CLAIM_SPLIT = re.compile(r"[。；;!?！？\n]+")
 SENTENCE_RE = re.compile(r"[^。；;\n]+[。；;]?")
+# 分句边界比 SENTENCE_RE 更细：产品说明书一行里挤着四个要素（风险等级/期限/起购/收益率），
+# claim 只说其中一项。按整段或整句比，claim 越短分子越小、分母越大，ratio 恒低——
+# 那是长度惩罚，不是语义不符。
+CLAUSE_SPLIT = re.compile(r"[。；;，,、:：\n]+")
 LITERAL_THRESHOLD = 0.55
+# 分句档阈值必须显著高于整段档：分句短，一个字的差异就能把 ratio 抬到 0.8+。
+CLAUSE_THRESHOLD = 0.9
 T_PLUS_UNIT = "天"
 
 
@@ -139,7 +146,32 @@ def _claim_supported(claim: str, evidence_text: str, cell_values: list[str]) -> 
 
     if left in right:
         return True
-    return SequenceMatcher(None, left, right).ratio() >= LITERAL_THRESHOLD
+    return _literal_supported(left, right)
+
+
+def _literal_supported(claim_norm: str, evidence_norm: str) -> bool:
+    """字面支持判定：整段相似，**或** claim 几乎就是某一个分句。
+
+    为什么需要分句这一档：产品说明书一行里挤着四个要素
+    （`风险等级R1，期限90天，起购金额100元，预期年化收益率2.8%`），
+    claim 只说其中一项。整段比对时分子是 claim 长度、分母是整段长度，
+    ratio 恒低——那是长度惩罚，不是语义不符。
+
+    但分句档必须**远严于**整段档：分句短，一个字的差异就能把 ratio 顶到 0.8 以上
+    （`风险等级R2` 对 `风险等级R1` = 0.83）。所以这里用 0.9 且只允许"唯一最佳分句"，
+    绝不跨分句拼碎片。
+    """
+
+    if SequenceMatcher(None, claim_norm, evidence_norm).ratio() >= LITERAL_THRESHOLD:
+        return True
+    for clause in CLAUSE_SPLIT.split(evidence_norm):
+        if len(clause) < 2:
+            continue
+        if claim_norm in clause:
+            return True
+        if SequenceMatcher(None, claim_norm, clause).ratio() >= CLAUSE_THRESHOLD:
+            return True
+    return False
 
 
 def locate_span(claim: str, evidence_text: str) -> tuple[int, int]:

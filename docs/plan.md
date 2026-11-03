@@ -58,10 +58,10 @@ incident（第 9 态）：外部不可用、需人工介入。终态；`resume` 
 
 `plan/completed.status` 的判定：`failed > 0 || blocked > 0 → failed`。
 **`blocked` 计入失败**——否则一张全被 block 的计划会报"计划完成"。
-**`incident` 也记进 `failed` 桶**——载荷只有五个计数字段（W02 冻结），漏掉它会让
+**`incident` 也记进 `failed` 桶**——载荷只有五个计数字段（已冻结），漏掉它会让
 "一个节点外部不可用"的计划报 `succeeded`，同时破坏"五计数之和 = total"。
 
-### 3.1 动态 args（W11）
+### 3.1 动态 args
 
 只有**整串**是模板的值才替换：`"${node.a.txnId}"` 是模板，`"单号-${node.a.txnId}"` 是字面量。
 理由：字符串插值会把 `800` 变成 `"800"`，金额校验随即按字符串处理。
@@ -137,6 +137,16 @@ V9 为什么是**闭包**而不是直接 `deps`：串行执行下只有"拓扑�
 | `dryRunDefault` | `false` | `run()` 不传 `dryRun` 时的缺省 |
 | `ticketTtlMs` | `120000` | 票据 TTL，**只用于越界判定**，不参与执行 |
 | `maxNodeAttempts` | `3` | 同一节点允许的**失败次数**（含首次），按 `plan/node-result(status='failed')` 累计；达到即拒绝再 `resume` 重试 |
+| `dueSoonLeadMs` | `86400000`（24h） | 到期前提醒的提前量；`0` = 关闭。只产出 `plan_wake.notified[].text`，**不执行**任何节点 |
+
+`dueSoonLeadMs` 是提示词 4-2（2026-11-01）新增的键：窗口进入 `[dueAt - lead, dueAt)` 时，
+唤醒执行器发一条 `exec` 级提醒（`notified[].text`，同实例只发一次；进程内账本，重启后再提醒一次）。
+它只影响播报，不影响判定：到点是否扣款仍由窗口复验 + 代签核验决定。
+
+同批还补了**失守回执**：`window-expired` / `details-changed` / `condition-failed` 三类
+在 `plan_wake.notified[].text` 里各有一句话（`planNoticeText()`，只读窗口自己的 durable 字段）。
+`duePlans` 只扫"未过有效期"的窗口，因此**过期窗口**由唤醒执行器单独扫一遍报
+`failed(window-expired)`（不执行、不补扣）；这是计划卡 `expired` 态的投影来源。
 
 `ticketTtlMs` 是方案 5 键之外的第 6 键：票据 TTL 的真源在 `bank:tools.ticketTtlSeconds`，
 插件之间拿不到彼此的配置，与其在代码里写死一个会过期的常数，不如让它成为显式配置——
@@ -146,7 +156,7 @@ V9 为什么是**闭包**而不是直接 `deps`：串行执行下只有"拓扑�
 放配置而不是写死常数，是因为"失败几次算过分"随业务变；不给它缺省值（`Infinity`）是因为
 "保护默认关闭"在银行场景里是最坏的默认。
 
-## 7. 六条已知限制（答辩时主动说）
+## 7. 六条已知限制（对外说明时主动说）
 
 1. **模型入口是受控的、非默认的**。默认装配下 plan 仍由宿主 / 脚本构造；B1 之后
    `plan_propose`（只校验不执行，绿级）与 `plan_execute`（执行整图，黄级 + 一次人工批准）
@@ -176,10 +186,10 @@ V9 为什么是**闭包**而不是直接 `deps`：串行执行下只有"拓扑�
 哪条属于哪一层（详见 `packages/host/src/boot/plugins/saga-bridge.ts` 的配方表）。
 
 **代价**：plan 里的 `transfer_create` **仍不自动补偿**（plan profile 关掉 saga-bridge，节点只有前向）。
-W12 之后 saga 自身已具备真冲正（`MockBankCore.reverse(txnId)`，两条流水 + 幂等），但那是 saga 层的能力：
+saga 自身已具备真冲正（`MockBankCore.reverse(txnId)`，两条流水 + 幂等），但那是 saga 层的能力：
 要让"第 3 步失败、第 2 步已扣款要退"发生在 plan 里，正确做法仍是让 **plan 编排 saga**
 （节点 = 一整笔 saga），而不是让 saga 藏在某个节点里。这条留给 P2。
-`docs/next-three-w12-w05-w06-2026-10-26.md` 的 TC-W12-06 是**配置断言**（profile 里 `enabled: false`），
+TC-06 是**配置断言**（profile 里 `enabled: false`），
 不是代码级承诺——有人改了 patch，plan 节点就会重新进入 saga 桥接。
 
 判断口诀：**plan 决定"做哪几件事"，saga 决定"一件事做坏了怎么退"。两者是嵌套，不是并列。**
@@ -193,7 +203,7 @@ W12 之后 saga 自身已具备真冲正（`MockBankCore.reverse(txnId)`，两�
 ## 10. 怎么跑
 
 ```bash
-# 单测（引擎 81 例，含 W10 的 replay 6 例 + resume 15 例 + W11 的 incident / waiting / args）
+# 单测（引擎 81 例，含 replay 6 例 + resume 15 例 + incident / waiting / args）
 npx vitest run packages/runtime/src/plan
 
 # 集成（真实依赖清单 + profiles/plan/patch.yml，18 例）
@@ -225,7 +235,7 @@ npx tsx scripts/demo-plan.ts --only=dry --pace=400
 模型自主规划的入口是 B1 的 `plan_propose` / `plan_execute`（见 §7 第 1 条与
 `profiles/web-plan`）。
 
-`scripts/demo-plan.ts` 是**答辩用的证据面**（默认装配 plan 没有模型入口，对话里看不到 DAG；
+`scripts/demo-plan.ts` 是**对外说明用的证据面**（默认装配 plan 没有模型入口，对话里看不到 DAG；
 `web-plan` profile 是"模型可见"的那一面）：
 它在一个进程里跑四段——全成功（3 条 `tool/call` / 1 条 `approval/asked`）、
 菱形失败传播（`A → {B,C} → D`，`D.blockedBy = ['B','C']`）、dry-run（`tool/call = 0`）、
@@ -260,10 +270,11 @@ api.snapshot(plan.planId)                      // 运行中或已完成的快照
 | 引擎 `now: () => Date.now()` | 取 `bah:run` 的注入钟 | 与主循环同一时间轴，且快照回放要逐字节相等 |
 | 本文件的位置：方案写作 docs/plugins/plan.md | `docs/plan.md` | 本仓 `docs/` 是平铺的（`pipeline.md` / `sandbox.md` / `bank-tools.md`），不另开子目录 |
 | `PlanSettings` 5 键 | 6 键（多一个 `ticketTtlMs`） | 票据 TTL 的真源在 `bank:tools`，插件之间拿不到彼此的配置；写死常数会让"< TTL"的判定随时间说谎 |
+| `PlanSettings` 6 键 | 补 `modelTools` / `modelMaxNodes` / `dueSoonLeadMs` 后共 **10 键** | 模型入口默认关闭且要单独的上限；到期前提醒需要可关（`0`）的提前量。三者都有缺省值，不写配置行为不变 |
 | 快照 3 场景 | 1 个录音场景（链式 3 节点）+ 单测/集成覆盖失败与 dry-run 分支 | 快照的职责是"整条链路可复现"，不是把每条分支再录一遍；录得越多重录越贵。**不录 cancel**（依赖事件循环时序，会 flaky） |
 | `plan/` 未进 100% 覆盖率强制名单 | 未加 | 方案未要求；引擎里有一条不可达的防御分支（`depsSatisfied` 兜底），进名单会逼人给死代码写测试 |
-| W11「动态 args 取上游 output」 | `ToolExecution` 增两个**只读**字段：`value`（结构化原值）、`approvalWaitedMs`（审批等待） | `result.content` 是 `projectContent` 之后的**渲染投影**，按字段取不到东西；审批等待只有管线知道。两者都只在内存、不进事件，且默认缺省 ⇒ 对既有消费方零影响 |
-| W11「`incident` 落 `failed` + `code`」 | 不改冻结的三值 `node-result.status`，也不新增 `plan/node-incident` | `status` 与 `code` 同时承载"是不是外部故障"会造成两个判定者；新增事件会让"终态计数"认两个事件族。见 `PROGRESS.md` §70.1 |
+| 动态 args 取上游 output | `ToolExecution` 增两个**只读**字段：`value`（结构化原值）、`approvalWaitedMs`（审批等待） | `result.content` 是 `projectContent` 之后的**渲染投影**，按字段取不到东西；审批等待只有管线知道。两者都只在内存、不进事件，且默认缺省 ⇒ 对既有消费方零影响 |
+| `incident` 落 `failed` + `code` | 不改冻结的三值 `node-result.status`，也不新增 `plan/node-incident` | `status` 与 `code` 同时承载"是不是外部故障"会造成两个判定者；新增事件会让"终态计数"认两个事件族。见 `` §70.1 |
 
 ## 12. 续跑（P1 已做）与仍未做的部分
 
@@ -310,7 +321,7 @@ await api.resume(plan, { from: ['pay'] })   // 授权重跑 pay（它上次是 f
 
 同 `planId` 正在跑 → `plan-already-running`（沿用既有单写者守卫，不新增码）。
 
-### 12.2 已知限制（答辩主动说）
+### 12.2 已知限制（对外说明主动说）
 
 1. **同会话才可续**。续跑读的是当前 `session.events()`：换会话 / 换进程都读不到上次结果，
    会直接 `plan-replay-incomplete`。v1 没有跨进程持久化。
@@ -320,13 +331,13 @@ await api.resume(plan, { from: ['pay'] })   // 授权重跑 pay（它上次是 f
    只能整张换新 `planId`（见 §7 第 4 条）。
 3. **快照会丢上次的 `code` / `durationMs`**：重放只重建状态，不重建当时的错误码与耗时。
 4. **停机期间续跑不了**：HALT 拦截在宿主层，`run` 与 `resume` 共用同一段闸。
-   只包 `run` 的话，停机时用 `resume` 就能绕过——这是 W10 必须堵的洞。
+   只包 `run` 的话，停机时用 `resume` 就能绕过——这是必须堵的洞。
 
 ### 12.3 仍未做
 
 - **失败 / dry-run 的录音场景**：只录了"全成功"一条（`snapshots/plan/`），失败传播与 dry-run
   由单测与集成测试兜住（见下节用例清单）。
-- **P2 三项已做完**（动态 args / `incident` 态 / `plan/node-waiting`，W11）；仍未做的只有上面这条
+- **P2 三项已做完**（动态 args / `incident` 态 / `plan/node-waiting`）；仍未做的只有上面这条
   与本文件 §7 登记的限制。
 
 ### 12.4 「重做已成功的节点」的口径（2026-10-25 裁定：保持封闭）
@@ -338,7 +349,7 @@ await api.resume(plan, { from: ['pay'] })   // 授权重跑 pay（它上次是 f
 两张计划靠 `meta` 里的关联 id 串起来——`meta` 不进 digest，"改标题不算新意图"这条正好让
 关联字段可以后补。
 
-三条理由，答辩会被问到：
+三条理由，对外说明会被问到：
 
 1. **审计要能一眼分清"续"与"重做"**：混进同一个入参后，只能靠载荷字段去猜，而
    `plan/resumed.skipped` 也会失去单一含义（"跳过了几个"还是"允许重跑了几个"？）；
@@ -375,8 +386,8 @@ await api.resume(plan, { from: ['pay'] })   // 授权重跑 pay（它上次是 f
 
 | 面 | 位置 | 数量 |
 |---|---|---|
-| 引擎单测 | `packages/runtime/src/plan/`（6 个 `*.test.ts`） | 81 例（含 W10 重放 6 + 续跑 11 + 重试上限 4 + W11 的 incident 4 / waiting 4 / args 8 / 二次 completed 1） |
-| 宿主集成 | `packages/host/src/boot/plugins/plan.test.ts` | 18 例（6 场景 + W10 续跑 3 + 配置 4 + profile 一致性 1 + 总开关 1 + W11 接缝 3） |
+| 引擎单测 | `packages/runtime/src/plan/`（6 个 `*.test.ts`） | 81 例（含重放 6 + 续跑 11 + 重试上限 4 + incident 4 / waiting 4 / args 8 + 二次 completed 1） |
+| 宿主集成 | `packages/host/src/boot/plugins/plan.test.ts` | 18 例（6 场景 + 续跑 3 + 配置 4 + profile 一致性 1 + 总开关 1 + 接缝 3） |
 | 快照回放 | `snapshots/plan/` | 1 场景 4 例（含负控篡改） |
 | 门禁 | `scripts/verify-plan-events.ts`、`scripts/verify-plan-determinism.ts` | 6 + 若干项检查，已做负例验证（故意破坏 → 必红） |
 | 演示 | `scripts/demo-plan.ts` | 3 场景 10 条断言（全成功 / 菱形传播 / dry-run），退出码 0 才算通过 |

@@ -1,5 +1,5 @@
 /**
- * 查询类工具（施工单 08 §3.1–§3.6）。
+ * 查询类工具。
  *
  * 覆盖：账户列表 / 余额 / 流水分页与筛选 / 账单月度与季度 / 收款人汇总 / 报告 /
  * 受限计算（默认求值器 + 超时 + 取消 + 语法错误）。
@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { captureRejection } from '@bah/test-support'
 
 import type { AccountsResult, AnalysisResult, BalanceResult, BillAnalysisResult, BillReportResult, TxnQueryResult } from './dto.ts'
+import { CATEGORY_LABEL } from './presenters.ts'
 import { createBankHarness } from './testing.ts'
 
 describe('account_list / account_balance（T-TOOLS-001 的读侧）', () => {
@@ -33,7 +34,7 @@ describe('account_list / account_balance（T-TOOLS-001 的读侧）', () => {
     const h = createBankHarness()
     const result = (await h.call('account_list')) as AccountsResult
 
-    expect(result.cards.map((card) => card.cardId)).toEqual(['c-1', 'c-2'])
+    expect(result.cards.map((card) => card.cardId)).toEqual(['c-1', 'c-2', 'c-3'])
     expect(result.cards[0]).toMatchObject({
       accountId: 'a-1',
       tail: '1234',
@@ -42,13 +43,43 @@ describe('account_list / account_balance（T-TOOLS-001 的读侧）', () => {
       dailyLimitCents: 100_000,
       monthlyLimitCents: 2_000_000,
     })
+    // 借记卡不带授信三件套（ADR-0015：缺省即借记，老视图形状不变）
+    expect(result.cards[0]?.kind).toBeUndefined()
+    expect(result.cards[0]?.creditLimitCents).toBeUndefined()
 
     const tool = h.tools.get('account_list')!
     const text = ((tool.projectContent?.(result) ?? [])[0] as { text: string }).text
     // 模型只看 projectContent 的正文（UiCard 不落账），cardId 必须在正文里
-    expect(text).toContain('名下 2 张卡')
+    expect(text).toContain('名下 3 张卡')
     expect(text).toContain('卡尾号 1234')
     expect(text).toContain('卡ID c-1')
+  })
+
+  it('account_list：信用额度卡回读授信/已用/可用（ADR-0015）', async () => {
+    const h = createBankHarness()
+    const result = (await h.call('account_list')) as AccountsResult
+    const credit = result.cards.find((card) => card.cardId === 'c-3')
+    expect(credit).toMatchObject({
+      tail: '2468',
+      kind: 'credit',
+      creditLimitCents: 500_000,
+      usedCreditCents: 0,
+    })
+
+    const tool = h.tools.get('account_list')!
+    const text = ((tool.projectContent?.(result) ?? [])[0] as { text: string }).text
+    // 三件套必须进正文：额度 ¥5,000.00 / 已用 ¥0.00 / 可用 ¥5,000.00
+    expect(text).toContain('虚拟信用卡尾号 2468')
+    expect(text).toContain('授信额度 ¥5,000.00、已用 ¥0.00、可用 ¥5,000.00')
+
+    // UiCard 也要带（展示层与模型层同源，不各算一份）
+    const card = tool.presentResult?.({}, result) as
+      | { data: { cards: { tail: string; creditText?: string }[] } }
+      | undefined
+    expect(card?.data.cards.find((item) => item.tail === '2468')?.creditText).toBe(
+      '额度 ¥5,000.00 / 已用 ¥0.00 / 可用 ¥5,000.00',
+    )
+    expect(card?.data.cards.find((item) => item.tail === '1234')?.creditText).toBeUndefined()
   })
 
   it('余额缺省主账户；带 txnRef 与冻结金额', async () => {
@@ -80,7 +111,7 @@ describe('account_list / account_balance（T-TOOLS-001 的读侧）', () => {
     expect(error.code).toBe('account-forbidden')
   })
 
-  it('未绑定身份：no-identity（施工单 09 §4）', async () => {
+  it('未绑定身份：no-identity', async () => {
     const h = createBankHarness({ userId: null })
     const error = await captureRejection(() => h.call('account_list'))
     expect(error.code).toBe('no-identity')
@@ -145,6 +176,31 @@ describe('txn_query', () => {
     const tool = h.tools.get('txn_query')!
     expect(tool.presentResult?.({}, result)).toMatchObject({ kind: 'bank.txn-list' })
   })
+
+  it('模型正文：方向符号 / 对手方 / 翻页提示；空区间显式说"没有交易"', async () => {
+    const h = createBankHarness()
+    const tool = h.tools.get('txn_query')!
+
+    const result = (await h.call('txn_query', {
+      range: { from: '2026-08-01', to: '2026-10-31' },
+      category: 'transfer',
+      limit: 1,
+    })) as TxnQueryResult
+    const text = ((tool.projectContent?.(result) ?? [])[0] as { text: string }).text
+    expect(text).toContain('第 1 页')
+    expect(text).toContain('王建国')
+    // 支出为负号：模型据此判断资金流向，符号丢了就会把支出说成收入
+    expect(text).toMatch(/[+-]¥/)
+    expect(text).toContain('还有下一页')
+
+    const empty = (await h.call('txn_query', {
+      range: { from: '2020-01-01', to: '2020-01-02' },
+    })) as TxnQueryResult
+    expect(empty.items).toHaveLength(0)
+    const emptyText = ((tool.projectContent?.(empty) ?? [])[0] as { text: string }).text
+    expect(emptyText).toContain('该区间没有交易')
+    expect(emptyText).not.toContain('还有下一页')
+  })
 })
 
 describe('bill_analyze / bill_report', () => {
@@ -161,6 +217,15 @@ describe('bill_analyze / bill_report', () => {
 
     const tool = h.tools.get('bill_analyze')!
     expect(tool.presentResult?.({}, result)).toMatchObject({ kind: 'bank.bill-analysis' })
+    // 默认口径（无 groupBy）走账务分类摘要：模型正文必须带分类与异常数
+    const text = ((tool.projectContent?.(result) ?? [])[0] as { text: string }).text
+    expect(text).toContain('分类：')
+    expect(text).toContain('异常')
+    // 分类必须写中文：内部键进正文等于让客户界面和模型回显里出现 `transfer`
+    expect(text).toContain(CATEGORY_LABEL[result.byCategory[0]!.category])
+    for (const line of result.byCategory.slice(0, 5)) {
+      expect(text).not.toContain(line.category)
+    }
   })
 
   it('季度：三个月合并，groupBy = payee 输出收款人汇总（降序）', async () => {
@@ -246,10 +311,15 @@ describe('bill_analyze / bill_report', () => {
     expect(summary.text).toContain('账单报告')
     expect(summary.text).toContain('分类汇总')
     expect(summary.text).not.toContain('收款人（前 5）')
+    // 分类行走中文文案（这份正文既进模型也进工具卡）
+    expect(summary.analysis.byCategory.length).toBeGreaterThan(0)
+    expect(summary.text).toContain(CATEGORY_LABEL[summary.analysis.byCategory[0]!.category])
 
     const detail = (await h.call('bill_report', { period: 'month', format: 'detail' })) as BillReportResult
     expect(detail.text).toContain('收款人（前 5）')
     expect(detail.text).toContain('异常：')
+    // 异常说明不能留「N 分」这种内部口径：客户读不出是 3003.70 元还是 300370 元
+    expect(detail.text).not.toMatch(/\d+(?:[.,]\d+)? 分/)
     expect(h.auditsOf('read/bill-report')).toHaveLength(2)
   })
 
@@ -274,6 +344,17 @@ describe('analysis_calc（T-TOOLS-006）', () => {
     expect(result.value).toBe(25)
     expect(result.operations).toBeGreaterThan(0)
     expect(h.auditsOf('read/analysis')[0]?.result.value).toBe(25)  })
+
+  it('模型正文：表达式、结果与运算次数都写清（不把裸数字丢给模型）', async () => {
+    const h = createBankHarness()
+    const result = (await h.call('analysis_calc', { code: '1 + 1' })) as AnalysisResult
+    const text = (
+      (h.tools.get('analysis_calc')!.projectContent?.(result) ?? [])[0] as { text: string }
+    ).text
+    expect(text).toContain('1 + 1 = 2')
+    expect(text).toContain('次运算')
+    expect(text).toContain('ms')
+  })
 
   it('超时：seam 永不返回 → compute-timeout（结构化失败）', async () => {
     const h = createBankHarness({

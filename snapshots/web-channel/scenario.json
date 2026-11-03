@@ -94,7 +94,8 @@
       "config": {
         "responder": "headless",
         "autoDecision": "allow",
-        "autoVerify": true
+        "autoVerify": true,
+        "windowResponder": false
       }
     },
     {

@@ -1,5 +1,5 @@
 /**
- * 银行工具族的 presenter（施工单 08 §4）。
+ * 银行工具族的 presenter。
  *
  * 铁律：**纯函数**——同输入同输出；不访问 ctx / 时间 / 随机；不抛错（参数可能来自不可信的模型）。
  * 卡片只描述"展示什么"，渠道（Web / IM / 移动）按 `kind` 选模板，业务逻辑不进渠道。
@@ -126,6 +126,26 @@ export function accountsCard(result: AccountsResult): UiCard {
         availableText: money(account.availableCents),
       })),
       totalAvailableText: money(result.availableTotalCents),
+      /**
+       * 卡片行（ADR-0015）：信用产品多一段「额度 / 已用 / 可用」。
+       *
+       * 为什么可用额度在展示层算：它是 `授信 − 已用` 的派生值，落成字段就是第二份会漂移的真相。
+       * 借记卡不带 `creditText`（`kind` 缺省的卡与改动前的卡片数据逐字一致）。
+       */
+      cards: result.cards.map((card) => ({
+        cardId: card.cardId,
+        tail: card.tail,
+        typeLabel: `${CARD_TYPE_LABEL[card.type]}${card.kind === 'credit' ? '信用' : ''}卡`,
+        statusLabel: CARD_STATUS_LABEL[card.status],
+        limitText: `日限 ${money(card.dailyLimitCents)}`,
+        ...(card.kind === 'credit' && card.creditLimitCents !== undefined
+          ? {
+              creditText:
+                `额度 ${money(card.creditLimitCents)} / 已用 ${money(card.usedCreditCents ?? 0)} / ` +
+                `可用 ${money(Math.max(0, card.creditLimitCents - (card.usedCreditCents ?? 0)))}`,
+            }
+          : {}),
+      })),
     },
   }
 }
@@ -359,7 +379,7 @@ export function verifyCard(result: VerifyResult): UiCard {
   }
 }
 
-/** 待执行卡片：转账（施工单 08 §3.8 `presentCall`）。 */
+/** 待执行卡片：转账。 */
 export function transferConfirmCard(
   args: Readonly<Record<string, unknown>>,
   ticketTtlSeconds: number,

@@ -1,7 +1,7 @@
 /**
- * 事件五模式单测（施工单 02 §3 / §4 / §10）。
+ * 事件五模式单测。
  *
- * 用例 ID 与施工单 §10 表逐一对应，编号不得增删改。
+ * 用例 ID 与设计说明 §10 表逐一对应，编号不得增删改。
  * 只测公开行为（派发结果 / 调用顺序 / 抛出），不碰私有注册表。
  */
 
@@ -21,7 +21,7 @@ const delay = (ms: number): Promise<void> =>
     setTimeout(resolve, ms)
   })
 
-describe('waterfall（施工单 02 §4 逐条）', () => {
+describe('waterfall', () => {
   it('T-CORE-006 handler 调 next() → 控制权正确传递，值可被改写', async () => {
     const events = new BahEvents()
     const order: string[] = []
@@ -90,7 +90,7 @@ describe('waterfall（施工单 02 §4 逐条）', () => {
   })
 
   it('waterfall 以最外层 handler 返回值为准：只 await next() 不 return 就会丢值', async () => {
-    // 这是有意的显式语义（与施工单 00 §12 的机制对照锚点一致），不是 bug：
+    // 这是有意的显式语义（与 的机制对照锚点一致），不是 bug：
     // 「链尾值兜底」会让 next 之后的改写被静默吃掉，所以这里把行为钉死，防止被好心重构掉。
     const events = new BahEvents()
     events.on('audited-chain', async (value, next) => {

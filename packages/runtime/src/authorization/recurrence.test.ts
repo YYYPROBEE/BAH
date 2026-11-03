@@ -41,6 +41,11 @@ describe('recurrence：实例键', () => {
 })
 
 describe('recurrence：下一次到期', () => {
+  it('once：下一次到期恒为声明的 dueAt（一次性计划没有周期顺延）', () => {
+    const due = T_2026_10_22 + 3_600_000
+    expect(nextDueAt({ every: 'once', dueAt: due }, T_2026_10_22)).toBe(due)
+  })
+
   it('daily：当天时刻已过 ⇒ 明天；未过 ⇒ 今天', () => {
     const at = T_2026_10_22 // 10:00
     expect(nextDueAt({ every: 'daily', at: '09:00' }, at) - at).toBe(23 * 3600_000)
@@ -74,6 +79,23 @@ describe('recurrence：下一次到期', () => {
       year: 2027,
       month: 1,
       day: 1,
+    })
+  })
+
+  it('严格晚于 after：判定时刻恰好等于到期时刻 ⇒ 顺延一个周期', () => {
+    const exactly = Date.UTC(2026, 9, 22, 1, 0) // 2026-10-22 09:00 +08
+    expect(nextDueAt({ every: 'daily', at: '09:00' }, exactly)).toBe(exactly + 24 * 3600_000)
+    expect(wallClockAt(nextDueAt({ every: 'monthly', day: 22, at: '09:00' }, exactly))).toMatchObject({
+      year: 2026,
+      month: 11,
+      day: 22,
+      hour: 9,
+      minute: 0,
+    })
+    expect(wallClockAt(nextDueAt({ every: 'yearly', month: 10, day: 22, at: '09:00' }, exactly))).toMatchObject({
+      year: 2027,
+      month: 10,
+      day: 22,
     })
   })
 

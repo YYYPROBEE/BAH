@@ -1,5 +1,5 @@
 /**
- * 会话事件 → 帧 的**唯一归约器**（施工单 13 §2「前端只消费事件与卡片数据」）。
+ * 会话事件 → 帧 的**唯一归约器**。
  *
  * 三条不变量（测试按此断言）：
  * 1. **纯**：不读时钟、不读随机、不读 DOM；同一串事件两次归约必须深度相等（T-WEB-007）；
@@ -16,6 +16,7 @@ import type { AnySessionEvent, ApprovalDecision, TurnEndReason } from '@bah/runt
 
 import type {
   ApprovalClosedFrame,
+  ApprovalDetail,
   ApprovalFrame,
   CardView,
   DagFrame,
@@ -31,6 +32,8 @@ import type {
   NoticeFrame,
   PlanCardCondition,
   PlanCardFrame,
+  RiskQuestionItem,
+  RiskQuestionnaireFrame,
   SnapshotFrame,
   TodoFrame,
   TodoItem,
@@ -43,6 +46,13 @@ import type {
 import { frameKey } from './frames.ts'
 import { auditOf } from './audit.ts'
 import { buildCard, toolTitle } from './cards.ts'
+import { aaFromResult, applyCollected, applyParticipantUpdated, type AaProgress } from './aa.ts'
+import { billReportBlockOf, type BillReportBlock } from './bill-report.ts'
+import { snapshotOf, upcomingBlockOf } from './subscriptions.ts'
+// ADR-0016：主动提醒 → `notice` 帧（与 read/risk-questions 同类的"领域事件也产帧"例外）
+import { proactiveNoticeOf } from './proactive.ts'
+
+import type { SubscriptionSnapshot } from './subscriptions.ts'
 import { requiredConfirmText } from './confirm.ts'
 import { amountFromArgs, maskedPayeePhoneFromArgs, payeeFromArgs } from './amount.ts'
 import { DagBuilder } from './dag.ts'
@@ -55,7 +65,7 @@ interface CallRecord {
   readonly args: unknown
   readonly turn: number
   readonly step: number
-  readonly tier: FrameTier
+  tier: FrameTier
   state: 'pending' | 'done' | 'denied'
 }
 
@@ -72,6 +82,139 @@ function toMessageBlocks(content: readonly { type: string; text?: string; mimeTy
     }
   }
   return blocks
+}
+
+/**
+ * 审批明细的展示上限（行数）。
+ *
+ * 超过就截断并置 `detailsTruncated`：审批卡的用途是"确认要执行什么"，
+ * 20 行的明细会把人逼成只找"批准"按钮。完整明细仍在 `approval/asked` 事件里。
+ */
+export const DETAILS_MAX_ROWS = 12
+
+/** 一行明细的最大字符数（防止一条超长值把卡片撑爆；截断可见）。 */
+const DETAIL_MAX_CHARS = 160
+
+/**
+ * `read/risk-questions` → 问卷卡。
+ *
+ * 三条守卫（与明细投影同口径）：
+ * 1. 只**剔除**不合形状的项，不改写题干、不重算分值（改了就是渠道自造问卷）；
+ * 2. 任一关键字段缺失 ⇒ 整张卡不产（半张问卷比没有更糟：用户会以为自己漏看了题）；
+ * 3. 控制字符折成空格，防止一条题干里的换行伪造出"多一题"。
+ */
+export function riskQuestionnaireFrameOf(
+  raw: unknown,
+  seq: number,
+  at: number,
+): RiskQuestionnaireFrame | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
+  const record = raw as Record<string, unknown>
+  const callId = plainTextOf(record['callId'])
+  const questionnaireId = plainTextOf(record['questionnaireId'])
+  const version = plainTextOf(record['version'])
+  const expiresAt = record['expiresAt']
+  const questions = riskQuestionsOf(record['questions'])
+  if (
+    callId === undefined ||
+    questionnaireId === undefined ||
+    version === undefined ||
+    typeof expiresAt !== 'number' ||
+    questions.length === 0
+  ) {
+    return undefined
+  }
+  return {
+    kind: 'risk-questionnaire',
+    seq,
+    at,
+    callId,
+    questionnaireId,
+    version,
+    expiresAt,
+    questions,
+  }
+}
+
+/** 题目数组的形状守卫（允许丢弃坏项，但至少要有 1 题）。 */
+function riskQuestionsOf(raw: unknown): readonly RiskQuestionItem[] {
+  if (!Array.isArray(raw)) return []
+  const items: RiskQuestionItem[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue
+    const record = entry as Record<string, unknown>
+    const index = record['index']
+    const title = plainTextOf(record['title'])
+    if (typeof index !== 'number' || !Number.isInteger(index) || title === undefined) continue
+    const options: { readonly key: string; readonly text: string; readonly score: number }[] = []
+    const rawOptions = record['options']
+    if (Array.isArray(rawOptions)) {
+      for (const option of rawOptions) {
+        if (typeof option !== 'object' || option === null) continue
+        const item = option as Record<string, unknown>
+        const key = plainTextOf(item['key'])
+        const text = plainTextOf(item['text'])
+        const score = item['score']
+        if (key === undefined || text === undefined || typeof score !== 'number') continue
+        options.push({ key, text, score })
+      }
+    }
+    if (options.length === 0) continue
+    items.push({ index, title, options })
+  }
+  return items.sort((left, right) => left.index - right.index)
+}
+
+/** 单行文本归一（去控制字符 / 折空白 / 截断；空串 → `undefined`）。 */
+function plainTextOf(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const cleaned = value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return cleaned.length === 0 ? undefined : cleaned
+}
+
+/**
+ * `approval/asked.details` → 帧上的明细（**原样**投影，不做二次计算）。
+ *
+ * 三条纪律：
+ * 1. 不解析、不格式化、不重排金额与日期——服务端签发什么就显示什么，
+ *    渠道一旦"顺手美化"，同一笔钱就会出现两个口径；
+ * 2. 形状守卫只做**剔除**：非对象 / 空 label / 空 value / 非白名单 emphasis 直接丢；
+ *    控制字符折成空格（否则一条值里的换行能伪造出"多一行字段"）；
+ * 3. 全丢光与超限都要能表达：前者返回 `{}`（帧上不出现 details），后者带 `detailsTruncated`。
+ */
+export function projectApprovalDetails(raw: unknown): {
+  readonly details?: readonly ApprovalDetail[]
+  readonly detailsTruncated?: boolean
+} {
+  if (!Array.isArray(raw) || raw.length === 0) return {}
+  const rows: ApprovalDetail[] = []
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) continue
+    const record = item as Record<string, unknown>
+    const label = detailTextOf(record['label'])
+    const value = detailTextOf(record['value'])
+    if (label === undefined || value === undefined) continue
+    const emphasis = record['emphasis']
+    rows.push({
+      label,
+      value,
+      ...(emphasis === 'amount' || emphasis === 'date' || emphasis === 'risk' ? { emphasis } : {}),
+    })
+  }
+  if (rows.length === 0) return {}
+  const visible = rows.slice(0, DETAILS_MAX_ROWS)
+  return {
+    details: visible,
+    ...(rows.length > DETAILS_MAX_ROWS ? { detailsTruncated: true } : {}),
+  }
+}
+
+/** 明细字段的文本归一（去控制字符、截断；空串 → `undefined`）。 */
+function detailTextOf(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const cleaned = value.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()
+  if (cleaned.length === 0) return undefined
+  return cleaned.length > DETAIL_MAX_CHARS ? `${cleaned.slice(0, DETAIL_MAX_CHARS)}…` : cleaned
 }
 
 /**
@@ -153,7 +296,7 @@ function noticeTitle(end: TurnEndReason): string {
 /**
  * `DagNode.state` → 待办项的 `done` / `tone`（穷尽 9 态，`frames.ts` 的联合）。
  *
- * 映射口径（施工单 01 §3.5）：
+ * 映射口径：
  *   ok → 完成 · success
  *   pending / running → 未完成 · default
  *   blocked → 未完成 · warning（等前置，不是错）
@@ -289,7 +432,7 @@ export function projectTodo(input: {
 /**
  * 影响面派生：纯函数（不读时钟 / 随机 / IO）。
  *
- * 写操作用**双判据**（施工单 01 §9 V3：`tool/result` 载荷里没有 `sideEffect`，而
+ * 写操作用**双判据**（`tool/result` 载荷里没有 `sideEffect`，而
  * `@bah/channels` 不得反向依赖 bank）：
  *
  * ① `tier === 'yellow' || tier === 'red'` —— 追溯 `tool/call.tier.level`（需审批 = 有资金或状态写）；
@@ -357,7 +500,7 @@ interface EffectCandidate {
   readonly ticketId?: string
 }
 
-/** `WebProjector` 的可选注入口（施工单 01 §3.5）。 */
+/** `WebProjector` 的可选注入口。 */
 export interface WebProjectorOptions {
   /**
    * 写侧工具名单（权威来源 = 宿主的工具注册表 `sideEffect === 'write'`）。
@@ -373,6 +516,8 @@ export class WebProjector {
   private readonly calls = new Map<string, CallRecord>()
   /** 本 turn 预演结果里的手续费（按收款人姓名），供审批帧显示。 */
   private readonly previewFees = new Map<string, string>()
+  /** 本 turn 已有成功预演的「收款人+金额」：只用于审批金额是否已由工具证实的判定。 */
+  private readonly previewConfirmed = new Set<string>()
   private readonly dag = new DagBuilder()
   /** `plan/node-blocked.blockedBy`，键 = `DagNode.id`（`dag.ts` 的 `plan:` 前缀形态）。 */
   private readonly blockedBy = new Map<string, readonly string[]>()
@@ -381,6 +526,12 @@ export class WebProjector {
   /** `tool/call.callId` → 审批票号（`effects` 帧的可选 `ticketId`）。 */
   private readonly ticketOfCall = new Map<string, string>()
   private readonly writeToolNames?: readonly string[]
+  /** 最近一次 `read/subscriptions` 快照（订阅卡片「即将扣款」块的数据源）。 */
+  private subscriptions?: SubscriptionSnapshot
+  /** 最近一个 AA 组的进度（`aa_create` 卡片「收款进度」块的数据源）。 */
+  private aaProgress?: AaProgress
+  /** 本 turn 最近一次 `read/bill-report` 的结构化块（`bill_report` 卡片表格的数据源）。 */
+  private billReport?: BillReportBlock
   private last = 0
   private turn = 0
   private step = 0
@@ -445,10 +596,80 @@ export class WebProjector {
     if (String(event.type).startsWith('handoff/')) {
       return this.projectHandoff(String(event.type), event)
     }
+    // 订阅清单域事件（ADR-0007）：只记快照，不产帧——它供 sub_list 卡片画「即将扣款」块
+    if (String(event.type) === 'read/subscriptions') {
+      const snapshot = snapshotOf((event as { data?: unknown }).data, event.at)
+      if (snapshot !== undefined) this.subscriptions = snapshot
+      return []
+    }
+    // AA 收款进度（场景 1 子能力）：同样只记快照，不产帧。代收本身是工具调用
+    // （`aa_create` 的 collect 分支），帧已由 `tool/result` 产出，这里只补"每人是否已收"。
+    if (String(event.type) === 'aa/created' || String(event.type) === 'read/aa') {
+      const next = aaFromResult((event as { data?: unknown }).data)
+      if (next !== undefined) this.aaProgress = next
+      return []
+    }
+    if (String(event.type) === 'aa/collected') {
+      // 组号对不上时 `applyCollected` 返回 undefined，旧快照原样保留
+      const next = applyCollected(this.aaProgress, (event as { data?: unknown }).data)
+      if (next !== undefined) this.aaProgress = next
+      return []
+    }
+    // ADR-0017：拒绝 / 到期推进同一张进度表。缺这一步 declined 会在卡片上显示成"待收"。
+    if (String(event.type) === 'aa/participant-updated') {
+      const next = applyParticipantUpdated(this.aaProgress, (event as { data?: unknown }).data)
+      if (next !== undefined) this.aaProgress = next
+      return []
+    }
+    // 主动提醒（ADR-0016）：**与 `read/risk-questions` 同类的必要例外**——主动推送没有
+    // `tool/call` 作承载点，"用户没问也看得到"只有在事件自己产帧时才回放得出来。
+    // 被预算压掉的（`channel='none'`）返回 undefined：只进审计，不进对话。
+    if (String(event.type) === 'proactive/reminder') {
+      const frame = proactiveNoticeOf((event as { data?: unknown }).data, event.seq, event.at)
+      return frame === undefined ? [] : [frame]
+    }
+    // 账单报告的结构化块（场景 2）：同样只记快照、不产帧——卡片帧由 `tool/result` 产出，
+    // 这里只补「分类表 / 收款人 / 异常」。载荷形状不合格就不记（卡片退回正文排版），
+    // 时间线坏一处不能拖垮整段对话。
+    if (String(event.type) === 'read/bill-report') {
+      const block = billReportBlockOf((event as { data?: unknown }).data)
+      if (block !== undefined) this.billReport = block
+      return []
+    }
+    // 风险问卷域事件（C-03）：**是例外，也是必要的例外**。发卷是只读分支，
+    // `tool/result` 只有一行文本，卡片没有任何别的承载点；而"用户看到的 5 道题"
+    // 必须能逐字回放（否则审批卡上的题目与用户答的题目对不上，确认就失去意义）。
+    // 形状不合格就吞掉（宁可不显示，也不显示半张问卷）。
+    if (String(event.type) === 'read/risk-questions') {
+      const frame = riskQuestionnaireFrameOf(
+        (event as { data?: unknown }).data,
+        event.seq,
+        event.at,
+      )
+      return frame === undefined ? [] : [frame]
+    }
+    // 生效档位只在 `tier/decided` 里：`tool/call` 带的是声明档位（红级新收款人声明是黄级）。
+    // 这里只回写登记与 DAG，不单独产帧——等下一次 tool/result 用生效档位重画，
+    // 同时保持「领域事件不产帧」的既有约定。
+    if (String(event.type) === 'tier/decided') {
+      const data = event.data as { readonly callId?: unknown; readonly level?: unknown }
+      if (typeof data.callId !== 'string' || typeof data.level !== 'string') return []
+      const level = data.level as FrameTier
+      const record = this.calls.get(data.callId)
+      if (record === undefined) return []
+      record.tier = level
+      this.dag.retier(data.callId, level)
+      return []
+    }
     switch (event.type) {
       case 'turn/start': {
         this.turn = event.data.turn
         this.previewFees.clear()
+        this.previewConfirmed.clear()
+        // 订阅快照只在本 turn 有效：跨 turn 复用会把上一轮读到的清单画成这一轮的现况
+        this.subscriptions = undefined
+        // 报告块同理：上一轮的账单数字不能画在这一轮的工具卡上
+        this.billReport = undefined
         return [this.turnFrame(event.seq, event.at, event.data.turn, 'start')]
       }
       case 'turn/end': {
@@ -503,10 +724,13 @@ export class WebProjector {
       case 'tool/result': {
         const data = event.data
         const record = this.calls.get(data.callId)
-        // 审批帧的手续费只能来自预演结果：没有预演就不显示，不从别处猜
+        // 审批帧的手续费只能来自预演结果：没有预演就不显示，不从别处猜。
+        // 预演成功同时证明「这个收款人 + 金额」在本 turn 被工具看过一眼：
+        // 审批帧据此把金额从"待确认"升为已确认（仍要求收款人与金额完全一致）。
         if (data.name === 'transfer_preview' && !data.isError && record !== undefined) {
           const payee = payeeFromArgs(record.args)
           const cents = amountFromArgs(record.args)
+          if (payee !== undefined) this.previewConfirmed.add(previewKey(payee, cents))
           const feeText = previewFeeOf(data.content)
           if (payee !== undefined && feeText !== undefined) {
             this.previewFees.set(previewKey(payee, cents), feeText)
@@ -533,7 +757,7 @@ export class WebProjector {
         if (!data.isError && data.name === 'prompt_ask' && record !== undefined) {
           frames.push(this.choiceFrame(data.callId, event.seq, event.at, asArgs(record.args)))
         }
-        // 施工单 01 §3.5：成功的写操作 → effects 帧（一轮一张清单，累积替换）。
+        // ：成功的写操作 → effects 帧（一轮一张清单，累积替换）。
         // 失败（isError）不产：那是"被判停/出错"，不是"已发生的影响"。
         if (!data.isError && record !== undefined) {
           const ticketId = this.ticketOfCall.get(data.callId)
@@ -583,24 +807,23 @@ export class WebProjector {
         const data = event.data
         const record = this.calls.get(data.callId)
         this.ticketOfCall.set(data.callId, data.ticketId)
-        // 风险级别必须与 challenge 一致：`tool/call` 只能带**声明级别**（它在 pre-execute
-        // 之前落账），生效级别只出现在 bank 审计（不是会话事件）。而强验证挑战
-        // 只为红级签发（`requiresChallenge(level) === level==='red'`），所以
-        // "有 challenge" 就是红级；否则沿用声明级别。黄级徽标 + 短信强验证的
-        // 同框自相矛盾，根因就在这一行。
+        // 风险级别必须与 challenge 一致：红级强验证挑战只为红级签发
+        // （`requiresChallenge(level) === level==='red'`），所以"有 challenge"就是红级；
+        // 否则沿用登记里已由 `tier/decided` 回写的生效档位（没有判决时才回落到声明级别）。
         const tier: FrameTier = data.challenge === undefined ? (record?.tier ?? 'unknown') : 'red'
         const payee = payeeFromArgs(record?.args)
         const payeePhone = maskedPayeePhoneFromArgs(record?.args)
-        const feeText =
-          payee === undefined
-            ? undefined
-            : this.previewFees.get(previewKey(payee, amountFromArgs(record?.args)))
-        // 金额口径：工具参数里的 `amount` 是**元**（施工单 08）；`approval/asked.amount`
+        // 金额口径：工具参数里的 `amount` 是**元**；`approval/asked.amount`
         // 同为元（bank governance 用 `amountCents / 100` 填票据）。参数缺金额时才退回事件值，
         // 绝不把两种单位混着格式化——￥8.00 与 ￥800.00 的差别就是一次事故。
         const cents =
           amountFromArgs(record?.args) ??
           (typeof data.amount === 'number' ? Math.round(data.amount * 100) : undefined)
+        // 同 turn 已有一笔成功的 transfer_preview，且收款人+金额完全一致：
+        // 金额数值已有工具结果背书；否则维持"待确认"（不拿 create 自己的参数自证）。
+        const key = payee === undefined ? undefined : previewKey(payee, cents)
+        const feeText = key === undefined ? undefined : this.previewFees.get(key)
+        const amountConfirmed = key !== undefined && this.previewConfirmed.has(key)
         const confirmText = requiredConfirmText(data.name)
         return [
           {
@@ -611,15 +834,20 @@ export class WebProjector {
             callId: data.callId,
             name: data.name,
             operation: toolTitle(data.name),
-            ...(cents === undefined ? {} : { amountText: formatCents(cents) }),
-            amountConfirmed: false,
+            // 卡片冻结/挂失、订阅取消等非金额操作不带金额：不要渲染成 ¥0.00。
+            ...(cents === undefined || cents <= 0 ? {} : { amountText: formatCents(cents) }),
+            amountConfirmed,
             ...(payee === undefined ? {} : { payeeName: payee }),
             ...(payeePhone === undefined ? {} : { payeePhone }),
             ...(feeText === undefined ? {} : { feeText }),
             tier,
+            // TTL 截止时刻原样透传（不在渠道按 now + ttl 重算：同一份事实只该有一个来源）。
+            ...(typeof data.expiresAt === 'number' ? { expiresAt: data.expiresAt } : {}),
             ...(data.challenge === undefined ? {} : { challenge: data.challenge }),
             rejectReasonRequired: true,
             ...(confirmText === undefined ? {} : { confirmText }),
+            // 明细原样投影：服务端签发什么就显示什么（金额不在渠道再格式化一次）
+            ...projectApprovalDetails(data.details),
           } satisfies ApprovalFrame,
         ]
       }
@@ -803,7 +1031,7 @@ export class WebProjector {
       case 'plan/node-blocked': {
         const raw = data['blockedBy']
         const blockedBy = Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []
-        // `DagNode` 没有该字段（本单不改它），但 todo 帧要带 ⇒ 在这里留一份，
+        // `DagNode` 没有该字段（本设计不改它），但 todo 帧要带 ⇒ 在这里留一份，
         // 键与 `dag.ts` 的 `planNodeId`（`plan:<planId>:<nodeId>`）同构。
         this.blockedBy.set(`plan:${planId}:${nodeId}`, blockedBy)
         this.dag.planSettle(this.turn, planId, nodeId, 'blocked', undefined, blockedBy)
@@ -819,7 +1047,7 @@ export class WebProjector {
     }
     const dag = this.dagFrame(this.turn, event.at, event.seq)
     const frames: WebFrame[] = [dag]
-    // 施工单 01 §3.5：本 turn 有 plan 节点时同步产出 todo 帧（派生，不落账，D8）。
+    // ：本 turn 有 plan 节点时同步产出 todo 帧（派生，不落账，D8）。
     // 无节点 ⇒ projectTodo 返回 null ⇒ 不产空清单（不造假清单）。
     const todo = projectTodo({
       turn: this.turn,
@@ -893,6 +1121,20 @@ export class WebProjector {
   ): ToolFrame {
     const record = this.calls.get(callId)
     const name = record?.name ?? callId
+    // 「即将扣款」只挂在 sub_list 的**成功结果**上：待执行帧还没有数据，失败帧说明这次没读到。
+    const upcoming =
+      name === 'sub_list' && update.state === 'done' && this.subscriptions !== undefined
+        ? upcomingBlockOf(this.subscriptions)
+        : undefined
+    // AA 收款进度只挂在 `aa_create` 的成功结果上：待执行帧还没数据，失败帧说明这次没收到。
+    const aa =
+      name === 'aa_create' && update.state === 'done' && this.aaProgress !== undefined
+        ? this.aaProgress
+        : undefined
+    // 账单报告的表格只挂在 `bill_report` 的**成功结果**上：`execute()` 先落 `read/bill-report`，
+    // 紧接着的 `tool/result` 才画卡，所以这里读的是本轮同一次查询的数字。
+    const billReport =
+      name === 'bill_report' && update.state === 'done' ? this.billReport : undefined
     const card = buildCard({
       name,
       args: record?.args,
@@ -900,6 +1142,9 @@ export class WebProjector {
       isError: update.state === 'denied',
       amountConfirmed: update.amountConfirmed,
       ...(update.code === undefined ? {} : { code: update.code }),
+      ...(upcoming === undefined ? {} : { upcoming }),
+      ...(aa === undefined ? {} : { aa }),
+      ...(billReport === undefined ? {} : { billReport }),
     })
 
     return {
@@ -973,15 +1218,32 @@ export class WebProjector {
       const failedCount = summary !== undefined && typeof summary['failed'] === 'number' ? summary['failed'] : 0
       const blockedCount =
         summary !== undefined && typeof summary['blocked'] === 'number' ? summary['blocked'] : 0
+      const merchant = typeof entry['merchant'] === 'object' && entry['merchant'] !== null
+        ? (entry['merchant'] as Readonly<Record<string, unknown>>)
+        : undefined
+      const merchantFailed = typeof merchant?.['status'] === 'string' && merchant['status'] !== 'ok'
+      const compensation = compensationOf(entry['compensation'])
+      const code = typeof entry['code'] === 'string' ? entry['code'] : undefined
+      /**
+       * 失守的三种终态（提示词 4-2）：
+       * - `window-expired` → `expired`：过期即终止，不是"失败"，也不会补扣；
+       * - `details-changed` / `condition-failed` → `needs-reconfirm`：还来得及，但要用户重新确认；
+       * - 其它 → `failed`（档位不允许 / 执行失败）。
+       */
+      const verdictState: PlanCardFrame['state'] =
+        code === 'window-expired'
+          ? 'expired'
+          : code === 'details-changed' || code === 'condition-failed'
+            ? 'needs-reconfirm'
+            : 'failed'
       const nextState: PlanCardFrame['state'] =
         status === 'executed'
-          ? failedCount > 0 || blockedCount > 0
+          ? failedCount > 0 || blockedCount > 0 || merchantFailed || compensation !== undefined
             ? 'failed'
             : 'done'
           : status === 'downgraded' || status === 'failed'
-            ? 'failed'
+            ? verdictState
             : existing.state
-      const code = typeof entry['code'] === 'string' ? entry['code'] : undefined
       const updated: PlanCardFrame = {
         ...existing,
         seq,
@@ -989,6 +1251,7 @@ export class WebProjector {
         state: nextState,
         conditions: markFailedConditions(existing.conditions, entry['failed']),
         ...(code === undefined ? {} : { lastVerdict: { code, at } }),
+        ...(compensation === undefined ? {} : { compensation }),
       }
       this.planCards.set(updated.windowId, updated)
       frames.push(updated)
@@ -1108,6 +1371,29 @@ function planCardOf(
     conditions: cardConditions,
     nodeCount: nodes.length,
     digest,
+  }
+}
+
+/**
+ * 唤醒条目的补偿 → 计划卡字段（ADR-0013）。
+ *
+ * 只认三种封闭值；金额/流水号能取到就带，取不到就不写（不编 0）。
+ */
+function compensationOf(raw: unknown): PlanCardFrame['compensation'] | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
+  const record = raw as Readonly<Record<string, unknown>>
+  const kind = record['kind']
+  if (kind !== 'reversed' && kind !== 'reversal-failed' && kind !== 'reversal-unavailable') {
+    return undefined
+  }
+  return {
+    kind,
+    ...(typeof record['txnId'] === 'string' ? { txnId: record['txnId'] } : {}),
+    ...(typeof record['reversalTxnId'] === 'string'
+      ? { reversalTxnId: record['reversalTxnId'] }
+      : {}),
+    ...(typeof record['amountCents'] === 'number' ? { amountCents: record['amountCents'] } : {}),
+    ...(typeof record['code'] === 'string' ? { code: record['code'] } : {}),
   }
 }
 

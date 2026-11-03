@@ -8,7 +8,7 @@
  * - 重复 HALT / 重复解除幂等；
  * - P0 累计 3 次触发（destructive / exfil 族）。
  *
- * TC-W07-08/09 是 `rules.ts` / `plan/engine.ts` 的 diff=0（见 PROGRESS §65 的取证命令）；
+ * TC-W07-08/09 是 `rules.ts` / `plan/engine.ts` 的 diff=0（见  的取证命令）；
  * TC-W07-10 是反向验证：把闸从"next() 之前"挪到签票之后 → TC-02 必红。
  */
 

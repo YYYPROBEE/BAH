@@ -1,7 +1,7 @@
 /**
- * base bundle · `core:tools`：工具注册表（施工单 03 §3 第 9 步）。
+ * base bundle · `core:tools`：工具注册表。
  *
- * 只注册服务，不注册工具——具体工具族由插件线（施工单 08）以行插进 profile。
+ * 只注册服务，不注册工具——具体工具族由插件线以行插进 profile。
  */
 
 import { provideTools } from '@bah/runtime'

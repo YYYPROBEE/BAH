@@ -125,7 +125,7 @@ describe('seat main', () => {
     app.destroy()
   })
 
-  it('有凭证 + idle → 工作台可见，左栏显示"暂无待接管"，输入框禁用', async () => {
+  it('有凭证 + idle → 工作台可，左栏显示"暂无待接管"，输入框禁用', async () => {
     const { root, app } = mount({ token: 'op-1', summary: baseSummary() })
     await flush()
     expect(root.querySelector('.seat-shell').hidden).toBe(false)

@@ -1,5 +1,5 @@
 /**
- * 内核内部类型与小工具（施工单 02 §9 第 2 步）。
+ * 内核内部类型与小工具。
  *
  * 这里只放「内核自己用、不属于公开契约」的东西：注册表条目、贡献桶、幂等封装。
  * 公开契约一律在 `api.ts`（本阶段只读），实现细节不许回流到那份文件。
@@ -18,7 +18,7 @@ import type {
  * 无类型约束的监听器形状（注册表内部按 `unknown` 存，类型在派发点按键声明还原）。
  *
  * 五种模式共用同一形状：`emit` / `serial` / `parallel` 的监听器忽略 `next`；
- * `waterfall` / `bail` 的监听器用 `next` 交还控制权（施工单 02 §4 第 1 条）。
+ * `waterfall` / `bail` 的监听器用 `next` 交还控制权。
  */
 export type RawListener = (payload: unknown, next: WaterfallNext<unknown>) => unknown
 
@@ -38,7 +38,7 @@ export interface EffectEntry {
    */
   readonly id: string
   readonly disposer: EffectDisposer
-  /** 是否已执行：disposer 必须幂等（施工单 00 §9 第 1 条「注册即可逆」）。 */
+  /** 是否已执行：disposer 必须幂等。 */
   done: boolean
 }
 
@@ -52,7 +52,7 @@ export interface ContributionBucket {
   readonly effects: EffectEntry[]
 }
 
-/** 插件记录：注册时校验配置，install 阶段执行 `apply`（施工单 02 §2 三段生命周期）。 */
+/** 插件记录：注册时校验配置，install 阶段执行 `apply`。 */
 export interface PluginRecord extends ContributionBucket {
   /** 插件本体；配置类型在注册时已擦除，`resolveConfig` 是唯一校验入口。 */
   readonly plugin: ErasedPlugin
@@ -64,7 +64,7 @@ export interface PluginRecord extends ContributionBucket {
   installed: boolean
 }
 
-/** 幂等封装：重复调用只执行一次（施工单 00 §9 第 1 条）。 */
+/** 幂等封装：重复调用只执行一次。 */
 export function once(dispose: Disposer): Disposer {
   let done = false
   return () => {

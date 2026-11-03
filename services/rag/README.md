@@ -47,8 +47,11 @@ BAH_KNOWLEDGE_TOKEN=<token> DEEPSEEK_API_KEY=sk-... \
 ## 常用命令
 
 ```bash
-# 测试（65 条；不联网，LLM 用 scripted fake）
+# 测试（89 条；不联网，LLM 用 scripted fake）
 PYTHONPATH=src .venv/Scripts/python.exe -m pytest -q
+
+# 只跑检索判定黄金集（8 例：版本更新 / 相似文档 / 客群隔离 / 渠道隔离）
+PYTHONPATH=src .venv/Scripts/python.exe -m pytest tests/test_retrieval_golden.py -q
 
 # 人工复位熔断（唯一解锁路径，写 breaker_log）
 PYTHONPATH=src .venv/Scripts/python.exe -m banking_rag.admin reset-breaker --session s-1 --actor console

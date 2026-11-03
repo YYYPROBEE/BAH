@@ -1,10 +1,10 @@
 # BAH 工程纪律
 
 ## 合规底线
-1. 不引入 dsh 源码：仓库中不出现 @deepseek-ai/* 依赖、不 vendor 其包、不复制其文件。
-2. 不照抄 dsh 的文件/符号命名，命名服务银行领域语义。
-3. 允许阅读 dsh 公开文档理解机制，据此自行设计实现。
-4. sentry-dsh-plugin / caai-sentry 为自有工程，可自由迁移。
+1. 仓库只含本项目源码：不 vendor、也不复制任何第三方 Harness 的实现。
+2. 文件与符号命名服务银行领域语义。
+3. 机制层面的外部参考只取公开文档描述的设计思想，实现自写。
+4. 安全内核由本项目自有工程迁移，可自由调整。
 5. 源码根 NOTICE.md 明示独立性；引入任何第三方组件逐项标注。
 
 ## 编码纪律
@@ -15,27 +15,28 @@
 5. 错误必须结构化：类型化失败 + 可读理由码；禁止静默吞错。
 6. 判别标签 switch：封闭联合以 assertNever 收尾。
 
+## 文档纪律
+
+文档只描述**当前实现**：状态、契约、复现命令、已知边界。不写版本维护史与临时计划。
+代码注释指向本仓内的实现文档，不引用外部编号。
+
 ## 门禁
 
 三处拦截，力度递减，按实物如实记录：
 
 | 时机 | 机制 | 跑什么 | 失败后果 |
 |---|---|---|---|
-| 提交前 | `.githooks/pre-commit` | `pnpm gate`（50 项） | 拒绝提交 |
+| 提交前 | `.githooks/pre-commit` | `pnpm gate`（53 项） | 拒绝提交 |
 | 推送前 | `.githooks/pre-push` | `pnpm check`（14 步） | 拒绝推送 |
 | 推送后 | `.github/workflows/ci.yml` / `security.yml` | `pnpm check:ci`（严格模式）+ npm audit（pip-audit 先收集基线） | 记录为红色 run |
 
-项数与步数以 `facts.md` 为准（`verify-facts` 重算门禁数 = `scripts/verify-*.ts` 文件数）；
+项数与步数以 `facts.md` 为准（`verify-facts` 按 `^verify-[\w-]+\.ts$` 重算门禁数，**不含** `*.test.ts`）；
 新增门禁必须同批改 `facts.md`、`docs/facts-sources.md` 与上表，否则 `verify-facts` 红。
 
 钩子通过 `core.hooksPath` 生效（`pnpm install` 时的 `prepare` 会自动设置，也可手动
 `git config core.hooksPath .githooks`）。
 
-**这不叫「阻断合并」。** 本仓库为私有仓，GitHub Free 不支持分支保护，因此没有必需状态检查、
-也没有 PR 合并闸门——远端 CI 是**事后复核**：push 之后必跑，红了要靠人看见。将来转为公开仓
-（或升级 Pro）后补上分支保护，本节才改为「失败即阻断合并」。
+**远端 CI 是事后复核，不是合并闸门。** 仓库未启用分支保护，没有必需状态检查；
+push 之后 CI 必跑，红了要靠人看见。启用分支保护或规则集后，本节才改为「失败即阻断合并」。
 
-已知敞开两处，写在此处而非藏在自评里：
-
-1. `git commit --no-verify` / `git push --no-verify` 可绕过钩子——钩子挡疏忽，不挡恶意；
-2. 无分支保护，直接 push 到 `main` 不会被拒绝。
+钩子只挡疏忽，不挡有意绕过；代码评审仍是最后一道。

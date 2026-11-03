@@ -21,7 +21,7 @@ const TOOL_CALL_CHUNKS: readonly StreamChunk[] = [
   { kind: 'finish', reason: 'tool-calls' },
 ]
 
-describe('StreamAssembler（施工单 05 §1 / §2.1）', () => {
+describe('StreamAssembler', () => {
   it('T-LLM-002 tool-call-delta 拼接：分片 JSON 正确合成 args', async () => {
     const assembled = await assembleStream(streamOf(TOOL_CALL_CHUNKS))
 

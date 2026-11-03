@@ -1,10 +1,9 @@
 /**
- * 门禁：包依赖图零循环 + 分层方向不反转（门禁扩容 07 §2-2）。
+ * 门禁：包依赖图零循环 + 分层方向不反转。
  *
- * 为什么这条门禁必须先上：`docs/tech-debt-review-2026-10-20.md` 风险提示 2 要求
- * "先在纸面验证无环再动手"，但它自己在纸面上就把 `saga → persistence` 的方向判错了
- * （实测 persistence 在 saga 的 devDependencies，生产源码零引用）。纸面推断不可信，
- * 所以 P1-2 的前置条件是一条**可执行**的检环，而不是一段结论。
+ * 为什么这条门禁必须先上：`saga → persistence` 的方向曾被纸面判错（实测 persistence 在
+ * saga 的 devDependencies，生产源码零引用）。纸面推断不可信，所以前置条件是一条
+ * **可执行**的检环，而不是一段结论。
  *
  * 四条规则：
  * 1. **只按 `dependencies` 建图检环**：`devDependencies` 是测试设施（`saga → persistence`、

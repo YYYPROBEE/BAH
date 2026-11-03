@@ -1,5 +1,5 @@
 /**
- * 门禁：错误归一化只允许一份实现（门禁扩容 07 §2-5；`tech-debt-review` P1-1）。
+ * 门禁：错误归一化只允许一份实现。
  *
  * 规则：
  * 1. AST 扫描全部非测试源码，找 `errorCodeOf` / `reasonOf` / `messageOf` 的定义
@@ -8,10 +8,10 @@
  *
  * ⚠️ **本门禁锁的是"不许重新复制实现"，不是"不许有多个兜底码"。**
  *
- * `docs/tech-debt-review-2026-10-20.md` 风险提示 3 明确指出：`tool-failed` 与 `verify-failed`
- * 的差异是**有意的**——调用方按 code 分支决定是否重试，强行统一会丢失可判别性。
- * 因此 `@bah/util` 的实现把兜底码作为显式参数（`errorCodeOf(e, 'verify-failed')`），
- * 门禁**不检查**"全仓兜底码唯一"。这条写错方向就会把 P1-1 的成果变成新的债。
+ * `tool-failed` 与 `verify-failed` 的差异是**有意的**——调用方按 code 分支决定是否重试，
+ * 强行统一会丢失可判别性。因此 `@bah/util` 的实现把兜底码作为显式参数
+ * （`errorCodeOf(e, 'verify-failed')`），门禁**不检查**"全仓兜底码唯一"。
+ * 这条写错方向就会把已经收敛好的成果变成新的债。
  *
  * 唯一例外是 worker 加载链上的文件（零包名 import 硬约束），登记在
  * `scripts/error-normalization-excludes.ts`，按"路径 + 函数名"精确匹配。
@@ -70,7 +70,7 @@ const gate: Gate = {
           continue
         }
         findings.push(
-          `${definition.file}:${definition.line} 重复实现 ${definition.name}（唯一真源在 @bah/util；施工单 07 §2-5 / P1-1）`,
+          `${definition.file}:${definition.line} 重复实现 ${definition.name}（唯一真源在 @bah/util；-5 / P1-1）`,
         )
       }
     }

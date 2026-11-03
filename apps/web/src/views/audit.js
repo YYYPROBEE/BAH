@@ -1,11 +1,11 @@
 /**
- * 审计时间线（施工单 13 §2.1 最后一行：决策链 + 理由码 + 票据生命周期）。
+ * 审计时间线（决策链 + 理由码 + 票据生命周期）。
  *
- * 答辩用途：三秒内能指给人看"这笔转账被谁批准、票据什么时候核销、拦截理由码是什么"。
+ * 对外说明用途：三秒内能指给人看"这笔转账被谁批准、票据什么时候核销、拦截理由码是什么"。
  * 因此每条都带时刻、分类、理由码（等宽）与可回跳的 `seq`。
  */
 
-import { el } from '../dom.js'
+import { el, icon } from '../dom.js'
 
 /** 分类 → 文案。 */
 const CATEGORY = {
@@ -14,14 +14,29 @@ const CATEGORY = {
   tool: '工具',
   safety: '安全',
   knowledge: '知识',
+  subscription: '订阅',
   turn: '轮次',
 }
+
+/** 分类 → 模块标题（计数用；与逐条标签的短文案分开：短标签进窄屏，长标题进汇总）。 */
+const CATEGORY_TITLE = {
+  safety: '安全防护',
+  tool: '工具调用',
+  approval: '审批',
+  ticket: '票据',
+  turn: '轮次',
+  subscription: '订阅',
+  knowledge: '知识',
+}
+
+/** 计数展示顺序：先安全与工具这类过程事件，再审批/票据，最后轮次收尾。 */
+const CATEGORY_ORDER = ['safety', 'tool', 'approval', 'ticket', 'turn', 'subscription', 'knowledge']
 
 /**
  * 时刻 → 本地 `HH:MM:SS`（审计时间要跟操作者手表一致）。
  *
  * 帧里的 `timeText` 是 UTC（`format.ts` 为了保证跨时区渲染逐字相同）；
- * 界面上直接显示 UTC 会比本地少 8 小时，答辩时"这笔是几点批的"根本对不上。
+ * 界面上直接显示 UTC 会比本地少 8 小时，对外说明时"这笔是几点批的"根本对不上。
  * 所以本地化只发生在视图层：帧保持确定性，屏幕显示本地时间，`title` 里附 UTC 供对照。
  */
 function timeOf(frame) {
@@ -39,20 +54,96 @@ function timeOf(frame) {
  */
 export function renderAudit(frame) {
   const local = timeOf(frame)
-  return el('li', { class: 'audit__item', dataset: { category: frame.category, seq: String(frame.seq) } }, [
-    el('span', {
-      class: 'audit__time',
-      text: local,
-      title: frame.timeText === undefined ? local : `本地 ${local} · UTC ${frame.timeText}`,
-    }),
-    el('span', { class: `audit__category audit__category--${frame.category}`, text: CATEGORY[frame.category] ?? frame.category }),
+  const timeText = frame.timeText === undefined ? local : `本地 ${local} · UTC ${frame.timeText}`
+  // 时刻不进折叠行：审计行已经用 #seq 表达顺序，时间放明细里，避免把
+  // "这一条是几点发生的"误读成"这一条是几点执行的"（历史回放时尤其容易混）。
+  const detailItems = [
+    ...(local === '' ? [] : [{ label: '时间', value: timeText }]),
+    ...(Array.isArray(frame.detail) ? frame.detail : []),
+  ]
+  const detail =
+    detailItems.length > 0
+      ? el('details', { class: 'audit__expand' }, [
+          el('summary', { class: 'audit__expand-summary', text: '查看明细' }),
+          el(
+            'dl',
+            { class: 'audit__expand-body' },
+            detailItems.flatMap((item) => [
+              el('dt', { text: String(item?.label ?? '') }),
+              el('dd', { text: String(item?.value ?? '') }),
+            ]),
+          ),
+        ])
+      : null
+
+  return el(
+    'li',
+    {
+      class: 'audit__item',
+      dataset: { category: frame.category, seq: String(frame.seq) },
+      ...(local === '' ? {} : { title: timeText }),
+    },
+    [
+    // 与运行时上下文 / 助手消息同一张卡的语言：图标 + 元信息行 + 正文（三端共用）。
+    el('div', { class: 'audit__meta' }, [
+      icon('doc', 14),
+      el('span', { class: `audit__category audit__category--${frame.category}`, text: CATEGORY[frame.category] ?? frame.category }),
+      el('span', { class: 'audit__seq', text: `#${String(frame.seq)}` }),
+    ]),
     el('div', { class: 'audit__body' }, [
       el('div', { class: 'audit__label', text: frame.label }),
       el('div', { class: 'audit__detail', text: frame.summary }),
       ...(frame.code === undefined ? [] : [el('code', { class: 'ds-code audit__code', text: frame.code })]),
     ]),
-    el('span', { class: 'audit__seq', text: `#${String(frame.seq)}` }),
+    ...(detail === null ? [] : [detail]),
   ])
+}
+
+/**
+ * 审计帧按分类计数（稳定顺序；未登记的分类排在最后按字典序）。
+ *
+ * @param {Record<string, any>[]} frames
+ * @returns {{ category: string, label: string, count: number }[]}
+ */
+export function countAuditCategories(frames) {
+  const counts = new Map()
+  for (const frame of frames) {
+    if (frame?.kind !== 'audit') continue
+    const category = typeof frame.category === 'string' ? frame.category : 'unknown'
+    counts.set(category, (counts.get(category) ?? 0) + 1)
+  }
+
+  const ordered = []
+  for (const category of CATEGORY_ORDER) {
+    const count = counts.get(category)
+    if (count === undefined) continue
+    ordered.push({ category, label: CATEGORY_TITLE[category], count })
+    counts.delete(category)
+  }
+  for (const [category, count] of [...counts.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    ordered.push({ category, label: CATEGORY_TITLE[category] ?? category, count })
+  }
+  return ordered
+}
+
+/**
+ * 分类计数条。
+ *
+ * 移动端「过程记录」模块在展开前就要看见它；桌面审计页把它放在列表上方。
+ *
+ * @param {Record<string, any>[]} frames
+ */
+export function renderAuditCounts(frames) {
+  return el(
+    'div',
+    { class: 'audit__counts' },
+    countAuditCategories(frames).map((item) =>
+      el('span', { class: 'audit__count', dataset: { category: item.category } }, [
+        el('span', { text: item.label }),
+        el('strong', { text: String(item.count) }),
+      ]),
+    ),
+  )
 }
 
 /**
@@ -111,12 +202,18 @@ export function renderAuditSummary(frames) {
     turnBlocks.add(frame.ticketId ?? `turn:${String(frame.seq)}`)
   }
   const blocked = Math.max(ticketBlocks.size, turnBlocks.size)
+  const total = approvals + rejected + cancelled + blocked
 
   return el('div', { class: 'audit__summary' }, [
     chip('审批', approvals),
     chip('拒绝', rejected),
     chip('取消', cancelled),
     chip('阻断', blocked),
+    // 四个都是 0 时把原因说清楚：这是"本会话没有审批事件"，不是计数器坏了。
+    // 只读工具（余额 / 账单分析 / 安全轨迹）不会产生审批，四格理应全零。
+    ...(total === 0 && audits.length > 0
+      ? [el('p', { class: 'audit__summary-note', text: '本会话没有审批事件（只有只读工具 / 安全轨迹）' })]
+      : []),
   ])
 }
 

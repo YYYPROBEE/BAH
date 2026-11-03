@@ -179,13 +179,15 @@ export const U_SCENARIOS: readonly EvalScenario[] = [
   scenario({
     id: 'U-04',
     family: 'U',
-    title: '🟡 偏差：手机号收款人未识别，且 11 位数字被金额抽取的「≥8 位拒收」规则吞掉 → 双缺',
+    title: '手机号收款人可识别：11 位号码不被当金额，金额 2000 归一为 200000 分',
     turns: ['给 13800005678 转 2000'],
     expect: [
       { kind: 'tool-result', tool: 'intent_resolve', path: 'kind', equals: 'explicit' },
-      { kind: 'tool-result', tool: 'intent_resolve', path: 'decision', equals: 'ask' },
-      { kind: 'tool-result', tool: 'intent_resolve', path: 'missing.0', equals: 'payee' },
-      { kind: 'tool-result', tool: 'intent_resolve', path: 'missing.1', equals: 'amountCents' },
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'decision', equals: 'proceed' },
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'filled.0.name', equals: 'payee' },
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'filled.0.value', equals: '13800005678' },
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'filled.1.name', equals: 'amountCents' },
+      { kind: 'tool-result', tool: 'intent_resolve', path: 'filled.1.value', equals: 200_000 },
       NO_TRANSFER,
     ],
     metric: 'task-success',
@@ -193,14 +195,14 @@ export const U_SCENARIOS: readonly EvalScenario[] = [
       kind: 'script',
       steps: [
         toolCallStep('c1', 'intent_resolve', { utterance: '给 13800005678 转 2000', scene: 'transfer' }),
-        textStep('手机号与金额都未抽出，先追问。'),
+        textStep('手机号收款人与金额都已抽出；执行时按新收款人升级审批。'),
       ],
     },
   }),
   scenario({
     id: 'U-05',
     family: 'U',
-    title: '🟡 偏差：「1w」按 1 元归一（100 分），收款人未识别 → 追问（偏差可见，不掩盖）',
+    title: '🟡 偏差：「1w」按 1 元归一（100 分），收款人未识别 → 追问（偏差可，不掩盖）',
     turns: ['转 1w 给自己另一张卡'],
     expect: [
       { kind: 'tool-result', tool: 'intent_resolve', path: 'kind', equals: 'explicit' },

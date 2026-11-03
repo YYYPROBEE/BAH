@@ -1,6 +1,6 @@
-# 组合系统：profile / bundle / patch（施工单 06）
+# 组合系统：profile / bundle / patch
 
-> 读者：插件线（07–15）与答辩评审。
+> 读者：装配插件的人与对外说明评审。
 > 本文只讲"一个应用是怎么被组装起来的"；内核、会话、工具管线、模型层、主循环各自见 `docs/` 下对应文档。
 
 ---
@@ -26,7 +26,7 @@ profile.yml ───▶│ ① bundle 行  →  ② profile patch  →  ③ hom
 | **整块替换** | patch 行的 `id` 命中已有行 | 该行的 `config` **整体**换成 patch 里写的那份（**不深合并**），未写字段由插件默认值兜底 |
 | **插入新行** | 行 `id` 未命中 | 追加到末尾；**必须写 `use`** 指向依赖清单里的插件实现 |
 
-> 为什么禁止深合并：深合并会让"我到底改了哪些字段"从配置上读不出来，出事故时无法用一份 patch 解释线上状态（施工单 06 §8）。
+> 为什么禁止深合并：深合并会让"我到底改了哪些字段"从配置上读不出来，出事故时无法用一份 patch 解释线上状态（§8）。
 
 ---
 
@@ -61,7 +61,7 @@ patch: ./patch.yml  # 可选；相对 profile 目录（层 ②）
 hmr: false          # 可选，缺省 true；config-only HMR 开关
 ```
 
-只有 `.gitkeep` 的 profile 目录 = **占位**：`bah --profile web` 会以 `bah-boot: profile 'web' 只有占位目录…` 退出码 1（渠道 profile 属插件线 13–15）。
+只有 `.gitkeep` 的 profile 目录 = **占位**：`bah --profile web` 会以 `bah-boot: profile 'web' 只有占位目录…` 退出码 1（渠道 profile 见 §8）。
 
 ### bundle 行与 patch 行（同形）
 
@@ -87,7 +87,7 @@ interface PluginRow {
 | `core:agent` | `AgentLoop` + 注册表 | `runtime:agents` | `bah:run`、`runtime:session`、`llm:adapters` |
 | `core:persistence` | `JsonlPersistence` | `bah:session-files` | `bah:run` |
 | `policy:rules` | 策略载入 / 编译 / 灰度 / 影子（`@bah/policy` + `@bah/runtime` 端口） | `runtime:policy`、`runtime:policy-meta` | `bah:run`、`runtime:session` |
-| `bank:tools` | 21 个银行工具 + 治理平面 | （注册工具；默认未绑定身份） | `bah:run`、`runtime:session`、`runtime:tools` |
+| `bank:tools` | 28 个银行工具 + 治理平面 | （注册工具；默认未绑定身份） | `bah:run`、`runtime:session`、`runtime:tools` |
 | `bank:saga-store` | Saga 存储 | `bah:saga-store` | — |
 | `bank:saga` | Saga 协调器 | `bah:saga-clock` 等 | `bah:saga-store`、`bah:saga-audit` |
 | `bank:saga-audit` | 审计链 | `bah:saga-audit` | `bah:saga-clock` |
@@ -234,7 +234,7 @@ pnpm bah --profile headless --patch profiles/headless/patch-balance.yml \
   - 配置变了 → 更新生效树 + 派发 `bah/config-reload`（`@mode emit`，载荷 `{ profile, changed }`）；
   - 行有增删 / `use` 指向变了 → **不动**任何东西，打印"需要重启进程"；
   - 新配置非法 → 抛错由 HMR 接住 → 打印"继续使用旧配置"，旧树保持不变。
-- **不热插件代码**：`apply` 不会重跑；插件若需响应配置变化，订阅 `bah/config-reload` 后自行重读（施工单 06 §4 的裁剪决定：银行场景没有运行时自我修改的需求）。
+- **不热插件代码**：`apply` 不会重跑；插件若需响应配置变化，订阅 `bah/config-reload` 后自行重读（§4 的裁剪决定：银行场景没有运行时自我修改的需求）。
 
 ---
 
@@ -256,7 +256,7 @@ bah --profile <name> [--dump-config] [--prompt <text>]
 
 ---
 
-## 7. 测试对照（施工单 06 §6）
+## 7. 测试对照（§6）
 
 | ID | 用例 | 落点 |
 |---|---|---|
@@ -275,7 +275,7 @@ bah --profile <name> [--dump-config] [--prompt <text>]
 
 ---
 
-## 8. 加一个新 profile（插件线 13–15 的接入步骤）
+## 8. 加一个新 profile（接入步骤）
 
 1. `profiles/<name>/profile.yml`：`bundles: [base, <app>]`、`patch: ./patch.yml`、`hmr: true`；
 2. `profiles/<name>/patch.yml`：只写**差异**（渠道注入、模型、语气、工具族），其余走默认值；
@@ -288,7 +288,7 @@ bah --profile <name> [--dump-config] [--prompt <text>]
 
 ---
 
-## 9. `profiles/mobile`（施工单 01）
+## 9. `profiles/mobile`
 
 可运行的 profile 共**五个**：`headless` / `plan` / `web` / `web-plan` / `mobile`
 （`im` / `desktop` / `sdk` 仍是占位目录，`--profile im` 会以 `profile-not-implemented` 退出码 1）。
@@ -302,19 +302,19 @@ patch: ./patch.yml
 hmr: false
 ```
 
-`profiles/mobile/patch.yml` 与 web 的差异**只有三处**（00 D2）：
+`profiles/mobile/patch.yml` 与 web 的差异**只有三处**：
 
 | # | 行 | web | mobile | 为什么 |
 |---|---|---|---|---|
 | ① | `core:agent.config.channel` | `web` | `mobile` | 系统提示词按 `CHANNEL_HINTS.mobile` 裁剪（"屏幕窄，短句 + 分行要点"） |
-| ② | `channel:*` 行 | `channel:web`，`port: 7331`，无 entry/entries | `channel:mobile`，`port: 7551`，`entry: index.html`、`entries: [index.html]` | 适配器（能力位）、入口 HTML、默认端口——D2 的三项差异 |
+| ② | `channel:*` 行 | `channel:web`，`port: 7331`，无 entry/entries | `channel:mobile`，`port: 7551`，`entry: index.html`、`entries: [index.html]` | 适配器（能力位）、入口 HTML、默认端口——三项渠道差异 |
 | ③ | 随渠道名走的两处 | `bank:knowledge.channel: web`、`demo:echo.prefix: '[web] '` | 同名改 `mobile` | 文案与知识库归属 |
 
 其余各行（`core:model` / `policy:rules` / `core:persistence` / `bank:tools` / `interaction:approval` /
 `safety:sentry` / `bah:memory-store`）与 web **逐字一致**——门禁 `channel-capabilities` 的 I8 会比对
 规范化序列化：一旦分叉就是"两套业务口径"的早期信号。
 
-**04 单新增的两行装配**（是"能力装配"，不是业务口径分叉；`bank:tools` 一行都没改）：
+**mobile 新增的两行装配**（是"能力装配"，不是业务口径分叉；`bank:tools` 一行都没改）：
 
 | 行 | 值 | 为什么 |
 |---|---|---|
@@ -323,7 +323,7 @@ hmr: false
 
 > 为什么没有给移动端单独抬日限额：生日案例三笔合计 600 元 < 默认日限 1000 元，全链黄级；
 > 而给 mobile 单独写 `dailyTransferLimit` 会让 `bank:tools` 在两端出现两套取值——门禁 I8 判红，
-> 也正是 00 D2 要防的"两套账"。演示金额因此取 300/200/100（不是 1000/300/200）。
+> 也正是要防的"两套账"。演示金额因此取 300/200/100（不是 1000/300/200）。
 
 生效树（实测）：
 
@@ -333,10 +333,8 @@ $ BAH_KNOWLEDGE_KEY=demo-key-not-for-prod pnpm bah --profile mobile --dump-confi
 channel:mobile        profile-patch:profiles/mobile/patch.yml  {"port":7551,"host":"127.0.0.1","staticRoot":"apps/web","heartbeatMs":15000,"rateLimit":{"windowMs":60000,"maxRequests":120},"csrf":{"enabled":true},"entry":"index.html","entries":["index.html"]}
 ```
 
-**入口白名单**（`entry` / `entries`，施工单 01 §3.8 / 00 D3）：只有名单里的 HTML 会被注入 Bearer token
+**入口白名单**（`entry` / `entries`，§3.8）：只有名单里的 HTML 会被注入 Bearer token
 并下发 CSRF cookie；其它任何 `.html` 按普通静态资源返回（`cache-control: no-cache`、无 `set-cookie`）。
 两条 fail-loud：`entries` 必须是**非空**字符串数组、禁通配符与路径分隔符、不得重复；`entry` 必须 ∈ `entries`。
 
-> ⚠ 02 单待办：移动壳 `m.html`（放在 `apps/web` 下）落盘后，把 `profiles/mobile/patch.yml` 的 `entry` 改成 `m.html`、
-> `entries` 改成 `[m.html, index.html]`。本单落 `index.html` 是因为 `apps/web` 当时还没有 `m.html`
-> ——写了就会让 `/` 直接 404。
+> 移动壳 `m.html` 的 `entry` / `entries` 已指向 `m.html`；保留 `index.html` 是为了让 `/` 不 404。

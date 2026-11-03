@@ -1,5 +1,5 @@
 /**
- * 七段管线单测（施工单 03 §2.2 / §4 的 T-TOOL-003 ~ 012）。
+ * 七段管线单测。
  *
  * 断言口径：一律看「公开可观察面」——管线返回值、`tool/call` / `tool/result` /
  * `user/message` 落账序列、工具体是否真的执行、卡片产物。不碰私有字段。
@@ -33,12 +33,21 @@ interface Harness {
   log(): readonly AnySessionEvent[]
 }
 
-/** 建一个带会话服务 + 工具服务 + 管线的测试上下文（结束自动 dispose）。 */
-async function withHarness(run: (harness: Harness) => Promise<void>): Promise<void> {
+/**
+ * 建一个带会话服务 + 工具服务 + 管线的测试上下文（结束自动 dispose）。
+ *
+ * `options.now` 用于需要**推进墙钟**的用例（审批等人、执行耗时）：缺省的
+ * `fixedClock` 只读不走，量不出"等了 21 秒"这种事实。
+ */
+async function withHarness(
+  run: (harness: Harness) => Promise<void>,
+  options: { readonly now?: () => number } = {},
+): Promise<void> {
   const test = createTestContext()
   const sessionId = asSessionId('s-pipe')
   const clock = fixedClock({ start: 1_000, step: 1 })
-  provideSession(test.ctx, { sessionId, now: clock.now })
+  const now = options.now ?? clock.now
+  provideSession(test.ctx, { sessionId, now })
   const session = test.ctx.get(SESSION_SERVICE)
   const registry = new ToolRegistry()
   provideTools(test.ctx, registry)
@@ -49,7 +58,7 @@ async function withHarness(run: (harness: Harness) => Promise<void>): Promise<vo
     session,
     guard,
     sessionId,
-    now: clock.now,
+    now,
   })
   try {
     await run({ test, registry, guard, pipeline, session, log: () => session.events() })
@@ -432,7 +441,7 @@ describe('tools/execute 环绕', () => {
     })
   })
 
-  it('超时包裹可用（施工单 11 沙箱 / 超时策略的挂点形态）', async () => {
+  it('超时包裹可用', async () => {
     await withHarness(async (h) => {
       h.registry.register(
         tool({
@@ -923,5 +932,210 @@ describe('isDenied', () => {
       // 参数不同 = 另一笔业务：不受这条 deny 牵连
       expect(h.pipeline.isDenied({ callId: 'c3', name: 'bank:probe', args: { account: 'a-2' } })).toBe(false)
     })
+  })
+})
+
+/**
+ * 审批明细（`TicketDraft.details`）的搬运链路。
+ *
+ * 三条断言对应三条纪律：
+ * 1. draft → TicketRef → `approval/asked` → `ApprovalInput.summary` **全链存在**，
+ *    且是同一份内容（渠道无论走帧还是走审批服务，看到的必须逐字一致）；
+ * 2. 明细**不参与指纹**：票据的 `fingerprint` 就是 draft 给的那个值，不会被明细改写；
+ * 3. 没有明细时回落原样：事件里不出现 `details` 键，摘要里也不出现（老票不受影响）。
+ */
+describe('审批明细搬运', () => {
+  /** 一条含明细的 ask 判决。 */
+  const DETAILS = [
+    { label: '金额', value: '¥800.00', emphasis: 'amount' as const },
+    { label: '收款人', value: '王建国（139****2222）' },
+  ]
+
+  it('draft.details → approval/asked.details 与 approval/request.summary.details 同源', async () => {
+    await withHarness(async (h) => {
+      h.registry.register(tool({ name: 'bank:probe' }))
+      h.test.ctx.events.on('tools/pre-execute', (input) => ({
+        ...input,
+        verdict: {
+          kind: 'ask',
+          ticket: { fingerprint: 'fp-details', amount: 800, ttlMs: 60_000, details: DETAILS },
+        },
+      }))
+      const seen: unknown[] = []
+      h.test.ctx.events.on('approval/request', (input) => {
+        seen.push(input.summary.details)
+        seen.push(input.ticket.details)
+        return { ...input, decision: { decision: 'rejected', reason: '用例拒绝' } }
+      })
+
+      await h.pipeline.execute(CALL)
+
+      const asked = h.log().find((event) => event.type === 'approval/asked')
+      expect((asked?.data as { details?: unknown }).details).toEqual(DETAILS)
+      // 审批服务拿到的两份（摘要 / 票据）与事件同源同值
+      expect(seen).toEqual([DETAILS, DETAILS])
+    })
+  })
+
+  it('明细不影响票据指纹：指纹逐字等于 draft 给的值', async () => {
+    await withHarness(async (h) => {
+      h.registry.register(tool({ name: 'bank:probe' }))
+      h.test.ctx.events.on('tools/pre-execute', (input) => ({
+        ...input,
+        verdict: {
+          kind: 'ask',
+          ticket: { fingerprint: 'fp-only-args', ttlMs: 60_000, details: DETAILS },
+        },
+      }))
+      const fingerprints: string[] = []
+      h.test.ctx.events.on('approval/request', (input) => {
+        fingerprints.push(input.ticket.fingerprint)
+        return { ...input, decision: { decision: 'rejected', reason: '用例拒绝' } }
+      })
+
+      await h.pipeline.execute(CALL)
+      const asked = h.log().find((event) => event.type === 'approval/asked')
+      expect(asked?.data).toMatchObject({ details: DETAILS })
+      // 票据指纹逐个字符都是 draft 给的：明细里那串金额/收款人没有参与计算
+      expect(fingerprints).toEqual(['fp-only-args'])
+    })
+  })
+
+  it('没有明细：事件与摘要都不出现 details 键（老票回落）', async () => {
+    await withHarness(async (h) => {
+      h.registry.register(tool({ name: 'bank:probe' }))
+      h.test.ctx.events.on('tools/pre-execute', (input) => ({
+        ...input,
+        verdict: { kind: 'ask', ticket: { fingerprint: 'fp-plain', ttlMs: 60_000 } },
+      }))
+      const summaries: unknown[] = []
+      h.test.ctx.events.on('approval/request', (input) => {
+        summaries.push(Object.keys(input.summary))
+        return { ...input, decision: { decision: 'rejected', reason: '用例拒绝' } }
+      })
+
+      await h.pipeline.execute(CALL)
+      const asked = h.log().find((event) => event.type === 'approval/asked')
+      expect(Object.keys(asked?.data as object)).not.toContain('details')
+      expect(summaries[0]).not.toContain('details')
+    })
+  })
+})
+
+/**
+ * 审批等待与票据时效的出账口径。
+ *
+ * 为什么要单独钉：这两个数都是**下游唯一的输入**——`durationMs` 进工具卡与
+ * `eval` 的耗时统计，`expiresAt` 决定移动壳 / IM 审批页的倒计时。两者一旦算错，
+ * 消费方的用例照样绿（它们自己造帧），只有出账面能证明"事实真的发出去了"。
+ */
+describe('审批等待与票据时效出账', () => {
+  /** 可控墙钟：用例里显式推进，"等人 21 秒"才是可量化的事实。 */
+  function wallClock(start = 1_000): { readonly now: () => number; advance(ms: number): void } {
+    let at = start
+    return {
+      now: () => at,
+      advance(ms: number): void {
+        at += ms
+      },
+    }
+  }
+
+  it('durationMs 只算执行段：审批等人 21 秒不能记到转账头上', async () => {
+    const wall = wallClock()
+    await withHarness(
+      async (h) => {
+        h.registry.register(
+          tool({
+            name: 'bank:probe',
+            execute: async () => {
+              wall.advance(500)
+              return '已转账'
+            },
+          }),
+        )
+        h.test.ctx.events.on('tools/pre-execute', (input) => ({
+          ...input,
+          verdict: { kind: 'ask', ticket: { fingerprint: 'fp-ttl', amount: 800, ttlMs: 60_000 } },
+        }))
+        h.test.ctx.events.on('approval/request', (input) => {
+          wall.advance(21_000)
+          return { ...input, decision: { decision: 'allowed-once' as const } }
+        })
+
+        const execution = await h.pipeline.execute(CALL)
+
+        expect(execution.approvalWaitedMs).toBe(21_000)
+        // 墙钟总共走了 21_500ms，其中只有 500ms 是工具执行
+        expect(execution.result.durationMs).toBe(500)
+        expect(execution.result.durationMs).toBeLessThan(21_000)
+      },
+      { now: wall.now },
+    )
+  })
+
+  it('审批被拒：waitedMs 照记，工具体一次都不跑 ⇒ 耗时 0', async () => {
+    const wall = wallClock()
+    await withHarness(
+      async (h) => {
+        let executed = 0
+        h.registry.register(
+          tool({
+            name: 'bank:probe',
+            execute: async () => {
+              executed += 1
+              wall.advance(500)
+              return 'ok'
+            },
+          }),
+        )
+        h.test.ctx.events.on('tools/pre-execute', (input) => ({
+          ...input,
+          verdict: { kind: 'ask', ticket: { fingerprint: 'fp-ttl', amount: 800, ttlMs: 60_000 } },
+        }))
+        h.test.ctx.events.on('approval/request', (input) => {
+          wall.advance(9_000)
+          return { ...input, decision: { decision: 'rejected' as const, reason: '金额超限' } }
+        })
+
+        const execution = await h.pipeline.execute(CALL)
+
+        expect(executed).toBe(0)
+        expect(execution.result.code).toBe('approval-rejected')
+        // plan 的 `node-waiting` 靠这个数说"人看过、拒了"
+        expect(execution.approvalWaitedMs).toBe(9_000)
+        expect(execution.result.durationMs).toBe(0)
+      },
+      { now: wall.now },
+    )
+  })
+
+  it('approval/asked 带 expiresAt：签发那一刻算一次，事件与票据同一份事实', async () => {
+    const wall = wallClock()
+    await withHarness(
+      async (h) => {
+        h.registry.register(tool({ name: 'bank:probe' }))
+        h.test.ctx.events.on('tools/pre-execute', (input) => ({
+          ...input,
+          verdict: { kind: 'ask', ticket: { fingerprint: 'fp-ttl', amount: 800, ttlMs: 60_000 } },
+        }))
+        const seen: number[] = []
+        h.test.ctx.events.on('approval/request', (input) => {
+          seen.push(input.ticket.expiresAt)
+          // 人想了 21 秒：到期时刻不得跟着"现在"往后挪（挪了就是给拒绝争取时间）
+          wall.advance(21_000)
+          return { ...input, decision: { decision: 'allowed-once' as const } }
+        })
+
+        await h.pipeline.execute(CALL)
+
+        const asked = h.log().find((event) => event.type === 'approval/asked')
+        expect(asked?.data).toMatchObject({ amount: 800 })
+        // 墙钟起点 1_000 + TTL 60_000：这就是渠道拿到的数，不做二次计算
+        expect((asked?.data as { expiresAt?: number }).expiresAt).toBe(61_000)
+        expect(seen).toEqual([61_000])
+      },
+      { now: wall.now },
+    )
   })
 })

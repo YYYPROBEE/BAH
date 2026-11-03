@@ -12,7 +12,7 @@
  *
  * 入口判定按**规范化后的绝对路径**做（token 白名单 / 坐席入口），不做字面量路径比较：
  * `//operator.html`、`/./operator.html`、`/operator%2ehtml` 都会先规范化成同一个目标
- * （施工单 01 对抗式复审 P1-1）。
+ * 。
  */
 
 import { readFile } from 'node:fs/promises'
@@ -44,6 +44,17 @@ function stripTokenMeta(html: string): string {
   return html.replace(/<meta name="bah-web-token"[^>]*>\s*/i, '')
 }
 
+/**
+ * 语义路径 → 实际静态文件。
+ *
+ * `/secure/password` 是 `password_change` 工具与其他渠道返回的交接地址（ADR-0014）；
+ * 落盘文件叫 `password.html`。别名必须在这里做，不能让常量指向一个打不开的 URL。
+ */
+const STATIC_ALIASES: Readonly<Record<string, string>> = {
+  '/operator': '/operator.html',
+  '/secure/password': '/password.html',
+}
+
 /** `GET/HEAD` 兜底：解析路径、读文件、按入口注入 token / 登录模式标记 / CSRF cookie。 */
 export async function handleStatic(
   _req: IncomingMessage,
@@ -51,8 +62,8 @@ export async function handleStatic(
   request: WebRequest,
   deps: WebDeps,
 ): Promise<void> {
-  // `/operator` 是坐席页的别名；映射在 decode 之前，走同一条解码/规范化/越界判定。
-  const pathname = request.path === '/operator' ? '/operator.html' : request.path
+  // 别名映射在 decode 之前，走同一条解码/规范化/越界判定。
+  const pathname = STATIC_ALIASES[request.path] ?? request.path
   const headOnly = request.method === 'HEAD'
 
   // `decodeURIComponent` 对畸形百分号序列（如 `%E0%A4%A`）抛 `URIError`。
@@ -60,7 +71,7 @@ export async function handleStatic(
   // "服务崩了"和"路径不对"。这里一律 400，且**不回显**原始串以外的任何信息。
   let decoded: string
   try {
-    // 施工单 01 / 00 D3：`/` 的落点由配置的 `defaultEntry` 决定（移动壳是第二个 HTML 壳），
+    //  D3：`/` 的落点由配置的 `defaultEntry` 决定（移动壳是第二个 HTML 壳），
     // 这里只换成相对名——后面的 normalize + join + 穿越校验逐字不动。
     decoded = pathname === '/' ? relative(deps.staticRoot, deps.defaultEntry) : decodeURIComponent(pathname)
   } catch {

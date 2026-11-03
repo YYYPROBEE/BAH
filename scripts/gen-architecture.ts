@@ -11,7 +11,7 @@
  * - 装配状态 = **真实的 profile 装载器**（`readProfile` + `loadBundles` + `readLayers` + `mergeLayers`），
  *   不自己解析 YAML——否则"图里说装了"和"真的装了"会各说各话。
  *
- * ## 三态（v2 施工单只写了两种，实测必须三种）
+ * ## 三态（v2 设计说明只写了两种，实测必须三种）
  *
  * | 态 | 判据 | 图上的画法 |
  * |---|---|---|
@@ -49,7 +49,13 @@ import { readLayers, readProfile } from '../packages/cli/src/profile.ts'
 import { HOST_PLUGINS, planPlugin } from '../packages/host/src/boot/plugins/index.ts'
 import { isMainModule, projectRoot } from './gate-lib.ts'
 
-/** 真正可运行的 profile（`profiles/` 下其余目录是空壳，没有 `profile.yml`）。 */
+/**
+ * 本文矩阵覆盖的六个演示路径 profile。
+ *
+ * `profiles/` 下实测 9 个目录，其中 8 个含 `profile.yml`（另有 `desktop` 与
+ * `subscription`），只有 `sdk` 是空壳；这两个不在矩阵内，因为它们的装配差异
+ * 不落在主演示链路上。
+ */
 const PROFILES = ['headless', 'plan', 'web', 'web-plan', 'mobile', 'im'] as const
 type ProfileName = (typeof PROFILES)[number]
 
@@ -243,20 +249,35 @@ function nodeId(index: number): string {
 /**
  * 分层表：组件按层归组。
  *
- * 为什么分层用**表**不用图：mermaid 的 subgraph 布局对"8 个分组 × 20 个节点且组间无连线"
+ * 为什么分层用**表**不用图：mermaid 的 subgraph 布局对"多分组 × 32 节点且组间无连线"
  * 这种输入没有稳定结果（实测要么横着排到画布外，要么每个分组自成一列）。
  * 分层是**分类信息**，表格比图准；"谁依赖谁"用下面的依赖图。
  */
 function renderLayersTable(): string {
+  const all = HOST_PLUGINS.map((item) => item.id)
   const lines = ['| 层 | 组件 | 数量 |', '|---|---|---|']
+  let listed = 0
   for (const layer of LAYERS) {
-    const members = HOST_PLUGINS.map((item) => item.id).filter((id) => layerOf(id) === layer.key)
+    const members = all.filter((id) => layerOf(id) === layer.key)
     if (members.length === 0) continue
+    listed += members.length
     lines.push(
       `| ${layer.label} | ${members.map((id) => `\`${id}\``).join('、')} | ${String(members.length)} |`,
     )
   }
-  lines.push(`| **合计** | — | **${String(HOST_PLUGINS.length)}** |`)
+  // 未归入任何分层前缀的组件必须显式成行，否则列和与注册表条目数会静默不等。
+  const keys = new Set(LAYERS.map((layer) => layer.key))
+  const rest = all.filter((id) => !keys.has(layerOf(id)))
+  if (rest.length > 0) {
+    listed += rest.length
+    lines.push(
+      `| ⑨ 未单列分层 | ${rest.map((id) => `\`${id}\``).join('、')} | ${String(rest.length)} |`,
+    )
+  }
+  if (listed !== HOST_PLUGINS.length) {
+    throw new Error(`分层表列和 ${listed} ≠ 注册表条目 ${HOST_PLUGINS.length}`)
+  }
+  lines.push(`| **合计** | — | **${String(listed)}** |`)
   return lines.join('\n')
 }
 

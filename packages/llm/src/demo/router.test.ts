@@ -10,13 +10,15 @@
 import { BahError } from '@bah/util'
 import { describe, expect, it } from 'vitest'
 
-import type { LlmMessage } from '../llm/types.ts'
+import type { LlmMessage, LlmRequest } from '../llm/types.ts'
 
 import {
   classifyIntent,
   extractAmount,
   extractPayee,
   lastUserText,
+  parseAa,
+  parseCard,
   parseTransfer,
   planFor,
   planFromRequest,
@@ -67,10 +69,52 @@ describe('要素抽取：抽不全就追问，不补默认值', () => {
     expect(extractAmount('给王建国转账')).toBeUndefined()
   })
 
-  it('"给 X 转" 与 "转给 X" 两种说法都能抽姓名', () => {
+  it('"给 X 转" / "转给 X" / "转 <金额> 给 X" 三种说法都能抽姓名', () => {
     expect(extractPayee('给王建国转 800 元')).toBe('王建国')
     expect(extractPayee('转给李四 200 元')).toBe('李四')
+    // 自然语序不能被当成"缺收款人"再追问一次（M-20）
+    expect(extractPayee('转 500 给王建国')).toBe('王建国')
     expect(extractPayee('转 800 元')).toBeUndefined()
+  })
+
+  it('11 位手机号可作为收款人', () => {
+    expect(extractPayee('给 13800005678 转 2000')).toBe('13800005678')
+    expect(extractPayee('转给 13800005678 200 元')).toBe('13800005678')
+    expect(extractPayee('转 500 给 13800005678')).toBe('13800005678')
+    expect(parseTransfer('给 13800005678 转 2000')).toMatchObject({
+      kind: 'transfer',
+      request: { amount: 2000, payeeName: '13800005678' },
+    })
+  })
+
+  /**
+   * 为什么要单独钉：代词一旦进了槽位，智能体就会拿"他"当一个真实收款人去查联系人、
+   * 签票据——那是"猜"出来的转账，比追问一句贵得多。这条用例把 `isPronoun` 的封闭表
+   * 与"自然语序仍要能抽到真名"两头同时锁住。
+   */
+  it('代词不是收款人：「转 500 给他」继续走 slotGap 追问，称呼照抽', () => {
+    for (const text of ['转 500 给他', '转 500 给她', '转 500 给我', '转 500 给您', '转 500 给对方', '转 500 给大家']) {
+      expect(extractPayee(text)).toBeUndefined()
+    }
+    // 代词在别的语序里同样不入槽位
+    expect(extractPayee('给他转 500')).toBeUndefined()
+    expect(extractPayee('收款人：他')).toBeUndefined()
+    // 拒付对象写成"他"也不能被当成名字
+    expect(classifyIntent('转 500 给他')).toMatchObject({ kind: 'intent', route: 'slotGap', ask: { slot: 'payee' } })
+
+    // 反向控制：关系称呼不在代词表里，必须照抽（否则"给老婆转"会被追问成缺收款人）
+    expect(extractPayee('转 500 给老婆')).toBe('老婆')
+    expect(extractPayee('转 500 给妈妈')).toBe('妈妈')
+  })
+
+  it('自然语序的写法变体都同一口径：省空格 / 带"元" / 中文数词金额', () => {
+    for (const text of ['转500给王建国', '转 500 元给王建国', '转一千给王建国']) {
+      expect(extractPayee(text)).toBe('王建国')
+    }
+    expect(parseTransfer('转 500 元给王建国')).toMatchObject({
+      kind: 'transfer',
+      request: { amount: 500, payeeName: '王建国' },
+    })
   })
 
   it('只有金额没姓名 → 改道意图平面，追问目标仍是收款人（03 单）', () => {
@@ -265,6 +309,15 @@ describe('生日案例两幕（04 单）', () => {
     expect(calls).toEqual(['intent_resolve', 'goal_set', 'plan_propose'])
   })
 
+  it('主动提醒的「给爱人订生日计划」能落到提案分支（04 单闭环）', () => {
+    const intent = classifyIntent('给爱人订生日计划')
+    expect(intent).toMatchObject({ kind: 'birthday', phase: 'propose' })
+    const calls = planFor(intent).flatMap((step) =>
+      (step.content ?? []).filter((block) => block.kind === 'tool-call').map((block) => block.name),
+    )
+    expect(calls).toEqual(['intent_resolve', 'goal_set', 'plan_propose'])
+  })
+
   it('"确认执行生日计划" → birthday/execute；只发 plan_execute 并带同一张 DAG', () => {
     const intent = classifyIntent('确认执行生日计划')
     expect(intent).toMatchObject({ kind: 'birthday', phase: 'execute' })
@@ -419,5 +472,817 @@ describe('场景 5：订阅 / 代扣路由', () => {
     const watch = planFor(classifyIntent('提醒我续费云音乐'))
     expect(watch[0]?.content?.[0]).toMatchObject({ kind: 'tool-call', name: 'sub_watch' })
     expect(watch[1]?.outcome?.tool).toBe('sub_watch')
+  })
+})
+
+describe('账单/卡片演示路由（02/04 单）', () => {
+  it('账单：本月分析 / 季度按商户 / 报告', () => {
+    expect(classifyIntent('分析一下这个月的账单')).toEqual({
+      kind: 'bill',
+      action: 'analyze',
+      period: 'month',
+      groupBy: 'category',
+    })
+    expect(classifyIntent('近三个月的收支按商户分析')).toEqual({
+      kind: 'bill',
+      action: 'analyze',
+      period: 'quarter',
+      groupBy: 'merchant',
+    })
+    expect(classifyIntent('出一份本月账单报告')).toEqual({
+      kind: 'bill',
+      action: 'report',
+      period: 'month',
+      format: 'summary',
+    })
+  })
+
+  /**
+   * 历史账期（2026-11-01 补）：这三条以前全是"追问"，等于对着用户说"查不了"。
+   * 现在路由只翻成相对参数，日期由工具用注入钟算——路由没有时钟，算日期回放就错。
+   */
+  it('账单：上个月 / 指定月份 / 指定年份 都能落到账期锚点', () => {
+    expect(classifyIntent('上个月的账单')).toMatchObject({
+      kind: 'bill',
+      action: 'analyze',
+      period: 'month',
+      monthOffset: -1,
+    })
+    expect(classifyIntent('看一下 9 月账单')).toMatchObject({
+      kind: 'bill',
+      period: 'month',
+      monthOfYear: 9,
+    })
+    expect(classifyIntent('2025 年花了多少')).toMatchObject({
+      kind: 'bill',
+      action: 'analyze',
+      period: 'year',
+      year: '2025',
+    })
+    expect(classifyIntent('去年的年度账单报告')).toMatchObject({
+      kind: 'bill',
+      action: 'report',
+      period: 'year',
+      monthOffset: -12,
+    })
+  })
+
+  it('卡片：冻结/解冻/挂失/列表；缺卡号追问，不默认操作', () => {
+    expect(classifyIntent('冻结尾号 1234 的银行卡')).toEqual({
+      kind: 'card',
+      action: 'freeze',
+      cardId: 'c-1',
+    })
+    expect(classifyIntent('解冻尾号 1234 的卡')).toEqual({
+      kind: 'card',
+      action: 'unfreeze',
+      cardId: 'c-1',
+    })
+    expect(classifyIntent('挂失尾号 5678 的银行卡')).toEqual({
+      kind: 'card',
+      action: 'reportLost',
+      cardId: 'c-2',
+    })
+    expect(classifyIntent('我的银行卡状态')).toEqual({ kind: 'card', action: 'list' })
+    expect(classifyIntent('冻结银行卡')).toMatchObject({ kind: 'clarify' })
+  })
+
+  it('规划：账单走 bill_*，卡片走 card_* / account_list', () => {
+    const bill = planFor(classifyIntent('分析一下这个月的账单'))
+    expect(bill[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'bill_analyze',
+      args: { period: 'month', groupBy: 'category' },
+    })
+    const report = planFor(classifyIntent('出一份本月账单报告'))
+    expect(report[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'bill_report',
+      args: { period: 'month', format: 'summary' },
+    })
+    const freeze = planFor(classifyIntent('冻结尾号 1234 的银行卡'))
+    expect(freeze[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'card_freeze',
+      args: { cardId: 'c-1' },
+    })
+    expect(freeze[1]?.outcome?.tool).toBe('card_freeze')
+    const lost = planFor(classifyIntent('挂失尾号 5678 的银行卡'))
+    expect(lost[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'card_report_lost',
+      args: { cardId: 'c-2' },
+    })
+    const list = planFor(classifyIntent('我的银行卡状态'))
+    expect(list[0]?.content?.[0]).toMatchObject({ kind: 'tool-call', name: 'account_list' })
+  })
+
+  it('不误判：转账不被账单/卡片路由劫持', () => {
+    expect(classifyIntent('给王建国转 800 元').kind).toBe('transfer')
+  })
+})
+
+describe('官方子能力补齐：理财/卡/AA 路由', () => {
+  it('理财：持仓与赎回', () => {
+    expect(classifyIntent('我买了什么理财，持仓收益多少')).toEqual({
+      kind: 'wealth',
+      action: 'positions',
+    })
+    expect(classifyIntent('赎回我的理财')).toEqual({
+      kind: 'wealth',
+      action: 'redeem',
+      holdingId: 'h-1',
+    })
+  })
+
+  it('卡片：申请 / 调额 / 交易限制（set/clear）', () => {
+    expect(classifyIntent('办一张虚拟卡')).toEqual({ kind: 'card', action: 'apply' })
+    expect(classifyIntent('把尾号 1234 的卡日限额调到 500 元')).toEqual({
+      kind: 'card',
+      action: 'setLimit',
+      cardId: 'c-1',
+      dailyLimitYuan: 500,
+    })
+    expect(classifyIntent('关掉尾号 1234 的线上支付')).toEqual({
+      kind: 'card',
+      action: 'restrict',
+      cardId: 'c-1',
+      mode: 'set',
+      restrictionKind: 'online',
+    })
+    expect(classifyIntent('恢复尾号 1234 的线上支付')).toEqual({
+      kind: 'card',
+      action: 'restrict',
+      cardId: 'c-1',
+      mode: 'clear',
+      restrictionKind: 'online',
+    })
+    expect(classifyIntent('把尾号 5678 的卡境外支付关掉')).toMatchObject({
+      kind: 'card',
+      action: 'restrict',
+      cardId: 'c-2',
+      restrictionKind: 'overseas',
+    })
+    expect(classifyIntent('关掉尾号 1234 的餐饮消费')).toEqual({
+      kind: 'card',
+      action: 'restrict',
+      cardId: 'c-1',
+      mode: 'set',
+      restrictionKind: 'category',
+      restrictionValue: 'dining',
+    })
+    expect(classifyIntent('恢复尾号 1234 的咖啡消费')).toMatchObject({
+      kind: 'card',
+      action: 'restrict',
+      cardId: 'c-1',
+      mode: 'clear',
+      restrictionKind: 'category',
+      restrictionValue: 'coffee',
+    })
+  })
+
+  it('信用卡（ADR-0015）：办卡带授信额度、调额投 creditLimitYuan、尾号 2468 指向 c-3', () => {
+    expect(classifyIntent('办一张 5000 额度的信用卡')).toEqual({
+      kind: 'card',
+      action: 'apply',
+      cardKind: 'credit',
+      creditLimitYuan: 5000,
+    })
+    // 额度未知的信用卡在工具面开不出来，路由追问而不是猜一个数
+    expect(classifyIntent('办一张信用卡')).toMatchObject({ kind: 'clarify' })
+
+    expect(classifyIntent('把尾号 2468 的信用卡额度调到 3000')).toEqual({
+      kind: 'card',
+      action: 'setLimit',
+      cardId: 'c-3',
+      creditLimitYuan: 3000,
+    })
+    // 零回归：没说"信用"的额度仍然投交易日限额
+    expect(classifyIntent('把尾号 1234 的卡额度调到 800')).toEqual({
+      kind: 'card',
+      action: 'setLimit',
+      cardId: 'c-1',
+      dailyLimitYuan: 800,
+    })
+
+    expect(planFor(classifyIntent('办一张 5000 额度的信用卡'))[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'card_apply',
+      args: { kind: 'credit', creditLimitYuan: 5000 },
+    })
+    expect(
+      planFor(classifyIntent('把尾号 2468 的信用卡额度调到 3000'))[0]?.content?.[0],
+    ).toMatchObject({
+      kind: 'tool-call',
+      name: 'card_limit_set',
+      args: { cardId: 'c-3', creditLimitYuan: 3000 },
+    })
+  })
+
+  it('AA：参与人必须显式给出，缺了就追问', () => {
+    expect(classifyIntent('张三、李四、王五 AA 300')).toEqual({
+      kind: 'aa',
+      totalYuan: 300,
+      participants: ['张三', '李四', '王五'],
+    })
+    expect(classifyIntent('我们三个人 AA 300')).toMatchObject({ kind: 'clarify' })
+    // 组织者"我"也是参与人：「块，三个人」不能抢先被当成名单
+    expect(classifyIntent('我们 AA 300 块，三个人：我、张伟、王建国')).toEqual({
+      kind: 'aa',
+      totalYuan: 300,
+      participants: ['我', '张伟', '王建国'],
+    })
+  })
+
+  it('规划：新能力的工具名与参数', () => {
+    expect(planFor(classifyIntent('我买了什么理财，持仓收益多少'))[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'wealth_positions',
+    })
+    expect(planFor(classifyIntent('赎回我的理财'))[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'wealth_redeem',
+      args: { holdingId: 'h-1' },
+    })
+    expect(planFor(classifyIntent('办一张虚拟卡'))[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'card_apply',
+    })
+    expect(
+      planFor(classifyIntent('把尾号 1234 的卡日限额调到 500 元'))[0]?.content?.[0],
+    ).toMatchObject({
+      kind: 'tool-call',
+      name: 'card_limit_set',
+      args: { cardId: 'c-1', dailyLimitYuan: 500 },
+    })
+    expect(
+      planFor(classifyIntent('关掉尾号 1234 的线上支付'))[0]?.content?.[0],
+    ).toMatchObject({
+      kind: 'tool-call',
+      name: 'card_restriction',
+      args: { cardId: 'c-1', mode: 'set', kind: 'online' },
+    })
+    expect(
+      planFor(classifyIntent('关掉尾号 1234 的餐饮消费'))[0]?.content?.[0],
+    ).toMatchObject({
+      kind: 'tool-call',
+      name: 'card_restriction',
+      args: { cardId: 'c-1', mode: 'set', kind: 'category', value: 'dining' },
+    })
+    expect(planFor(classifyIntent('张三、李四、王五 AA 300'))[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'aa_create',
+      args: {
+        title: 'AA 收款',
+        totalYuan: 300,
+        participants: [{ name: '张三' }, { name: '李四' }, { name: '王五' }],
+      },
+    })
+  })
+})
+
+describe('AA 模拟代收（场景 1 子能力）：完成态才认', () => {
+  it('「X 已经付了 / 把钱给我了 / 到账了」→ aa-collect，人名取自句子', () => {
+    expect(classifyIntent('张三已经付了')).toEqual({ kind: 'aa-collect', participant: '张三' })
+    expect(classifyIntent('李四把钱给我了')).toMatchObject({ kind: 'aa-collect', participant: '李四' })
+    expect(classifyIntent('王五到账了')).toMatchObject({ kind: 'aa-collect', participant: '王五' })
+  })
+
+  it('未完成说法不能被当成到账（那是转账 / 建组）', () => {
+    expect(classifyIntent('给张建国转 800 元').kind).not.toBe('aa-collect')
+    expect(classifyIntent('张三、李四、王五 AA 300').kind).toBe('aa')
+  })
+
+  it('规划：一次 aa_create(action=collect)，组号取演示约定', () => {
+    expect(planFor(classifyIntent('张三已经付了'))[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'aa_create',
+      args: { action: 'collect', groupId: 'aa-new-1', participant: '张三' },
+    })
+  })
+})
+
+describe('AA 参与人拒绝（ADR-0017）：否定态才认', () => {
+  it('「X 不参加 / 说不去了」→ aa-decline，人名不含"说"', () => {
+    expect(classifyIntent('王建国不参加')).toEqual({ kind: 'aa-decline', participant: '王建国' })
+    expect(classifyIntent('李四说不去了')).toEqual({ kind: 'aa-decline', participant: '李四' })
+  })
+
+  it('「还没付」不是拒绝：不能替参与人表态', () => {
+    expect(classifyIntent('王建国还没付').kind).not.toBe('aa-decline')
+  })
+
+  it('规划：一次 aa_create(action=decline)，组号取演示约定', () => {
+    expect(planFor(classifyIntent('王建国不参加'))[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'aa_create',
+      args: { action: 'decline', groupId: 'aa-new-1', participant: '王建国' },
+    })
+  })
+})
+
+describe('AA 查组状态（05 单 §6）：查看不是新建', () => {
+  it('「查组状态 / 查一下 AA 状态 / 收款进度」→ aa-status', () => {
+    expect(classifyIntent('查组状态')).toEqual({ kind: 'aa-status' })
+    expect(classifyIntent('查一下AA状态')).toEqual({ kind: 'aa-status' })
+    expect(classifyIntent('AA 收款进度怎么样了')).toEqual({ kind: 'aa-status' })
+  })
+
+  it('规划：一次 aa_create(status)，收尾复述工具结果（paid/declined/pending 在正文里）', () => {
+    const steps = planFor(classifyIntent('查一下AA状态'))
+    expect(steps[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'aa_create',
+      args: { action: 'status', groupId: 'aa-new-1' },
+    })
+    expect(steps[1]?.reflect?.tool).toBe('aa_create')
+    expect(steps[1]?.reflect?.fallback).toContain('没有查到 AA 组状态')
+  })
+
+  it('动作说法不被当成状态：张三付了仍是 collect', () => {
+    expect(classifyIntent('张三已经付了')).toMatchObject({ kind: 'aa-collect' })
+  })
+})
+
+describe('风险测评路由（C-03）：只发卷 / 只搬运用户答案', () => {
+  it('「测评 / 风险问卷 / 我的风险等级」→ risk_assess(action=questions)', () => {
+    for (const text of ['我要做风险测评', '给我一份风险问卷', '我的风险等级是什么', '我 risk 等级该更新了']) {
+      const intent = classifyIntent(text)
+      expect(intent.kind, text).toBe('risk')
+      if (intent.kind !== 'risk') throw new Error('unreachable')
+      expect(intent.action).toBe('questions')
+      expect(planFor(intent)[0]?.content?.[0]).toMatchObject({
+        kind: 'tool-call',
+        name: 'risk_assess',
+        args: { action: 'questions' },
+      })
+    }
+  })
+
+  it('「风险测评作答 …」→ submit，答案逐条来自用户消息（路由不生成答案）', () => {
+    const intent = classifyIntent(
+      '风险测评作答 rq-3 1=conservative 2=middle 3=aggressive 4=middle 5=conservative',
+    )
+    expect(intent).toMatchObject({
+      kind: 'risk',
+      action: 'submit',
+      questionnaireId: 'rq-3',
+      answers: [
+        { index: 1, key: 'conservative' },
+        { index: 2, key: 'middle' },
+        { index: 3, key: 'aggressive' },
+        { index: 4, key: 'middle' },
+        { index: 5, key: 'conservative' },
+      ],
+    })
+    expect(planFor(intent)[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'risk_assess',
+      args: { action: 'submit', questionnaireId: 'rq-3' },
+    })
+  })
+
+  it('只写作答但没有问卷 ID / 没有答案 → 不硬当 submit（退回追问）', () => {
+    expect(classifyIntent('风险测评作答').kind).toBe('risk')
+    expect(classifyIntent('风险测评作答 rq-3').kind).toBe('risk')
+    // 没有 rq id 的"作答"不是提交：因为没有 ID 就落不了档，路由不该假装能提交
+    expect(classifyIntent('作答 1=middle 2=middle').kind).toBe('clarify')
+  })
+
+  it('「理财产品风险等级」仍归理财（产品等级不是客户等级）', () => {
+    expect(classifyIntent('这个理财产品风险等级多少').kind).toBe('wealth')
+  })
+})
+
+describe('追问候选的续接：点选后接回上一轮', () => {
+  function askCall(callId: string, slot: string): LlmMessage {
+    return {
+      role: 'assistant',
+      content: [
+        {
+          kind: 'tool-call',
+          id: callId,
+          name: 'prompt_ask',
+          args: { question: '要转给谁？请给出收款人姓名。', slot, candidates: [] },
+        },
+      ],
+    }
+  }
+
+  function askResult(callId: string, labels: readonly string[]): LlmMessage {
+    return {
+      role: 'tool',
+      toolCallId: callId,
+      name: 'prompt_ask',
+      content: [
+        {
+          kind: 'text',
+          text: JSON.stringify({
+            question: '要转给谁？请给出收款人姓名。',
+            choices: [
+              ...labels.map((label) => ({ label, value: label, kind: 'candidate' })),
+              { label: '手动输入', value: '__manual__', kind: 'manual' },
+            ],
+            allowFreeText: true,
+            degraded: false,
+            askExhausted: false,
+          }),
+        },
+      ],
+    }
+  }
+
+  function request(messages: readonly LlmMessage[]): LlmRequest {
+    return { modelId: 'router-chat', messages }
+  }
+
+  function afterAsk(previous: string, answer = '王建国'): readonly LlmMessage[] {
+    return [user(previous), askCall('call-ask', 'payee'), askResult('call-ask', ['王建国', '张伟']), assistant(), user(answer)]
+  }
+
+  it('金额取上一轮原话、收款人取点选值 → 直接进转账预览', () => {
+    const steps = planFromRequest(request(afterAsk('转 500 给他')))
+    expect(steps[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'transfer_preview',
+      args: { amount: 500, payee: { name: '王建国' } },
+    })
+  })
+
+  it('上一轮没给金额 → 接着问金额，而不是回能力清单', () => {
+    const steps = planFromRequest(request(afterAsk('转点钱给他')))
+    expect(steps[0]?.content?.[0]).toMatchObject({
+      kind: 'text',
+      text: '给王建国转多少？请给出金额。',
+    })
+  })
+
+  it('不是候选值的短句不硬当收款人', () => {
+    const steps = planFromRequest(request(afterAsk('转 500 给他', '算了')))
+    expect(steps[0]?.content?.[0]).toMatchObject({ kind: 'text', text: expect.stringContaining('我现在能办') })
+  })
+
+  it('追问之后用户又说过话 → 旧候选过期，按普通消息处理', () => {
+    const messages = [...afterAsk('转 500 给他', '先查下余额'), assistant(), user('王建国')]
+    const steps = planFromRequest(request(messages))
+    expect(steps[0]?.content?.[0]).toMatchObject({ kind: 'text', text: expect.stringContaining('我现在能办') })
+  })
+
+  it('非收款人槽位的候选不续接', () => {
+    const messages = [
+      user('转 500 给他'),
+      askCall('call-ask', 'amountCents'),
+      askResult('call-ask', ['500', '800']),
+      assistant(),
+      user('500'),
+    ]
+    const steps = planFromRequest(request(messages))
+    expect(steps[0]?.content?.[0]).toMatchObject({ kind: 'text', text: expect.stringContaining('我现在能办') })
+  })
+
+  it('追问结果不是合法 JSON → 不续接', () => {
+    const messages = [
+      user('转 500 给他'),
+      askCall('call-ask', 'payee'),
+      {
+        role: 'tool',
+        toolCallId: 'call-ask',
+        name: 'prompt_ask',
+        content: [{ kind: 'text', text: 'not-json' }],
+      } satisfies LlmMessage,
+      assistant(),
+      user('王建国'),
+    ]
+    const steps = planFromRequest(request(messages))
+    expect(steps[0]?.content?.[0]).toMatchObject({ kind: 'text', text: expect.stringContaining('我现在能办') })
+  })
+
+  it('找不到 prompt_ask 的调用参数 → 不续接', () => {
+    const messages = [user('转 500 给他'), askResult('orphan', ['王建国']), assistant(), user('王建国')]
+    const steps = planFromRequest(request(messages))
+    expect(steps[0]?.content?.[0]).toMatchObject({ kind: 'text', text: expect.stringContaining('我现在能办') })
+  })
+
+  it('没有上一轮用户原话 → 仍接着问金额', () => {
+    const messages = [askCall('call-ask', 'payee'), askResult('call-ask', ['王建国']), assistant(), user('王建国')]
+    const steps = planFromRequest(request(messages))
+    expect(steps[0]?.content?.[0]).toMatchObject({
+      kind: 'text',
+      text: '给王建国转多少？请给出金额。',
+    })
+  })
+
+  it('callPrefix 给本轮所有工具调用加唯一前缀', () => {
+    const steps = planFromRequest(request([user('给王建国转 800 元')]), 'call-7')
+    expect(steps[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      id: 'call-7:call-preview',
+      name: 'transfer_preview',
+    })
+    expect(steps[1]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      id: 'call-7:call-create',
+      name: 'transfer_create',
+    })
+  })
+})
+
+/**
+ * 定时转账（2026-11-01）：含时点的话**绝不能**走立即转账。
+ *
+ * 这一组的失效模式不是"少个功能"，而是"当场划走本不该动的钱"：
+ * 用户说明天转，系统发起今天到期的审批卡，用户照习惯点确认就扣款了。
+ */
+describe('定时转账：含时点不降级为立即转账', () => {
+  const TOOL_NAMES = (text: string): readonly string[] =>
+    planFor(classifyIntent(text))
+      .map((step) => step.content?.[0])
+      .filter((content) => content?.kind === 'tool-call')
+      .map((content) => (content as { readonly name: string }).name)
+
+  it('白名单时点原样进 when（明天 / 下周一 / 下个月 8 号 / 3 月 8 号）', () => {
+    const cases: readonly (readonly [string, string])[] = [
+      ['明天给王建国转 200 元', '明天'],
+      ['下周一给王建国转 200 元', '下周一'],
+      ['下个月 8 号给王建国转 200 元', '下个月 8 号'],
+      ['3 月 8 号给王建国转 200 元', '3 月 8 号'],
+    ]
+    for (const [text, when] of cases) {
+      const intent = classifyIntent(text)
+      expect(intent.kind, text).toBe('transfer')
+      if (intent.kind !== 'transfer') return
+      expect(intent.request.when, text).toBe(when)
+      // 金额只认 200：日期里的 3/8/20 都不是金额
+      expect(intent.request.amount, text).toBe(200)
+    }
+  })
+
+  it('只发 transfer_schedule，不补 transfer_create', () => {
+    expect(TOOL_NAMES('明天给王建国转 200 元')).toEqual(['transfer_schedule'])
+  })
+
+  it('时点格式不可解析 → 追问，不猜时刻、不按现在转', () => {
+    for (const text of [
+      '明天下午三点给王建国转 200 元',
+      '这个月 20 号给王建国转 200',
+      '每月 1 号给王建国转 200',
+    ]) {
+      expect(classifyIntent(text).kind, text).toBe('clarify')
+    }
+  })
+
+  it('无时点的普通转账仍是预览 → 执行两步', () => {
+    expect(TOOL_NAMES('给王建国转 200 元')).toEqual(['transfer_preview', 'transfer_create'])
+  })
+})
+
+/**
+ * 资金锁定（2026-11-01）：场景 6 原文"当月锁定 1000 元活期"。
+ *
+ * 关键区分：锁定不是给谁付钱，不能走 transfer_create（会占转账日限额、还可能升红），
+ * 也不能被卡片"冻结"抢走（那改的是卡状态，不是余额可用性）。
+ */
+describe('资金锁定：锁定 / 释放 / 查询', () => {
+  it('锁定 1000 元活期 → fund_lock(lock, 1000)', () => {
+    const intent = classifyIntent('帮我把 1000 元活期锁定')
+    expect(intent).toMatchObject({ kind: 'fundLock', action: 'lock', amountYuan: 1000 })
+    expect(planFor(intent)[0]?.content?.[0]).toMatchObject({ kind: 'tool-call', name: 'fund_lock' })
+  })
+
+  it('解除锁定 → release；查锁定额 → status（不需要金额）', () => {
+    expect(classifyIntent('解除锁定 500 元')).toMatchObject({
+      kind: 'fundLock',
+      action: 'release',
+      amountYuan: 500,
+    })
+    expect(classifyIntent('我现在锁了多少钱')).toMatchObject({ kind: 'fundLock', action: 'status' })
+  })
+
+  it('说锁定但没给金额 → 追问，不默认 1000', () => {
+    expect(classifyIntent('帮我把这笔钱锁定').kind).toBe('clarify')
+  })
+})
+
+/**
+ * 交易密码（01 单 / ADR-0014）。
+ *
+ * 这条判据的价值不在"认得出改密"，而在**认得出也不带密码**：
+ * 用户在消息里打了密码，路由的 args 里仍然只有 `{ action }`。
+ */
+describe('交易密码：发起交办 / 查状态（密码不进对话）', () => {
+  it('「改交易密码」→ password_change(request)，args 里没有密码字段', () => {
+    const intent = classifyIntent('我要改交易密码')
+    expect(intent).toMatchObject({ kind: 'password', action: 'request' })
+    const step = planFor(intent)[0]
+    expect(step?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'password_change',
+      args: { action: 'request' },
+    })
+    const shown = JSON.stringify(step)
+    expect(shown).not.toContain('oldPassword')
+    expect(shown).not.toContain('newPassword')
+
+    // 成功话术引用工具正文：交接页地址与票据号只存在于 tool/result 里（复审 P0-2）
+    const closing = planFor(intent)[1]
+    expect(closing?.outcome).toMatchObject({
+      tool: 'password_change',
+      okFromResult: true,
+    })
+    expect(closing?.outcome?.ok).not.toContain('/secure/password')
+  })
+
+  it('「密码还能试几次 / 什么时候改的」→ status；「改登录密码」→ 追问', () => {
+    expect(classifyIntent('交易密码还能试几次')).toMatchObject({
+      kind: 'password',
+      action: 'status',
+    })
+    expect(classifyIntent('我上次什么时候改的交易密码')).toMatchObject({
+      kind: 'password',
+      action: 'status',
+    })
+    expect(classifyIntent('我要改登录密码').kind).toBe('clarify')
+  })
+})
+
+/**
+ * 记住生日（04 单手工验收）：话术必须真的落到 `fact_remember`。
+ *
+ * 这条以前是闭环缺口：扫描器与快照都在，但演示里没有任何路径把生日写进事实库。
+ */
+describe('记住生日：话术 → fact_remember（04 单）', () => {
+  it('「记住我爱人生日 3 月 8 日」→ spouse/birthday/2000-03-08', () => {
+    const intent = classifyIntent('记住我爱人生日 3 月 8 日')
+    expect(intent).toEqual({
+      kind: 'factRemember',
+      person: '爱人',
+      relation: 'spouse',
+      date: '2000-03-08',
+    })
+
+    const steps = planFor(intent)
+    expect(steps[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'fact_remember',
+      args: {
+        person: '爱人',
+        relation: 'spouse',
+        kind: 'birthday',
+        date: '2000-03-08',
+        confirmed: true,
+      },
+    })
+    expect(steps[1]?.outcome?.tool).toBe('fact_remember')
+  })
+
+  it('「记住我的生日是 3 月 8 日」→ self；称谓抽不出 / 日期不存在 → 追问', () => {
+    expect(classifyIntent('记住我的生日是 3 月 8 日')).toMatchObject({
+      kind: 'factRemember',
+      person: '我',
+      relation: 'self',
+      date: '2000-03-08',
+    })
+    expect(classifyIntent('记住王建国生日 3 月 8 日')).toMatchObject({
+      kind: 'factRemember',
+      person: '王建国',
+      relation: 'other',
+      date: '2000-03-08',
+    })
+    expect(classifyIntent('记住我爱人生日').kind).toBe('clarify')
+    expect(classifyIntent('记住我爱人生日 2 月 30 日').kind).toBe('clarify')
+    expect(classifyIntent('记住生日 3 月 8 日').kind).toBe('clarify')
+  })
+
+  it('不带「记住」的生日陈述仍走原分支（不抢 03/04 的话术）', () => {
+    expect(classifyIntent('我爱人生日快到了')).toMatchObject({ kind: 'intent', route: 'implicit' })
+    expect(classifyIntent('给爱人订生日计划')).toMatchObject({ kind: 'birthday', phase: 'propose' })
+  })
+})
+
+/**
+ * 商户订购（2026-11-01 开放）：先搜后订。
+ *
+ * 之前这条意图只能得到一句"我能办：① 查余额…"的追问——用户想订花，系统答非所问。
+ * 现在路由只发 `merchant_search`（带预算），下单要靠 `merchant_order`（offerId 或品类）。
+ */
+describe('商户订购：订花 / 蛋糕', () => {
+  it('订一束 200 元的花 → merchant_search(flower, 200)', () => {
+    const intent = classifyIntent('帮我订一束 200 元的花')
+    expect(intent).toMatchObject({
+      kind: 'merchant',
+      action: 'search',
+      category: 'flower',
+      budgetYuan: 200,
+    })
+    expect(planFor(intent)[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'merchant_search',
+    })
+  })
+
+  it('「就订」才进 order，否则一律先搜（不让用户接受没见过的价）', () => {
+    // `DemoIntent` 是封闭联合，`action` 只存在于 merchant 分支：先窄化再读字段，
+    // 直接把联合当 any 读会掩盖"路由改成了别的意图"这种真回归。
+    expect(merchantIntentOf('订个蛋糕，就订了').action).toBe('order')
+    expect(merchantIntentOf('看看有什么蛋糕').action).toBe('search')
+  })
+})
+
+/** 取 merchant 分支（类型窄化；不是商户意图就让用例失败，而不是静默读 `undefined`）。 */
+function merchantIntentOf(text: string): { readonly action: 'search' | 'order' } {
+  const intent = classifyIntent(text)
+  if (intent.kind !== 'merchant') throw new BahError('test-intent', `不是商户意图：${intent.kind}`, { text })
+  return intent
+}
+
+/**
+ * 追问兜底与「剧本能表达的、路由暂不产出」的形态。
+ *
+ * 这一组守的是两件不同的事，别混着读：
+ * 1. **缺要素必须追问**（无卡号 / 无金额 / 无参与人）——不替用户补默认值；
+ * 2. `planFor` 收到的 `DemoIntent` 是**手写剧本**也能构造的：`monthlyLimitYuan` 目前
+ *    只有剧本会给（路由只产日限额与授信额度），但剧本里写了就必须真的进 args，
+ *    否则模型说"月限额 500"会被静默丢掉。
+ */
+describe('追问兜底：缺哪件问哪件，不补默认值', () => {
+  it('说"额度"但没指卡 → 追问哪张卡，且把三张演示卡都列出来', () => {
+    const intent = parseCard('帮我把额度调高一点')
+    expect(intent.kind).toBe('clarify')
+    if (intent.kind !== 'clarify') throw new BahError('test-intent', '不是追问', {})
+    expect(intent.question).toContain('尾号 1234')
+    expect(intent.question).toContain('尾号 5678')
+    expect(intent.question).toContain('尾号 2468')
+  })
+
+  it('指了卡但没说调多少 → 追问金额（卡号先剔掉，不当金额读）', () => {
+    expect(parseCard('把尾号 1234 的额度调高')).toMatchObject({
+      kind: 'clarify',
+      question: '要把额度调到多少元？',
+    })
+  })
+
+  it('说"交易限制"但没指卡 → 追问哪张卡', () => {
+    const intent = parseCard('帮我设置交易限制')
+    expect(intent.kind).toBe('clarify')
+    if (intent.kind !== 'clarify') throw new BahError('test-intent', '不是追问', {})
+    expect(intent.question).toContain('交易限制')
+  })
+
+  it('AA 没说总额 → 追问总额；说了总额但参与人不足两个 → 追问参与人', () => {
+    expect(parseAa('张三、李四 AA 聚一下')).toMatchObject({ kind: 'clarify' })
+    // 「和」既是分隔符又是合法姓名字（`[\u4e00-\u9fa5]`）：名单整体由它组成时，
+    // 正则能匹配、按分隔符切完却一个名字都不剩 —— 这种情况必须落到"至少两人"守卫上，
+    // 不能带着空名单进 AA 建组。
+    expect(parseAa('和和和和和 AA 300')).toMatchObject({
+      kind: 'clarify',
+      question: 'AA 至少需要两个参与人。',
+    })
+  })
+})
+
+describe('手写剧本的合法形态（路由不产出 ≠ 剧本不能写）', () => {
+  it('card.setLimit 带月限额 → 月限额真的进了 args，不被静默丢弃', () => {
+    const steps = planFor({
+      kind: 'card',
+      action: 'setLimit',
+      cardId: 'c-1',
+      monthlyLimitYuan: 50_000,
+    })
+    expect(steps[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'card_limit_set',
+      args: { cardId: 'c-1', monthlyLimitYuan: 50_000 },
+    })
+  })
+
+  it('资金锁定的三种动作各说各话（status / lock / release 不共用一句）', () => {
+    const okOf = (action: 'lock' | 'release' | 'status'): string => {
+      const steps = planFor({ kind: 'fundLock', action })
+      const ok = steps[1]?.outcome?.ok
+      if (ok === undefined) throw new BahError('test-intent', '没有收尾话术', { action })
+      return ok
+    }
+    expect(okOf('status')).toContain('当前锁定金额')
+    expect(okOf('lock')).toContain('资金已锁定')
+    expect(okOf('release')).toContain('已解除锁定')
+    // 三句互不相等：共用一句就会让"锁定成功"和"查询结果"在界面上无法区分
+    expect(new Set([okOf('status'), okOf('lock'), okOf('release')]).size).toBe(3)
+  })
+
+  it('交易密码查状态与发起修改用不同话术', () => {
+    const request = planFor({ kind: 'password', action: 'request' })[1]?.outcome?.ok
+    const status = planFor({ kind: 'password', action: 'status' })[1]?.outcome?.ok
+    expect(request).toContain('安全页')
+    expect(status).toContain('交易密码状态')
+    expect(request).not.toBe(status)
+  })
+
+  it('商户下单剧本走 merchant_order，收尾话术交代"超预算不擅自加价"', () => {
+    const steps = planFor({ kind: 'merchant', action: 'order', category: 'flower' })
+    expect(steps[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'merchant_order',
+    })
+    expect(steps[1]?.outcome?.ok).toContain('不会擅自加价')
   })
 })

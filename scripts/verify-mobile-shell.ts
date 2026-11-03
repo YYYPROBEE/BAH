@@ -1,10 +1,10 @@
 /**
- * 门禁：移动 H5 壳的专属不变量（施工单 00 D14 第 02 行 / 施工单 02 §6.1）。
+ * 门禁：移动 H5 壳的专属不变量。
  *
  * 与 `verify-web.ts` 的分工：那条管**全局**四条硬约束（无框架 / 零远程 / DS 副本 sha256 /
  * 令牌纪律）；本条管移动新增面——CSP 内联、第二份 transport|store、触控尺寸、安全区、
  * 图标逐字节分发、token 入口白名单、令牌名拼写。两者互补不重叠（唯一交集是 DS 副本 sha256，
- * 施工期误改的概率不低，值得查两遍）。
+ * 实现期误改的概率不低，值得查两遍）。
  *
  * **为什么不用禁用词清单**：禁用词（"不许 touch-only"之类）不可机械判定、随措辞漂移、
  * 假阳假阴都高。本门禁每条都是正则 / sha256 / fs 可判定的形态；语义级要求交测试与走查
@@ -86,7 +86,7 @@ const TOUCH_MIN_PX = 44
  *
  * WHY 空：mobile.css 用一条 blanket 规则（`.m-shell button, .m-shell [role='button'], …`）
  * 把壳内所有可点元素一次性抬到 44×44，所以没有"这个类天生小"的例外需要登记。
- * 豁免清单一旦非空就成了后门（B5 探针：施工期往里塞类名躲 44px），
+ * 豁免清单一旦非空就成了后门（B5 探针：实现期往里塞类名躲 44px），
  * 加任何一条都必须带 WHY 注释并在复审里逐条质询。
  */
 const TOUCH_EXEMPT: readonly string[] = []
@@ -104,6 +104,10 @@ const RUNTIME_VARS: Readonly<Record<string, string>> = {
 /** I10：`bah-web-token` 只许出现在这些面上（相对路径前缀匹配）。 */
 const TOKEN_WHITELIST = [
   'apps/web/src/transport.js',
+  // ADR-0014 的交易密码安全页：static 鉴权模式下它**必须**读注入的 token 才能提交，
+  // 否则那张表单永远 401。它是第二个"读 token"的页面脚本，白名单只开这一条；
+  // 页面本身仍然零会话数据、零对话脚本（`verify-web` 的入口页清单同时管着）。
+  'apps/web/src/password.js',
   'apps/web/index.html',
   'apps/web/m.html',
   'packages/host/src/boot/plugins/',
@@ -373,7 +377,7 @@ const gate: Gate = {
       if (!existsSync(upstream)) findings.push(`I6 ${rel(root, upstream)} 缺失（令牌唯一定义处没了）`)
       else if (!existsSync(copy)) findings.push(`I6 ${rel(root, copy)} 缺失（分发副本没了）`)
       else if (sha256(upstream) !== sha256(copy)) {
-        findings.push(`I6 ${rel(root, copy)} 与 ${rel(root, upstream)} 不一致（移动施工期误改了 DS 副本）`)
+        findings.push(`I6 ${rel(root, copy)} 与 ${rel(root, upstream)} 不一致（移动实现期误改了 DS 副本）`)
       }
     }
 

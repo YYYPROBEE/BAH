@@ -1,5 +1,5 @@
 /**
- * DAG 视图的数据源（施工单 13 §2.1「DAG 规划视图」+ B2「plan 节点图」）。
+ * DAG 视图的数据源。
  *
  * 两个数据源，**分工不同、不混装**：
  *
@@ -81,6 +81,17 @@ export class DagBuilder {
     graph.nodes.push({ id, label: name, kind: 'call', step, tier, state: 'pending' })
     this.turnOfCall.set(callId, turn)
     this.link(graph, id, step)
+  }
+
+  /** 生效档位回写（`tier/decided`）：声明档位可能是黄级，策略上升后必须画红。 */
+  retier(callId: string, tier: FrameTier): void {
+    const turn = this.turnOfCall.get(callId)
+    if (turn === undefined) return
+    const graph = this.graph(turn)
+    const index = graph.nodes.findIndex((node) => node.id === callNodeId(callId))
+    const node = index < 0 ? undefined : graph.nodes[index]
+    if (node === undefined) return
+    graph.nodes[index] = { ...node, tier }
   }
 
   /** 结果到达：成功 → `ok`；失败 → 下游待执行节点标记 `blocked`。 */

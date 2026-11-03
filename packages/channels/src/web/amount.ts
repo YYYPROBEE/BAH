@@ -1,5 +1,5 @@
 /**
- * 金额与合规文本的**渠道侧判定**（施工单 13 §2.2）。
+ * 金额与合规文本的**渠道侧判定**。
  *
  * 两条铁律：
  * 1. **不发明金额**：金额只从事件里取。单位必须分清——
@@ -8,8 +8,9 @@
  *    而 `amountCents` / `minAmountCents` 已经是**分**。
  *    这条注释曾经写反（说 `approval/asked.amount` 是分），审计时间线照着写，
  *    把 800 元显示成 ¥8.00；
- * 2. **没结果就不算确认**：只有本 turn 内该 `callId` 的 `tool/result` 成功返回，
- *    金额才算被证实；否则 UI 必须标灰 + "待确认"（幻觉防护的 UI 侧）。
+ * 2. **没结果就不算确认**：工具卡只认本 turn 内该 `callId` 的 `tool/result`；
+ *    审批帧没有本次结果时，可沿用同 turn 成功 `transfer_preview`（收款人+金额一致）
+ *    的证实。两条都不满足才标灰 + "待确认"（幻觉防护的 UI 侧）。
  */
 
 import { formatCents, yuanToCents } from './format.ts'
@@ -81,7 +82,7 @@ export function maskPhone(phone: string): string {
 /**
  * 从工具结果文本里抽风险提示（理财合规：`disclaimerId` 必须展示）。
  *
- * 口径来自施工单 08：`projectContent` 把 `disclaimerId` 写进正文
+ * 口径来自：`projectContent` 把 `disclaimerId` 写进正文
  * （`风险提示：wealth.disclaimer.v1（必须向用户展示…）`）。工具卡片（`UiCard`）当前
  * **不落账**，所以渠道只能从**已持久化**的结果正文里取——这比"渠道自己编一句风险提示"安全得多。
  *

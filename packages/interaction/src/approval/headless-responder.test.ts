@@ -1,5 +1,5 @@
 /**
- * headless 自动应答者（施工单 09 §6）：默认拒绝之外的**显式**演示/回归通道。
+ * headless 自动应答者：默认拒绝之外的**显式**演示/回归通道。
  */
 
 import { describe, expect, it } from 'vitest'
@@ -147,5 +147,19 @@ describe('headless 自动应答者', () => {
     expect(answers).toHaveLength(0)
     timer.fire()
     expect(answers).toEqual([{ decision: 'allowed-once' }])
+  })
+
+  it('不认领窗口票据（ADR-0010：不许夹具替窗口签字）', () => {
+    const responder = createHeadlessResponder()
+    const windowTicket = {
+      authorization: { kind: 'window', ref: 'w-1', digest: 'd-1' },
+    } as const
+    const humanTicket = {
+      authorization: { kind: 'human', ref: 'u-1', digest: 'd-1' },
+    } as const
+    expect(responder.accepts?.(windowTicket as never)).toBe(false)
+    expect(responder.accepts?.(humanTicket as never)).toBe(true)
+    // 没有 authorization 的历史票据照常认领（老日志零改动）
+    expect(responder.accepts?.({} as never)).toBe(true)
   })
 })

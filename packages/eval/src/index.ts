@@ -20,7 +20,7 @@ export type {
 } from './types.ts'
 export { COMPONENT_ORDER } from './types.ts'
 
-export { assertNever } from './assertNever.ts'
+export { assertNever } from './assert-never.ts'
 export { buildVerdict, isUndecidable } from './verdict.ts'
 export type { BuildVerdictInput, ComponentLocators } from './verdict.ts'
 
@@ -70,10 +70,10 @@ export type {
   CompletenessReport,
 } from './evidence/EvidencePack.ts'
 
-export { attachSeamBridge } from './adapters/seamBridge.ts'
-export type { SeamBridgeHandle, SeamBridgeOptions } from './adapters/seamBridge.ts'
-export { flattenSagaProjection, flattenState } from './adapters/flattenState.ts'
-export type { FlattenOptions } from './adapters/flattenState.ts'
+export { attachSeamBridge } from './adapters/seam-bridge.ts'
+export type { SeamBridgeHandle, SeamBridgeOptions } from './adapters/seam-bridge.ts'
+export { flattenSagaProjection, flattenState } from './adapters/flatten-state.ts'
+export type { FlattenOptions } from './adapters/flatten-state.ts'
 export type { EventSourcePort, SeamListener, SeamNext, StateReader } from './adapters/ports.ts'
 
 export type {
@@ -98,8 +98,8 @@ export type {
   CheckpointStatus,
 } from './config/checkpoints.ts'
 
-export { deepClone } from './deepClone.ts'
-export { isPlainObject } from './plainObject.ts'
+export { deepClone } from './deep-clone.ts'
+export { isPlainObject } from './plain-object.ts'
 
 // W13：场景 runner / 60 场景 / 四项指标（`scripts/eval.ts` 的公开面）
 export {

@@ -1,5 +1,5 @@
 /**
- * 门禁：Web 前端的硬约束（施工单 13 §6「grep 无 vue/react/组件库依赖」的工程化版本）。
+ * 门禁：Web 前端的硬约束。
  *
  * 1. **纯原生**：`apps/web` 不得依赖框架 / UI 组件库（在 `package.json` 与源码 import 两处查）；
  * 2. **零远程资源**：`src` / `href` / `url()` 里不得出现 `http(s)://`（离线演示、供应链最小面）；
@@ -68,6 +68,8 @@ const REQUIRED_STYLES: Readonly<Record<string, readonly string[]>> = {
   'index.html': [...DS_STYLES, './styles/app.css'],
   'operator.html': [...DS_STYLES, './styles/app.css'],
   'm.html': [...DS_STYLES, './styles/mobile.css'],
+  // 交易密码安全页（ADR-0014）：复用 `app.css`（登录卡样式），不新开一份页面局部样式
+  'password.html': [...DS_STYLES, './styles/app.css'],
 }
 
 /** 读文件（失败返回 `undefined`）。 */
@@ -158,7 +160,7 @@ const gate: Gate = {
     // ④ 令牌纪律：页面局部样式（styles/*.css，排除 ds/ 副本）不得出现裸色值；
     //    同时校验 `--icon-url` 指向的本地图标真实存在，并收集 `.icon--name` 映射。
     //
-    // 施工单 02 §6.2 / E10：扫描集合从 `app.css` 单文件扩到 `styles/*.css`（排除 `ds/`——
+    //  / E10：扫描集合从 `app.css` 单文件扩到 `styles/*.css`（排除 `ds/`——
     // 副本的内容纪律由 ③ 的 sha256 等价保证，不归本仓令牌纪律管）。
     // **只增扫描面，不改判定正则**：扩容前后 `app.css` 的 findings 必须逐条一致。
     const appCssPath = join(root, WEB_DIR, 'styles', 'app.css')
@@ -201,10 +203,20 @@ const gate: Gate = {
     notes.push(`④ 令牌纪律扫描 ${String(pageCssFiles.length)} 个页面局部 css`)
 
     // ④b `hidden` 兜底：DS 组件给 `.ds-backdrop` 显式设了 display，用 hidden 表达的节点
-    //    （凭证闸、审计面板、坐席骨架）会常驻可见。2026-10-29 走查的 P0-1/P0-2 都源于此，
+    //    （凭证闸、审计面板、坐席骨架）会常驻可。2026-10-29 走查的 P0-1/P0-2 都源于此，
     //    这一条是它们的回归判据：改样式表时删掉兜底规则会立刻变红。
     if (!/\[hidden\]\s*\{[^}]*display:\s*none\s*!important/.test(read(appCssPath) ?? '')) {
       findings.push(`${WEB_DIR}/styles/app.css: 缺少 [hidden] { display: none !important } 兜底规则`)
+    }
+
+    // ④c 顶部横幅是可选节点（0–2 条）：`.app-shell` 的纵向排布不能依赖"子节点数固定"。
+    //     2026-10-30 走查：`grid-template-rows: auto auto minmax(0,1fr)` 在两条横幅都 hidden 时，
+    //     app-body 落进第二行 auto，底行 1fr 整块空着（1266×798 实测空 339px）。
+    const shellRule = /\.app-shell\s*\{[^}]*\}/.exec(read(appCssPath) ?? '')?.[0] ?? ''
+    if (!/display:\s*flex/.test(shellRule) || !/flex-direction:\s*column/.test(shellRule)) {
+      findings.push(
+        `${WEB_DIR}/styles/app.css: .app-shell 必须是 flex 纵向列（横幅 0–2 条可变，固定行数的 grid 会让主体挤进 auto 行、底部留白）`,
+      )
     }
 
     // ⑤ 入口页清单：apps/web 下每个 .html 都必须挂齐**该壳**的样式与一个模块入口，

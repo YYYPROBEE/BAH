@@ -1,18 +1,17 @@
-﻿# 测试地基（Testing）
+# 测试地基（Testing）
 
-> 适用：底座阶段 2 起。规格依据：施工单 00 §9（纪律）、01 §5–§7（测试面 / 门禁 / 覆盖率）、
-> 12 §3（快照回放）。本文件是**操作手册**：改一行代码该跑哪条命令、新用例该怎么写。
+> 本文件是**操作手册**：改一行代码该跑哪条命令、新用例该怎么写。
 
 ## 1. 四个测试面（一个都不能省）
 
-| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-30 实测） |
+| 面 | 命令 | 配置 | 装什么 | 现状（2026-10-31 实测） |
 |---|---|---|---|---|
-| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 302 文件 / 3494 用例（含 `apps/desktop/src`、`apps/im-gateway`） |
+| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 455 文件 / 5283 用例（2026-11-03 全量实测；含 `apps/desktop/src`、`apps/im-gateway`） |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
-| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 9 文件 / 39 用例 |
-| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 前端 27 文件 / 375 用例 |
+| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 13 文件 / 60 用例全绿（含 `subscription-reminder` 与 `birthday-reminder`；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 用夹具 overlay 放行审批） |
+| web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 前端 49 文件 / 610 用例（全绿） |
 
-意图/追问平面（03 单）在前两个面里各占一块：`packages/runtime/src/intent/*.test.ts`（规则引擎、
+意图/追问平面在前两个面里各占一块：`packages/runtime/src/intent/*.test.ts`（规则引擎、
 槽位归一化、脱敏、检索闸门、工具 fail-loud）、`packages/interaction/src/prompt/*.test.ts`
 （候选去重/排序/上限/手动出口/追问上限）、`scripts/intent-determinism.test.ts`（门禁正反夹具）、
 `scripts/cross-scene-gate.test.ts`（跨场景门禁的正反夹具：todo 落账 / goal 新键 / addNode / 批量放行 / 重跑 succeeded）、
@@ -21,19 +20,22 @@
 一条命令跑全链（本地等价 CI，fail-fast）：
 
 ```powershell
-cd D:\项目集\微众杯银行ai智能体\BAH\MonoRepo
+cd <repo-root>
 pnpm check
 ```
 
 `pnpm check` 共 **14 步**，任一步红即停并给出耗时汇总：
 
 ```
-typecheck → lint → build → test → test:coverage → test:coverage:all → gate
+typecheck → lint → build → test → test:coverage:all → test:coverage → gate
           → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag:check
 ```
 
-其中 `test:coverage` 与 `test:coverage:all` **两步都要**：前者守「名单内逐文件 100%」，
+其中 `test:coverage:all` 与 `test:coverage` **两步都要**：前者守「名单内逐文件 100%」，
 后者报「行口径（仅 `packages/*/src`）/ 包口径 14–16」。只跑前者会把分母当成全仓——那正是底座评审的红灯。
+
+两步的先后是刻意的：**全仓口径先跑**，因为它是台账数字（行口径 / 包口径）的唯一来源；
+逐文件 100% 是更严的第二道闸，它红不该让主指标的数字产不出来。
 
 两种模式，**红绿口径不同，不可混用**：
 
@@ -48,14 +50,14 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 > （见 `resolveSnapshotBase`），本地没有该变量时会一步都跑不到、直接退出，
 > 于是"无 key 即红"这条语义根本得不到验证。两者职责不同。
 
-### 1.1 移动壳（`apps/web/src/mobile/`，施工单 02）
+### 1.1 移动壳（`apps/web/src/mobile/`）
 
 | 项 | 值 |
 |---|---|
 | 测试面 | `vitest.web.config.ts`（jsdom），`apps/web/src/mobile/**/*.test.js` |
 | 规模 | **前端 10 文件 / 194 用例**（含 `test:web` 全量 27 文件 / 375 用例） |
-| 覆盖率 | **不在覆盖率面**（`00 §6.1`：前端 jsdom 用例不计入 `packages/*/src` 分母），但计入 `test:web` 用例地板（`scripts/ci.ts` 的 `minCases`） |
-| 门禁 | `scripts/verify-mobile-shell.ts`（11 条不变量）；负控演练 27 条见 `docs/evidence/2026-10-28-mobile-h5/02-gate-negative-controls.txt` |
+| 覆盖率 | **不在覆盖率面**（前端 jsdom 用例不计入 `packages/*/src` 分母），但计入 `test:web` 用例地板（`scripts/ci.ts` 的 `minCases`） |
+| 门禁 | `scripts/verify-mobile-shell.ts`（11 条不变量）；负控演练 27 条（手动执行，不入 CI） |
 
 **桩纪律（比别的面更严，因为 jsdom 缺失的能力多）**：
 
@@ -74,16 +76,16 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 
 ## 2. 用例命名纪律（硬性）
 
-1. 施工单 §10 给了用例 ID 的，**ID 必须与该表逐字一致**，编号不得增删改，期望值逐条对应。
+1. 用例 ID 必须与本文的表逐字一致，编号不得增删改，期望值逐条对应。
    例：`it('T-CORE-007 handler 不调 next() → 拥有判决，后续 handler 不执行', …)`。
 2. 规格没有 ID 的补充用例，**不带 ID**，名字直接描述行为（覆盖率补丁用例就是这一类）。
 3. 测试文件与被测文件同目录（`src/foo.ts` ↔ `src/foo.test.ts`），不分 `test/` 目录。
-4. 用例只通过**公开 API** 验证行为；不测私有字段（否则 100% 覆盖率会逼出无意义测试，施工单 02 §12）。
+4. 用例只通过**公开 API** 验证行为；不测私有字段（否则 100% 覆盖率会逼出无意义测试，§12）。
 
-## 3. 覆盖率政策（W17 起：**两个口径，都要报**）
+## 3. 覆盖率政策（**两个口径，都要报**）
 
-> 底座评审的红灯不是"覆盖率低"，而是**分母只算了一半源码行**。所以从 W17 起有两个口径，
-> 谁也不能替代谁；提覆盖率时**必须带口径标签**，否则 W20 的抽查判不合格。
+> 底座评审的红灯不是"覆盖率低"，而是**分母只算了一半源码行**。所以有两个口径，
+> 谁也不能替代谁；提覆盖率时**必须带口径标签**，否则抽查判不合格。
 
 | 口径 | 定义 | 目标 | 命令 |
 |---|---|---|---|
@@ -99,9 +101,8 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
   低于目标即退出码 1。报表在 `.ci-artifacts/cov-all/coverage-summary.json`。
 - **既有阈值不许下调**：已在 allowlist 里的文件维持逐文件 100%；新增进名单的首期允许 ≥90%，
   但必须在 `coverage-allowlist.ts` 的 `why` 里写明提升期限。下调阈值属于宪法变更。
-- **第 4 批明确不做**：`eval`（53.20%，主体是评测 harness 的场景装载）**不进**本轮目标；
-  `memory-store` 已随补测升到 89.40%，不再属于放弃项。这是**显式放弃的项目**，不是漏做——写在这里是为了
-  让"80%/85%"这两个数可复现，而不是靠慢慢缩分母。
+- **显式放弃的项目**：`eval`（主体是评测 harness 的场景装载）不进逐文件 100% 名单。
+  `memory-store` 已升到 89.40%，不在放弃项里。写在这里是为了让"80%/85%"这两个数可复现，而不是靠慢慢缩分母。
 - 现状（2026-10-29 实测，2755 例全绿）：覆盖率数字以 `facts.md` 为准（本文不重复记具体百分比，避免二次漂移）
   **包口径 15/16**（CI/Ubuntu 口径；Windows 检出为 CRLF 时 v8 行映射会退化，分母虚高，别拿本机数对账）；分母只含参与统计的逻辑行，注释、空行与纯类型文件按设计不计入。
 - 产物：`coverage/lcov.info`、`coverage/lcov-report/`（名单口径）；
@@ -113,7 +114,7 @@ typecheck → lint → build → test → test:coverage → test:coverage:all �
 `pnpm build`，用例会静默跑旧代码。所以 `vitest.shared.ts` 把 `@bah/<pkg>` 映射到
 `packages/<pkg>/src/index.ts`（子路径 `@bah/llm/mock` → `src/mock/index.ts`），四个配置共用。
 
-边界：**只有测试面**如此；包与包之间的真实运行时依赖仍走包名 + `dist/`（施工单 02 §8 第 1 条）。
+边界：**只有测试面**如此；包与包之间的真实运行时依赖仍走包名 + `dist/`（§8 第 1 条）。
 类型检查（`tsc -b`）走 project references，与测试面看到的是同一份源码。
 
 ## 5. 新写一个用例（三步）
@@ -156,7 +157,7 @@ it('示例：dispose 回滚', async () => {
 | `seededRandom(seed)` | mulberry32 PRNG，同种子逐位一致 |
 | `asSessionId(raw)` / `asTicketId(raw)` | 品牌 ID 夹具（**唯一**允许由字面量构造不透明 ID 的地方） |
 | `captureThrown(run)` / `captureRejection(run)` | 抓 `BahError` 并校验形状 |
-| `parseSnapshotName(file)` / `selectSnapshot(dir, { seq })` | 快照 fixture 解析与代次选择（施工单 12 §3） |
+| `parseSnapshotName(file)` / `selectSnapshot(dir, { seq })` | 快照 fixture 解析与代次选择（§3） |
 | `recordSnapshot({ dir, run })` | 录制：`session.jsonl` + `llm.jsonl` + `scenario.json`（**只在显式模式下调**） |
 | `loadSnapshot(dir)` | 只读加载（缺文件 `snapshot-missing`、坏文件 `snapshot-invalid`、会话 ID 不一致 `snapshot-mismatch`） |
 | `compareEvents(a, b)` / `assertSameEvents(a, b)` | 逐条**整行**比对（`seq/at/formatVersion/type/data` 全参与），差异最多列 5 条 |
@@ -216,7 +217,7 @@ pnpm test:e2e
 网页面 handler/SSE/审批 API 的逻辑面由 `packages/channels` 与 `web.test.ts`（60 例）
 在无浏览器环境覆盖；上面 5 条是它们的**人工端到端补证**，不要把单测说成"浏览器已验证"。
 
-移动渠道（施工单 01）新增的测试面，全部在 `pnpm test` 之内（不进 web 面）：
+移动渠道新增的测试面，全部在 `pnpm test` 之内（不进 web 面）：
 
 | 面 | 用例 | 钉住什么 |
 |---|---|---|
@@ -230,7 +231,7 @@ pnpm test:e2e
 | `packages/host/src/boot/plugins/mobile.test.ts` | 6 | `channel:mobile` 真监听 + `/api/session` 10 字段 + admin 默认 404 |
 
 > 双口径提醒（老坑）：`pnpm test:coverage` 只看 `scripts/coverage-allowlist.ts` 的名单（逐文件 100%），
-> `pnpm test:coverage:all` 才是全仓行/包口径。**只跑前者会把分母当成全仓**。施工单 01 起
+> `pnpm test:coverage:all` 才是全仓行/包口径。**只跑前者会把分母当成全仓**。
 > `packages/channels` 的 `capabilities.ts` / `http-adapter.ts` / `mobile/` 三个窄 scope 进了名单。
 
 ## 8. 确定性纪律（上快照回放的前提）
@@ -242,9 +243,9 @@ pnpm test:e2e
 | 固定 `await sleep(50)` 等副作用 | `flush()` / `waitFor(predicate)` |
 | 依赖真实网络 / 真实文件系统路径 | 临时目录（`mkdtempSync(tmpdir())`）+ `afterEach` 清理 |
 
-理由（施工单 12 §7）：回放要求「同快照两次回放全等」；一旦测试里混入真实时间与随机，回放断言必然偶发失败。
+理由（§7）：回放要求「同快照两次回放全等」；一旦测试里混入真实时间与随机，回放断言必然偶发失败。
 
-## 9. 快照 fixture 命名（施工单 12 §3）
+## 9. 快照 fixture 命名（§3）
 
 ```text
 snapshots/
@@ -257,7 +258,7 @@ snapshots/
 规则：`session[.序号][.vN].jsonl`；**同组取最高代**；同组最高代重复 → `BahError('snapshot-conflict')`
 （fixture 冲突必须人工处理，不许随手挑一个）；该组为空 → `BahError('snapshot-missing')`。
 
-### 9.1 一个快照用例（阶段 7 起）
+### 9.1 一个快照用例
 
 ```text
 snapshots/<case>/
@@ -291,8 +292,7 @@ snapshots/<case>/
 
 - **入用例**（`snapshots/entity-slots/snapshot.test.ts` 第 4、5 条）：改一条 `assistant/message`
   → 必须红；把 `context/slots` 的 `accounts` 从 3 改 2 → 必须红（差异里点名 `context/slots`）。
-- **人工三条**（不入用例，2026-10-28 实测，记录在
-  `docs/evidence/2026-10-28-entity-slots/06-s4-adversarial-review.md`）：
+- **人工三条**（不入用例，2026-10-28 实测）：
   删掉全部 `context/slots`（36 行 → 34 行）→ 比对红；`scenario.json.clock.start` +1 →
   回放 `at` 整体 +1、比对红；把生效行的 `slots.source` 改成 `none` 后回放 →
   `context/slots` 0 条、`request/context` 退回静态画像（只剩 `【当前用户】` + `【补充说明】`）、比对红。
@@ -308,21 +308,21 @@ snapshots/<case>/
 
 | 项 | 现状 | 计划 |
 |---|---|---|
-| `snapshots/**/*.test.ts` 与 `scenario.ts` 不在 `tsc -b` 覆盖内 | 只经 vitest 转译；`snapshots/` 不是 pnpm 包，没有自己的 tsconfig | 阶段 7 的 harness 与适配器都放在 `@bah/test-support`（**有**类型检查），`snapshots/` 只留薄薄一层装配；不建独立 tsc 项目（避免与 `tsconfig.host.json` 的 solution 结构纠缠） |
+| `snapshots/**/*.test.ts` 与 `scenario.ts` 不在 `tsc -b` 覆盖内 | 只经 vitest 转译；`snapshots/` 不是 pnpm 包，没有自己的 tsconfig | 快照 harness 与适配器都放在 `@bah/test-support`（**有**类型检查），`snapshots/` 只留薄薄一层装配；不建独立 tsc 项目（避免与 `tsconfig.host.json` 的 solution 结构纠缠） |
 | `apps/web/src/*.test.js` 不在 `tsc -b` 覆盖内 | `tsconfig.client.json` 只含 `apps/web/src`（JS 经 `allowJs` 不检查） | 前端行为靠 jsdom 用例兜 |
-| `@bah/test-support` 不强制覆盖率 | 00 §11：每文件 100% 只对内核与治理平面强制 | 本阶段为它补了 47 条自测（harness / 录制回放 / 会话日志 / mock-ctx），但**不**纳入 100% 名单：测试脚手架的防御性分支不值得为覆盖率造用例 |
+| `@bah/test-support` 不强制覆盖率 | 每文件 100% 只对内核与治理平面强制 | 本阶段为它补了 47 条自测（harness / 录制回放 / 会话日志 / mock-ctx），但**不**纳入 100% 名单：测试脚手架的防御性分支不值得为覆盖率造用例 |
 | `fs.cpSync(..., { recursive: true })` 在本机（Node 22.17 / Windows / 非 ASCII 路径）会 abort 进程 | 快照负控用例改为逐个 `readFileSync`/`writeFileSync` 复制三份产物 | 测试代码禁用 `cpSync`；需要复制目录时用显式循环 |
 | CI 的 Windows 矩阵（`.github/workflows/ci-matrix.yml` 的 `windows` job）是 `continue-on-error: true` 的**信号位** | **尚未转正**：只观察通过率，不阻断合并；Linux 是唯一阻断面。本仓库从未在真实 Windows CI 上绿过完整矩阵 | Windows 绿了 N 轮之后再讨论转正；转正前不要对外说"Windows CI 已验证" |
 
 ## 11. 常见坑
 
 1. **`pnpm.ps1` 被执行策略拦**：在 PowerShell 里用 `cmd /c "pnpm ..."`，或改用 `pnpm.cmd`。
-2. **`engines` 告警**：本机 Node v22.17 < `^22.19`，pnpm 只 warn；CI 需统一版本（PROGRESS R1）。
-3. **Windows 下 `--filter='./packages/*'`（单引号）匹配不到任何包**：一律双引号（PROGRESS R6）。
+2. **`engines` 告警**：本机 Node v22.17 < `^22.19`，pnpm 只 warn；CI 需统一版本（）。
+3. **Windows 下 `--filter='./packages/*'`（单引号）匹配不到任何包**：一律双引号（）。
 4. **jsdom 用例必须 `vi.resetModules()`**：模块级副作用（写 DOM）不可重复触发，否则第二个用例拿到上一次的模块实例。
 5. **临时目录用例必须在 `afterEach` 清干净**：Windows 上残留句柄会导致目录删不掉，进而污染后续用例。
 
-## 12. eval 面（W13 + 03/04 单：71 场景 + 四项指标）
+## 12. eval 面（场景 + 四项指标）
 
 ```bash
 npx tsx scripts/eval.ts                     # 全量（默认 --shard=6；2026-10-26 实测 7.5s，预算 ≤180s）
@@ -336,7 +336,7 @@ npx vitest run --config vitest.eval.config.ts   # eval 的用例面（不在主 
   与 `.ci-artifacts/eval/summary.md`（人读；比率一律带分母，附本次墙钟 p95）。
 - 六族与例数：Q 10 / T 12 / P 10 / S 8 / D 10 / K 10 = **60**。ID 规则 `族字母-两位序号`，
   唯一性由 `validateScenarios()` 强制（`packages/eval/src/scenario/validate.ts`）。
-- **boot 次数 = 8**，不是 6：W02 冻结的 DSL 增加了 `approval` 维度，复用单位是
+- **boot 次数 = 8**，不是 6：DSL 冻结时增加了 `approval` 维度，复用单位是
   `(family, approval)`；P 族 allow/reject/unavailable 各一次，其余五族各一次。
   `report.bootCount` 是实测计数（不是常量）。
 - 四项指标：任务成功率 / 越权拦截率 / 拒答正确率各只统计**声明了对应 metric**的场景；
@@ -352,9 +352,9 @@ npx vitest run --config vitest.eval.config.ts   # eval 的用例面（不在主 
 2. S 族按场景替换 `SAGA_BRIDGE_RECIPES.transfer_create`（失败注入），跑完立即复原。
 3. D 族把 sentry 的 `guard.maxToolsPerTurn` 抬高到 1000：plan 节点没有 turn（turn=0），
    共享 app 里 10 张计划的工具数会跨场景累计；生产配置不变。
-4. K 族用一个本机 HTTP 服务回放已签名语料与篡改样本，专门验证 W06 的本地验签门。
+4. K 族用一个本机 HTTP 服务回放已签名语料与篡改样本，专门验证本地验签门。
 
-### 12.1 对抗集（W14）
+### 12.1 对抗集
 
 ```bash
 npx tsx scripts/eval.ts --adversarial      # 45 例（注入 15 / 越权 15 / 幻觉 15）
@@ -363,11 +363,11 @@ npx tsx scripts/eval.ts --smoke            # 每族 3 例（9 例，实测 ~4s�
 
 - 产物：`.ci-artifacts/eval/adversarial-report.json` + `adversarial-summary.md`；
   报告含逐例 `ID / 输入 / 期望 / 实际 / 归因 / 来源`，族级与总体拦截率带分母。
-- `[unverified]` 外部样本单列且**不进分母**；未拦的每一例必须带
+- `[unverified]` 外部样本设计列且**不进分母**；未拦的每一例必须带
   `model-layer / deps-missing / rule-gap` 归因。
 - 越权族的"余额未变"是硬断言：拒绝后重新 `account_balance` 并断言 1,234,567 分。
 
-### 12.2 独立重放 / 监管证据包（W15）
+### 12.2 独立重放 / 监管证据包
 
 ```bash
 # 只读重放：不启动 Agent / 不调模型 / 不调工具
@@ -392,7 +392,7 @@ npx tsx scripts/replay.ts --snapshots snapshots/headless-basic/session.jsonl
 - 已知边界：普通 `user/message` 无逐行哈希，改写且保持 seq 合法时单靠重放发现不了；
   会话落盘脱敏使 `tool/call` 的链上摘要只作 warning（不伪装成断链）。
 
-### 12.3 eval 基线（W15）
+### 12.3 eval 基线
 
 ```bash
 pnpm eval:unit          # vitest --config vitest.eval.config.ts（实测 158 例）
@@ -404,6 +404,6 @@ pnpm eval:baseline:record  # 显式重录基线（commit/seed/指标/目标值�
 - 率下降 >5 个百分点、平均步数超过基线 5%、或分母缩小 → 退出码 1；
 - 基线文件入库，含 `commit` / `seed` / 四项指标 / 目标值 / 录制说明；
 - **实测 eval 用例数 = 158**（`npx vitest list --config vitest.eval.config.ts | grep -c " > "`）。
-  施工文档 v1 的“133 例”是旧数、且当时不在任何 config 的 include 里；不要照抄。
+  设计文档 v1 的“133 例”是旧数、且当时不在任何 config 的 include 里；不要照抄。
 - CI 三步已接进 `scripts/ci.ts`（`eval:unit` / `eval:smoke` / `eval:baseline`），
   `.github/workflows/ci.yml` 通过 `pnpm check:ci` 统一执行。

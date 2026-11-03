@@ -34,6 +34,24 @@ export const MERCHANT_LABEL: Readonly<Record<MerchantCategory, string>> = {
   other: '其他',
 }
 
+/** 全部品类键（运行时封闭校验用：卡限制的 `value` 只允许这些值）。 */
+export const MERCHANT_CATEGORIES: readonly MerchantCategory[] = [
+  'dining',
+  'coffee',
+  'grocery',
+  'transit',
+  'shopping',
+  'digital',
+  'transfer',
+  'salary',
+  'other',
+]
+
+/** 字符串是否为合法品类键（卡限制写入面的运行时校验）。 */
+export function isMerchantCategory(value: string): value is MerchantCategory {
+  return (MERCHANT_CATEGORIES as readonly string[]).includes(value)
+}
+
 /**
  * 精确表：全名命中即返回。
  *

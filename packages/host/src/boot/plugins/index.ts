@@ -1,5 +1,5 @@
 /**
- * 依赖清单（施工单 06 §2 的 `bah` 字段在代码里的对应物）。
+ * 依赖清单。
  *
  * bundle 里的行只写 `use: '<id>'`；**实现**在这里。两者分开的好处：
  * patch 文件永远不 import 任何代码（纯数据），而"这一行到底装了什么"由这份清单唯一定义。
@@ -23,6 +23,8 @@ import { persistencePlugin } from './persistence.ts'
 import { planPlugin } from './plan.ts'
 // 策略外置 S2：外置规则 bundle 的载入/校验/灰度/热重载
 import { policyRulesPlugin } from './policy.ts'
+// ADR-0016：通用主动通知通道（订阅续费提醒是其第一个消费者；04 单复用）
+import { proactivePlugin } from './proactive.ts'
 import { promptAskPlugin } from './prompt-ask.ts'
 import { promptPlugin } from './prompt.ts'
 import { sagaPlugin } from './saga.ts'
@@ -40,15 +42,15 @@ import { toolsPlugin } from './tools.ts'
 import { verifyPlugin } from './verify.ts'
 // C4：跨会话记忆（`turn/end` 写入、`agent/pre-step` 召回、提示词段注入）
 import { memoryPlugin } from './memory.ts'
-// 施工单 01：移动 H5 渠道（`channel:mobile`）。与 web 共用 `createHttpChannel`，薄壳。
+// ：移动 H5 渠道（`channel:mobile`）。与 web 共用 `createHttpChannel`，薄壳。
 import { mobilePlugin } from './mobile.ts'
-// 施工单 15 / 桌面端 01：桌面渠道（`channel:desktop`）。同样与 web 共用 `createHttpChannel`。
+//  / 桌面端 01：桌面渠道（`channel:desktop`）。同样与 web 共用 `createHttpChannel`。
 import { desktopPlugin } from './desktop.ts'
 // IM 网关 01：IM 渠道（`channel:im`）。同样薄壳，只多注册一段降权提示词。
 import { imPlugin } from './im.ts'
 import { webPlugin } from './web.ts'
 
-/** base bundle 的插件集（施工单 06 §3：内核 + 主循环 + 模型层 + 工具管线 + 持久化）。 */
+/** base bundle 的插件集（内核 + 主循环 + 模型层 + 工具管线 + 持久化）。 */
 export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   sessionPlugin,
   // 可观测性 01：`obs:telemetry` 只 inject `bah:run` 与 `runtime:session`，
@@ -85,6 +87,9 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   factPlugin,
   // G4：商户域（mock 商户；资金腿仍走银行工具）
   merchantPlugin,
+  // ADR-0016：订阅续费主动提醒 + 通用主动通知通道（`bah:proactive`）。
+  // 登记 = 可被 `use` 引用；装配由 profile 的行决定（im / desktop 刻意不加，见 ADR）
+  proactivePlugin,
   // C4：跨会话记忆。登记 = 可被 use 引用；真正装配由 profile 的 patch 决定
   // （默认不装：记忆会改变模型输入，不做静默开启）
   memoryPlugin,
@@ -92,11 +97,11 @@ export const HOST_PLUGINS: readonly AnyHostPlugin[] = [
   // 且都在 core:tools 之后（注册工具要求工具面就绪）
   intentPlanePlugin,
   promptAskPlugin,
-  // 渠道（施工单 13）：前端作为插件模块接入；不写进 base bundle，由 web profile 的 patch 加行
+  // 渠道：前端作为插件模块接入；不写进 base bundle，由 web profile 的 patch 加行
   webPlugin,
-  // 渠道（施工单 01）：移动 H5；同样只由 profiles/mobile 的 patch 显式装配
+  // 渠道：移动 H5；同样只由 profiles/mobile 的 patch 显式装配
   mobilePlugin,
-  // 渠道（施工单 15 / 桌面端 01）：桌面端；只由 profiles/desktop 的 patch 显式装配。
+  // 渠道：桌面端；只由 profiles/desktop 的 patch 显式装配。
   // 登记 ≠ 装配：base bundle 不含此行，否则每个 profile 都会多绑一个端口。
   desktopPlugin,
   // IM 网关 01：IM 渠道；只由 profiles/im 的 patch 显式装配（不进 base bundle）
@@ -121,6 +126,7 @@ export {
   persistencePlugin,
   planPlugin,
   policyRulesPlugin,
+  proactivePlugin,
   promptAskPlugin,
   promptPlugin,
   sagaPlugin,
@@ -157,6 +163,23 @@ export { DESKTOP_SERVER } from './desktop.ts'
 // 03 单：意图平面的会话状态服务键（`prompt:ask` 与诊断面按 key 取用）
 export { INTENT_STATE_SERVICE } from './intent.ts'
 export type { IntentStateApi } from './intent.ts'
+
+// ADR-0016：通用主动通知通道的服务键与接口（04 单照此调用，不另造一套）
+export {
+  DEFAULT_PROACTIVE,
+  PROACTIVE_SERVICE,
+  createProactiveService,
+  reminderCandidatesOf,
+  scanOnce,
+} from './proactive.ts'
+export type {
+  ProactiveCandidate,
+  ProactiveDelivery,
+  ProactiveScanDeps,
+  ProactiveService,
+  ProactiveSettings,
+  ProactiveSource,
+} from './proactive.ts'
 
 // W13：eval 的 S 族需要按场景替换编排配方（失败注入），供评测 harness 引用。
 // 生产代码不使用这个导出；它是测试接缝，不是配置面。

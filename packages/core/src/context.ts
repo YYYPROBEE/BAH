@@ -1,15 +1,15 @@
 /**
- * 插件运行环境 `BahContext`（施工单 02 §2 / §6）。
+ * 插件运行环境 `BahContext`。
  *
  * 一个 `BahContext` 就是一个应用实例：插件集合 + 服务注册表 + 事件源 + 作用域。
  * 插件想要的一切都取自 ctx —— 内核不认识任何具体服务（按键寻址）。
  *
- * 生命周期三段（施工单 02 §2）：
+ * 生命周期三段：
  * `install`（插件 `apply`，可 inject 等待服务）→ `start`（就绪）→ `ready`；
  * `dispose(reason)` 逆序回滚全部 effect（桶间逆序，桶内也逆序）。
  *
  * 设计约束：`services` / `waiting` / `disposers` 都是私有结构，`get` 是服务取用的唯一入口；
- * 测试只通过公开 API 验证行为（施工单 02 §2 要点 + §12 覆盖率说明）。
+ * 测试只通过公开 API 验证行为。
  */
 
 import { BahError, logJson } from '@bah/util'
@@ -41,12 +41,12 @@ import {
   type RawListener,
 } from './types.ts'
 
-/** Context 生命周期状态（对应施工单 02 §2 的 install → start → ready 三段）。 */
+/** Context 生命周期状态（对应 的 install → start → ready 三段）。 */
 export type ContextPhase = 'idle' | 'installing' | 'ready' | 'disposed'
 
 /**
  * 事件源门面：把 `on` 的贡献记到**当前归属者**名下（dispose 时随插件一起回滚），
- * 并在 `parallel` 上装「install 阶段禁止广播」的守卫（施工单 02 T-CORE-001）。
+ * 并在 `parallel` 上装「install 阶段禁止广播」的守卫。
  *
  * 事件源本体（注册表 + 派发）是 `BahEvents`，全应用一份；门面只负责归属与生命周期守卫。
  */
@@ -154,8 +154,8 @@ export class BahContext implements Context {
   /**
    * 注册插件（install 入口）。
    *
-   * 配置在**载入时**同步校验（施工单 02 §7「校验在 apply 之前执行」），失败即抛；
-   * 同名插件按「后者覆盖前者」处理：前者的贡献立即回滚（施工单 02 T-CORE-020）。
+   * 配置在**载入时**同步校验，失败即抛；
+   * 同名插件按「后者覆盖前者」处理：前者的贡献立即回滚。
    *
    * 返回 Promise 的原因：应用已 `ready` 时注册要立刻跑 `apply`（可能异步），
    * 而配置错误的抛出**仍是同步的**——「载入即抛」不能让调用方漏掉。
@@ -197,7 +197,7 @@ export class BahContext implements Context {
   /**
    * 推进到起始态：install（逐个 `apply`，`inject` 未就绪则挂起）→ start → ready。
    *
-   * 任一插件 `apply` 失败 → 整个应用 fail-loud：回滚全部贡献并置 `disposed`（施工单 02 T-CORE-002）。
+   * 任一插件 `apply` 失败 → 整个应用 fail-loud：回滚全部贡献并置 `disposed`。
    */
   async start(): Promise<void> {
     if (this.currentPhase === 'ready') return
@@ -218,7 +218,7 @@ export class BahContext implements Context {
   }
 
   /**
-   * 逆序回滚全部贡献；`reason` 透传给每个 disposer（施工单 02 T-CORE-019）。
+   * 逆序回滚全部贡献；`reason` 透传给每个 disposer。
    *
    * 回滚**不因单个 disposer 抛错而中断**（C9）：失败逐个上报后继续，最后保证作用域表已清空。
    * 否则一个坏插件能拖住全应用（含其它插件的清理与 `scope` 的释放）。
@@ -278,19 +278,19 @@ export class BahContext implements Context {
     return this.services.whenReady(key)
   }
 
-  /** 服务 getter：未注册即抛错，绝不返回 `undefined`（施工单 02 T-CORE-017）。 */
+  /** 服务 getter：未注册即抛错，绝不返回 `undefined`。 */
   get<T>(key: ServiceKey<T>): T {
     return this.services.get(key)
   }
 
-  /** 键屏蔽代理：事件与贡献共享父级，仅屏蔽指定服务键（施工单 02 §6）。 */
+  /** 键屏蔽代理：事件与贡献共享父级，仅屏蔽指定服务键。 */
   isolate(...keys: ServiceKey<unknown>[]): Context {
     return createIsolate(this, new Set(keys.map((key) => key.id)))
   }
 
   /**
    * 广播守卫：install 阶段监听器集合尚未完整，`parallel` 必须 fail-loud
-   * （施工单 02 T-CORE-001；错误文案含「有监听器未完成」）。
+   * 。
    */
   assertParallelAllowed(name: string): void {
     if (this.currentPhase !== 'installing') return
@@ -393,7 +393,7 @@ export class BahContext implements Context {
 /**
  * 逆序执行桶内尚未执行的 disposer。
  *
- * `reason` 原样透传给每个 disposer（施工单 02 T-CORE-019）；
+ * `reason` 原样透传给每个 disposer；
  * 已提前撤销（`done`）的条目跳过，保证「撤销后不重复执行」。
  *
  * **单个 disposer 抛错不中断本桶**（C9）：失败交给 `onFailure` 逐个上报后继续。

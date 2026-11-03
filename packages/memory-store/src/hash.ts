@@ -1,5 +1,5 @@
 /**
- * 幂等键：`sha256(tenant|user|subject|predicate|object)`（施工文档 §5 第 4 步）。
+ * 幂等键：`sha256(tenant|user|subject|predicate|object)`（设计文档 §5 第 4 步）。
  *
  * `object` 必须先**规范化**再参与哈希：键序不同的同一份 JSON 若算出两个 hash，
  * 幂等就形同虚设（`{"a":1,"b":2}` 与 `{"b":2,"a":1}` 是同一条记忆）。

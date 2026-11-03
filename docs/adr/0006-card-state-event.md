@@ -1,12 +1,12 @@
 # ADR-0006 卡片状态迁移事件（ADR-0003 改签）
 
-- 状态：提议
+- 状态：**已采纳**（2026-10-30）
 - 日期：2026-10-30
 - 关联：ADR-0003（银行生命周期事件，v1.0.1-frozen，19 键）
 
 ## 背景
 
-场景 4 施工需要 `card_freeze`（黄）/ `card_unfreeze`（红）两个工具。
+场景 4 实现需要 `card_freeze`（黄）/ `card_unfreeze`（红）两个工具。
 `catalog.test.ts` 要求工具 spec 的 event 必须已声明；现有 19 键中没有能表达
 "卡从 normal 到 frozen（及反向）"的键，而 `card/reported-lost` 的载荷写死 lost。
 

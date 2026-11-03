@@ -10,7 +10,7 @@
  */
 
 import type { TrajectoryEvent } from '../types.ts'
-import { assertNever } from '../assertNever.ts'
+import { assertNever } from '../assert-never.ts'
 
 /** 数值域（闭区间；缺省 min/max 表示该侧不设限）。 */
 export interface NumberDomain {

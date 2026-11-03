@@ -27,7 +27,7 @@ import { join, relative } from 'node:path'
 
 import { projectRoot } from './gate-lib.ts'
 
-/** 行口径目标（主指标，施工单 W17 §1.1）。 */
+/** 行口径目标（主指标，设计说明 W17 §1.1）。 */
 const LINE_TARGET_PCT = 80
 
 /** 包口径目标：包级行覆盖 ≥80% 的包数（副指标，14/16 ≈ 85%）。 */

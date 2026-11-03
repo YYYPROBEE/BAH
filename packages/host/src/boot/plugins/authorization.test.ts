@@ -4,7 +4,7 @@
  * 判据（全部来自真实 `HOST_PLUGINS` + 七段管线，不用桩）：
  * 1. `plan_arm` 经管线执行 → 落 `tool/result`，出参是**结构化 JSON**（可回放）；
  * 2. `wake` 执行到期的计划 → 每个节点的 `ticket/approved` 都带
- *    `authorization.kind='window'` 且 `ref` 是窗口 id（ADR-0006 的落点）；
+ *    `authorization.kind='window'` 且 `ref` 是窗口 id（ADR-0008 的落点）；
  * 3. 同一实例再唤醒一次 ⇒ `skipped/already-ran`，`plan/created` 计数不变（幂等）；
  * 4. 判定时刻越界（at = now + 1h）⇒ `window-clock-ahead`，一条都不执行；
  * 5. 撤销后的窗口不再被唤醒（`plan-cancelled` 降级）。
@@ -47,7 +47,15 @@ const ROWS: readonly PluginRow[] = [
   { id: 'bank:tools', config: { demoUserId: 'u-1', seed: 7, datasetTier: 'demo' } },
   {
     id: 'interaction:approval',
-    config: { responder: 'headless', autoDecision: 'allow', autoVerify: true },
+    // ADR-0010：两个应答者各管一类票据——
+    // 武装（人工票据）由回归夹具代点，到期（窗口票据）由窗口代签者签。
+    // headless 显式**不认领**窗口票据，所以这里能同时证明"代签真的走了窗口核验"。
+    config: {
+      responder: 'headless',
+      autoDecision: 'allow',
+      autoVerify: true,
+      windowResponder: true,
+    },
   },
   { id: 'safety:sentry', config: { trace: { sink: 'memory' } } },
   { id: 'bank:saga-store', config: { dbPath: ':memory:' } },

@@ -5,7 +5,7 @@
  * 断供影响面（关协议 → 该商户 active 订阅全部暂停）。
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { DAY_MS, bankIds, type SubscriptionId, type UserId } from '../core/index.ts'
 import type { SubscriptionListResult } from './dto.ts'
@@ -92,6 +92,42 @@ describe('sub_list（绿档只读）', () => {
       'tool-args-invalid',
     )
   })
+
+  it('模型可见正文：最近一笔涨价要带出差额，不能只报当前金额', async () => {
+    const h = createBankHarness({ tier: 'recurring' })
+    const result = (await h.call('sub_list', {})) as SubscriptionListResult
+    const content = h.tools.get('sub_list')?.projectContent?.(result) as
+      | readonly { readonly text?: string }[]
+      | undefined
+    const text = content?.[0]?.text ?? ''
+    expect(text).toContain('视频会员')
+    expect(text).toContain('较上期涨')
+  })
+
+  it('取数分页：按 nextCursor 追完全部页（检测不能只看第一页）', async () => {
+    const h = createBankHarness({ tier: 'recurring' })
+    const page = await h.core.queryTransactions({ userId: USER, direction: 'out', limit: 100 })
+    const seed = page.items.find((item) => item.status === 'success')
+    if (seed === undefined) throw new Error('fixture 缺少成功转出流水')
+
+    const now = h.deps.now?.() ?? 0
+    const cursors: (string | undefined)[] = []
+    vi.spyOn(h.core, 'queryTransactions').mockImplementation(async (query) => {
+      cursors.push(query.cursor)
+      if (query.cursor === undefined) {
+        return {
+          items: [{ ...seed, id: bankIds.txn('page-1'), at: now - 30 * DAY_MS }],
+          nextCursor: 'p2',
+        }
+      }
+      return { items: [{ ...seed, id: bankIds.txn('page-2'), at: now - 20 * DAY_MS }] }
+    })
+
+    const result = (await h.call('sub_list', {})) as SubscriptionListResult
+    expect(cursors).toEqual([undefined, 'p2'])
+    expect(result.basis.txnCount).toBe(2)
+    vi.restoreAllMocks()
+  })
 })
 
 describe('sub_watch（黄档写：提醒 / 标注）', () => {
@@ -160,6 +196,34 @@ describe('sub_watch（黄档写：提醒 / 标注）', () => {
         )
       ).code,
     ).toBe('subscription-not-owned')
+  })
+
+  it('模型可见正文：三种 watch 各有诚实的确认文案', async () => {
+    const h = createBankHarness({ tier: 'recurring' })
+    const textOf = (result: SubscriptionWatchResult): string => {
+      const content = h.tools.get('sub_watch')?.projectContent?.(result) as
+        | readonly { readonly text?: string }[]
+        | undefined
+      return content?.[0]?.text ?? ''
+    }
+    const remind = (await h.call('sub_watch', {
+      subscriptionId: bankIds.subscription('s-reading'),
+      watch: 'remind',
+      aheadDays: 5,
+    })) as SubscriptionWatchResult
+    expect(textOf(remind)).toContain('「阅读包月」到期前 5 天提醒')
+
+    const idle = (await h.call('sub_watch', {
+      subscriptionId: bankIds.subscription('s-reading'),
+      watch: 'idle',
+    })) as SubscriptionWatchResult
+    expect(textOf(idle)).toContain('「阅读包月」标注为“不用了”')
+
+    const none = (await h.call('sub_watch', {
+      subscriptionId: bankIds.subscription('s-reading'),
+      watch: 'none',
+    })) as SubscriptionWatchResult
+    expect(textOf(none)).toContain('已清除「阅读包月」的提醒与标注')
   })
 })
 

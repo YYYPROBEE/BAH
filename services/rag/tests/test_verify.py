@@ -19,6 +19,21 @@ EVIDENCE = [
 
 CELLS = {"K1": ["1.50%"]}
 
+# 一行四要素的产品说明书：claim 只说其中一项时，整段相似度会被长度稀释。
+MULTI_EVIDENCE = [
+    Evidence(
+        marker="K1",
+        chunk_id=2,
+        doc_id="PROD-W-001",
+        title="稳盈90天产品说明书",
+        clause_no="产品要素",
+        tier=1,
+        char_start=0,
+        char_end=60,
+        text="稳盈90天（W-001）产品说明书：风险等级R1，期限90天，起购金额100元，预期年化收益率2.8%。",
+    )
+]
+
 
 def test_green_when_number_and_literal_match() -> None:
     result = verify_answer("赎回费率为1.50%[K1]。", EVIDENCE, CELLS)
@@ -48,6 +63,26 @@ def test_unresolved_marker_is_red() -> None:
 def test_literal_failure_without_numbers_is_amber() -> None:
     result = verify_answer("赎回费率大概在一点五左右[K1]。", EVIDENCE, CELLS)
     assert result.verdict == "AMBER_INFERRED"
+
+
+def test_multi_clause_evidence_supports_single_element_claim() -> None:
+    """多要素证据 + 单要素 claim（含系词）必须是 GREEN。
+
+    历史缺陷：整段比对把 `风险等级为R1`（6 字）与 60 字整段比，ratio≈0.12，
+    恒判 UNSUPPORTED ⇒ 每个"问风险等级"的正当回答都被降级成 AMBER_INFERRED。
+    """
+
+    result = verify_answer("风险等级为R1[K1]。", MULTI_EVIDENCE, {})
+    assert result.verdict == "GREEN"
+    assert result.reason_code is None
+
+
+def test_multi_clause_evidence_rejects_off_by_one_value() -> None:
+    """分句档不能变成"差一个字也放行"：R2 对 R1 只有 0.83，必须仍判不支持。"""
+
+    result = verify_answer("风险等级为R2[K1]。", MULTI_EVIDENCE, {})
+    assert result.verdict == "AMBER_INFERRED"
+    assert result.reason_code == "UNSUPPORTED_CLAIM"
     assert result.reason_code == "UNSUPPORTED_CLAIM"
 
 

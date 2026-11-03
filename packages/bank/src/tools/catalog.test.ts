@@ -1,5 +1,5 @@
 /**
- * 工具目录 / 卡片契约（施工单 08 §0 第 3–4 条、§6 T-TOOLS-009 / 010）。
+ * 工具目录 / 卡片契约。
  *
  * `docs/tool-catalog.md` 是生成物：这里同时钉住「文档 = 渲染结果」与「工厂 = 目录」，
  * 门禁 `verify-tool-catalog` 是同一断言的提交前版本。
@@ -27,14 +27,14 @@ import { createBankHarness } from './testing.ts'
 /** 仓库根下的生成物（相对本测试文件）。 */
 const CATALOG_DOC = new URL('../../../../docs/tool-catalog.md', import.meta.url)
 
-describe('工具目录（施工单 08 §2）', () => {
-  it('21 个工具、数量不超上限、名字唯一', () => {
-    expect(BANK_TOOL_SPECS).toHaveLength(21)
+describe('工具目录', () => {
+  it('30 个工具、数量不超上限、名字唯一', () => {
+    expect(BANK_TOOL_SPECS).toHaveLength(30)
     expect(BANK_TOOL_SPECS.length).toBeLessThanOrEqual(BANK_TOOL_LIMIT)
     expect(new Set(BANK_TOOL_NAMES).size).toBe(BANK_TOOL_NAMES.length)
   })
 
-  it('6 查询 + 2 转账 + 3 理财 + 3 强验证 + 2 资产处置 + 3 订阅 + 2 卡片状态，顺序稳定', () => {
+  it('6 查询 + 3 转账 + 6 理财 + 3 强验证 + 3 资产处置 + 3 订阅 + 5 卡片 + 1 密码，顺序稳定', () => {
     expect(BANK_TOOL_NAMES).toEqual([
       'account_list',
       'account_balance',
@@ -44,14 +44,20 @@ describe('工具目录（施工单 08 §2）', () => {
       'analysis_calc',
       'transfer_preview',
       'transfer_create',
+      'aa_create',
       'wealth_list',
       'wealth_compare',
       'wealth_purchase',
+      'risk_assess',
+      'wealth_positions',
+      'wealth_redeem',
       'verify_face',
       'verify_sms',
       'verify_ushield',
       // W03 §1.3 新增（ADR-0003）：挂失（红）与退订（黄）
       'card_report_lost',
+      // 2026-11-01：资金锁定/释放（黄；status 分支登记为只读动作）
+      'fund_lock',
       'sub_cancel',
       // 场景 5（ADR-0007）：查（绿）+ 提醒（黄）+ 关协议（黄）
       'sub_list',
@@ -60,6 +66,12 @@ describe('工具目录（施工单 08 §2）', () => {
       // 场景 4 新增（ADR-0006）：冻结（黄）与解冻（红）
       'card_freeze',
       'card_unfreeze',
+      // 场景 4 补齐：申请（黄）/ 额度（红）/ 交易限制（黄）
+      'card_apply',
+      'card_limit_set',
+      'card_restriction',
+      // 01 单（ADR-0014）：交易密码交办（红；`status` 分支登记为只读动作）
+      'password_change',
     ])
     expect(specOf('transfer_create').tier).toEqual({ level: 'yellow', amountPath: 'amount' })
     expect(specOf('wealth_purchase').tier.level).toBe('red')
@@ -83,7 +95,7 @@ describe('工具目录（施工单 08 §2）', () => {
     }
   })
 
-  it('TC-W03-05 21 个工具的档位 + amountPath 逐条钉死', () => {
+  it('TC-W03-05 30 个工具的档位 + amountPath 逐条钉死', () => {
     // 与 `scripts/verify-tiers.ts` 同源：门禁管提交前，这条管测试面（两边任何一边漏都红）
     const expected: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
       account_list: { level: 'green' },
@@ -94,19 +106,28 @@ describe('工具目录（施工单 08 §2）', () => {
       analysis_calc: { level: 'green' },
       transfer_preview: { level: 'green' },
       transfer_create: { level: 'yellow', amountPath: 'amount' },
+      aa_create: { level: 'yellow' },
       wealth_list: { level: 'green' },
       wealth_compare: { level: 'green' },
       wealth_purchase: { level: 'red' },
+      risk_assess: { level: 'yellow' },
+      wealth_positions: { level: 'green' },
+      wealth_redeem: { level: 'red' },
       verify_face: { level: 'green' },
       verify_sms: { level: 'green' },
       verify_ushield: { level: 'green' },
       card_report_lost: { level: 'red' },
+      fund_lock: { level: 'yellow' },
       sub_cancel: { level: 'yellow' },
       sub_list: { level: 'green' },
       sub_watch: { level: 'yellow' },
       sub_authorize: { level: 'yellow' },
       card_freeze: { level: 'yellow' },
       card_unfreeze: { level: 'red' },
+      card_apply: { level: 'yellow' },
+      card_limit_set: { level: 'red' },
+      card_restriction: { level: 'yellow' },
+      password_change: { level: 'red' },
     }
     expect(Object.fromEntries(BANK_TOOL_NAMES.map((name) => [name, specOf(name).tier]))).toEqual(
       expected,

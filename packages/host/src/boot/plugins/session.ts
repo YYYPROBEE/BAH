@@ -1,11 +1,11 @@
 /**
- * base bundle · `core:session`：会话日志（施工单 03 §3 第 9 步的会话侧）。
+ * base bundle · `core:session`：会话日志。
  *
  * 会话 ID 与时钟来自 **boot injection**（`bah:run`），不是配置：
  * 一次运行的会话身份是"输入"，写进 patch 文件反而会让两次运行撞同一个会话。
  *
  * 本行没有可调项：`formatVersion` 是**格式事实**，由 JSONL 后端与 reader 版本策略共同拥有
- * （施工单 03 §1.5），不随部署变化，因此不该出现在配置里。
+ * ，不随部署变化，因此不该出现在配置里。
  */
 
 import { provideSession } from '@bah/runtime'

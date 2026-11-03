@@ -455,7 +455,7 @@ async function main(): Promise<number> {
     if (!(await portFree(port))) {
       console.error(
         `tenant-matrix: 端口 ${String(port)} 已被占用（${tenant}）。` +
-          `答辩现场常开着 7331，本脚本用 173xx；可用 --port-base <n> 换一段`,
+          `对外说明现场常开着 7331，本脚本用 173xx；可用 --port-base <n> 换一段`,
       )
       return 1
     }

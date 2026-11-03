@@ -1,19 +1,18 @@
 # `bah audit` 命令面
 
-> 施工单 16。对任意落盘目录做一次**只读**证据链核验：链连续性、签名覆盖与验签、投影重算、锚定台账比对。
+> 对任意落盘目录做一次**只读**证据链核验：链连续性、签名覆盖与验签、投影重算、锚定台账比对。
 > 命令**不修链、不建库、不迁移、不联网**；跑完被审计目录**零新增文件**（含 `-wal` / `-shm`）。
 
 ## 先读这四条
 
-1. **转账已接 saga**：base bundle 的 `bank:saga-bridge` 把 `transfer_create` 接进两步 DAG；一次成功转账会在会话根下生成 `<sagaId>/audit.jsonl` 与 `saga.sqlite`。**同一次会话还会生成 `<sessionId>/audit.jsonl`**（W08 的会话证据链：工具调用 / 安全判决 / 审批结论），两条链各自独立、同一套哈希算法。
+1. **转账已接 saga**：base bundle 的 `bank:saga-bridge` 把 `transfer_create` 接进两步 DAG；一次成功转账会在会话根下生成 `<sagaId>/audit.jsonl` 与 `saga.sqlite`。**同一次会话还会生成 `<sessionId>/audit.jsonl`**（会话证据链：工具调用 / 安全判决 / 审批结论），两条链各自独立、同一套哈希算法。
 2. **每次演示独立目录**：`pnpm demo:web` 每次在 `sessions/demo-<stamp>-<随机>/` 下落链与库，并打印审计命令；`pnpm gate` 用 `.tmp-saga-wiring/` 的独立库，不写 `sessions/`。干净检出时没有链，是正常的。
 3. **签名私钥不在仓库**（R146）：缺省路径 `keys/saga-ed25519.pem` 不存在。缺密钥且链上确有应签事件时，命令会明确报 `skipped-no-key` 并以退出码 2 结束；要完整验签，先用下面的命令生成临时密钥，或通过 `--key` 指定已有私钥。
 4. **无密钥时怎么拿到绿色**：只想验证链连续性与投影，用 `--no-signature`（签名状态显示 `skipped-disabled`，退出码 0）；这不等于“验签通过”，材料里不要写成完整验签。
 
-## 证据面：一套实现，两类链（W08）
+## 证据面：一套实现，两类链
 
-本仓的证据面**唯一实现**是 `packages/persistence/src/chain/`。仓库外层的 `bah-audit/`
-不参与本仓证据，也不在 W08 的改动范围内（提交包剥离归 W20）；答辩材料不要把它当第二真相源。
+本仓的证据面**唯一实现**是 `packages/persistence/src/chain/`；链的连续性只由这一处实现决定。
 
 一次会话的链落在同一个会话根，按目录区分：
 
@@ -25,7 +24,7 @@
 `audit:decisions` 在 boot 期拒绝占用编排链命名空间的会话 ID：`saga-*` 与 `system-startup`
 是保留名（否则两类条目会写进同一个 `audit.jsonl`）。换一个会话 ID 即可，不是环境坏了。
 
-**信封 v2**（W08）在 v1 的八个哈希键之上追加：
+**信封 v2**在 v1 的八个哈希键之上追加：
 
 - `version: 2`：与历史 v1 行区分；
 - `subject`：谁被判决（本仓写 `session:<sessionId>`，与 v1 的 `sub`（对象引用）不同）；
@@ -43,7 +42,7 @@ bundle、按 `evidence` 复算，再用 `policy:explain` 校验同一条判决�
 v1 行的哈希投影仍是原来的八个键，算法不改，所以**混链**可以逐条验。篡改 v2 的任一字段
 （含 `decision` 改为另一个合法值）都会让该条的 `recordHash` 对不上，`brokenAt` 直接给出条目序号。
 
-**断链告警**（W08 §1.3）：
+**断链告警**（§1.3）：
 
 - 运行时启动会扫会话根下全部链；断一条 → 平台事件 `audit/chain-broken` + stderr +
   `safety/halt(reason='chain-broken')`（进程保持可管理，但工具/新 turn 被拒）；
@@ -107,7 +106,7 @@ bah audit --help
 
 优先级：**确定异常（1）> 未完成检查（2）> 通过（0）**。例如一条链断了、另一条缺密钥，退出码是 1；链没有确定异常但缺密钥无法验签，才是 2。
 
-断链时 stderr 一定带 `audit/chain-broken <chainId> brokenAt=<seq>`；这是 W08 的固定告警面，
+断链时 stderr 一定带 `audit/chain-broken <chainId> brokenAt=<seq>`；这是固定告警面，
 不随 `--format json` 消失（JSON 只改变 stdout 的报告形状）。
 
 ## 签名五态
@@ -196,7 +195,7 @@ node -e "const {generateKeyPairSync}=require('node:crypto');const fs=require('no
 
 生产环境不要把临时私钥提交进仓库；`keys/` 应在 `.gitignore` 中。
 
-## 如何独立验证（给监管方的一页纸，W15）
+## 如何独立验证（给监管方的一页纸）
 
 独立验证**不需要启动 Agent、不需要模型密钥、不需要数据库**。只读两类文件：
 

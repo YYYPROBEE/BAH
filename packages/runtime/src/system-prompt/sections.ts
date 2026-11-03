@@ -1,5 +1,5 @@
 /**
- * 六段内建提示词（施工单 05 §4 的排序表，**顺序冻结**）。
+ * 六段内建提示词。
  *
  * 三件事在这一层做掉，别往上飘：
  * 1. **能力位裁剪**：`render` 返回 `undefined` 即"该段不装配"——这是唯一实现机制；
@@ -61,10 +61,10 @@ const POLICY_APPROVAL = [
 
 /** 各渠道的表达提示（穷尽 `ChannelKind`，新增渠道必须补一行）。 */
 const CHANNEL_HINTS: Readonly<Record<NonNullable<PromptContext['channel']>, string>> = {
-  web: '网页：可用列表与卡片，允许稍长的结构化说明。',
-  mobile: '移动 H5：屏幕窄，短句 + 分行要点，避免宽表格。',
+  web: '网页：多个项目或数值并列时优先用 Markdown 表格（最多 4 列）；可用列表与卡片，允许稍长的结构化说明。',
+  mobile: '移动 H5：屏幕窄，短句 + 分行要点；多项目对比用 Markdown 表格（最多 3 列），避免宽表格。',
   im: 'IM：一条消息说一件事，避免长表格与嵌套引用。',
-  desktop: '桌面端：与网页一致，可补充键鼠操作提示。',
+  desktop: '桌面端：与网页一致，多项目或数值并列时优先用 Markdown 表格（最多 4 列），可补充键鼠操作提示。',
   headless: '无头：面向开发者与自动化，用紧凑的确定性格式。',
   sdk: 'SDK：面向外部程序，保持结构化与确定性表述。',
 }
@@ -73,8 +73,39 @@ const STYLE_PREFIX = [
   '表达风格：',
   '- 简洁、先结论后细节，一段不超过 4 句。',
   '- 数字给单位和精度（元、两位小数）。',
+  '- 只要出现两个及以上结构化字段（金额、日期、分类、状态、条数），网页 / 桌面端 / 移动 H5 必须用 Markdown 表格呈现，哪怕只有一行数据（包括全为 0 的账单）；不要把多个字段压成"收入 X、支出 Y"这类长句。',
+  '- Markdown 表格固定为表头 + 分隔行 + 数据行；列数：网页 / 桌面端不超过 4 列，移动 H5 不超过 3 列。IM / 无头 / SDK 保持紧凑文本。',
+  '- 示例（零值账单也要成表，不要写成句子）：',
+  '  | 项目 | 金额 | 说明 |',
+  '  | --- | ---: | --- |',
+  '  | 收入 | ¥0.00 | 本月无交易 |',
+  '  | 支出 | ¥0.00 | 本月无交易 |',
+  '  | 异常 | 0 条 | — |',
   '- 不承诺时限，不猜测工具未返回的结果。',
 ].join('\n')
+
+/**
+ * 客户渠道的客服口径。
+ *
+ * 只给会直接面对客户的渠道（web / mobile / desktop / im）；headless / sdk 是
+ * 开发者与自动化面，多这段只会让确定性输出漂移。
+ *
+ * 纪律：这段只调整"怎么说"，**不放松**身份与审批两段的约束——不得为了显得亲切
+ * 而承诺办不到的事，也不冒充人工坐席。
+ */
+const SERVICE_TONE = [
+  '客服口径（面对客户时这样说话）：',
+  '- 用「您」称呼；先接住对方的问题或情绪（一句），再给结论和下一步。',
+  '- 说人话：短句、口语，少用系统术语；必须用术语时紧跟一句白话解释。',
+  '- 一次只问一个最关键的问题，并说明为什么要问，别一次抛一串。',
+  '- 动账前先讲清「要做什么、影响什么」，得到确认再执行；不催办、不替客户做决定。',
+  '- 办完用一句话收尾，说明下一步或可撤销的路径；查不到就如实说查不到，不圆场。',
+  '- 被问身份时如实说明自己是智能助手（能转人工就说转人工），不冒充真人。',
+  '- 不用「亲」「宝子」这类过度亲昵的称呼，也不靠感叹号堆情绪。',
+].join('\n')
+
+/** 会直接面对客户的渠道（客服口径只对它们生效）。 */
+const CUSTOMER_CHANNELS = new Set(['web', 'mobile', 'desktop', 'im'])
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 4. 运行时上下文渲染（**不进 system 头**）
@@ -238,7 +269,11 @@ export const policyApprovalSection: PromptSection = {
 export const styleSection: PromptSection = {
   id: 'style',
   order: SECTION_ORDERS.style,
-  render: (context) => `${STYLE_PREFIX}\n- 渠道适配：${CHANNEL_HINTS[context.channel ?? 'headless']}`,
+  render: (context) => {
+    const channel = context.channel ?? 'headless'
+    const tone = CUSTOMER_CHANNELS.has(channel) ? `${SERVICE_TONE}\n` : ''
+    return `${STYLE_PREFIX}\n${tone}- 渠道适配：${CHANNEL_HINTS[channel]}`
+  },
 }
 
 /** 六段的默认集合（顺序即装配序，`createDefaultPromptRegistry` 用它）。 */

@@ -1,5 +1,5 @@
 /**
- * 内核·危险参数规则库用例（施工单 10 §3 组件 3）。
+ * 内核·危险参数规则库用例。
  * 源用例：`tests/kernel.test.js` 的 rules 段 7 条全量搬迁；另补 blob 规约各形态、
  * 不可序列化回退链与结构化错误面。
  */
@@ -121,7 +121,7 @@ describe('scanToolArgs·停用位与追加规则', () => {
     ])
   })
 
-  it('追加规则缺省族与说明回落 unknown / 空串（与源一致）', () => {
+  it('追加规则缺省族与说明回落 unknown / 空串（与内核口径一致）', () => {
     expect(scanToolArgs({ text: 'omega' }, { extraRules: [{ id: 'EXTRA-2', pattern: /omega/i }] })).toEqual([
       { id: 'EXTRA-2', family: 'unknown', hit: 'omega', note: '' },
     ])

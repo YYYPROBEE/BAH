@@ -1,18 +1,18 @@
 /**
- * 派生投影：从 append-only 日志重建「当前模型可见历史」（施工单 03 §1.4）。
+ * 派生投影：从 append-only 日志重建「当前模型可见历史」。
  *
  * 为什么必须从日志派生：模型历史**只有一份真相**（不在内存里另维护影子历史），
  * 回放、回退、压缩重建都靠这条投影。
  *
  * 三条硬规则：
  * 1. 每个 `tool/call` 必须有配对的 `tool/result`——缺了就是「日志空洞」，
- *    派生时直接抛错（防御性检查；补齐由施工单 04 的失败补偿负责）；
+ *    派生时直接抛错（防御性检查；补齐由 的失败补偿负责）；
  * 2. 每条 `tool/result` 必须有承载它的 `assistant/message`（`toolCalls` 里能查到 `callId`），
  *    否则 wire 无法重建——同样按空洞处理，**不静默合成**一条 assistant 消息；
  * 3. 表外事件按 `ignorable` 处理：`ignorable: true` 跳过，否则视为 required-on-read 缺失并抛错，
  *    **绝不静默丢弃**。
  *
- * 日志顺序 ≠ wire 顺序（施工单 04 §7 T-LOOP-001）：落账顺序是
+ * 日志顺序 ≠ wire 顺序：落账顺序是
  * `tool/call → tool/result → assistant/message`（工具跑完，assistant 消息才收尾落账），
  * 而模型 wire 要求「带 tool_calls 的 assistant 消息 → tool 消息」。
  * 所以本投影分两遍：先索引每条 assistant 消息承载的 `callId`，再在**首条** `tool/result`
@@ -38,7 +38,7 @@ interface AssistantOwner {
  * 把日志投影成模型历史。
  *
  * **`request/context` 不进历史**（有意的）：运行时上下文不是"消息"，它由提示词装配按
- * reconcile 规则并入请求（施工单 05 §5）。把它当 user 消息塞进历史会污染模型可见序列——
+ * reconcile 规则并入请求。把它当 user 消息塞进历史会污染模型可见序列——
  * 本文件对应的用例里有一条钉住这个语义，别顺手"修"。
  *
  * 同理：`turn/*`、`step/*`、`request/header`、`assistant/attempt`、`approval/*`
@@ -197,7 +197,7 @@ type ProjectableEvent = Exclude<
   { type: 'assistant/message' } | { type: 'tool/result' }
 >
 
-/** 单条事件 → 0..1 条模型可见消息（对判别标签做穷尽 switch，施工单 00 §9 第 6 条）。 */
+/** 单条事件 → 0..1 条模型可见消息（对判别标签做穷尽 switch， 第 6 条）。 */
 function project(event: ProjectableEvent, openCalls: Map<string, string>): DerivedMessage[] {
   switch (event.type) {
     case 'system/message':

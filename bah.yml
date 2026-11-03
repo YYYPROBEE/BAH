@@ -1,4 +1,4 @@
-# BAH 项目清单（施工单 06 §1）。
+# BAH 项目清单。
 #
 # `verify-plugin-config` 门禁读它，CLI 也读它：
 # - `profile.default`：不写 `--profile` 时用哪个

@@ -124,6 +124,32 @@ describe('选择题卡 · 点选', () => {
     expect(error.textContent).toContain('请求过于频繁')
   })
 
+  it('失败后「重试发送」只重发同一条选项；成功后错误与重试一起收起', async () => {
+    let attempt = 0
+    const submit = vi.fn(async () => {
+      attempt += 1
+      return attempt === 1 ? { ok: false, code: 'turn-failed', message: '网络中断' } : { ok: true }
+    })
+    const node = renderChoiceCard(choice(), { submit })
+    const retry = node.querySelector('[data-role="choice-retry"]')
+    expect(retry.hidden).toBe(true)
+
+    node.querySelector('[data-option-id="张伟"]').click()
+    await settle()
+
+    const error = node.querySelector('[role="alert"]')
+    expect(error.hidden).toBe(false)
+    expect(retry.hidden).toBe(false)
+
+    retry.click()
+    await settle()
+
+    expect(submit).toHaveBeenCalledTimes(2)
+    expect(submit).toHaveBeenLastCalledWith('张伟')
+    expect(node.dataset.state).toBe('picked')
+    expect(node.textContent).toContain('已选择：张伟')
+  })
+
   it('在飞时重复点击只发一次（窄屏双击同 desktop 双击）', async () => {
     let release = () => undefined
     const submit = vi.fn(

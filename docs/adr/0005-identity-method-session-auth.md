@@ -1,7 +1,7 @@
 # ADR-0005 · `IdentityMethod` 追加 `session-auth`
 
 - 状态：**已采纳**（2026-10-29）
-- 关联：`02-鉴权平面-AuthN.md` TA-27、`docs/contracts/tenant-model.md`、`docs/contracts/event-table.md`
+- 关联：`docs/contracts/tenant-model.md`、`docs/contracts/event-table.md`
 
 ---
 

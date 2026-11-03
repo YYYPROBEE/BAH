@@ -1,11 +1,11 @@
 /**
- * base bundle · `core:model`：模型适配层（施工单 05 §2）。
+ * base bundle · `core:model`：模型适配层。
  *
  * 一行只装**一个 provider**：`provider: mock` 或 `provider: deepseek`。
  * headless profile 用 patch 把 base 的 deepseek 整块换成 mock —— 这就是"渠道差异用 patch 表达"，
- * 代码里没有任何 `if (profile === 'headless')`（施工单 06 硬约束 2）。
+ * 代码里没有任何 `if (profile === 'headless')`。
  *
- * 密钥只从环境变量读（施工单 05 硬约束 2：仓库任何文件不得出现硬编码 key）。
+ * 密钥只从环境变量读（仓库任何文件不得出现硬编码 key）。
  */
 
 import { defineService, describeThrown } from '@bah/core'
@@ -75,6 +75,8 @@ export interface ModelSettings {
   readonly baseUrl?: string
   /** mock 的分片大小（字符数）。 */
   readonly chunkSize?: number
+  /** 本地生成 provider 的演示节流（每次模型调用前，ms）。 */
+  readonly stepDelayMs?: number
   /** mock 的脚本（按调用次序消费；只对 mock 有意义）。 */
   readonly script?: readonly MockStepSettings[]
   /** 密钥所在的环境变量名（默认 `DEEPSEEK_API_KEY`；随部署变化，不写死在代码里）。 */
@@ -118,7 +120,7 @@ const DEFAULT_MODELS = {
 } as const
 
 /** 只对「本地生成」provider（mock / router）有意义的键。 */
-const LOCAL_KEYS = ['chunkSize'] as const
+const LOCAL_KEYS = ['chunkSize', 'stepDelayMs'] as const
 
 /** 只对 mock（固定脚本）有意义的键：`router` 的步骤由请求现算，不读脚本。 */
 const SCRIPT_ONLY_KEYS = ['script'] as const
@@ -180,6 +182,7 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
     const model = readString(config, 'model', 'core:model') ?? DEFAULT_MODELS[provider]
     const baseUrl = readString(config, 'baseUrl', 'core:model')
     const chunkSize = readPositiveInteger(config, 'chunkSize', 'core:model')
+    const stepDelayMs = readPositiveInteger(config, 'stepDelayMs', 'core:model')
     const script = readScript(config['script'], provider)
     const apiKeyEnv = readString(config, 'apiKeyEnv', 'core:model')
     const requestTimeoutMs = readPositiveInteger(config, 'requestTimeoutMs', 'core:model')
@@ -230,6 +233,7 @@ export const modelPlugin: HostPlugin<ModelSettings> = {
       model,
       ...(baseUrl === undefined ? {} : { baseUrl }),
       ...(chunkSize === undefined ? {} : { chunkSize }),
+      ...(stepDelayMs === undefined ? {} : { stepDelayMs }),
       ...(script === undefined ? {} : { script }),
       ...(apiKeyEnv === undefined ? {} : { apiKeyEnv }),
       ...(requestTimeoutMs === undefined ? {} : { requestTimeoutMs }),
@@ -317,6 +321,7 @@ function createAdapter(
     return new MockLlmAdapter({
       script: { steps: (config.script ?? []).map(toMockStep) },
       ...(config.chunkSize === undefined ? {} : { chunkSize: config.chunkSize }),
+      ...(config.stepDelayMs === undefined ? {} : { stepDelayMs: config.stepDelayMs }),
       ...(toolOutcomes === undefined ? {} : { toolOutcomes }),
     })
   }
@@ -324,6 +329,7 @@ function createAdapter(
     // 与 mock 共用同一个适配器实现，只是步骤由请求现算（读 messages，不看游标）
     return createDemoRouter({
       ...(config.chunkSize === undefined ? {} : { chunkSize: config.chunkSize }),
+      ...(config.stepDelayMs === undefined ? {} : { stepDelayMs: config.stepDelayMs }),
       ...(toolOutcomes === undefined ? {} : { toolOutcomes }),
     })
   }

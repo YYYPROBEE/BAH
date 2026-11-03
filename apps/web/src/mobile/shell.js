@@ -1,5 +1,5 @@
 /**
- * 移动壳装配根（施工单 02 §3.2）。
+ * 移动壳装配根。
  *
  * 与桌面 `main.js` 是**平行组装**：共享 `transport.js` / `store.js` / `dom.js` 与
  * `views/` 里的纯渲染件，但"帧 → 交互面"的映射是移动端自己的（00 D1 双壳）。
@@ -16,24 +16,56 @@
  *    对策是按 `at` 单调过滤（方案文档写的"按 seq 过滤"与帧契约不符，已登记 §9 偏差）。
  */
 
-import { clear, el } from '../dom.js'
+import { clear, el, icon } from '../dom.js'
 import { createStore, viewKey } from '../store.js'
+import { bootstrapPasswordGate, readAuthMode } from '../auth.js'
+import { applyFontScale, createFeedbackStore, createPrefs, feedbackKeyOf, isLargeFont, PREF_KEYS } from '../prefs.js'
+import { scrollToBottom } from '../scroll.js'
+import { createSpeaker } from '../speech.js'
+import { createDialog } from '../views/dialog.js'
+import {
+  answerFooterModel,
+  renderAnswerFooter,
+  renderAssistPanel,
+  renderQuickActions,
+  renderSafetyBanner,
+} from '../views/assist.js'
 import { createSessionControls } from './session-controls.js'
 import { connectEvents, createHttpApi } from '../transport.js'
-import { renderAudit } from '../views/audit.js'
 import { renderDraft, renderEmptyState, renderFrame } from '../views/conversation.js'
+import { renderRiskQuestionnaire } from '../views/risk-form.js'
 import { renderTool } from '../views/tool-card.js'
 import { createApprovalSheet } from './approval-sheet.js'
+import { createAuditGroup } from './audit-group.js'
 import { createChoiceCard } from './choice-card.js'
 import { createComposer } from './composer.js'
 import { createEffectsList } from './effects-list.js'
 import { createLayout } from './layout.js'
+import { createHistorySheet } from './history-sheet.js'
 import { createPlanSteps } from './plan-steps.js'
+
+/**
+ * 移动端显式复用的渲染件（`conversation.js` 的 switch 之外，或需要移动端专属包装）。
+ *
+ * 为什么用表而不是三元表达式：新增帧时这里会提醒你确认"移动端到底用哪个渲染件"，
+ * 而不是默默掉进 `renderFrame` 的默认分支（那会渲染成"未知帧"）。
+ */
+const SHARED_RENDERERS = new Map([
+  // 风险问卷卡与桌面壳共用同一张卡：两端口径必须逐字一致，
+  // 否则"用户在手机上答的题"与"审批卡回显的题"可能对不上。
+  ['risk-questionnaire', renderRiskQuestionnaire],
+])
+
+/** 按帧取渲染件（未登记的一律走 `renderFrame`，并把反馈依赖原样传下去）。 */
+function rendererOf(frame, deps) {
+  const shared = SHARED_RENDERERS.get(frame.kind)
+  return shared ?? ((item) => renderFrame(item, deps))
+}
 
 /**
  * 快捷短语默认文案（D10 第 5 条：chips 是演示主入口）。
  *
- * 四颗一对一对应 03 单的四类意图，答辩现场一键复现；文案里**不含**真实账号与户名。
+ * 四颗一对一对应 03 单的四类意图，对外说明现场一键复现；文案里**不含**真实账号与户名。
  * 视图层零硬编码：composer 只认注入进来的这份配置（TC-MOB-19）。
  */
 export const DEFAULT_QUICK_PHRASES = Object.freeze({
@@ -46,8 +78,7 @@ export const DEFAULT_QUICK_PHRASES = Object.freeze({
 })
 
 /** 重连缺省值表（可调，不散落字面量）。 */
-export const RECONNECT_DEFAULTS = Object.freeze({
-  baseMs: 1000,
+export const RECONNECT_DEFAULTS = Object.freeze({  baseMs: 1000,
   maxMs: 30_000,
   /** ±20% 抖动：多个标签页同时断线时不要齐刷刷同一毫秒打回来。 */
   jitter: 0.2,
@@ -61,7 +92,7 @@ export const RECONNECT_DEFAULTS = Object.freeze({
  * ⚠ 如实登记：共享层 `transport.js` 的 `request()` 只回 `{ ok, status, code, reason }`，
  * **不透出 `retry-after` 响应头** ⇒ 生产路径上这个缺省值会被用到。要精确遵守服务端的
  * retry-after，得给 `request()` 的返回对象加一个字段（纯增量），但该文件正被并行线改写，
- * 本单不碰（00 §10 处置规矩 3）。已作为交接项写进 handoff 与复审报告。
+ * 本设计不碰这一项。
  */
 export const RATE_LIMIT_FALLBACK_SECONDS = 60
 
@@ -100,7 +131,10 @@ export function uiErrorOf(result) {
   }
   const status = Number(result?.status ?? 0)
   const raw = String(result?.code ?? (status === 0 ? 'network-error' : `http-${String(status)}`))
-  const message = String(result?.reason ?? raw)
+  // 网络层异常不能直出 `TypeError: Failed to fetch`：银行界面里把 JS 异常名甩给用户，
+  // 既不解决问题，也会让人误以为是自己点错了。
+  const message =
+    status === 0 ? '网络不通，请检查信号后重试。' : String(result?.reason ?? raw)
   if (status === 429 || raw === 'turn-rate-limited') {
     const retryAfter = Number(result?.retryAfterSeconds ?? RATE_LIMIT_FALLBACK_SECONDS)
     return { ok: false, code: 'turn-rate-limited', message, retryAfterSeconds: retryAfter }
@@ -116,7 +150,7 @@ export function uiErrorOf(result) {
  *
  * 前端 JS 没有 `assertNever` 的编译期（`verify-assert-never` 只扫 .ts），而 D7 又允许
  * 后端先行加帧 ⇒ `default` 必须是**运行时兜底**（渲染一张可见的"未知帧"卡）而不是穷尽断言。
- * 这是 00 §4「switch 以 assertNever 收尾」在前端 JS 的等价物：显式 default + 兜底可见，
+ * 这是 00 §4「switch 以 assertNever 收尾」在前端 JS 的等价物：显式 default + 兜底可，
  * 静默丢帧才是这里最坏的失败模式（B 类探针点名过它）。
  *
  * @param {Record<string, any>} frame
@@ -125,16 +159,22 @@ export function uiErrorOf(result) {
 export function dispatchFrame(frame, ctx) {
   switch (frame.kind) {
     case 'turn':
-    case 'message':
     case 'notice':
       return ctx.feed.append(frame)
+    case 'message': {
+      const node = ctx.feed.append(frame)
+      if (node !== undefined && frame.role === 'assistant' && Array.isArray(frame.toolCalls)) {
+        ctx.feed.moveToolsAfter?.(node, frame.toolCalls.map((call) => call.callId))
+      }
+      return node
+    }
     case 'delta':
       // 显式 no-op：delta 是 ephemeral 帧，由 store 累加成 `streamText`，呈现走 `feed.setDraft()`。
       // 落到 default 会被渲染成"未知帧"，把正常的流式增量误报成异常。
       return undefined
     case 'tool':
       // 有对应步骤就挂在步骤里（复用桌面 renderTool），没有就进会话流——
-      // 绿级只读工具常常不产生 DAG，只走 planSteps 会让它彻底不可见。
+      // 绿级只读工具常常不产生 DAG，只走 planSteps 会让它彻底不可。
       return ctx.planSteps.hasNode(frame.callId)
         ? ctx.planSteps.attachTool(frame)
         : ctx.feed.append(frame)
@@ -145,7 +185,8 @@ export function dispatchFrame(frame, ctx) {
     case 'approval-closed':
       return ctx.approvalSheet.closeByServer(frame)
     case 'audit':
-      return ctx.feed.append(frame)
+      // 审计帧统一收进「过程记录」模块（feed-audit 槽位），不在会话流里逐条铺开。
+      return undefined
     case 'snapshot':
       return ctx.store.apply(frame)
     case 'choice':
@@ -172,7 +213,7 @@ export function dispatchFrame(frame, ctx) {
 }
 
 /** 会话流：按视图键替换（复用 store 的 `viewKey`），一轮 pass 结束后剪掉没被触到的节点。 */
-function createFeed(container) {
+function createFeed(container, deps = {}) {
   const rendered = new Map()
   let touched = new Set()
 
@@ -200,8 +241,21 @@ function createFeed(container) {
       touched = new Set()
     },
     append(frame) {
-      // audit 帧不在 conversation.js 的 switch 里（它会渲染成"未知帧"），走 audit.js 的渲染件
-      return upsert(frame, frame.kind === 'audit' ? renderAudit : renderFrame)
+      // audit 帧不在 conversation.js 的 switch 里（它会渲染成"未知帧"），走 audit.js 的渲染件；
+      // 其余帧按 `SHARED_RENDERERS` 取（风险问卷卡与桌面壳共用同一张卡）。
+      return upsert(frame, rendererOf(frame, deps))
+    },
+    /** 把工具卡挪到发起它的助手消息之后（如果工具卡在会话流而不是步骤里）。 */
+    moveToolsAfter(anchor, callIds) {
+      let cursor = anchor
+      for (const callId of callIds ?? []) {
+        const tool = [...container.querySelectorAll('[data-call-id]')].find(
+          (node) => node.dataset.callId === String(callId) && node.parentElement === container,
+        )
+        if (tool === undefined) continue
+        container.insertBefore(tool, cursor.nextSibling)
+        cursor = tool
+      }
     },
     appendUnknown(frame) {
       return upsert(frame, (item) =>
@@ -281,26 +335,156 @@ export function createMobileShell(deps) {
   const random = deps.tuning?.random ?? Math.random
   const reconnectConfig = { ...RECONNECT_DEFAULTS, ...(deps.tuning?.reconnect ?? {}) }
   const store = createStore()
+  const prefs = createPrefs(deps.storage)
+  const feedbackStore = createFeedbackStore(prefs)
+  const speaker = createSpeaker(win)
 
   const layout = createLayout(deps.root, { win })
-  const { feed: feedRegion, dock, overlayHost } = layout.regions
+  const { feed: feedRegion, dock, overlayHost, headerActions } = layout.regions
+
+  /**
+   * 历史对话（2026-11-02）。
+   *
+   * 与"新对话"不同，它不需要宿主能力：只读 `GET /api/sessions`，web / mobile / desktop
+   * 三份壳的 HTTP 面完全一样，所以无条件渲染入口。
+   *
+   * 渲染件走 `rendererOf`（移动端自己的帧→交互面映射），deps 传空：历史里
+   * 选择题与风险问卷都不给作答入口，`renderReadonlyFrames` 会把它们降级成记录行。
+   */
+  const historySheet = createHistorySheet(overlayHost, {
+    loadList: () => api.sessions(20),
+    loadSession: (sessionId) => api.sessionTranscript(sessionId),
+    renderFrame: (frame) => rendererOf(frame, {})(frame),
+  })
+  const historyButton = el(
+    'button',
+    {
+      class: 'm-header__tool',
+      type: 'button',
+      'aria-label': '历史对话',
+      title: '历史对话（只读）',
+      dataset: { role: 'm-history' },
+    },
+    [icon('clock', 16)],
+  )
+  historyButton.addEventListener('click', () => void historySheet.open())
+  headerActions.append(historyButton)
 
   // 半途关闭后的"仍有一笔待确认"提醒条挂在 composer **上方**：
   // 挂在下方会被软键盘与安全区挤到屏幕外，等于没有回收口。
   const reminderHost = el('div', { dataset: { role: 'reminder-host' } })
   dock.append(reminderHost)
 
-  const conversationHost = el('div', { dataset: { role: 'feed-conversation' } })
+  // 安全提醒与常用业务在会话流顶部：空会话时直接可，开始对话后业务宫格收起
+  // （空态才有位置），安全提醒保留到用户自己收起。
+  const safetyHost = el('div', { dataset: { role: 'safety' } })
+  const quickHost = el('div', { class: 'm-quick', dataset: { role: 'quick-entry' } })
+
+  // 读屏：新回答 / 新卡片进流时播报一次（`polite` 不打断用户当前朗读）。
+  const conversationHost = el('div', {
+    dataset: { role: 'feed-conversation' },
+    'aria-live': 'polite',
+    'aria-atomic': 'false',
+  })
   const resultHost = el('div', { dataset: { role: 'feed-result' } })
   const echoHost = el('div', { dataset: { role: 'feed-echo' } })
   const planHost = el('div', { dataset: { role: 'feed-plan' } })
   const choiceHost = el('div', { dataset: { role: 'feed-choice' } })
   const effectsHost = el('div', { dataset: { role: 'feed-effects' } })
-  feedRegion.append(conversationHost, resultHost, echoHost, planHost, choiceHost, effectsHost)
+  const auditHost = el('div', { dataset: { role: 'feed-audit' } })
+  const footerHost = el('div', { dataset: { role: 'feed-footer' } })
+  feedRegion.append(
+    safetyHost,
+    quickHost,
+    conversationHost,
+    resultHost,
+    echoHost,
+    planHost,
+    choiceHost,
+    effectsHost,
+    auditHost,
+    footerHost,
+  )
 
-  const feed = createFeed(conversationHost)
+  const feedbackDeps = {
+    value: (frame) => feedbackStore.get(feedbackKeyOf(store.state().sessionId, frame.seq)),
+    rate: (frame, value) => feedbackStore.rate(feedbackKeyOf(store.state().sessionId, frame.seq), value),
+  }
+  const toolFramesByCall = new Map()
+  const feed = createFeed(conversationHost, {
+    toolFrameFor: (callId) => toolFramesByCall.get(callId),
+  })
   const planSteps = createPlanSteps(planHost, { renderTool })
   const effectsList = createEffectsList(effectsHost)
+  const auditGroup = createAuditGroup(auditHost)
+  /** 待决的确认框 resolver：用户用 Esc / 遮罩 / 关闭钮离开时按"取消"结算。 */
+  let confirmResolver = null
+  const services = createDialog(overlayHost, {
+    onClose: () => {
+      const resolve = confirmResolver
+      confirmResolver = null
+      resolve?.(false)
+    },
+  })
+
+  /**
+   * 二次确认（不可逆动作的前置门）。
+   *
+   * 复用 `services` 这张弹窗而不是 `window.confirm`：后者在移动 WebView 里会被拦截或
+   * 变成系统原生框，样式与焦点管理都不可控；这里保持与"服务与帮助"同一套焦点陷阱。
+   */
+  function askConfirm(message, confirmLabel) {
+    return new Promise((resolve) => {
+      confirmResolver = resolve
+      const cancel = el('button', {
+        class: 'ds-btn ds-btn--secondary ds-btn--md',
+        type: 'button',
+        text: '取消',
+      })
+      const confirm = el('button', {
+        class: 'ds-btn ds-btn--primary ds-btn--md',
+        type: 'button',
+        text: confirmLabel,
+      })
+      const settle = (value) => {
+        if (confirmResolver === resolve) confirmResolver = null
+        resolve(value)
+        services.close()
+      }
+      cancel.addEventListener('click', () => settle(false))
+      confirm.addEventListener('click', () => settle(true))
+      services.show({
+        title: '请求人工接管？',
+        body: el('div', { class: 'm-confirm' }, [
+          el('p', { class: 'm-confirm__text', text: message }),
+          el('div', { class: 'm-confirm__actions' }, [cancel, confirm]),
+        ]),
+      })
+    })
+  }
+
+  if (prefs.get(PREF_KEYS.safetyDismissed) !== '1') {
+    safetyHost.append(
+      renderSafetyBanner({
+        onDismiss: () => {
+          prefs.set(PREF_KEYS.safetyDismissed, '1')
+          safetyHost.hidden = true
+          safetyHost.replaceChildren()
+        },
+      }),
+    )
+  } else {
+    safetyHost.hidden = true
+  }
+
+  quickHost.append(
+    renderQuickActions({
+      onPick: (text) => {
+        echoUserMessage(text)
+        return submitTurn(text)
+      },
+    }),
+  )
 
   let capabilities = deps.capabilities
   let sheet = null
@@ -312,6 +496,148 @@ export function createMobileShell(deps) {
   /** 本地回显（D6 点选 / chips）：等服务端把 user/message 回流后由 sync 撤掉。 */
   const echoes = new Map()
 
+  /**
+   * 滚动策略与桌面同源：发送后把最新一条用户消息钉在视口顶部，回答从它下面长出来；
+   * 之后 delta / 工具帧 / 收口块都不再跟随，避免用户往上翻读时被持续拽回底部。
+   */
+  let scrollInitialized = false
+  let lastUserSeq = 0
+  let lastChoiceSeq = 0
+
+  function isUserSpeechFrame(frame) {
+    return (
+      frame.kind === 'message' &&
+      frame.role === 'user' &&
+      (frame.source === undefined || frame.source === 'user' || frame.source === 'handoff-waiting')
+    )
+  }
+
+  function latestUserSeqOf(frames) {
+    let latest = 0
+    for (const frame of frames) {
+      if (isUserSpeechFrame(frame) && typeof frame.seq === 'number') latest = Math.max(latest, frame.seq)
+    }
+    return latest
+  }
+
+  function scrollFeedToTopOf(node) {
+    if (node === null || node === undefined) return
+    const container = feedRegion.getBoundingClientRect()
+    const target = feedRegion.scrollTop + node.getBoundingClientRect().top - container.top - 8
+    const previous = feedRegion.style.scrollBehavior
+    feedRegion.style.scrollBehavior = 'auto'
+    feedRegion.scrollTop = Math.max(0, target)
+    feedRegion.style.scrollBehavior = previous
+  }
+
+  function prepareUserSendScroll() {
+    scrollInitialized = true
+    lastUserSeq = latestUserSeqOf(store.state().frames)
+  }
+
+  function syncFeedScroll(state) {
+    const latestUser = latestUserSeqOf(state.frames)
+
+    if (!scrollInitialized) {
+      if (feed.size === 0 && state.streamText.length === 0 && echoes.size === 0) return
+      scrollInitialized = true
+      lastUserSeq = latestUser
+      scrollToBottom(feedRegion)
+      return
+    }
+
+    if (latestUser > lastUserSeq) {
+      lastUserSeq = latestUser
+      const node = conversationHost.querySelector(`.message--user[data-seq="${String(latestUser)}"]`)
+      if (node !== null) scrollFeedToTopOf(node)
+      else scrollToBottom(feedRegion)
+    }
+  }
+
+  /** 对话末尾的收口块（唯一反馈行 + 两条追问）。 */
+  let answerFooter = null
+  let answerFooterKey = null
+  let lastAnswerModel = null
+  const modelSuggestions = new Map()
+  const suggestionAttempted = new Set()
+  const suggestionPending = new Set()
+
+  function suggestionKeyOf(model) {
+    return `${String(store.state().sessionId)}:${String(model.frame.seq)}`
+  }
+
+  function requestModelSuggestions(model, key) {
+    if (suggestionAttempted.has(key) || suggestionPending.has(key)) return
+    if (typeof api.suggest !== 'function') {
+      suggestionAttempted.add(key)
+      return
+    }
+    suggestionAttempted.add(key)
+    suggestionPending.add(key)
+    void api
+      .suggest(model.context ?? { user: '', assistant: '' })
+      .then((result) => {
+        const items =
+          result.ok && Array.isArray(result.data?.suggestions)
+            ? result.data.suggestions
+                .map((item) => String(item ?? '').trim())
+                .filter((item) => item !== '')
+                .slice(0, 2)
+            : []
+        // 空结果不写入 Map：让 syncAnswerFooter 继续用规则回退，而不是把按钮清空。
+        if (items.length > 0) {
+          modelSuggestions.set(key, items)
+          if (lastAnswerModel !== null && lastAnswerModel.key === key) {
+            syncAnswerFooter(lastAnswerModel.model)
+          }
+        }
+      })
+      .catch(() => {
+        // 模型不可用：保留规则回退，不把“没有建议”渲染成空标签。
+      })
+      .finally(() => {
+        suggestionPending.delete(key)
+      })
+  }
+
+  function syncAnswerFooter(model) {
+    if (model === null) {
+      answerFooter?.remove()
+      answerFooter = null
+      answerFooterKey = null
+      lastAnswerModel = null
+      return
+    }
+
+    // 会话号也进键：服务重启后 seq 可能重复，不能把上一个会话的反馈状态带进新会话。
+    const requestKey = suggestionKeyOf(model)
+    lastAnswerModel = { key: requestKey, model }
+    const suggestions = modelSuggestions.get(requestKey) ?? model.suggestions
+    const key = `${requestKey}:${suggestions.join('|')}`
+    const build = () =>
+      renderAnswerFooter({
+        value: feedbackDeps.value(model.frame),
+        onRate: (value) => feedbackDeps.rate(model.frame, value),
+        suggestions,
+        onPick: (text) => {
+          echoUserMessage(text)
+          return submitTurn(text)
+        },
+      })
+
+    if (answerFooter === null) {
+      answerFooterKey = key
+      answerFooter = build()
+    } else if (key !== answerFooterKey) {
+      const next = build()
+      answerFooter.replaceWith(next)
+      answerFooter = next
+      answerFooterKey = key
+    }
+    if (footerHost.lastElementChild !== answerFooter) footerHost.append(answerFooter)
+    if (!suggestionAttempted.has(requestKey)) requestModelSuggestions(model, requestKey)
+  }
+
   let lastSeq = 0
   let lastDeltaAt = 0
   let attempts = 0
@@ -322,6 +648,15 @@ export function createMobileShell(deps) {
   let connection = null
   let reconnectTimer = null
   let unsubscribe = null
+  /** 最后一次收到服务端心跳（SSE `event: heartbeat`）的时刻。 */
+  let lastHeartbeatAt = 0
+  let watchdogTimer = null
+  let authProbePending = false
+  /** 启动期的 401 可能早于 composer 建好：先记下，建好后补一条可点的重新加载提示。 */
+  let authExpired = false
+  /** 服务端心跳间隔（`channel:mobile.heartbeatMs` 的默认值）；1.5 倍未收到即判离线。 */
+  const heartbeatMs = deps.tuning?.heartbeatMs ?? 15_000
+  const idleLimitMs = Math.round(heartbeatMs * 1.5)
 
   /** 上一次应用到界面的接管状态（初值由启动的 `GET /api/handoff` 给出）：只在"接管 → 交回"的跃迁上说一次话。 */
   let handoffActive = false
@@ -383,15 +718,37 @@ export function createMobileShell(deps) {
     feedRegion.append(unstableNotice)
   }
 
+  /**
+   * 401：页面里的 web token 已失效（典型场景是演示中途重启了宿主进程）。
+   *
+   * 移动壳没有重新登录卡片（static token 模式），唯一的自愈动作是刷新页面；
+   * 所以这里给一条**可点的**"重新加载"，而不是让用户对着"连接不稳定"发呆。
+   */
+  function onUnauthorized() {
+    if (stopped) return
+    authExpired = true
+    online = false
+    store.setStatus('offline')
+    composer?.showReloadPrompt('登录凭证已失效，请重新加载页面后进入。')
+  }
+
   /** 全量同步（幂等；每帧都可能触发一次）。 */
   function sync(state) {
     feed.begin()
+    // 先收齐工具帧再分发：助手消息里的「工具调用」展开要能读到刚返回的结果。
+    for (const frame of state.frames) {
+      if (frame.kind === 'tool' && typeof frame.callId === 'string') toolFramesByCall.set(frame.callId, frame)
+    }
     for (const frame of state.frames) dispatchFrame(frame, ctx)
     feed.end()
+    auditGroup.update(state.frames.filter((frame) => frame.kind === 'audit'))
     feed.setDraft(state.streamText)
     // 空态看**会话流里已渲染的条目数**，不看帧数（tool 帧有 DAG 时挂在步骤里、不进会话流），
     // 也不能数容器子节点：空态卡自己就在容器里，第二次 sync 会因为"它有孩子了"把卡删掉（P1-3）。
-    feed.setEmpty(feed.size === 0 && state.streamText.length === 0 && echoes.size === 0)
+    const empty = feed.size === 0 && state.streamText.length === 0 && echoes.size === 0
+    feed.setEmpty(empty)
+    // 常用业务只在"还没有任何对话"时占屏幕；一开始对话就收起，不抢主视图。
+    quickHost.hidden = !empty
 
     // 回显去重：服务端把用户消息回流成 message 帧之后，本地那条 pending 回显就该消失
     const echoed = new Set()
@@ -405,13 +762,66 @@ export function createMobileShell(deps) {
       echoes.delete(text)
     }
 
-    layout.setStatus(state.status)
     const running = state.frames.some(
       (frame) => frame.kind === 'turn' && frame.phase === 'start' && !hasEnd(state.frames, frame.turn),
     )
+    // 对话完成才在末尾出反馈与追问；运行中 / 流式草稿 / 接管中都不出。
+    syncAnswerFooter(
+      answerFooterModel(state.frames, {
+        running,
+        streamText: state.streamText,
+        handoffActive,
+      }),
+    )
+
+    layout.setStatus(state.status)
     composer?.setRunning(running)
     if (state.fault !== null) composer?.showError(String(state.fault.reason ?? state.fault.code))
-    conversationHost.lastElementChild?.scrollIntoView?.({ block: 'nearest' })
+    syncFeedScroll(state)
+    // 选项卡只在**新卡**出现时滚进视口一次；后续 delta 不重复抢滚动。
+    let latestChoice = 0
+    for (const frame of state.frames) {
+      if (frame.kind === 'choice' && typeof frame.seq === 'number') latestChoice = Math.max(latestChoice, frame.seq)
+    }
+    if (choiceCard?.open === true && latestChoice > lastChoiceSeq) {
+      lastChoiceSeq = latestChoice
+      choiceCard.node.scrollIntoView?.({ block: 'nearest' })
+    }
+    maybeSpeak(state)
+  }
+
+  /** 已播报到的助手消息序号（快照 = 历史基线，不朗读历史）。 */
+  let spokenSeq = 0
+
+  function latestAssistantSeq(frames) {
+    let latest = 0
+    for (const frame of frames ?? []) {
+      if (frame.kind === 'message' && frame.role === 'assistant' && typeof frame.seq === 'number') {
+        latest = Math.max(latest, frame.seq)
+      }
+    }
+    return latest
+  }
+
+  /**
+   * 新的助手消息 → 朗读（仅在用户开启播报且浏览器支持时）。
+   *
+   * 基线无论开关都推进：关着的时候不攒一堆旧回答，打开后从"下一句"开始读。
+   */
+  function maybeSpeak(state) {
+    let latest = null
+    for (const frame of state.frames) {
+      if (frame.kind === 'message' && frame.role === 'assistant') latest = frame
+    }
+    if (latest === null) return
+    if (typeof latest.seq !== 'number' || latest.seq <= spokenSeq) return
+    spokenSeq = latest.seq
+    if (!speaker.enabled) return
+    const text = (latest.blocks ?? [])
+      .filter((block) => block.type === 'text' && typeof block.text === 'string')
+      .map((block) => block.text)
+      .join('\n')
+    speaker.speak(text)
   }
 
   function hasEnd(frames, turn) {
@@ -428,6 +838,9 @@ export function createMobileShell(deps) {
     const seq = typeof frame.maxSeq === 'number' ? frame.maxSeq : frame.seq
     if (typeof seq === 'number' && Number.isFinite(seq) && seq > lastSeq) lastSeq = seq
     framesSinceConnect += 1
+    // 快照是历史：先把播报基线推到快照里的最后一条助手消息，再应用。
+    // 顺序反了（先 apply）会触发 sync → 朗读整段历史。
+    if (frame.kind === 'snapshot') spokenSeq = latestAssistantSeq(frame.frames)
     store.apply(frame)
     // 只认**实时**到达的 handoff 帧：历史里的 handoff/requested 不能把重启后的横幅点亮
     // （接管状态是进程内的，启动真相来自 GET /api/handoff）。快照里的 handoff 帧不经过这里。
@@ -435,9 +848,15 @@ export function createMobileShell(deps) {
     if (frame.kind === 'handoff-warn') applyHandoffWarn(frame)
   }
 
+  /** SSE 心跳：只推进空闲计时，不凭一次心跳改写"已断开（重试中）"。 */
+  function onHeartbeat() {
+    lastHeartbeatAt = Date.now()
+  }
+
   function onStatus(status) {
     if (status === 'online') {
       online = true
+      lastHeartbeatAt = Date.now()
       attempts = 0
       emptyReconnects = 0
       framesSinceConnect = 0
@@ -456,6 +875,14 @@ export function createMobileShell(deps) {
       // 2^5 × 1s = 32s > maxMs(30s) ⇒ 从这一次起退避恒等于封顶值
       attempts = Math.max(attempts, 5)
       showUnstable(true)
+      // 退避期间探一次会话：进程重启换了 token 时，这里会收到 401 →
+      // `bah:unauthorized` ⇒ 把"无限重试"换成"重新加载页面"的明确出路。
+      if (!authProbePending && typeof api.session === 'function') {
+        authProbePending = true
+        void api.session().catch(() => undefined).finally(() => {
+          authProbePending = false
+        })
+      }
     }
     scheduleReconnect()
   }
@@ -470,6 +897,7 @@ export function createMobileShell(deps) {
       since: lastSeq,
       maxRetries: 0,
       onFrame,
+      onHeartbeat,
       onFault: (fault) => store.setFault(fault),
       onStatus,
     })
@@ -503,7 +931,62 @@ export function createMobileShell(deps) {
   }
 
   async function submitTurn(text) {
-    return uiErrorOf(await api.turn(text))
+    // 发送即回到最新位置；回答开始后只滚到正文顶部一次，不再跟随增长。
+    prepareUserSendScroll()
+    const result = uiErrorOf(await api.turn(text))
+    if (result.ok === true) restoreEcho(text)
+    else markEchoFailed(text)
+    return result
+  }
+
+  /**
+   * 回显失败态：本地气泡留在原地并给"重试发送"。
+   *
+   * 不把失败气泡删掉：用户刚说完一句话它凭空消失，比看见"发送失败"更让人慌。
+   * 服务端最终仍以 `user/message` 帧为准，成功回流时 sync 会把回显撤掉。
+   */
+  function markEchoFailed(text) {
+    const node = echoes.get(text)
+    if (node === undefined) return
+    node.dataset.failed = 'true'
+    node.classList.add('message--failed')
+    const meta = node.querySelector('.message__seq')
+    if (meta !== null) meta.textContent = '发送失败'
+    let retry = node.querySelector('[data-role="echo-retry"]')
+    if (retry === null) {
+      retry = el('button', {
+        class: 'message__retry',
+        type: 'button',
+        dataset: { role: 'echo-retry' },
+        text: '重试发送',
+      })
+      retry.addEventListener('click', () => retryEcho(text))
+      node.append(retry)
+    }
+    retry.hidden = false
+  }
+
+  function restoreEcho(text) {
+    const node = echoes.get(text)
+    if (node === undefined || node.dataset.failed !== 'true') return
+    node.dataset.failed = 'false'
+    node.classList.remove('message--failed')
+    const meta = node.querySelector('.message__seq')
+    if (meta !== null) meta.textContent = '发送中'
+    const retry = node.querySelector('[data-role="echo-retry"]')
+    if (retry !== null) retry.hidden = true
+  }
+
+  function retryEcho(text) {
+    const node = echoes.get(text)
+    if (node === undefined) return
+    node.dataset.failed = 'false'
+    node.classList.remove('message--failed')
+    const meta = node.querySelector('.message__seq')
+    if (meta !== null) meta.textContent = '发送中'
+    const retry = node.querySelector('[data-role="echo-retry"]')
+    if (retry !== null) retry.hidden = true
+    void submitTurn(text)
   }
 
   function echoUserMessage(text) {
@@ -518,6 +1001,7 @@ export function createMobileShell(deps) {
     ])
     echoes.set(text, node)
     echoHost.append(node)
+    prepareUserSendScroll()
     return node
   }
 
@@ -544,8 +1028,47 @@ export function createMobileShell(deps) {
     }
   }
 
+  /**
+   * 打开“服务与帮助”抽屉：常用业务 + 大字/播报 + 服务范围与免责声明。
+   *
+   * 抽屉内点业务入口 = 发一条普通用户消息；发送在关闭抽屉之后进行，避免
+   * 用户看着一张已经发出的卡片还以为要再点一次。
+   */
+  function openServices() {
+    services.show({
+      title: '服务与帮助',
+      body: renderAssistPanel({
+        onPick: async (text) => {
+          services.close()
+          echoUserMessage(text)
+          await submitTurn(text)
+        },
+        fontLarge: isLargeFont(prefs),
+        speechEnabled: speaker.enabled,
+        speechSupported: speaker.supported,
+        collapsibleScope: true,
+        onToggleFont: () => {
+          const next = !isLargeFont(prefs)
+          prefs.set(PREF_KEYS.fontScale, next ? 'large' : 'normal')
+          applyFontScale(doc, next ? 'large' : 'normal')
+          return next
+        },
+        onToggleSpeech: () => {
+          const next = !speaker.enabled
+          speaker.setEnabled(next)
+          prefs.set(PREF_KEYS.speech, next ? '1' : '0')
+          return next
+        },
+      }),
+    })
+  }
+
   async function start() {
     stopped = false
+    applyFontScale(doc, isLargeFont(prefs) ? 'large' : 'normal')
+    speaker.setEnabled(prefs.get(PREF_KEYS.speech) === '1')
+    // 先挂 401 监听再读会话：页面加载时 token 已失效（典型是刚重启宿主）也应被接住。
+    win?.addEventListener?.('bah:unauthorized', onUnauthorized)
     const session = capabilities === undefined ? await loadSession(api) : { capabilities }
     capabilities = session.capabilities
     const confirmed = capabilities !== undefined
@@ -580,6 +1103,8 @@ export function createMobileShell(deps) {
     // 测试可注入 `deps.controlClient`（不为此在壳里再造第二份 transport）。
     controls = createSessionControls(dock, {
       ...(deps.controlClient === undefined ? {} : { client: deps.controlClient }),
+      // 转人工是不可逆单向门（移动壳没有交回入口）：先确认，再 POST。
+      confirm: (message) => askConfirm(message, '确认转人工'),
       latestTurn: () => {
         let turn
         for (const frame of store.state().frames) {
@@ -599,7 +1124,11 @@ export function createMobileShell(deps) {
 
     composer = createComposer(dock, {
       submit: submitTurn,
+      // 输入框 / chips 与其余四条发送入口共用同一条本地回显（D6）。
+      echo: echoUserMessage,
+      onReload: () => win?.location?.reload?.(),
       interrupt: async (reason) => uiErrorOf(await api.interrupt(reason)),
+      onOpenServices: openServices,
       // chips 只在渠道声明"语音走系统输入法"时渲染（D10 第 5 条）
       ...(confirmed && capabilities.voiceInput === 'ime'
         ? { phrases: deps.phrases ?? DEFAULT_QUICK_PHRASES }
@@ -620,10 +1149,33 @@ export function createMobileShell(deps) {
       composer.showError('渠道声明的呈现面与移动壳不一致（layout / approvalSurface / dagView）。', true)
     }
 
+    // 启动期的 401 优先级最高：上面那条"能力位读不到"只是它的后果，
+    // 真正要用户做的动作是刷新页面拿新 token。
+    if (authExpired) {
+      composer.showReloadPrompt('登录凭证已失效，请重新加载页面后进入。')
+    }
+
     unsubscribe = store.subscribe(sync)
     doc.addEventListener('visibilitychange', onVisibilityChange)
     openConnection()
     sync(store.state())
+
+    // 空闲看门狗：SSE 的 `error` 只在 TCP 被掰断时才触发；断网/黑洞连接下
+    // 浏览器会一直报"已连接"。服务端每 heartbeatMs 发一条 `event: heartbeat`，
+    // 1.5 个周期收不到就主动翻成离线并重连（不凭一次心跳覆盖这个判断）。
+    watchdogTimer = setInterval(() => {
+      if (stopped || !online) return
+      if (Date.now() - lastHeartbeatAt <= idleLimitMs) return
+      onStatus('offline')
+      // 顺带探一次会话：旧页面的 token 在服务重启后已失效，401 会触发下面的
+      // `onUnauthorized`，把"永远重试"换成"重新加载页面"。
+      if (!authProbePending && typeof api.session === 'function') {
+        authProbePending = true
+        void api.session().catch(() => undefined).finally(() => {
+          authProbePending = false
+        })
+      }
+    }, Math.min(heartbeatMs, 5_000))
   }
 
   function stop() {
@@ -632,7 +1184,12 @@ export function createMobileShell(deps) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
     }
+    if (watchdogTimer !== null) {
+      clearInterval(watchdogTimer)
+      watchdogTimer = null
+    }
     doc.removeEventListener('visibilitychange', onVisibilityChange)
+    win?.removeEventListener?.('bah:unauthorized', onUnauthorized)
     connection?.close()
     connection = null
     unsubscribe?.()
@@ -641,8 +1198,11 @@ export function createMobileShell(deps) {
     controls?.dispose()
     choiceCard?.dispose()
     effectsList.dispose()
+    auditGroup.dispose()
     planSteps.dispose()
     sheet?.dispose()
+    services.dispose()
+    speaker.dispose()
     feed.dispose()
     layout.dispose()
   }
@@ -679,11 +1239,28 @@ export function createMobileShell(deps) {
     get choiceCard() {
       return choiceCard
     },
+    get services() {
+      return services
+    },
+    get speaker() {
+      return speaker
+    },
   }
 }
 
 /** 自动挂载（浏览器里 `#app` 存在时；测试导入不会触发——jsdom 无该节点）。 */
 const rootElement = typeof document === 'undefined' ? null : document.querySelector('#app')
 if (rootElement instanceof HTMLElement) {
-  void createMobileShell({ root: rootElement }).start()
+  if (readAuthMode() === 'password') {
+    // 与桌面入口同一条登录门（TA-31）：m.html 也会被注入 auth meta；
+    // 不走这里的话，password 部署下的移动端只会看到 401 与降级提示，永远进不了登录卡片。
+    void bootstrapPasswordGate({
+      root: rootElement,
+      mount: () => {
+        void createMobileShell({ root: rootElement }).start()
+      },
+    })
+  } else {
+    void createMobileShell({ root: rootElement }).start()
+  }
 }

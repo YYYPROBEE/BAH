@@ -46,7 +46,19 @@ if (baseExclude.length === 0) {
 export default defineConfig({
   resolve: { alias: bahSourceAlias },
   test: {
-    include: base.include ?? ['packages/*/src/**/*.test.ts'],
+    // 并行策略：Windows 串行，Linux/CI 并行。
+    // WHY：Windows 上并行 worker 拆卸会挂住——用例全绿但**进程不退出**（基线树同样
+    // 复现，非本次合流引入），会让 `pnpm check` 的 spawnSync 步骤无限等待。
+    // 串行实测 161s 正常退出；Linux 保持并行（约 23s）。两者用例集与断言口径完全相同。
+    fileParallelism: process.platform !== 'win32',
+    // 评测包的用例落在 `packages/eval/tests/`：它自带一份配置（`packages/eval/vitest.config.ts`），
+    // 根配置的 include 只扫 `packages/*/src/**/*.test.ts`，扫不到 `tests/`。
+    // 而本配置的分母是 `packages/*/src/**/*.ts`——含 `eval/src`。不把它的用例并进来，
+    // 就是"分母算了 eval、分子没跑 eval"，覆盖率会被这一处系统性压低。
+    include: [
+      ...(base.include ?? ['packages/*/src/**/*.test.ts']),
+      'packages/eval/tests/**/*.test.ts',
+    ],
     exclude: base.exclude ?? [],
     passWithNoTests: true,
     ...(base.env === undefined ? {} : { env: { ...base.env } }),
@@ -54,13 +66,24 @@ export default defineConfig({
       provider: 'v8',
       // ★ 唯一的区别：分母是全部源码
       include: ['packages/*/src/**/*.ts'],
-      exclude: [...baseExclude],
+      exclude: [
+        ...baseExclude,
+        // 全仓口径的纯类型/纯 barrel：主配置的 allowlist 不含 memory-store，
+        // 所以这两个文件无法进 BARREL_EXCLUSIONS（verify-index-barrels 会判"不在 include 面内"），
+        // 只能在此声明。types.ts 几乎全是 interface，仅一个 `SCENES` 常量且运行时零消费；
+        // index.ts 是纯 re-export。二者在本机 v8 下分别被按 257 / 34 物理行计入分母（0 覆盖假红）。
+        'packages/memory-store/src/types.ts',
+        'packages/memory-store/src/index.ts',
+      ],
       reporter: ['json-summary', 'text-summary'],
       reportsDirectory: '.ci-artifacts/cov-all',
       // 不清理报表目录：本机沙箱的 safe-delete 会拦 vitest 的 cleanAfterRun，
       // 让"测试全绿但退出码 1"这种假红出现。目录在 .ci-artifacts 下、每次覆盖同名文件，
       // 残留不影响读数（summary 脚本只读 coverage-summary.json）。
       clean: false,
+      // 连 v8 的 .tmp 目录也不清：本机沙箱 safe-delete 会拦批量删除（350 个文件超阈值），
+      // 表现为"覆盖率已算出来但退出码 1"的假红。残留 .tmp 不影响读数。
+      cleanOnRerun: false,
       // 阈值刻意**不写在这里**：包口径（≥14/16）vitest 表达不了，
       // 两处判会造成"一处过一处不过、到底听谁的"。统一由 coverage-summary.ts 判。
     },

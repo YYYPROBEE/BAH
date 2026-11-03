@@ -666,6 +666,27 @@ describe('令牌按租户（01 TA-17）', () => {
     }
   })
 
+  it('TA-17-2b 同一份配置在 --dump-config 下只告警不抛（stderr 契约不被破坏）', async () => {
+    const restore = withEnv({ BAH_KNOWLEDGE_TOKEN: 'shared-token', BAH_KNOWLEDGE_TOKEN_ACME: undefined })
+    const warnings: string[] = []
+    try {
+      const app = await bootWith(
+        knowledgeRows(),
+        (message) => warnings.push(message),
+        { tenantId: parseTenantId('acme'), probe: false },
+      )
+      try {
+        // dump 只看配置：工具照样注册，但"这台部署起不来"必须以告警形式给出
+        expect(warnings.filter((message) => message.includes('knowledge-token-shared'))).toHaveLength(1)
+        expect(app.ctx.get(TOOLS_SERVICE).has('knowledge_answer')).toBe(true)
+      } finally {
+        await app.dispose('test-done')
+      }
+    } finally {
+      restore()
+    }
+  })
+
   it('TA-17-3 非 demo + per-tenant 变量 → 用租户令牌，不报回退', async () => {
     const restore = withEnv({ BAH_KNOWLEDGE_TOKEN: undefined, BAH_KNOWLEDGE_TOKEN_ACME: 'acme-token' })
     const warnings: string[] = []

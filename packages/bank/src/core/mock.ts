@@ -1,8 +1,8 @@
 /**
- * mock 银行核心（施工单 07 §2 / §4）：全部状态在内存，不做任何 I/O。
+ * mock 银行核心：全部状态在内存，不做任何 I/O。
  *
  * 权威口径只有账本：日累计、剩余额度、账单异常都从 `transactions` 实时推导，
- * Harness 侧的会话状态只是缓存（施工单 07 §8 第 1 条）。
+ * Harness 侧的会话状态只是缓存。
  *
  * 写操作（转账 / 理财购买）必须先过 `TicketStore.redeem()`——**核销属主在 bank-core**；
  * 校验（账户、金额、余额、产品）全部在核销**之前**，核销之后只做不会抛错的账本变更，
@@ -24,6 +24,9 @@ import type { BankDataset } from '../forge/index.ts'
 import { checkTransferRisks, isNight } from '../forge/risk.ts'
 import { normalizeMerchant } from '../detect/merchant.ts'
 import type {
+  AaGroup,
+  AaGroupId,
+  AaGroupStatus,
   Account,
   AccountId,
   AuthorizationId,
@@ -32,9 +35,15 @@ import type {
   CancelRequest,
   Card,
   CardId,
+  CardKind,
+  CardRestriction,
+  CardType,
   Holding,
+  HoldingId,
   MerchantAuthorization,
   Payee,
+  ProductId,
+  RiskGrade,
   Subscription,
   SubscriptionId,
   Transaction,
@@ -43,14 +52,45 @@ import type {
   UserId,
   WealthProduct,
 } from './model.ts'
-import { accountDisplayName, bankIds, PAGE_LIMIT_DEFAULT, PAGE_LIMIT_MAX, toPct } from './model.ts'
+import {
+  AA_DEFAULT_EXPIRY_HOURS,
+  AA_MAX_EXPIRY_HOURS,
+  accountDisplayName,
+  bankIds,
+  formatYuan,
+  PAGE_LIMIT_DEFAULT,
+  PAGE_LIMIT_MAX,
+  toPct,
+} from './model.ts'
+import { isMerchantCategory, MERCHANT_LABEL } from './merchant.ts'
 import type {
+  AaCloseReq,
+  AaCollectReq,
+  AaCollectResult,
+  AaCreateReq,
+  AaParticipantActionReq,
+  AaSettlementResult,
   Balance,
   BankCoreProvider,
   BillQuery,
   BillReport,
+  CardApplyReq,
+  CardIssued,
+  CardLimitPatch,
+  CardLimitsChanged,
+  CardRestrictionChange,
+  CardRestrictionInput,
+  CardSpendReq,
+  CardSpendResult,
   Page,
+  PasswordChanged,
+  PasswordHandoff,
+  PasswordStatus,
   PurchaseReq,
+  RedeemReq,
+  RedeemResult,
+  RiskAssessment,
+  RiskFinding,
   TransferPreview,
   TransferReq,
   TransferResult,
@@ -59,12 +99,24 @@ import type {
   WealthFilter,
 } from './provider.ts'
 import { checkSuitability } from './suitability.ts'
+import {
+  assertNewTxnPassword,
+  DEMO_TXN_PASSWORD,
+  deriveTxnPasswordSalt,
+  hashTxnPassword,
+  PASSWORD_HANDOFF_PATH,
+  remainingPasswordAttempts,
+  TXN_PASSWORD_LOCK_MS,
+  TXN_PASSWORD_MAX_ATTEMPTS,
+} from './password.ts'
+import type { RiskQuestionnaire } from './risk-questionnaire.ts'
+import { RiskQuestionnaireBook } from './risk-questionnaire.ts'
 import { TicketStore, type TicketRef } from './ticket.ts'
 import { DAY_MS, dayKey, monthKey, periodRange, previousMonth } from './time.ts'
 
 /** mock 核心的装配参数。 */
 export interface MockBankCoreOptions {
-  /** 造数产物（施工单 07 §4）。 */
+  /** 造数产物。 */
   readonly data: BankDataset
   /** 时钟（缺省 = 造数的基准时刻；测试与回放注入固定钟）。 */
   readonly now?: () => number
@@ -72,6 +124,13 @@ export interface MockBankCoreOptions {
   readonly limits?: BankLimits
   /** 票据库（缺省新建；测试可注入以观察状态）。 */
   readonly tickets?: TicketStore
+  /**
+   * 风险测评重测冷却（毫秒）。缺省 0 = 不启用。
+   *
+   * 部署面的保守缺省在 `bank:tools.riskCooldownDays`（1 天），由 host 插件传入；
+   * 核心库自己不设隐式冷却，避免所有直接构造的测试被一天的冷却互相挡住。
+   */
+  readonly riskCooldownMs?: number
 }
 
 /**
@@ -86,7 +145,7 @@ export class MockBankCore implements BankCoreProvider {
   private readonly now: () => number
   private readonly limitsConfig: BankLimits
   /** 主体（只读；`getUser` 返回副本，账本不被外部改动）。 */
-  private readonly users: ReadonlyMap<UserId, User>
+  private readonly users: Map<UserId, User>
   private accounts: Account[]
   private cards: Card[]
   private subscriptions: Subscription[]
@@ -95,10 +154,13 @@ export class MockBankCore implements BankCoreProvider {
   private transactions: Transaction[]
   private payees: Payee[]
   private holdings: Holding[]
+  private aaGroups: AaGroup[]
   private readonly products: WealthProduct[]
   private txnSeq: number
   private payeeSeq: number
   private holdingSeq: number
+  private cardSeq: number
+  private aaSeq: number
   private authorizationSeq: number
   private cancelRequestSeq: number
   /** 幂等键 → 首笔结果（10 分钟窗口；只防"同参数重复提交"，不替代票据）。 */
@@ -106,8 +168,48 @@ export class MockBankCore implements BankCoreProvider {
     string,
     { readonly fingerprint: string; readonly result: TransferResult; readonly expiresAt: number }
   >()
+  /**
+   * 卡消费幂等表（与转账分开：结果形状不同，混存会逼调用方按 `txnId` 猜类型）。
+   *
+   * 卡消费没有票据入参——它由已审批的宿主工具（`merchant_order`）在核销之后调用，
+   * 所以这里只做"同键同参数不重复扣款"。
+   */
+  private readonly cardSpendIdempotency = new Map<
+    string,
+    { readonly fingerprint: string; readonly result: CardSpendResult; readonly expiresAt: number }
+  >()
   /** 原交易 `txnId` → 冲正结果（幂等：同 txnId 只生效一次）。 */
   private readonly reversals = new Map<string, ReversalResult>()
+  /**
+   * 风险问卷实例库（题目/分值的常量表在 `risk-questionnaire.ts`，本类只持实例）。
+   *
+   * 单独一个状态机而不是散在 mock 里：它与票据库同一定位——"谁在什么时候领了什么凭证"，
+   * 核销语义（一次性）也一致。
+   */
+  private readonly riskBook: RiskQuestionnaireBook
+  /**
+   * 交易密码摘要（ADR-0014）：`userId → { salt, hash }`，哈希是 `sha256(salt:password)`。
+   *
+   * **只在内存**：进程退出即消失，不落盘、不落事件、不进日志。明文从不进这个类——
+   * 调用方在栈帧里交出一次明文，这里立刻换成摘要。
+   */
+  private readonly txnPasswords = new Map<string, { readonly salt: string; readonly hash: string }>()
+  /**
+   * 改密交接票据（一次性）：`ticketId → { userId, expiresAt, usedAt? }`。
+   *
+   * 票据是"Agent 已发起、用户还没在安全页提交"这段窗口的凭证；明文只在安全页提交，
+   * 所以这里只存归属与时效，**不存密码**。
+   */
+  private readonly passwordHandoffs = new Map<
+    string,
+    { readonly userId: string; readonly expiresAt: number; usedAt?: number }
+  >()
+  /** 交易密码连续失败计数（**只数旧密码不匹配**；格式错不计数，见 `core/password.ts`）。 */
+  private readonly passwordFailures = new Map<string, number>()
+  /** 交易密码锁定截止时刻（`undefined` = 未锁定）。 */
+  private readonly passwordLockedUntil = new Map<string, number>()
+  /** 最后一次改密时刻（`undefined` = 从未改过）。 */
+  private readonly passwordChangedAt = new Map<string, number>()
   private static readonly IDEMPOTENCY_TTL_MS = 10 * 60_000
 
   constructor(options: MockBankCoreOptions) {
@@ -124,6 +226,7 @@ export class MockBankCore implements BankCoreProvider {
     this.transactions = data.transactions.map((item) => ({ ...item }))
     this.payees = data.payees.map((item) => ({ ...item }))
     this.holdings = data.holdings.map((item) => ({ ...item }))
+    this.aaGroups = []
     this.products = [...data.wealthProducts]
     // 新流水号不把**历史背景流水**（`th-*`，账单场景 T-05）算进起点：
     // 它们只用于账单聚合，不该把演示新流水从 `t-new-9` 推到 `t-new-69`
@@ -131,8 +234,217 @@ export class MockBankCore implements BankCoreProvider {
     this.txnSeq = this.transactions.filter((item) => !String(item.id).startsWith('th-')).length
     this.payeeSeq = this.payees.length
     this.holdingSeq = this.holdings.length
+    this.cardSeq = this.cards.length
+    this.aaSeq = 0
     this.authorizationSeq = this.authorizations.length
     this.cancelRequestSeq = this.cancelRequests.length
+    // 问卷库读写主体等级走同一张 `users` 表：等级的唯一权威仍是本体，
+    // 问卷库不另存一份 "riskGrade" 缓存（两份必然漂移）。
+    this.riskBook = new RiskQuestionnaireBook({
+      now: () => this.now(),
+      readRiskGrade: (userId) => this.users.get(userId)?.riskGrade,
+      writeRiskGrade: (userId, grade) => {
+        const user = this.users.get(userId)
+        if (user !== undefined) this.users.set(userId, { ...user, riskGrade: grade })
+      },
+      ...(options.riskCooldownMs === undefined ? {} : { cooldownMs: options.riskCooldownMs }),
+    })
+    // 交易密码（ADR-0014）：造数里的每个用户都给同一个**演示**初始口令，
+    // 盐按用户派生（同口令不同用户 → 不同摘要）。这里刻意不用 CSPRNG：
+    // 盐从不离开进程，确定性派生让单测与回放不依赖熵（见 `deriveTxnPasswordSalt`）。
+    for (const user of data.users) {
+      const salt = deriveTxnPasswordSalt(String(user.id))
+      this.txnPasswords.set(String(user.id), {
+        salt,
+        hash: hashTxnPassword(salt, DEMO_TXN_PASSWORD),
+      })
+    }
+  }
+
+  /* ── 交易密码（ADR-0014） ───────────────────────────────────────────────── */
+
+  /**
+   * 签发一次性改密交接票据（写）。
+   *
+   * 审批票据**先核销**：一次改密请求只能来自一次已批准的调用（红档），
+   * 核销失败直接抛 `ticket-*`，连票据都不签——避免"审批没批也给了一张可用的交办票"。
+   */
+  async requestPasswordChange(
+    userId: UserId,
+    req: { readonly ticketId: string; readonly ttlMs: number },
+    approval: TicketRef,
+  ): Promise<PasswordHandoff> {
+    this.tickets.redeem(approval, this.now())
+    if (!this.users.has(userId)) {
+      throw new BahError('user-unknown', `bank: 用户不存在：${String(userId)}`, { userId })
+    }
+    if (!Number.isSafeInteger(req.ttlMs) || req.ttlMs <= 0) {
+      throw new BahError('password-ticket-invalid', 'bank: 交接票据 TTL 必须是正整数毫秒', {
+        ttlMs: req.ttlMs,
+      })
+    }
+    const at = this.now()
+    this.prunePasswordHandoffs(at)
+    const expiresAt = at + req.ttlMs
+    this.passwordHandoffs.set(req.ticketId, { userId: String(userId), expiresAt })
+    return {
+      ticketId: req.ticketId,
+      handoffPath: PASSWORD_HANDOFF_PATH,
+      expiresAt,
+      at,
+    }
+  }
+
+  /** 校验交接票据（只读，不核销）：四种失败各有独立理由码。 */
+  async checkPasswordHandoff(ticketId: string, userId: UserId): Promise<PasswordHandoff> {
+    const record = this.requirePasswordHandoff(ticketId)
+    if (record.userId !== String(userId)) {
+      // 顺序：先判"已用/过期"再判归属——重放自己的过期票与猜别人的票，审计上要能分开
+      throw new BahError('password-ticket-foreign', 'bank: 该改密票据不属于当前用户', { ticketId })
+    }
+    return {
+      ticketId,
+      handoffPath: PASSWORD_HANDOFF_PATH,
+      expiresAt: record.expiresAt,
+      at: this.now(),
+    }
+  }
+
+  /** 核销交接票据（一次性；改密成功后才调用）。 */
+  async consumePasswordHandoff(ticketId: string): Promise<void> {
+    const record = this.requirePasswordHandoff(ticketId)
+    this.passwordHandoffs.set(ticketId, { ...record, usedAt: this.now() })
+  }
+
+  /**
+   * 修改交易密码（写）。校验顺序固定（先便宜后贵，见 `core/password.ts`）。
+   *
+   * 失败计数只在"旧密码不匹配"这一步累加：格式错说明申请还没成形，
+   * 拿它计数会让用户打错一次格式就把自己逼近锁定。
+   */
+  async changeTxnPassword(
+    userId: UserId,
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<PasswordChanged> {
+    const key = String(userId)
+    const stored = this.txnPasswords.get(key)
+    if (stored === undefined) {
+      throw new BahError('user-unknown', `bank: 该用户没有交易密码：${key}`, { userId })
+    }
+    const at = this.now()
+    this.assertPasswordNotLocked(key, at)
+    // ① 长度 ② 字符类别 ③ 新 ≠ 旧（都不读账本，先做）
+    assertNewTxnPassword(newPassword, oldPassword)
+    // ④ 旧密码比对（最贵：要算一次哈希）
+    if (typeof oldPassword !== 'string' || hashTxnPassword(stored.salt, oldPassword) !== stored.hash) {
+      const remaining = this.notePasswordMismatch(key, at)
+      throw new BahError('password-mismatch', '旧交易密码不正确', {
+        userId: key,
+        remainingAttempts: remaining,
+      })
+    }
+    // 成功：换盐（同盐继续用会让"旧摘要"在日志/内存快照里仍然可复用）、清计数、记时刻
+    const salt = deriveTxnPasswordSalt(`${key}|${String(at)}`)
+    this.txnPasswords.set(key, { salt, hash: hashTxnPassword(salt, newPassword) })
+    this.passwordFailures.delete(key)
+    this.passwordLockedUntil.delete(key)
+    this.passwordChangedAt.set(key, at)
+    return { changedAt: at }
+  }
+
+  /** 校验交易密码（只读：不累加失败计数、不锁定）。 */
+  async checkTxnPassword(userId: UserId, password: string): Promise<boolean> {
+    const stored = this.txnPasswords.get(String(userId))
+    if (stored === undefined || typeof password !== 'string') return false
+    return hashTxnPassword(stored.salt, password) === stored.hash
+  }
+
+  /** 交易密码状态（只读；顺手清掉已过窗口的锁，两次调用结果相同）。 */
+  async passwordStatus(userId: UserId): Promise<PasswordStatus> {
+    const key = String(userId)
+    const at = this.now()
+    const until = this.passwordLockedUntil.get(key)
+    const locked = until !== undefined && until > at
+    if (until !== undefined && !locked) {
+      // 窗口已过：清锁并归零，`remainingAttempts` 才能回到 3
+      this.passwordLockedUntil.delete(key)
+      this.passwordFailures.delete(key)
+    }
+    return {
+      lastChangedAt: this.passwordChangedAt.get(key) ?? null,
+      remainingAttempts: remainingPasswordAttempts(this.passwordFailures.get(key) ?? 0, locked),
+    }
+  }
+
+  /** 取有效票据；不存在/已用/过期分别抛码（归属由调用方判）。 */
+  private requirePasswordHandoff(ticketId: string): {
+    readonly userId: string
+    readonly expiresAt: number
+    usedAt?: number
+  } {
+    const record = this.passwordHandoffs.get(ticketId)
+    if (record === undefined) {
+      throw new BahError('password-ticket-unknown', `bank: 未知改密票据：${ticketId}`, { ticketId })
+    }
+    if (record.usedAt !== undefined) {
+      throw new BahError('password-ticket-used', 'bank: 改密票据是一次性的，该票据已使用', {
+        ticketId,
+        usedAt: record.usedAt,
+      })
+    }
+    if (record.expiresAt <= this.now()) {
+      this.passwordHandoffs.delete(ticketId)
+      throw new BahError('password-ticket-expired', 'bank: 改密票据已过期，请重新发起', {
+        ticketId,
+        expiresAt: record.expiresAt,
+      })
+    }
+    return record
+  }
+
+  /** 锁定中直接拒；窗口已过则清锁归零。 */
+  private assertPasswordNotLocked(userId: string, at: number): void {
+    const until = this.passwordLockedUntil.get(userId)
+    if (until === undefined) return
+    if (until > at) {
+      throw new BahError('password-locked', '交易密码连续错误次数过多，请稍后再试', {
+        userId,
+        until,
+      })
+    }
+    this.passwordLockedUntil.delete(userId)
+    this.passwordFailures.delete(userId)
+  }
+
+  /**
+   * 记一次旧密码不匹配。
+   *
+   * @returns 剩余可尝试次数（1 或 2）
+   * @throws `BahError('password-locked')` 达到阈值时（第 3 次）
+   */
+  private notePasswordMismatch(userId: string, at: number): number {
+    const failures = (this.passwordFailures.get(userId) ?? 0) + 1
+    this.passwordFailures.set(userId, failures)
+    if (failures >= TXN_PASSWORD_MAX_ATTEMPTS) {
+      const until = at + TXN_PASSWORD_LOCK_MS
+      this.passwordLockedUntil.set(userId, until)
+      throw new BahError('password-locked', '交易密码连续错误次数过多，请稍后再试', {
+        userId,
+        until,
+      })
+    }
+    return TXN_PASSWORD_MAX_ATTEMPTS - failures
+  }
+
+  /** 票据表软上限：超过后清掉过期/已用的（有效票据永不丢弃）。 */
+  private prunePasswordHandoffs(at: number): void {
+    if (this.passwordHandoffs.size < 256) return
+    for (const [ticketId, record] of this.passwordHandoffs) {
+      if (record.usedAt !== undefined || record.expiresAt <= at) {
+        this.passwordHandoffs.delete(ticketId)
+      }
+    }
   }
 
   /* ── 读操作 ─────────────────────────────────────────────────────────────── */
@@ -164,7 +476,12 @@ export class MockBankCore implements BankCoreProvider {
     )
     return this.cards
       .filter((item) => accountIds.has(item.accountId))
-      .map((item) => ({ ...item }))
+      .map((item) => ({
+        ...item,
+        ...(item.restrictions === undefined
+          ? {}
+          : { restrictions: item.restrictions.map((restriction) => ({ ...restriction })) }),
+      }))
   }
 
   async reportCardLost(userId: UserId, cardId: CardId): Promise<CardLostResult> {
@@ -206,6 +523,435 @@ export class MockBankCore implements BankCoreProvider {
       item.id === cardId ? { ...item, status: 'normal' as const } : item,
     )
     return { cardId, tail: card.tail, status: 'normal', changed: true }
+  }
+
+  async applyCard(req: CardApplyReq): Promise<CardIssued> {
+    const account =
+      req.accountId === undefined
+        ? this.accounts.find((item) => item.userId === req.userId && item.type === 'current')
+        : this.requireAccount(req.accountId)
+    if (account === undefined) {
+      throw new BahError('account-unknown', 'bank: 当前用户没有可挂卡的活期账户', {
+        userId: req.userId,
+      })
+    }
+    if (account.userId !== req.userId) {
+      throw new BahError('account-forbidden', 'bank: 账户不属于该用户', {
+        accountId: account.id,
+        userId: req.userId,
+      })
+    }
+    if (account.status !== 'active') {
+      throw new BahError('account-inactive', `bank: 账户状态 ${account.status}，不能申请卡片`, {
+        accountId: account.id,
+        status: account.status,
+      })
+    }
+    const type: CardType = req.type ?? 'virtual'
+    // 卡产品与介质正交（ADR-0015）：信用产品必须给授信额度，借记卡给了就是参数错。
+    const kind: CardKind = req.kind ?? 'debit'
+    if (kind === 'credit') {
+      if (req.creditLimitCents === undefined) {
+        throw new BahError('credit-limit-required', 'bank: 信用卡必须在申请时给授信额度', {
+          userId: req.userId,
+          kind,
+        })
+      }
+      this.assertCreditLimit(req.creditLimitCents)
+    } else if (req.creditLimitCents !== undefined) {
+      throw new BahError('credit-not-applicable', 'bank: 借记卡没有授信额度（请用 kind=credit 申请信用卡）', {
+        userId: req.userId,
+        kind,
+        creditLimitCents: req.creditLimitCents,
+      })
+    }
+    /**
+     * 信用产品的日/月限额缺省 = 授信额度：总额度已经封顶，
+     * 再套一个更小的日/月限额只会让"额度内可用却刷不出去"（ADR-0015 §2.3）。
+     */
+    const creditLimitCents = kind === 'credit' ? req.creditLimitCents : undefined
+    const defaultDaily = type === 'virtual' ? 200_000 : 100_000
+    const defaultMonthly = type === 'virtual' ? 800_000 : 2_000_000
+    const dailyLimitCents = req.dailyLimitCents ?? creditLimitCents ?? defaultDaily
+    const monthlyLimitCents = req.monthlyLimitCents ?? creditLimitCents ?? defaultMonthly
+    this.assertCardLimits(dailyLimitCents, monthlyLimitCents)
+    this.cardSeq += 1
+    let tail = String(1000 + this.cardSeq).slice(-4)
+    while (this.cards.some((item) => item.tail === tail)) {
+      this.cardSeq += 1
+      tail = String(1000 + this.cardSeq).slice(-4)
+    }
+    const card: Card = {
+      id: bankIds.card(`c-new-${this.cardSeq}`),
+      accountId: account.id,
+      tail,
+      type,
+      status: 'normal',
+      dailyLimitCents,
+      monthlyLimitCents,
+      ...(kind === 'credit' ? { kind, creditLimitCents, usedCreditCents: 0 } : {}),
+    }
+    this.cards = [...this.cards, card]
+    return {
+      cardId: card.id,
+      accountId: account.id,
+      tail: card.tail,
+      type: card.type,
+      status: 'normal',
+      dailyLimitCents: card.dailyLimitCents,
+      monthlyLimitCents: card.monthlyLimitCents,
+      ...(card.kind === undefined
+        ? {}
+        : {
+            kind: card.kind,
+            creditLimitCents: card.creditLimitCents,
+            usedCreditCents: card.usedCreditCents,
+          }),
+    }
+  }
+
+  async setCardLimits(
+    userId: UserId,
+    cardId: CardId,
+    patch: CardLimitPatch,
+  ): Promise<CardLimitsChanged> {
+    const card = this.cardOfUser(userId, cardId)
+    if (card.status === 'lost') {
+      throw new BahError('card-lost', 'bank: 该卡已挂失，不能调整额度', { cardId })
+    }
+    if (
+      patch.dailyLimitCents === undefined &&
+      patch.monthlyLimitCents === undefined &&
+      patch.creditLimitCents === undefined
+    ) {
+      throw new BahError('card-limit-invalid', 'bank: 至少给一项额度（日/月/授信）', { cardId })
+    }
+    /**
+     * 授信额度（ADR-0015）：只有信用产品有；**降额不得低于已用**——
+     * 允许降到已用之下等于让账本当场自相矛盾（已用 > 额度）。
+     */
+    let creditLimitCents = card.creditLimitCents
+    if (patch.creditLimitCents !== undefined) {
+      if (card.kind !== 'credit') {
+        throw new BahError(
+          'credit-not-applicable',
+          'bank: 该卡是借记卡，没有授信额度（信用卡请先用 card_apply 申请）',
+          { cardId, tail: card.tail },
+        )
+      }
+      this.assertCreditLimit(patch.creditLimitCents)
+      const used = card.usedCreditCents ?? 0
+      if (patch.creditLimitCents < used) {
+        throw new BahError(
+          'credit-in-use',
+          `bank: 尾号 ${card.tail} 的卡已用 ${formatYuan(used)}，` +
+            `授信额度不能降到 ${formatYuan(patch.creditLimitCents)}（最低可降到已用的 ${formatYuan(used)}）`,
+          {
+            cardId,
+            creditLimitCents: patch.creditLimitCents,
+            usedCreditCents: used,
+            minimumCents: used,
+          },
+        )
+      }
+      creditLimitCents = patch.creditLimitCents
+    }
+    const dailyLimitCents = patch.dailyLimitCents ?? card.dailyLimitCents
+    const monthlyLimitCents = patch.monthlyLimitCents ?? card.monthlyLimitCents
+    this.assertCardLimits(dailyLimitCents, monthlyLimitCents)
+    const changed =
+      dailyLimitCents !== card.dailyLimitCents ||
+      monthlyLimitCents !== card.monthlyLimitCents ||
+      creditLimitCents !== card.creditLimitCents
+    if (changed) {
+      this.cards = this.cards.map((item) =>
+        item.id === cardId
+          ? {
+              ...item,
+              dailyLimitCents,
+              monthlyLimitCents,
+              ...(creditLimitCents === undefined ? {} : { creditLimitCents }),
+            }
+          : item,
+      )
+    }
+    return {
+      cardId,
+      tail: card.tail,
+      dailyLimitCents,
+      monthlyLimitCents,
+      changed,
+      ...(card.kind === 'credit' && creditLimitCents !== undefined
+        ? {
+            kind: card.kind,
+            creditLimitCents,
+            usedCreditCents: card.usedCreditCents ?? 0,
+          }
+        : {}),
+    }
+  }
+
+  async setCardRestriction(
+    userId: UserId,
+    cardId: CardId,
+    input: CardRestrictionInput,
+  ): Promise<CardRestrictionChange> {
+    const card = this.cardOfUser(userId, cardId)
+    if (card.status === 'lost') {
+      throw new BahError('card-lost', 'bank: 该卡已挂失，不能调整交易限制', { cardId })
+    }
+    const current = card.restrictions ?? []
+    let next: readonly CardRestriction[]
+    if (input.mode === 'clear') {
+      if (input.kind === undefined) {
+        next = []
+      } else {
+        next = current.filter(
+          (item) =>
+            item.kind !== input.kind ||
+            (input.value !== undefined && item.value !== input.value),
+        )
+      }
+    } else {
+      if (input.kind === undefined) {
+        throw new BahError('card-restriction-invalid', 'bank: 设置交易限制必须给 kind', { cardId })
+      }
+      if (input.kind === 'category' && (input.value === undefined || input.value.length === 0)) {
+        throw new BahError('card-restriction-invalid', 'bank: category 限制必须给 value', {
+          cardId,
+        })
+      }
+      // 品类是封闭集合：写入面就拒绝自由文本，否则"限制"永远匹配不上任何消费
+      if (input.kind === 'category' && !isMerchantCategory(input.value ?? '')) {
+        throw new BahError('card-restriction-invalid', 'bank: category 限制的 value 必须是已知品类', {
+          cardId,
+          value: input.value,
+        })
+      }
+      const restriction: CardRestriction = {
+        kind: input.kind,
+        ...(input.kind === 'category' ? { value: input.value } : {}),
+        ...(input.note === undefined ? {} : { note: input.note }),
+        at: this.now(),
+      }
+      next = [
+        ...current.filter(
+          (item) =>
+            item.kind !== restriction.kind ||
+            (restriction.value !== undefined && item.value !== restriction.value),
+        ),
+        restriction,
+      ]
+    }
+    const changed = JSON.stringify(next) !== JSON.stringify(current)
+    if (changed) {
+      this.cards = this.cards.map((item) =>
+        item.id === cardId ? { ...item, restrictions: next } : item,
+      )
+    }
+    return { cardId, tail: card.tail, restrictions: next, changed }
+  }
+
+  /**
+   * 以卡消费（mock 收单通道，B-03 的品类拦截落点）。
+   *
+   * **校验顺序固定**（与 `docs/bank-tools.md` 的卡消费小节逐条对齐，不许换）：
+   * 1) 卡存在且属于该用户 → 2) 状态 `normal` → 3) `online` 限制 → 4) `category` 限制 →
+   * 5) **授信额度（仅 `kind='credit'`；ADR-0015）** → 6) 日/月限额 → 7) 账户可用余额 → 8) 记账。
+   *
+   * 前七步任一失败都在记账之前抛出：账本不变，卡额度不被"半笔消费"占用。
+   * 授信额度排在日/月限额之前是刻意的：额度是信用产品的**主约束**，先判它，
+   * 拒绝理由才对得上事实（借记卡不进这段，判定顺序逐字不变）。
+   */
+  async spendOnCard(req: CardSpendReq): Promise<CardSpendResult> {
+    this.assertAmount(req.amountCents)
+    const card = this.cardOfUser(req.userId, req.cardId)
+    if (card.status !== 'normal') {
+      throw new BahError(
+        'card-unavailable',
+        card.status === 'lost' ? 'bank: 该卡已挂失，不能用于支付' : 'bank: 该卡已冻结，请先解冻',
+        { cardId: card.id, status: card.status },
+      )
+    }
+    const restrictions = card.restrictions ?? []
+    if (restrictions.some((item) => item.kind === 'online')) {
+      throw new BahError('card-restricted', `bank: 尾号 ${card.tail} 的卡已限制线上交易`, {
+        cardId: card.id,
+        kind: 'online',
+      })
+    }
+    const categoryHit = restrictions.find(
+      (item) => item.kind === 'category' && item.value === req.merchantCategory,
+    )
+    if (categoryHit !== undefined) {
+      throw new BahError(
+        'card-restricted',
+        `bank: 尾号 ${card.tail} 的卡已限制${MERCHANT_LABEL[req.merchantCategory]}类消费`,
+        { cardId: card.id, kind: 'category', value: req.merchantCategory },
+      )
+    }
+
+    /**
+     * 授信额度（ADR-0015）：信用产品的**主约束**，刻意排在日/月限额之前。
+     *
+     * 为什么不是排在最后：额度是天花板，日/月限额是叠加在它上面的"防单日大额"。
+     * 若先判日/月限额，"用了 1200、额度 5000、日限 5000、再刷 4000"会被报成
+     * "超日限额"——而真正的原因只有一个：超额度。**先判主约束，理由才对得上事实。**
+     * 借记卡（`kind` 缺省）整段跳过，判定顺序逐字不变。
+     */
+    if (card.kind === 'credit') {
+      const creditLimitCents = card.creditLimitCents ?? 0
+      const usedCreditCents = card.usedCreditCents ?? 0
+      if (usedCreditCents + req.amountCents > creditLimitCents) {
+        throw new BahError(
+          'credit-limit-exceeded',
+          `bank: 尾号 ${card.tail} 的信用卡已用 ${formatYuan(usedCreditCents)}，` +
+            `本笔 ${formatYuan(req.amountCents)} 超过授信额度 ${formatYuan(creditLimitCents)}` +
+            `（可用 ${formatYuan(Math.max(0, creditLimitCents - usedCreditCents))}）`,
+          { cardId: card.id, creditLimitCents, usedCreditCents, neededCents: req.amountCents },
+        )
+      }
+    }
+
+    const at = this.now()
+    const rawKey = req.idempotencyKey?.trim()
+    const idemKey =
+      rawKey === undefined || rawKey.length === 0
+        ? undefined
+        : `${req.userId}:${card.id}:${rawKey}`
+    const fingerprint = `${req.merchantCategory}|${req.amountCents}|${req.memo ?? ''}`
+    if (idemKey !== undefined) {
+      const cached = this.cardSpendIdempotency.get(idemKey)
+      if (cached !== undefined && cached.expiresAt > at) {
+        if (cached.fingerprint !== fingerprint) {
+          throw new BahError('idempotency-conflict', 'bank: 幂等键已用于不同的消费参数', {
+            idempotencyKey: idemKey,
+          })
+        }
+        return cached.result
+      }
+      if (cached !== undefined) this.cardSpendIdempotency.delete(idemKey)
+    }
+
+    const limits = this.cardLimitOf(card.accountId, card.id, at)
+    if (limits.dailyUsedCents + req.amountCents > limits.dailyLimitCents) {
+      throw new BahError(
+        'card-daily-limit-exceeded',
+        `bank: 尾号 ${card.tail} 的卡今日已用 ${formatYuan(limits.dailyUsedCents)}，` +
+          `本笔 ${formatYuan(req.amountCents)} 超过日限额 ${formatYuan(limits.dailyLimitCents)}`,
+        {
+          cardId: card.id,
+          dailyUsedCents: limits.dailyUsedCents,
+          dailyLimitCents: limits.dailyLimitCents,
+          amountCents: req.amountCents,
+        },
+      )
+    }
+    if (limits.monthlyUsedCents + req.amountCents > limits.monthlyLimitCents) {
+      throw new BahError(
+        'card-monthly-limit-exceeded',
+        `bank: 尾号 ${card.tail} 的卡近 30 天已用 ${formatYuan(limits.monthlyUsedCents)}，` +
+          `本笔 ${formatYuan(req.amountCents)} 超过月限额 ${formatYuan(limits.monthlyLimitCents)}`,
+        {
+          cardId: card.id,
+          monthlyUsedCents: limits.monthlyUsedCents,
+          monthlyLimitCents: limits.monthlyLimitCents,
+          amountCents: req.amountCents,
+        },
+      )
+    }
+
+    const account = this.requireAccount(card.accountId)
+    if (account.availableCents < req.amountCents) {
+      throw new BahError(
+        'insufficient-balance',
+        `bank: 余额不足（可用 ${formatYuan(account.availableCents)}，需要 ${formatYuan(req.amountCents)}）`,
+        {
+          accountId: account.id,
+          availableCents: account.availableCents,
+          neededCents: req.amountCents,
+        },
+      )
+    }
+
+    const transaction: Transaction = {
+      id: this.nextTxnId(),
+      accountId: card.accountId,
+      at,
+      amountCents: req.amountCents,
+      direction: 'out',
+      counterparty: { name: req.memo ?? MERCHANT_LABEL[req.merchantCategory] },
+      category: 'consumption',
+      channel: 'app',
+      status: 'success',
+      viaCardId: card.id,
+    }
+    this.transactions = [...this.transactions, transaction]
+    const balanceCents = account.balanceCents - req.amountCents
+    const availableCents = account.availableCents - req.amountCents
+    this.replaceAccount(account.id, { balanceCents, availableCents })
+
+    /**
+     * 额度占用（ADR-0015）：放在记账之后，等于"只有真的成交才占用"。
+     * 记账前任何一步抛出都已经 return/throw，`usedCreditCents` 一分不动——
+     * 不做"先占后回滚"，回滚路径就是第二份真相。
+     */
+    if (card.kind === 'credit') {
+      const usedCreditCents = (card.usedCreditCents ?? 0) + req.amountCents
+      this.cards = this.cards.map((item) =>
+        item.id === card.id ? { ...item, usedCreditCents } : item,
+      )
+    }
+
+    const dailyUsedCents = this.cardDailyUsedCents(card.id, at)
+    const monthlyUsedCents = this.monthlyUsedCents(card.accountId, card.id, at)
+    const result: CardSpendResult = {
+      cardId: card.id,
+      tail: card.tail,
+      txnId: transaction.id,
+      merchantCategory: req.merchantCategory,
+      amountCents: req.amountCents,
+      ...(req.memo === undefined ? {} : { memo: req.memo }),
+      dailyUsedCents,
+      dailyLimitCents: card.dailyLimitCents,
+      monthlyUsedCents,
+      monthlyLimitCents: card.monthlyLimitCents,
+      balanceCents,
+      availableCents,
+      at,
+    }
+    if (idemKey !== undefined) {
+      this.cardSpendIdempotency.set(idemKey, {
+        fingerprint,
+        result,
+        expiresAt: at + MockBankCore.IDEMPOTENCY_TTL_MS,
+      })
+    }
+    return result
+  }
+
+  private assertCardLimits(dailyLimitCents: number, monthlyLimitCents: number): void {
+    if (!Number.isSafeInteger(dailyLimitCents) || dailyLimitCents <= 0) {
+      throw new BahError('card-limit-invalid', 'bank: 日限额必须是正整数分', { dailyLimitCents })
+    }
+    if (!Number.isSafeInteger(monthlyLimitCents) || monthlyLimitCents <= 0) {
+      throw new BahError('card-limit-invalid', 'bank: 月限额必须是正整数分', { monthlyLimitCents })
+    }
+    if (dailyLimitCents > monthlyLimitCents) {
+      throw new BahError('card-limit-invalid', 'bank: 日限额不能高于月限额', {
+        dailyLimitCents,
+        monthlyLimitCents,
+      })
+    }
+  }
+
+  /** 授信额度的形状校验（ADR-0015）：正整数分，且不接受 0（0 额度等于不可用卡，不是"没额度"）。 */
+  private assertCreditLimit(creditLimitCents: number): void {
+    if (!Number.isSafeInteger(creditLimitCents) || creditLimitCents <= 0) {
+      throw new BahError('credit-limit-invalid', 'bank: 授信额度必须是正整数分', {
+        creditLimitCents,
+      })
+    }
   }
 
   async cancelSubscription(
@@ -484,6 +1230,14 @@ export class MockBankCore implements BankCoreProvider {
     const at = this.now()
     // 本人账户命中优先于收款人表：否则「锁定账户(9012)」会被当成新收款人升红
     const selfTarget = this.resolveSelfTransfer(account, req.payee)
+    // 与 createTransfer 同一守卫：预览也不许给出"锁定账户能对外转出"的假结论。
+    if (account.type === 'locked' && selfTarget === undefined) {
+      throw new BahError(
+        'transfer-locked-source',
+        'bank: 锁定账户只能回到本人活期，不能对外转出',
+        { accountId: account.id },
+      )
+    }
     const payee = selfTarget === undefined ? this.findPayee(account.userId, req.payee) : undefined
     const viaCard =
       req.viaCardId === undefined ? undefined : this.requireCardOf(account.id, req.viaCardId)
@@ -501,6 +1255,18 @@ export class MockBankCore implements BankCoreProvider {
       limits: this.limitsConfig,
       ...(viaCard === undefined ? {} : { cardStatus: viaCard.status, cardTail: viaCard.tail }),
     })
+    const restrictionRisk = viaCard === undefined ? undefined : cardRestrictionRisk(viaCard)
+    // 月限额是**硬阻断**（与日限额不同：日限额可由人工审批放行，月限额是卡面合同额度）。
+    // 只在显式以卡支付时判定：没有卡就没有"按卡归集"的对象，不拿账户流水臆造卡月累计。
+    const monthlyRisk =
+      viaCard === undefined
+        ? undefined
+        : this.cardMonthlyLimitRisk(account.id, viaCard, req.amountCents, at)
+    const allRisks = [
+      ...risks,
+      ...(restrictionRisk === undefined ? [] : [restrictionRisk]),
+      ...(monthlyRisk === undefined ? [] : [monthlyRisk]),
+    ]
     return {
       amountCents: req.amountCents,
       feeCents: 0,
@@ -511,10 +1277,10 @@ export class MockBankCore implements BankCoreProvider {
       dailyUsedCents,
       dailyLimitCents,
       remainingCents: Math.max(0, dailyLimitCents - dailyUsedCents),
-      risks,
-      verdict: risks.some((risk) => risk.severity === 'block')
+      risks: allRisks,
+      verdict: allRisks.some((risk) => risk.severity === 'block')
         ? 'block'
-        : risks.length > 0
+        : allRisks.length > 0
           ? 'warn'
           : 'allow',
       ...(viaCard === undefined ? {} : { viaCard: { tail: viaCard.tail, status: viaCard.status } }),
@@ -543,6 +1309,20 @@ export class MockBankCore implements BankCoreProvider {
           { cardId: card.id, status: card.status },
         )
       }
+      const restriction = cardRestrictionRisk(card)
+      if (restriction !== undefined) {
+        throw new BahError('card-restricted', `bank: ${restriction.message}`, {
+          cardId: card.id,
+          kinds: card.restrictions?.map((item) => item.kind),
+        })
+      }
+      const monthly = this.cardMonthlyLimitRisk(account.id, card, req.amountCents, this.now())
+      if (monthly !== undefined) {
+        throw new BahError(monthly.code, `bank: ${monthly.message}`, {
+          cardId: card.id,
+          ...(monthly.detail ?? {}),
+        })
+      }
     }
     if (req.payee.name.trim().length === 0) {
       throw new BahError('payee-invalid', 'bank: 收款人姓名不能为空', { accountId: account.id })
@@ -551,6 +1331,20 @@ export class MockBankCore implements BankCoreProvider {
     // 票据连核销都不该发生。方向错误先于余额错误报——"锁定账户不能转出"
     // 比"余额不足"更接近用户要问的问题。
     const selfTarget = this.resolveSelfTransfer(account, req.payee)
+    /**
+     * 锁定账户的**对外**转出必须在这一层拦住（2026-11-01）。
+     *
+     * `resolveSelfTransfer` 只在"收款人命中本人账户"时有话说；收款人是外人时它返回
+     * `undefined`，随后就走成了普通对外转账——earmark 会被当成可用余额花掉。
+     * 这里以"source 是 locked 且不是内部划转"为闭集拒绝，与释放方向互补。
+     */
+    if (account.type === 'locked' && selfTarget === undefined) {
+      throw new BahError(
+        'transfer-locked-source',
+        'bank: 锁定账户只能回到本人活期，不能对外转出',
+        { accountId: account.id },
+      )
+    }
     const feeCents = 0
     if (account.availableCents < req.amountCents + feeCents) {
       throw new BahError(
@@ -612,6 +1406,7 @@ export class MockBankCore implements BankCoreProvider {
       category: 'transfer',
       channel: req.channel,
       status: 'success',
+      ...(req.viaCardId === undefined ? {} : { viaCardId: req.viaCardId }),
     }
     this.transactions = [...this.transactions, transaction]
     this.replaceAccount(account.id, {
@@ -690,6 +1485,8 @@ export class MockBankCore implements BankCoreProvider {
       category: 'refund',
       channel: original.channel,
       status: 'success',
+      // 冲正继承原交易的卡归属：月/日累计的减法按 `viaCardId` 归集，丢了就减不掉
+      ...(original.viaCardId === undefined ? {} : { viaCardId: original.viaCardId }),
       reversalOf: original.id,
     }
     this.transactions = [...this.transactions, reversal]
@@ -790,6 +1587,7 @@ export class MockBankCore implements BankCoreProvider {
       id: bankIds.holding(`h-new-${this.holdingSeq + 1}`),
       userId: req.userId,
       productId: product.id,
+      accountId: req.accountId,
       // 演示口径：1 元/份（分 → 份）
       shares: req.amountCents / 100,
       costCents: req.amountCents,
@@ -801,6 +1599,500 @@ export class MockBankCore implements BankCoreProvider {
     return holding
   }
 
+  async listHoldings(userId: UserId): Promise<Holding[]> {
+    return this.holdings.filter((item) => item.userId === userId).map((item) => ({ ...item }))
+  }
+
+  async redeemWealth(req: RedeemReq, ticket: TicketRef): Promise<RedeemResult> {
+    const holding =
+      req.holdingId === undefined
+        ? this.holdings.find(
+            (item) => item.userId === req.userId && item.productId === req.productId,
+          )
+        : this.holdings.find(
+            (item) => item.userId === req.userId && item.id === req.holdingId,
+          )
+    if (holding === undefined) {
+      throw new BahError('holding-unknown', 'bank: 找不到可赎回的持仓', {
+        ...(req.holdingId === undefined ? {} : { holdingId: req.holdingId }),
+        ...(req.productId === undefined ? {} : { productId: req.productId }),
+      })
+    }
+    const product = this.products.find((item) => item.id === holding.productId)
+    if (product === undefined) {
+      throw new BahError('product-unknown', `bank: 未知理财产品：${holding.productId}`, {
+        productId: holding.productId,
+      })
+    }
+    const amountCents = req.amountCents ?? holding.marketValueCents
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+      throw new BahError('holding-amount-invalid', 'bank: 赎回金额必须是正整数分', {
+        amountCents,
+      })
+    }
+    if (amountCents > holding.marketValueCents) {
+      throw new BahError('holding-amount-invalid', 'bank: 赎回金额超过持仓市值', {
+        amountCents,
+        marketValueCents: holding.marketValueCents,
+      })
+    }
+    const account =
+      holding.accountId === undefined
+        ? this.accounts.find((item) => item.userId === req.userId && item.type === 'current')
+        : this.requireAccount(holding.accountId)
+    // 构造不可达：`purchaseWealth` 要求 accountId 并当场 `requireAccount`，所以持仓的 `accountId` 永不为空；演示数据集也没有"删账户"的动作。留这道守卫是给未来"从外部导入持仓"用的，不能让赎回静默回款到任意活期。
+    /* v8 ignore next 5 */
+    if (account === undefined) {
+      throw new BahError('account-unknown', 'bank: 当前用户没有可回款的活期账户', {
+        userId: req.userId,
+      })
+    }
+    if (account.userId !== req.userId) {
+      throw new BahError('account-forbidden', 'bank: 账户不属于该用户', {
+        accountId: account.id,
+        userId: req.userId,
+      })
+    }
+    if (account.status !== 'active') {
+      throw new BahError('account-inactive', `bank: 账户状态 ${account.status}，不能接收赎回款`, {
+        accountId: account.id,
+        status: account.status,
+      })
+    }
+
+    const at = this.now()
+    this.tickets.redeem(ticket, at)
+    this.replaceAccount(account.id, {
+      balanceCents: account.balanceCents + amountCents,
+      availableCents: account.availableCents + amountCents,
+    })
+    const txn: Transaction = {
+      id: this.nextTxnId(),
+      accountId: account.id,
+      at,
+      amountCents,
+      direction: 'in',
+      counterparty: { name: product.name, memo: '理财赎回' },
+      category: 'wealth',
+      channel: 'app',
+      status: 'success',
+    }
+    this.transactions = [...this.transactions, txn]
+
+    const remaining = holding.marketValueCents - amountCents
+    if (remaining === 0) {
+      this.holdings = this.holdings.filter((item) => item.id !== holding.id)
+    } else {
+      const ratio = amountCents / holding.marketValueCents
+      const remainingCost = Math.round(holding.costCents * (1 - ratio))
+      this.holdings = this.holdings.map((item) =>
+        item.id === holding.id
+          ? {
+              ...item,
+              shares: Math.round(item.shares * (1 - ratio) * 100) / 100,
+              costCents: remainingCost,
+              marketValueCents: remaining,
+              profitCents: remaining - remainingCost,
+            }
+          : item,
+      )
+    }
+    const updated = this.accounts.find((item) => item.id === account.id)
+    return {
+      holdingId: holding.id,
+      productId: product.id,
+      productName: product.name,
+      amountCents,
+      shares: amountCents / 100,
+      txnId: txn.id,
+      balanceCents: updated?.balanceCents ?? account.balanceCents + amountCents,
+      availableCents: updated?.availableCents ?? account.availableCents + amountCents,
+      at,
+    }
+  }
+
+  /**
+   * 下发风险问卷（不写库、不改等级）。
+   *
+   * 返回的是**副本**：渠道改字段（比如给选项排版加符号）不能污染常量表。
+   */
+  async issueRiskQuestions(userId: UserId): Promise<RiskQuestionnaire> {
+    return this.riskBook.issue(userId)
+  }
+
+  /** 按 ID 取问卷（只读副本；不存在返回 `undefined`，不抛——"没这张卷"是业务结果）。 */
+  async getRiskQuestionnaire(questionnaireId: string): Promise<RiskQuestionnaire | undefined> {
+    return this.riskBook.get(questionnaireId)
+  }
+
+  /**
+   * 风险测评落档（写：更新客户风险等级）。
+   *
+   * 五道校验与一次性核销全在 `RiskQuestionnaireBook.assess`：本方法只做转接，
+   * **不在这里另写一遍阈值或校验**——两份校验必然漂移，而这里漂移的后果是等级错了还落账。
+   */
+  async assessRisk(req: {
+    readonly userId: UserId
+    readonly questionnaireId: string
+    readonly answers: readonly { readonly index: number; readonly key: string }[]
+  }): Promise<RiskAssessment> {
+    return this.riskBook.assess(req)
+  }
+
+  async createAa(req: AaCreateReq): Promise<AaGroup> {
+    if (this.users.get(req.userId) === undefined) {
+      throw new BahError('user-unknown', `bank: 用户不存在：${req.userId}`, { userId: req.userId })
+    }
+    if (!Number.isSafeInteger(req.totalCents) || req.totalCents <= 0) {
+      throw new BahError('aa-invalid', 'bank: AA 总额必须是正整数分', {
+        totalCents: req.totalCents,
+      })
+    }
+    if (req.participants.length < 2 || req.participants.length > 20) {
+      throw new BahError('aa-invalid', 'bank: AA 参与人必须是 2–20 人', {
+        count: req.participants.length,
+      })
+    }
+    let sum = 0
+    for (const [index, participant] of req.participants.entries()) {
+      if (participant.name.trim().length === 0) {
+        throw new BahError('aa-invalid', 'bank: AA 参与人姓名不能为空', { index })
+      }
+      if (!Number.isSafeInteger(participant.shareCents) || participant.shareCents <= 0) {
+        throw new BahError('aa-invalid', 'bank: AA 份额必须是正整数分', {
+          index,
+          shareCents: participant.shareCents,
+        })
+      }
+      sum += participant.shareCents
+    }
+    if (sum !== req.totalCents) {
+      throw new BahError('aa-invalid', 'bank: AA 份额之和必须等于总额', {
+        totalCents: req.totalCents,
+        sumCents: sum,
+      })
+    }
+    const expiresInHours = req.expiresInHours ?? AA_DEFAULT_EXPIRY_HOURS
+    if (
+      !Number.isInteger(expiresInHours) ||
+      expiresInHours < 1 ||
+      expiresInHours > AA_MAX_EXPIRY_HOURS
+    ) {
+      throw new BahError(
+        'aa-invalid',
+        `bank: AA 收款窗口必须是 1–${String(AA_MAX_EXPIRY_HOURS)} 小时`,
+        { expiresInHours },
+      )
+    }
+    this.aaSeq += 1
+    const createdAt = this.now()
+    const group: AaGroup = {
+      id: bankIds.aa(`aa-new-${this.aaSeq}`),
+      userId: req.userId,
+      title: req.title,
+      totalCents: req.totalCents,
+      participants: req.participants.map((participant) => ({
+        name: participant.name.trim(),
+        ...(participant.phone === undefined ? {} : { phone: participant.phone }),
+        shareCents: participant.shareCents,
+        status: 'pending',
+      })),
+      status: 'collecting',
+      createdAt,
+      expiresAt: createdAt + expiresInHours * 3_600_000,
+    }
+    this.aaGroups = [...this.aaGroups, group]
+    return {
+      ...group,
+      participants: group.participants.map((participant) => ({ ...participant })),
+    }
+  }
+
+  async getAa(userId: UserId, groupId: AaGroupId): Promise<AaGroup | undefined> {
+    const group = this.aaGroups.find((item) => item.id === groupId && item.userId === userId)
+    return group === undefined
+      ? undefined
+      : {
+          ...group,
+          participants: group.participants.map((participant) => ({ ...participant })),
+        }
+  }
+
+  /**
+   * 模拟代收（demo 口径，ADR-0011）。
+   *
+   * 固定顺序（顺序即安全边界）：
+   * 1. 组归属（不存在/非本人 → `aa-unknown`，与 `getAa` 同码，不泄露他人组的存在性）；
+   * 2. 组状态必须是 `collecting`（`completed` / `cancelled` → `aa-group-closed`）；
+   *    `completed` 组对**已付参与人**的重复 collect 例外：与 collecting 分支同口径，
+   *    返回 `aa-participant-paid`（两次重复代收不该有两种理由码）；
+   * 3. 未过收款截止时间（`expiresAt < now` → `aa-group-closed`；与到期 job 同一严格口径）。
+   *    到期 job 还没跑不等于还能收钱：窗口是事实，job 只是收口动作；
+   * 4. 参与人必须存在（姓名或序号；同名多位 → `aa-participant-ambiguous`）；
+   * 5. 参与人必须 `pending`：
+   *    - 已付 → `aa-participant-paid`（幂等错误，不重复入账）；
+   *    - 已拒绝 / 已过期 → `aa-participant-closed`（状态不改）；
+   * 6. 记账：主账户 +share，写一条 `in / transfer` 流水（memo「AA 代收：<标题>」）。
+   *
+   * 任一步失败都在记账之前抛：账本与组状态都不变。
+   * **不接收手机号**：定位只用姓名/序号，手机号不进这个入口。
+   */
+  async collectAa(req: AaCollectReq): Promise<AaCollectResult> {
+    const group = this.aaGroups.find((item) => item.id === req.groupId && item.userId === req.userId)
+    if (group === undefined) {
+      throw new BahError('aa-unknown', `bank: 找不到 AA 组 ${req.groupId}`, {
+        groupId: req.groupId,
+      })
+    }
+    const at = this.now()
+    if (group.status !== 'collecting') {
+      if (group.status === 'completed') {
+        const paidIndex = this.participantIndexOf(group.participants, req.participant)
+        if (group.participants[paidIndex]!.status === 'paid') {
+          throw new BahError(
+            'aa-participant-paid',
+            `bank: ${group.participants[paidIndex]!.name} 的份额已经收过`,
+            { groupId: group.id, index: paidIndex },
+          )
+        }
+      }
+      throw new BahError('aa-group-closed', `bank: AA 组状态为 ${group.status}，不能再代收`, {
+        groupId: group.id,
+        status: group.status,
+      })
+    }
+    if (group.expiresAt !== undefined && group.expiresAt < at) {
+      throw new BahError('aa-group-closed', 'bank: AA 组已过收款截止时间，不能再代收', {
+        groupId: group.id,
+        expiresAt: group.expiresAt,
+      })
+    }
+    const index = this.participantIndexOf(group.participants, req.participant)
+    const participant = group.participants[index]!
+    if (participant.status === 'paid') {
+      throw new BahError('aa-participant-paid', `bank: ${participant.name} 的份额已经收过`, {
+        groupId: group.id,
+        index,
+      })
+    }
+    if (participant.status === 'declined' || participant.status === 'expired') {
+      throw new BahError(
+        'aa-participant-closed',
+        `bank: ${participant.name} 已${participant.status === 'declined' ? '拒绝' : '过期'}，不能再代收`,
+        { groupId: group.id, index, status: participant.status },
+      )
+    }
+
+    const primary = this.primaryAccountOf(req.userId)
+    const transaction: Transaction = {
+      id: this.nextTxnId(),
+      accountId: primary.id,
+      at,
+      amountCents: participant.shareCents,
+      direction: 'in',
+      // 姓名是展示字段（组里本来就是参与者列表），不做额外 PII 落账
+      counterparty: { name: participant.name, memo: `AA 代收：${group.title}` },
+      category: 'transfer',
+      channel: 'app',
+      status: 'success',
+    }
+    this.transactions = [...this.transactions, transaction]
+    this.replaceAccount(primary.id, {
+      balanceCents: primary.balanceCents + participant.shareCents,
+      availableCents: primary.availableCents + participant.shareCents,
+    })
+
+    const participants = group.participants.map((item, position) =>
+      position === index ? { ...item, status: 'paid' as const, paidAt: at } : { ...item },
+    )
+    const updated = this.replaceAaGroup(this.settleAaGroup({ ...group, participants }))
+    return {
+      group: this.copyAaGroup(updated),
+      participantIndex: index,
+      collectedCents: participant.shareCents,
+      txnId: transaction.id,
+    }
+  }
+
+  /**
+   * 参与人拒绝：`pending → declined`。
+   *
+   * 组状态仍走 `settleAaGroup`：拒绝一个人不等于散组（其余人还在等），
+   * 但若他是最后一个未表态的人，组就在这一刻收口（有 paid → completed，否则 cancelled）。
+   */
+  async declineAa(req: AaParticipantActionReq): Promise<AaSettlementResult> {
+    const group = this.mustCollectingAa(req.userId, req.groupId, '拒绝')
+    const index = this.participantIndexOf(group.participants, req.participant)
+    const participant = group.participants[index]!
+    if (participant.status === 'paid') {
+      throw new BahError('aa-participant-paid', `bank: ${participant.name} 的份额已经收过，不能改拒绝`, {
+        groupId: group.id,
+        index,
+      })
+    }
+    // 构造不可达：把某个参与人置为 `expired` 的三条路（closeAa / expireAaGroups / 到期收口）
+    // 都会同时让组离开 `collecting`，而进门第一道闸 `mustCollectingAa` 已经把那种组拒了。
+    // 留这道守卫是给"将来支持单人份额过期"用的，不是防御性摆设。
+    /* v8 ignore next 7 */
+    if (participant.status === 'expired') {
+      throw new BahError('aa-participant-closed', `bank: ${participant.name} 的份额已经过期`, {
+        groupId: group.id,
+        index,
+        status: participant.status,
+      })
+    }
+    const at = this.now()
+    // 重复拒绝是幂等操作：不改状态，也不重复落事件
+    if (participant.status === 'declined') {
+      return { group: this.copyAaGroup(group), affected: [], at }
+    }
+    const participants = group.participants.map((item, position) =>
+      position === index ? { ...item, status: 'declined' as const } : { ...item },
+    )
+    const updated = this.replaceAaGroup(this.settleAaGroup({ ...group, participants }))
+    return { group: this.copyAaGroup(updated), affected: [index], at }
+  }
+
+  /** 组织者提前结束：剩余 `pending` 全部转 `expired`，再按同一收口规则定组状态。 */
+  async closeAa(req: AaCloseReq): Promise<AaSettlementResult> {
+    const group = this.mustCollectingAa(req.userId, req.groupId, '结束')
+    const at = this.now()
+    const affected: number[] = []
+    const participants = group.participants.map((participant, index) => {
+      if (participant.status !== 'pending') return { ...participant }
+      affected.push(index)
+      return { ...participant, status: 'expired' as const }
+    })
+    const updated = this.replaceAaGroup(this.settleAaGroup({ ...group, participants }))
+    return { group: this.copyAaGroup(updated), affected, at }
+  }
+
+  /**
+   * 到期扫描：只处理 `collecting && expiresAt < at` 的组。
+   *
+   * 收口后组状态不再是 `collecting`，下一次扫描自然跳过——幂等来自状态机本身，
+   * 不依赖 job 里的进程级账本。没有 `expiresAt` 的历史组不处理。
+   */
+  async expireAaGroups(at: number): Promise<readonly AaSettlementResult[]> {
+    const due = this.aaGroups.filter(
+      (group) =>
+        group.status === 'collecting' &&
+        group.expiresAt !== undefined &&
+        group.expiresAt < at,
+    )
+    const results: AaSettlementResult[] = []
+    for (const group of due) {
+      const affected: number[] = []
+      const participants = group.participants.map((participant, index) => {
+        if (participant.status !== 'pending') return { ...participant }
+        affected.push(index)
+        return { ...participant, status: 'expired' as const }
+      })
+      const updated = this.replaceAaGroup(this.settleAaGroup({ ...group, participants }))
+      results.push({ group: this.copyAaGroup(updated), affected, at })
+    }
+    return results
+  }
+
+  /** 组归属 + 组状态校验（decline/close 共用的前两道闸）。 */
+  private mustCollectingAa(
+    userId: UserId,
+    groupId: AaGroupId,
+    verb: string,
+  ): AaGroup {
+    const group = this.aaGroups.find((item) => item.id === groupId && item.userId === userId)
+    if (group === undefined) {
+      throw new BahError('aa-unknown', `bank: 找不到 AA 组 ${groupId}`, { groupId })
+    }
+    if (group.status !== 'collecting') {
+      throw new BahError('aa-group-closed', `bank: AA 组状态为 ${group.status}，不能再${verb}`, {
+        groupId: group.id,
+        status: group.status,
+      })
+    }
+    return group
+  }
+
+  /**
+   * 收口判定（**唯一一份**）：close / 到期 / 全员 paid / 最后一人拒绝都走这里。
+   *
+   * 规则：
+   * - 还有 `pending` → 继续 `collecting`（一个人拒绝不散组，其他人还在等）；
+   * - 没有 `pending` 且有 `paid` → `completed`；
+   * - 没有 `pending` 也没有 `paid` → `cancelled`（全员拒绝/全员过期）。
+   *
+   * 三处各写一份判定，必然出现"close 说 completed、到期说 cancelled"的对账事故。
+   */
+  private settleAaGroup(group: AaGroup): AaGroup {
+    if (group.participants.some((participant) => participant.status === 'pending')) {
+      return group.status === 'collecting' ? group : { ...group, status: 'collecting' }
+    }
+    const paid = group.participants.some((participant) => participant.status === 'paid')
+    const status: AaGroupStatus = paid ? 'completed' : 'cancelled'
+    return { ...group, status }
+  }
+
+  private replaceAaGroup(group: AaGroup): AaGroup {
+    this.aaGroups = this.aaGroups.map((item) => (item.id === group.id ? group : item))
+    return group
+  }
+
+  /** 出参一律给副本：调用方改数组不能污染账本。 */
+  private copyAaGroup(group: AaGroup): AaGroup {
+    return {
+      ...group,
+      participants: group.participants.map((participant) => ({ ...participant })),
+    }
+  }
+
+  /** 参与人定位：序号（0 起）或姓名精确匹配；同名多位必须用序号（不猜）。 */
+  private participantIndexOf(
+    participants: AaGroup['participants'],
+    selector: number | string,
+  ): number {
+    if (typeof selector === 'number') {
+      if (!Number.isInteger(selector) || selector < 0 || selector >= participants.length) {
+        throw new BahError('aa-participant-unknown', `bank: AA 参与人序号越界：${String(selector)}`, {
+          selector,
+          count: participants.length,
+        })
+      }
+      return selector
+    }
+    const name = selector.trim()
+    if (name.length === 0) {
+      throw new BahError('aa-participant-unknown', 'bank: AA 参与人不能为空', {})
+    }
+    const matches = participants
+      .map((participant, index) => ({ participant, index }))
+      .filter((item) => item.participant.name === name)
+    if (matches.length === 0) {
+      throw new BahError('aa-participant-unknown', `bank: AA 组里没有参与人「${name}」`, { name })
+    }
+    if (matches.length > 1) {
+      throw new BahError(
+        'aa-participant-ambiguous',
+        `bank: AA 组里有 ${String(matches.length)} 位「${name}」，请改用序号`,
+        { name, count: matches.length },
+      )
+    }
+    return matches[0]!.index
+  }
+
+  /** 组织者主账户：按账户 ID 排序后的第一张（与 `listAccounts` 同口径，不另建"主账户"字段）。 */
+  private primaryAccountOf(userId: UserId): Account {
+    const accounts = this.accounts
+      .filter((item) => item.userId === userId)
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+    const primary = accounts[0]
+    // 构造不可达：`createAa` 先校验用户在册，而造数器给每个在册用户都配了 至少一张账户；"有用户但零账户"只能来自外部导入。留这道守卫是不让 AA 静默落到别人的户上。
+    /* v8 ignore next 4 */
+    if (primary === undefined) {
+      throw new BahError('account-unknown', `bank: 用户 ${userId} 没有可入账账户`, { userId })
+    }
+    return primary
+  }
+
   /* ── 内部推导 ───────────────────────────────────────────────────────────── */
 
   private collectAnomalies(
@@ -809,7 +2101,7 @@ export class MockBankCore implements BankCoreProvider {
     subscriptionSeen: Map<string, Transaction['id']>,
   ): void {
     if (item.amountCents >= this.limitsConfig.billLargeCents) {
-      anomalies.push({ kind: 'large', txnId: item.id, note: `大额支出 ${item.amountCents} 分` })
+      anomalies.push({ kind: 'large', txnId: item.id, note: `大额支出 ${formatYuan(item.amountCents)}` })
     }
     if (isNight(item.at, this.limitsConfig) && item.amountCents >= this.limitsConfig.nightLargeCents) {
       anomalies.push({ kind: 'late-night', txnId: item.id, note: '夜间大额支出' })
@@ -857,6 +2149,104 @@ export class MockBankCore implements BankCoreProvider {
       }
     }
     return Math.max(0, outCents - reversedCents)
+  }
+
+  /** 近 30 天（UTC 滚动窗口，含当日）该卡成功转出/消费 - 对应冲正（不含本笔）。 */
+  private monthlyUsedCents(accountId: AccountId, cardId: CardId, at: number): number {
+    const from = at - 30 * DAY_MS
+    let outCents = 0
+    let reversedCents = 0
+    for (const item of this.transactions) {
+      if (item.accountId !== accountId || item.viaCardId !== cardId) continue
+      if (item.status !== 'success') continue
+      if (item.at < from || item.at > at) continue
+      if (item.direction === 'out' && (item.category === 'transfer' || item.category === 'consumption')) {
+        outCents += item.amountCents
+      }
+      if (item.direction === 'in' && item.category === 'refund' && item.reversalOf !== undefined) {
+        reversedCents += item.amountCents
+      }
+    }
+    return Math.max(0, outCents - reversedCents)
+  }
+
+  /** 同卡、同 UTC 日的转出 + 消费（减当日冲正）；卡消费日限额与转账日限额分账。 */
+  private cardDailyUsedCents(cardId: CardId, at: number): number {
+    const today = dayKey(at)
+    let outCents = 0
+    let reversedCents = 0
+    for (const item of this.transactions) {
+      if (item.viaCardId !== cardId || item.status !== 'success') continue
+      if (dayKey(item.at) !== today) continue
+      if (item.direction === 'out' && (item.category === 'transfer' || item.category === 'consumption')) {
+        outCents += item.amountCents
+      }
+      if (item.direction === 'in' && item.category === 'refund' && item.reversalOf !== undefined) {
+        reversedCents += item.amountCents
+      }
+    }
+    return Math.max(0, outCents - reversedCents)
+  }
+
+  /**
+   * 卡面额度 + 卡口径已用（**不与 Config 日限额取 min**：那是转账口径，不是卡消费口径）。
+   *
+   * `cardId` 缺省时沿用 `dailyLimitOf` 的"第一张正常卡"口径——同一账户只按一张卡归集，
+   * 不把多张卡的流水混在一起。
+   */
+  private cardLimitOf(
+    accountId: AccountId,
+    cardId: CardId | undefined,
+    at: number,
+  ): {
+    readonly dailyLimitCents: number
+    readonly monthlyLimitCents: number
+    readonly dailyUsedCents: number
+    readonly monthlyUsedCents: number
+  } {
+    // 唯一调用点 `spendOnCard` 传的是 `cardOfUser` 刚取到的 `card.id`：缺省支（按账户取第一张
+    // 正常卡）与"卡不存在"支都没有调用方。整段标注而不是删掉——删掉会把"卡口径按单卡归集"
+    // 这条注释背后的意图一起删了，将来按账户查额度时又要重新想一遍。
+    /* v8 ignore next 4 */
+    const card =
+      cardId === undefined
+        ? this.cards.find((item) => item.accountId === accountId && item.status === 'normal')
+        : this.cards.find((item) => item.id === cardId)
+    /* v8 ignore next 3 */
+    if (card === undefined) {
+      return { dailyLimitCents: 0, monthlyLimitCents: 0, dailyUsedCents: 0, monthlyUsedCents: 0 }
+    }
+    return {
+      dailyLimitCents: card.dailyLimitCents,
+      monthlyLimitCents: card.monthlyLimitCents,
+      dailyUsedCents: this.cardDailyUsedCents(card.id, at),
+      monthlyUsedCents: this.monthlyUsedCents(accountId, card.id, at),
+    }
+  }
+
+  /** 月限额风控条目（preview 用；create 同源函数再判一次并在核销前抛错）。 */
+  private cardMonthlyLimitRisk(
+    accountId: AccountId,
+    card: Card,
+    amountCents: number,
+    at: number,
+  ): RiskFinding | undefined {
+    const used = this.monthlyUsedCents(accountId, card.id, at)
+    if (used + amountCents <= card.monthlyLimitCents) return undefined
+    return {
+      rule: 'card-monthly-limit',
+      severity: 'block',
+      code: 'card-monthly-limit-exceeded',
+      message:
+        `尾号 ${card.tail} 的卡近 30 天已用 ${formatYuan(used)}，` +
+        `本笔 ${formatYuan(amountCents)} 超过月限额 ${formatYuan(card.monthlyLimitCents)}`,
+      detail: {
+        cardId: card.id,
+        monthlyUsedCents: used,
+        monthlyLimitCents: card.monthlyLimitCents,
+        amountCents,
+      },
+    }
   }
 
   /** 短时窗口内已成功的转出笔数（不含本笔）。 */
@@ -991,13 +2381,31 @@ export class MockBankCore implements BankCoreProvider {
     }
     const self = matches[0]
     if (self === undefined) return undefined
-    if (source.type === 'locked') {
-      throw new BahError('transfer-locked-source', 'bank: 锁定账户只进不出，不能作为转出账户', {
-        accountId: source.id,
-      })
-    }
     if (self.id === source.id) {
       throw new BahError('payee-invalid', 'bank: 不能向同一个账户内部划转', { accountId: source.id })
+    }
+    /**
+     * 释放方向（2026-11-01）：锁定账户 → 本人活期。
+     *
+     * 「只进不出」的原意是**不能对外支付**；把钱回收成可用余额不是对外转移。
+     * 目标账户在本分支内仍然校验 active，且只能回到同一 userId 的活期。
+     * 其余以锁定账户为转出方的组合继续拒绝（对外转账不能拿 earmark 当余额）。
+     */
+    if (source.type === 'locked' && self.type === 'current') {
+      if (self.status !== 'active') {
+        throw new BahError('account-inactive', `bank: 目标账户状态 ${self.status}，不能转入`, {
+          accountId: self.id,
+          status: self.status,
+        })
+      }
+      return self
+    }
+    if (source.type === 'locked') {
+      throw new BahError(
+        'transfer-locked-source',
+        'bank: 锁定账户只能回到本人活期，不能对外转出',
+        { accountId: source.id },
+      )
     }
     if (source.type !== 'current' || self.type === 'current') {
       // v1 口径：只允许活期 → 锁定/定期（单向 earmark）。其余组合没有仿真语义，
@@ -1044,6 +2452,7 @@ export class MockBankCore implements BankCoreProvider {
       category: 'transfer',
       channel: req.channel,
       status: 'success',
+      ...(req.viaCardId === undefined ? {} : { viaCardId: req.viaCardId }),
     }
     const inTxn: Transaction = {
       id: this.nextTxnId(),
@@ -1086,10 +2495,14 @@ export class MockBankCore implements BankCoreProvider {
     if (target.payeeId !== undefined) {
       return this.payees.find((item) => item.id === target.payeeId && item.userId === userId)
     }
+    const name = target.name.trim()
+    // 赛题 §二「按手机号转账」：name 位置可能就是 11 位手机号。
+    // 先按姓名精确匹配；未命中时再按手机号匹配（手机号是联系人库里的强标识）。
+    const phone = target.phone ?? (/^1\d{10}$/.test(name) ? name : undefined)
     return this.payees.find(
       (item) =>
         item.userId === userId &&
-        item.name === target.name &&
+        (item.name === name || (phone !== undefined && item.phone === phone)) &&
         (target.phone === undefined || item.phone === target.phone),
     )
   }
@@ -1098,12 +2511,14 @@ export class MockBankCore implements BankCoreProvider {
   private ensurePayee(userId: UserId, target: TransferReq['payee'], at: number): Payee {
     const existing = this.findPayee(userId, target)
     if (existing !== undefined) return existing
+    const name = target.name.trim()
+    const phone = target.phone ?? (/^1\d{10}$/.test(name) ? name : undefined)
     this.payeeSeq += 1
     const payee: Payee = {
       id: bankIds.payee(`p-new-${this.payeeSeq}`),
       userId,
-      name: target.name,
-      ...(target.phone === undefined ? {} : { phone: target.phone }),
+      name,
+      ...(phone === undefined ? {} : { phone }),
       binding: 'new',
       firstSeenAt: at,
     }
@@ -1128,6 +2543,27 @@ export class MockBankCore implements BankCoreProvider {
 /** 订阅的关联键：`merchantKey` 优先，缺省按展示名现算（与检测共用同一套归一化）。 */
 function subscriptionKey(subscription: Subscription): string {
   return normalizeMerchant(subscription.merchantKey ?? subscription.merchant)
+}
+
+/**
+ * 交易限制 → **转账**预检风控。
+ *
+ * 转账路径没有品类语义：只有 `online` / `overseas` 是硬阻断。
+ * `category` 在 `spendOnCard`（mock 卡消费通道）上单独判定——这里不假装它拦住了转账。
+ */
+function cardRestrictionRisk(card: Card): RiskFinding | undefined {
+  const restricted = (card.restrictions ?? []).filter(
+    (item) => item.kind === 'online' || item.kind === 'overseas',
+  )
+  if (restricted.length === 0) return undefined
+  const labels = restricted.map((item) => (item.kind === 'online' ? '线上交易' : '境外交易'))
+  return {
+    rule: 'card-restriction',
+    severity: 'block',
+    code: 'card-restricted',
+    message: `尾号 ${card.tail} 的卡已限制${labels.join('、')}`,
+    detail: { cardId: card.id, kinds: restricted.map((item) => item.kind) },
+  }
 }
 
 /** 清掉提醒/标注两个字段（`none` 与切换标注时共用）。 */

@@ -113,6 +113,20 @@ describe('replayArmedPlans', () => {
     const missing = resultEvent('plan_arm', { planId: 'p-1' }, 2)
     expect(captureThrown(() => replayArmedPlans([missing])).code).toBe('window-replay-invalid')
   })
+
+  it('结果不是对象（数组 / null）⇒ fail-loud，不把坏记录当窗口装进账本', () => {
+    expect(captureThrown(() => replayArmedPlans([resultEvent('plan_arm', [], 1)])).code).toBe(
+      'window-replay-invalid',
+    )
+    expect(captureThrown(() => replayArmedPlans([resultEvent('plan_arm', null, 2)])).code).toBe(
+      'window-replay-invalid',
+    )
+  })
+
+  it('plan_disarm 出参缺 windowId ⇒ fail-loud', () => {
+    const broken = resultEvent('plan_disarm', { state: 'cancelled' }, 1)
+    expect(captureThrown(() => replayArmedPlans([broken])).code).toBe('window-replay-invalid')
+  })
 })
 
 describe('executedInstanceKeys（从 plan/created 派生，不新增事件键）', () => {

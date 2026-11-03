@@ -1,6 +1,6 @@
 # 快照回放（snapshots/）
 
-> 规格：施工单 12 §3–§4 · 操作手册与夹具 API 见 [docs/testing.md](../docs/testing.md) §9
+> 规格：–§4 · 操作手册与夹具 API 见 [docs/testing.md](../docs/testing.md) §9
 > 一句话：**一条命令、无密钥、无网络**地验证"模型看到的与用户看到的没变"。
 
 ## 为什么有这一层

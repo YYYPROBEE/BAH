@@ -1,5 +1,5 @@
 /**
- * bundle 加载（施工单 06 §2：bundle 声明在 `package.json` 的 `bah` 字段）。
+ * bundle 加载（bundle 声明在 `package.json` 的 `bah` 字段）。
  *
  * 一个 bundle = `packages/cli/bundles/<name>/` 目录 + 它导出的 `bundle` 对象
  * （`{ name, rows }`）。patch 文件只写 `use`，实现由 `@bah/host` 的依赖清单给出——
@@ -18,7 +18,7 @@ import { bootError } from '@bah/host'
 
 import type { Bundle, PluginRow } from '@bah/host'
 
-/** bundle 目录（施工单 01 §6 规定的 `packages/cli/bundles/<name>/`）。 */
+/** bundle 目录。 */
 export function bundleDir(root: string, name: string): string {
   return join(root, 'packages', 'cli', 'bundles', name)
 }

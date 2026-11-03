@@ -1,7 +1,7 @@
 /**
- * DeepSeek 兼容端点的真实流式 e2e（施工单 05 §0 出口标准第 2 条「真实流式可用」）。
+ * DeepSeek 兼容端点的真实流式 e2e。
  *
- * 无 `DEEPSEEK_API_KEY` 时 `vitest.e2e.config.ts` 连用例都不收集（施工单硬约束 2：缺密钥不红）。
+ * 无 `DEEPSEEK_API_KEY` 时 `vitest.e2e.config.ts` 连用例都不收集（缺密钥不红）。
  *
  * 端点与模型均由环境变量决定，因此同一个用例可以打官方端点，也可以打任何
  * OpenAI 兼容网关（如千问平台托管的 deepseek 模型）：

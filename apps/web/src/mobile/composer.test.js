@@ -7,7 +7,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { MAX_INPUT_HEIGHT_PX, createComposer } from './composer.js'
+import { DUPLICATE_WINDOW_MS, MAX_INPUT_HEIGHT_PX, createComposer } from './composer.js'
 
 function keyDown(init = {}) {
   return new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init })
@@ -230,5 +230,148 @@ describe('输入区', () => {
     expect(send().getAttribute('aria-label')).toBe('发送')
     expect(stop().getAttribute('aria-label')).toBe('中断本轮')
     expect(input().getAttribute('aria-label')).toBe('输入消息')
+  })
+
+  /**
+   * 发送闸门（M-19 / M-10 的输入区半边）。
+   *
+   * `inFlight` 只覆盖一次 HTTP 往返：离线 router 的 202 在几十毫秒内就回来，
+   * 连点 chips 的第二次点击已经不受它保护。银行场景里"同一句话发两遍"= 两轮工具调用、
+   * 两张审批票，所以这三道闸（在飞 / 本轮未收口 / 同句防重窗口）必须逐条有断言。
+   */
+  it('chips 连点：同一句话在防重窗口内只发一次，窗口过后允许再说同一句', async () => {
+    composer.dispose()
+    host.replaceChildren()
+    composer = createComposer(host, {
+      submit,
+      interrupt,
+      phrases: { items: [{ text: '转 500 给王建国', intent: '转账' }] },
+      imeDeps: { storage: undefined },
+    })
+    const chip = () => host.querySelector('[data-role="chip"]')
+
+    chip().dispatchEvent(new Event('click'))
+    await flush()
+    expect(submit).toHaveBeenCalledTimes(1)
+
+    // 上一轮已经收口（inFlight 已释放），但同句仍在窗口内 ⇒ 手抖双击被吸收
+    chip().dispatchEvent(new Event('click'))
+    await flush()
+    expect(submit).toHaveBeenCalledTimes(1)
+
+    // 窗口过后：用户正常再说一句同样的话必须能发出去（防重不是禁言）
+    vi.advanceTimersByTime(DUPLICATE_WINDOW_MS)
+    chip().dispatchEvent(new Event('click'))
+    await flush()
+    expect(submit).toHaveBeenCalledTimes(2)
+  })
+
+  it('本轮未收口（setRunning true）⇒ 发送直接拒、按钮禁用；收口后换一句能发', async () => {
+    input().value = '查余额'
+    composer.setRunning(true)
+
+    send().dispatchEvent(new Event('click'))
+    await flush()
+    expect(submit).not.toHaveBeenCalled()
+    expect(send().disabled).toBe(true)
+
+    composer.setRunning(false)
+    expect(send().disabled).toBe(false)
+    // 换一句再发：同一条文本此刻还压在防重窗口里，不该在这里混淆两条闸的口径
+    input().value = '查下个月账单'
+    send().dispatchEvent(new Event('click'))
+    await flush()
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(submit).toHaveBeenCalledWith('查下个月账单')
+  })
+
+  it('发送前本地回显：先"我说过这句话"，再发请求（慢网下不等回包）', async () => {
+    const seen = []
+    composer.dispose()
+    host.replaceChildren()
+    composer = createComposer(host, {
+      submit: async (text) => {
+        seen.push(`submit:${text}`)
+        return { ok: true, code: 'ok', message: '' }
+      },
+      interrupt,
+      echo: (text) => seen.push(`echo:${text}`),
+      imeDeps: { storage: undefined },
+    })
+
+    input().value = '转 500 给王建国'
+    send().dispatchEvent(new Event('click'))
+    await flush()
+
+    expect(seen).toEqual(['echo:转 500 给王建国', 'submit:转 500 给王建国'])
+  })
+
+  it('凭证失效 ⇒ 错误行动作换成"重新加载页面"，普通错误再换回"重试发送"', async () => {
+    const onReload = vi.fn()
+    composer.dispose()
+    host.replaceChildren()
+    composer = createComposer(host, { submit, interrupt, onReload, imeDeps: { storage: undefined } })
+    const error = () => host.querySelector('[data-role="composer-error"]')
+    const retry = () => host.querySelector('[data-role="composer-retry"]')
+
+    composer.showReloadPrompt('登录凭证已失效，请重新加载页面后进入。')
+    expect(error().hidden).toBe(false)
+    expect(error().textContent).toContain('登录凭证已失效')
+    // 不弹 window.confirm（移动 WebView 会把它变成系统框），复用同一个可点位置
+    expect(retry().hidden).toBe(false)
+    expect(retry().getAttribute('aria-label')).toBe('重新加载页面')
+
+    retry().dispatchEvent(new Event('click'))
+    await flush()
+    expect(onReload).toHaveBeenCalledTimes(1)
+    expect(submit).not.toHaveBeenCalled()
+
+    // 下一次普通错误必须把动作标签拿回来：不能一直停在"重新加载"上骗用户
+    composer.showError('网络不可达', false, '查余额')
+    expect(retry().getAttribute('aria-label')).toBe('重试发送')
+    retry().dispatchEvent(new Event('click'))
+    await flush()
+    expect(onReload).toHaveBeenCalledTimes(1)
+    expect(submit).toHaveBeenCalledWith('查余额')
+  })
+})
+
+describe('输入区 · 失败重试', () => {
+  let host
+  let submit
+  let composer
+
+  beforeEach(() => {
+    host = document.createElement('div')
+    document.body.append(host)
+    submit = vi.fn(async () => ({ ok: false, code: 'network-error', message: '网络不可达' }))
+    composer = createComposer(host, { submit, interrupt: vi.fn(async () => ({ ok: true })), imeDeps: { storage: undefined } })
+  })
+
+  afterEach(() => {
+    composer.dispose()
+    host.remove()
+  })
+
+  it('失败保留原话并出现重试钮；点重试原样再发同一条', async () => {
+    const input = host.querySelector('[data-role="composer-input"]')
+    input.value = '给王建国转 800 元'
+    host.querySelector('[data-role="send"]').click()
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+
+    const retry = host.querySelector('[data-role="composer-retry"]')
+    expect(host.querySelector('[data-role="composer-error"]').hidden).toBe(false)
+    expect(host.querySelector('[data-role="composer-error"]').textContent).toContain('网络不可达')
+    expect(retry.hidden).toBe(false)
+    expect(input.value).toBe('给王建国转 800 元')
+
+    submit.mockResolvedValueOnce({ ok: true, code: 'ok', message: '' })
+    retry.click()
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+
+    expect(submit).toHaveBeenCalledTimes(2)
+    expect(submit).toHaveBeenLastCalledWith('给王建国转 800 元')
+    expect(input.value).toBe('')
+    expect(host.querySelector('[data-role="composer-error"]').hidden).toBe(true)
   })
 })

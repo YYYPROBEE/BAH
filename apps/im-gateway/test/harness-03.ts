@@ -42,12 +42,15 @@ export interface FakeChild03 extends ChildClient {
     readonly verifies: string[]
     readonly handoffs: (string | undefined)[]
     readonly seats: { method: 'GET' | 'POST'; path: string; body?: unknown }[]
+    /** 历史列表调用（每次带上请求的 limit，便于断言"传了 5"）。 */
+    readonly history: (number | undefined)[]
   }
   setDecide(result: ChildCallResult | ((ticketId: string) => ChildCallResult)): void
   setVerify(result: ChildCallResult | ((ticketId: string) => ChildCallResult)): void
   setHandoff(result: ChildCallResult): void
   setSeat(result: ChildCallResult | ((path: string) => ChildCallResult)): void
   setTurn(outcome: TurnOutcome): void
+  setHistory(result: ChildCallResult): void
 }
 
 /** 造一个假子进程客户端。 */
@@ -58,6 +61,12 @@ export function fakeChild(): FakeChild03 {
   const verifies: string[] = []
   const handoffs: (string | undefined)[] = []
   const seats: { method: 'GET' | 'POST'; path: string; body?: unknown }[] = []
+  const historyCalls: (number | undefined)[] = []
+  let historyResult: ChildCallResult = {
+    status: 200,
+    json: { sessions: [], total: 0 },
+    text: '{"sessions":[],"total":0}',
+  }
   let decideResult: ChildCallResult | ((ticketId: string) => ChildCallResult) = {
     status: 200,
     json: { ok: true },
@@ -77,7 +86,7 @@ export function fakeChild(): FakeChild03 {
   let turnOutcome: TurnOutcome = { kind: 'accepted' }
 
   return {
-    calls: { turns, decisions, verifies, handoffs, seats },
+    calls: { turns, decisions, verifies, handoffs, seats, history: historyCalls },
 
     async turn(text: string): Promise<TurnOutcome> {
       turns.push(text)
@@ -120,6 +129,11 @@ export function fakeChild(): FakeChild03 {
       return typeof seatResult === 'function' ? seatResult(path) : seatResult
     },
 
+    async history(limit): Promise<ChildCallResult> {
+      historyCalls.push(limit)
+      return historyResult
+    },
+
     emit(frame): void {
       for (const subscriber of [...handlers]) subscriber.onFrame(frame)
     },
@@ -146,6 +160,9 @@ export function fakeChild(): FakeChild03 {
     },
     setTurn(outcome): void {
       turnOutcome = outcome
+    },
+    setHistory(result): void {
+      historyResult = result
     },
   }
 }

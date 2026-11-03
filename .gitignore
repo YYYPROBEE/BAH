@@ -35,3 +35,10 @@ auth/*.local.yml
 
 # 桌面端 03：便携打包产物（解压即用的目录与 zip，132 MB，不入库）
 dist-desktop/
+
+# 本地临时目录与一次性日志：只在本地机器上存在，不入库
+temp/
+temp-*.log
+
+# 设计系统生成物：playwright 截图等由脚本产出，不入库
+design/bah-ds/output/

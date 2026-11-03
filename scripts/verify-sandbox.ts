@@ -81,7 +81,7 @@ const gate: Gate = {
         const specifier = matched[2] ?? ''
         if (!isAllowedSpecifier(specifier)) {
           findings.push(
-            `${where} import "${specifier}" —— worker 加载链只许 node: 与本包相对路径（施工单 11 §3）`,
+            `${where} import "${specifier}" —— worker 加载链只许 node: 与本包相对路径`,
           )
         }
       }
@@ -133,7 +133,7 @@ function checkPolicy(
         const tier = resolveExpression(source, property.initializer)
         if (tier !== undefined && ts.isStringLiteral(tier) && tier.text === 'none') {
           findings.push(
-            `${where}:${lineOf(source, property)} 工具 ${property.name.getText(source)} 的默认档是 none（模型代码禁入；施工单 11 §2）`,
+            `${where}:${lineOf(source, property)} 工具 ${property.name.getText(source)} 的默认档是 none（模型代码禁入）`,
           )
         }
       }
@@ -146,7 +146,7 @@ function checkPolicy(
     if (tier === undefined) {
       findings.push(`${where}:${line} SandboxPolicy.fallbackTier 无法静态解析`)
     } else if (ts.isStringLiteral(tier) && tier.text === 'none') {
-      findings.push(`${where}:${line} SandboxPolicy.fallbackTier 是 none（模型代码禁入；施工单 11 §2）`)
+      findings.push(`${where}:${line} SandboxPolicy.fallbackTier 是 none（模型代码禁入）`)
     }
   }
 

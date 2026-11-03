@@ -1,11 +1,17 @@
 /**
- * 门禁：工具目录 ↔ 源码一致（施工单 08 §0 第 4 条 / §6 T-TOOLS-010）。
+ * 门禁：工具目录 ↔ 源码一致。
  *
- * 四条校验：
- * 1. 数量 ≤ 28（施工单 08 §2 的上限）；
+ * 五条校验：
+ * 1. 数量 ≤ `BANK_TOOL_LIMIT`；
  * 2. 名字唯一、tier 合法、落账事件在 `BANK_SESSION_EVENT_TYPES` 内；
  * 3. 工厂表与目录一致（少实现即红；多实现由 `Record<BankToolName, …>` 在编译期兜住）；
- * 4. `docs/tool-catalog.md` 与 `renderToolCatalog()` 逐字一致（改了源码不重新生成 → 红）。
+ * 4. `docs/tool-catalog.md` 与 `renderToolCatalog()` 逐字一致（改了源码不重新生成 → 红）；
+ * 5. **只读分支（`spec.readEvent`，R-9 / B-7）**：
+ *    - 键必须在 `BANK_SESSION_EVENT_TYPES` 内（写错即红）；
+ *    - 有 `readEvent` 的工具必须在 `READ_ONLY_ACTIONS` 有对应项（否则治理面照常签票，
+ *      "只读"只是文档说法）；
+ *    - 反向：`READ_ONLY_ACTIONS` 的每一项必须指向一个声明了 `readEvent` 的工具
+ *      （否则豁免动作没有可回放的审计事件）。
  *
  * 文档是生成物：改工具定义后跑 `pnpm tool-catalog`。
  */
@@ -14,7 +20,8 @@ import { existsSync, readFileSync } from 'node:fs'
 
 import { BANK_SESSION_EVENT_TYPES } from '../packages/bank/src/tools/events.ts'
 import { renderToolCatalog } from '../packages/bank/src/tools/render.ts'
-import { BANK_TOOL_LIMIT, BANK_TOOL_SPECS } from '../packages/bank/src/tools/specs.ts'
+import { BANK_TOOL_LIMIT, BANK_TOOL_SPECS, type BankToolSpec } from '../packages/bank/src/tools/specs.ts'
+import { READ_ONLY_ACTIONS } from '../packages/bank/src/tools/tier.ts'
 
 import { isMainModule, runStandalone, type Gate } from './gate-lib.ts'
 
@@ -29,15 +36,17 @@ const gate: Gate = {
 
   async run(root) {
     const findings: string[] = []
-    const specs = BANK_TOOL_SPECS
+    // 目录是 `as const satisfies` 的字面元组：不标注成 `BankToolSpec[]` 就读不到可选的 `readEvent`。
+    const specs: readonly BankToolSpec[] = BANK_TOOL_SPECS
 
     if (specs.length > BANK_TOOL_LIMIT) {
       findings.push(
-        `工具总数 ${specs.length} 超过上限 ${BANK_TOOL_LIMIT}（施工单 08 §2：新增先删旧的）`,
+        `工具总数 ${specs.length} 超过上限 ${BANK_TOOL_LIMIT}（新增先删旧的）`,
       )
     }
 
     const seen = new Set<string>()
+    let readEventCount = 0
     for (const spec of specs) {
       if (seen.has(spec.name)) findings.push(`工具名重复：${spec.name}`)
       seen.add(spec.name)
@@ -46,6 +55,35 @@ const gate: Gate = {
       }
       if (!BANK_SESSION_EVENT_TYPES.includes(spec.event)) {
         findings.push(`${spec.name}：落账事件 ${spec.event} 不在 BANK_SESSION_EVENT_TYPES 内`)
+      }
+    }
+
+    // 第 5 条：只读分支的三向一致（R-9 / B-7）。写错 readEvent 过去不会红。
+    const readOnlyNames = new Set(READ_ONLY_ACTIONS.map((entry) => entry.name))
+    for (const spec of specs) {
+      if (spec.readEvent === undefined) continue
+      readEventCount += 1
+      if (!BANK_SESSION_EVENT_TYPES.includes(spec.readEvent)) {
+        findings.push(`${spec.name}：只读事件 ${spec.readEvent} 不在 BANK_SESSION_EVENT_TYPES 内`)
+      }
+      if (!readOnlyNames.has(spec.name)) {
+        findings.push(
+          `${spec.name}：声明了 readEvent ${spec.readEvent}，但 READ_ONLY_ACTIONS 没有对应项` +
+            `（治理面会把读分支当写操作签票）`,
+        )
+      }
+    }
+    for (const entry of READ_ONLY_ACTIONS) {
+      const spec = specs.find((item) => item.name === entry.name)
+      if (spec === undefined) {
+        findings.push(`READ_ONLY_ACTIONS 指向不存在的工具：${entry.name}/${entry.action}`)
+        continue
+      }
+      if (spec.readEvent === undefined) {
+        findings.push(
+          `READ_ONLY_ACTIONS 登记了 ${entry.name}/${entry.action}，但该工具没有声明 readEvent` +
+            `（只读豁免没有可回放的审计事件）`,
+        )
       }
     }
 
@@ -74,7 +112,8 @@ const gate: Gate = {
       ok: findings.length === 0,
       findings,
       notes: [
-        `工具 ${specs.length} 个（上限 ${BANK_TOOL_LIMIT}）、落账事件 ${BANK_SESSION_EVENT_TYPES.length} 个`,
+        `工具 ${specs.length} 个（上限 ${BANK_TOOL_LIMIT}）、落账事件 ${BANK_SESSION_EVENT_TYPES.length} 个、` +
+          `只读分支 ${readEventCount} 个（READ_ONLY_ACTIONS ${READ_ONLY_ACTIONS.length} 条）`,
       ],
     }
   },

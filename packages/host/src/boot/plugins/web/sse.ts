@@ -45,7 +45,7 @@ export interface SseHubOptions {
   readonly sessionId: () => string
   /** 心跳间隔（ms）。 */
   readonly heartbeatMs: number
-  /** 注入钟（心跳注释里的 `now`，快照/回放不许用 `Date.now()`）。 */
+  /** 注入钟（心跳事件里的 `now`，快照/回放不许用 `Date.now()`）。 */
   readonly now: () => number
   /** 同时在线连接上限（缺省 16）。 */
   readonly maxClients?: number
@@ -145,7 +145,9 @@ export function createSseHub(options: SseHubOptions): SseHub {
       let client: SseClient | undefined
       const heartbeat = setInterval(() => {
         if (client === undefined) return
-        writeTo(client, `: ping ${String(options.now())} ${String(since)}\n\n`)
+        // 命名事件而不是注释行：EventSource 不会把 `: ping` 派发给监听者，
+        // 客户端因此无法用"多久没收到心跳"判死一条已被黑洞的连接。
+        writeTo(client, `event: heartbeat\ndata: ${String(options.now())}\n\n`)
       }, options.heartbeatMs)
       heartbeat.unref()
 

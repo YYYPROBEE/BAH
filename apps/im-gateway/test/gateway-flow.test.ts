@@ -24,6 +24,7 @@ import { createGatewayServer } from '../src/server.ts'
 import { createSessionHub } from '../src/session/hub.ts'
 import type { ChildHandle, Supervisor } from '../src/session/supervisor.ts'
 import { createMockAdapter } from './mock-platform.ts'
+import { listenOnSafePort } from './safe-port.ts'
 
 const NOW = 1_793_000_000_000
 /** 测试用盐（与 `inboundDeps` 的配置一致）。 */
@@ -99,6 +100,9 @@ function fakeClient(options: { frames?: readonly WebFrame[]; outcome?: TurnOutco
     },
     async seat(): Promise<ChildCallResult> {
       return { status: 200, json: { ok: true }, text: '{"ok":true}' }
+    },
+    async history(): Promise<ChildCallResult> {
+      return { status: 200, json: { sessions: [] }, text: '{"sessions":[]}' }
     },
   }
 }
@@ -425,11 +429,7 @@ describe('HTTP 路由（T-IM-022）', () => {
       startedAtMs: NOW,
       nowMs: () => NOW,
     })
-    await new Promise<void>((resolve) => {
-      server.listen(0, '127.0.0.1', () => resolve())
-    })
-    const address = server.address()
-    const port = typeof address === 'object' && address !== null ? address.port : 0
+    const port = await listenOnSafePort(server)
     return {
       base: `http://127.0.0.1:${String(port)}`,
       close: () =>

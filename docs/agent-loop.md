@@ -1,7 +1,7 @@
-# 主循环 agent-loop（施工单 04 落地说明）
+# 主循环 agent-loop
 
 > 读者：接主循环的插件作者（挂四个接缝）、写渠道 / UI 的人（用 `Agent` 五能力）、做回放与审计的人。
-> 规格权威仍是 `BAH-施工文档集/04-主循环agent-loop.md`；本文只讲**本仓怎么落地**与**容易写错的点**。
+> 本文只讲**本仓怎么落地**与**容易写错的点**。
 
 ## 1. 一张图
 
@@ -42,21 +42,20 @@ turn/start（先开 turn：turn 号从日志续号，分叉/回放的会话不�
 | 4 | `user/message`(`runtime-context`) | 仅当确有运行时上下文 |
 | 5 | `user/message`(认领消息) | 用户原话 / 转向指令 |
 | 6 | `tool/call` → `tool/result` | 七段管线（执行前落 call、冻结结果落 result） |
-| 7 | `assistant/message` | **带 toolCalls**：工具跑完后收尾落账（施单 04 §7 T-LOOP-001 的顺序） |
+| 7 | `assistant/message` | **带 toolCalls**：工具跑完后收尾落账（工具跑完后收尾落账的顺序） |
 | 8 | `step/end` | finally 落账（失败也落） |
 
 > 日志顺序 ≠ wire 顺序：wire（OpenAI 兼容）要求「带 tool_calls 的 assistant 消息」排在 `tool` 消息之前。
 > 这一顺序由 `deriveMessages()` 的两遍投影恢复（先索引每条 assistant 消息承载的 `callId`，
 > 在首个 `tool/result` 处把消息顶到前面）；工具执行抛错时也照常落 assistant 消息，
-> 否则 `tool/result` 找不到承载它的消息（`session-log-hole`）。阶段 8 之前按 wire 合法性把
-> assistant 提前落账（旧 R44），现按施单顺序收口。
+> 否则 `tool/result` 找不到承载它的消息（`session-log-hole`）。assistant 消息按 wire 合法性提前落账。
 >
-> 压缩判定放在**每次请求装配前**（施工单 05 §5 的"阈值触发"），turn 收尾再兜一次：
+> 压缩判定放在**每次请求装配前**（§5 的"阈值触发"），turn 收尾再兜一次：
 > turn 收尾那一刻本 turn 还没落 `turn/end`，折不到它；请求前这次能覆盖"进程恢复 / 上一次 turn
 > 没收尾"等场景。两处都只折叠**已完整结束**的 turn——当前 turn 永不折叠（否则会拆散
 > `tool/call ↔ tool/result` 配对），因此重复调用是幂等的。
 
-## 3. 四个接缝（本单只加这四个）
+## 3. 四个接缝（本设计只加这四个）
 
 | 接缝 | 模式 | 载荷 | 用途 |
 |---|---|---|---|
@@ -161,7 +160,7 @@ step 中途抛错
 
 - 原会话**一个字节不动**；分叉出来的 agent 续 turn 号（从种子日志里最后一个 `turn/start` 续）。
 - 边界 turn 没结束（没有 `turn/end`）→ `fork-turn-missing`（fail-loud）。
-- 为什么新会话要新 `Context`：`runtime:session` 是服务键，一个应用承载一个会话（阶段 3 的装配方式）。
+- 为什么新会话要新 `Context`：`runtime:session` 是服务键，一个应用承载一个会话（装配方式见 architecture.md）。
 
 ## 8. 常用误用（都会出事）
 

@@ -32,15 +32,19 @@ export type RouteHandler =
   | 'metrics'
   | 'trace'
   | 'turn'
+  | 'suggest'
   | 'interrupt'
   | 'approval'
   | 'verify'
+  | 'secure-password'
   | 'handoff'
   | 'handoff-message'
   | 'handoff-claim'
   | 'handoff-heartbeat'
   | 'handoff-queue'
   | 'fork'
+  | 'sessions'
+  | 'session-read'
   | 'admin'
   | 'login'
   | 'logout'
@@ -184,7 +188,7 @@ export const ROUTES: readonly RouteSpec[] = [
     csrf: false,
     statuses: ADMIN_STATUSES,
     handler: 'admin',
-    note: '人工进入 HALT（W07，见 §7.1.1）；`changed:false` 表示本来就在 HALT',
+    note: '人工进入 HALT（见 §7.1.1）；`changed:false` 表示本来就在 HALT',
     methodInHandler: true,
   },
   {
@@ -230,7 +234,7 @@ export const ROUTES: readonly RouteSpec[] = [
     statuses: [200, 400, 401, 503],
     handler: 'events',
     roles: ROLES,
-    note: 'SSE：先全量快照，再推 frame / delta / 心跳注释；static 模式凭证可用 `?token=`（password 模式只认 cookie）；连接满 → 503',
+    note: 'SSE：先全量快照，再推 frame / delta / 心跳事件（`event: heartbeat`）；static 模式凭证可用 `?token=`（password 模式只认 cookie）；连接满 → 503',
   },
   {
     methods: ['GET'],
@@ -255,7 +259,7 @@ export const ROUTES: readonly RouteSpec[] = [
     statuses: [200, 400, 401, 503],
     handler: 'trace',
     roles: ROLES,
-    note: '轨迹：事件派生的 span 森林；`?format=chrome` 导出 Chrome Trace（Perfetto 可直接打开）；D4：当前按调试面处理（ROLES），生产应收窄到 auditor/admin',
+    note: '轨迹：事件派生的 span 森林；`?format=chrome` 导出 Chrome Trace（Perfetto 可直接打开）；当前按调试面处理（ROLES），生产应收窄到 auditor/admin',
   },
   {
     methods: ['POST'],
@@ -270,6 +274,35 @@ export const ROUTES: readonly RouteSpec[] = [
     note: '在 turn 边界分叉新会话 `{ turn }`（旧会话原样封存；新会话仅进程内存在）',
   },
   {
+    // ⚠ **顺序是判据**：`matchRoute` 按数组顺序做 `path.startsWith(spec.path)`
+    // （router.ts:518-529）。prefix 必须排在 exact `/api/sessions` **之前**——
+    // 否则 `/api/sessions/abc` 会先命中 exact 那条（它以 `/api/sessions` 开头），
+    // `rest` 拿不到 id，回放路由永远 404。整理这段时不要"按字母序重排"。
+    methods: ['GET'],
+    path: '/api/sessions/',
+    kind: 'prefix',
+    auth: 'web',
+    csrf: false,
+    // 400 = ID 非法（`../` 之类）；404 = 没有这个会话；503 = 回放超过 4 MiB
+    statuses: [200, 400, 401, 404, 503],
+    handler: 'session-read',
+    roles: ROLES,
+    note: '单会话只读回放 `{ sessionId, title, snapshot }`；snapshot 自带 frames，与 SSE attach 同形',
+    display: '/api/sessions/:id',
+  },
+  {
+    methods: ['GET'],
+    path: '/api/sessions',
+    kind: 'exact',
+    auth: 'web',
+    csrf: false,
+    // 400 = limit 非法；503 = 本部署没装 core:persistence
+    statuses: [200, 400, 401, 503],
+    handler: 'sessions',
+    roles: ROLES,
+    note: '历史会话摘要列表 `{ sessions[], total }`（只读；`?limit` 1..100，缺省 20，按最近活动降序）',
+  },
+  {
     methods: ['POST'],
     path: '/api/turn',
     kind: 'exact',
@@ -280,6 +313,18 @@ export const ROUTES: readonly RouteSpec[] = [
     // 客户专属（D3）：坐席不代客户发消息；接管期间 202 落账不驱动
     roles: ['customer'],
     note: '提交一轮输入 `{ text }` → 入队并驱动；202 = 已入队，HALT 期间 423；接管期间 202 落账不驱动',
+  },
+  {
+    methods: ['POST'],
+    path: '/api/suggest',
+    kind: 'exact',
+    auth: 'web',
+    csrf: true,
+    statuses: [200, 400, 401, 403, 503],
+    handler: 'suggest',
+    // 客户侧辅助件：只服务当前客户会话，坐席不代客户生成追问
+    roles: ['customer'],
+    note: '基于最近一轮对话生成两条追问 `{ user, assistant }` → `{ suggestions[], source }`；模型不可用时 suggestions 为空',
   },
   {
     methods: ['POST'],
@@ -321,6 +366,24 @@ export const ROUTES: readonly RouteSpec[] = [
     scope: 'self',
     note: '红级票据的强验证（挑战由 VerifyService 签发）；客户专属',
     display: '/api/verify/:ticketId',
+  },
+  {
+    // 安全页提交端点（ADR-0014）。**明文只在这里提交一次**：工具 `password_change`
+    // 只签一次性交接票据，密码永远不进模型上下文、不进 `tool/call.args`、不进会话日志。
+    // 走既有四道闸（限流 → 身份 401 → 角色 403 → CSRF 403），handler 不再自己判权。
+    methods: ['POST'],
+    path: '/api/secure/password',
+    kind: 'exact',
+    auth: 'web',
+    csrf: true,
+    // 400 = 新密码不合规 / 旧密码不对；404 = 票据未知或不属于本会话（不暴露存在性）；
+    // 409 = 票据已用 / 已过期；423 = 连续失败锁定中（与 HALT 同码：现在不许做）
+    statuses: [200, 400, 401, 403, 404, 409, 423],
+    handler: 'secure-password',
+    roles: ['customer'],
+    // 票据归属由核心按"会话绑定的银行用户"再核一次（`password-ticket-foreign`）
+    scope: 'self',
+    note: '安全页改密 `{ ticketId, oldPassword, newPassword }` → `{ ok, changedAt }`；**绝不回显**任何密码字段',
   },
   {
     methods: ['GET'],
@@ -472,6 +535,8 @@ export function assertRouteRoles(path: string, roles: readonly Role[] | undefine
 // 模块加载期自检：路由表写错是**开发期错误**，不许活到第一次请求。
 for (const route of ROUTES) {
   if (route.auth !== 'web' && route.roles !== undefined) {
+    // 构造不可达：ROUTES 是模块内常量，写错时**加载即抛**，测试面拿不到一份错表。这道自检的存在本身就是判据，不为它开注入口。
+    /* v8 ignore next 3 */
     throw new BahError('web-invalid-route', `${route.path}: auth=${route.auth} 的路由不许声明 roles`)
   }
   assertRouteRoles(route.path, route.roles)

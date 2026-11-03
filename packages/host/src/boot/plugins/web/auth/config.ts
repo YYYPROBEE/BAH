@@ -10,7 +10,7 @@
  * ## 硬约束（A3）
  *
  * **`auth.mode` 不写 = `static` = 现行为**。8 个 profile 与 7 个快照不写任何 auth 配置时
- * 必须一字不变。默认值是本单能否合入的唯一硬门槛，所以 `DEFAULT_AUTH` 只在这里定义一次。
+ * 必须一字不变。默认值是本设计能否合入的唯一硬门槛，所以 `DEFAULT_AUTH` 只在这里定义一次。
  */
 
 import { BahError } from '@bah/util'
@@ -171,6 +171,8 @@ export function resolveAuthSettings(raw: unknown): AuthSettings {
 
   // `password` 模式没有目录 = 空城：必须在 boot 期就失败（TA-22 的反例）
   if (mode === 'password' && directory.path.trim() === '') {
+    // 构造不可达：空白 / 非字符串的 path 在上一层 `readString` 就以 `invalid-config` 拒了，缺键则取默认（非空）。这道守卫留作 mode=password 的语义兜底。
+    /* v8 ignore next 3 */
     throw new BahError('web-invalid-config', `${WHERE}.directory.path 在 mode=password 时必填`)
   }
 

@@ -21,7 +21,7 @@ import type { AnySessionEvent } from '@bah/runtime'
 import type { ApprovalClosedFrame, ApprovalFrame, AuditFrame, DagFrame, ToolFrame } from './frames.ts'
 import { projectSession } from './project.ts'
 
-/** 真实快照（`snapshots/web-channel`，施工单 13 的 T-WEB-010 场景）。 */
+/** 真实快照（`snapshots/web-channel`， 的 T-WEB-010 场景）。 */
 const SNAPSHOT = new URL('../../../../snapshots/web-channel/session.jsonl', import.meta.url)
 
 /** 读日志：首行是 header，其余是事件。 */
@@ -34,23 +34,43 @@ function loadEvents(): AnySessionEvent[] {
   return lines.filter((line) => line['kind'] !== 'bah-session-header') as unknown as AnySessionEvent[]
 }
 
+/**
+ * 真日志里的票号（`ticket/issued.ticketId`）。
+ *
+ * **不钉具体字符串**：快照录制件里的 `callId` 前缀由运行时生成（`call-<turn>:…`），
+ * 运行时代码一变，硬编码的 `ticket:call-create` 就会红——那种红是"测试记错了身份证号"，
+ * 不是投影错了。测试要钉的是「审批帧与工具卡引用**同一张**真日志签发的票」。
+ */
+function issuedTicketId(events: readonly AnySessionEvent[]): string {
+  const issued = events.find((event) => String(event.type) === 'ticket/issued') as unknown as
+    | { readonly data?: { readonly ticketId?: unknown } }
+    | undefined
+  const ticketId = issued?.data?.ticketId
+  if (typeof ticketId !== 'string') throw new Error('真日志里没有 ticket/issued')
+  return ticketId
+}
+
 describe('真实日志投影（snapshots/web-channel）', () => {
   it('审批帧六要素来自真日志：¥800.00 / 王建国 / 黄级', () => {
-    const { frames } = projectSession(loadEvents(), 's-snapshot-web-channel')
+    const events = loadEvents()
+    const { frames } = projectSession(events, 's-snapshot-web-channel')
     const approval = frames.find((frame) => frame.kind === 'approval') as ApprovalFrame
 
-    expect(approval.ticketId).toBe('ticket:call-create')
+    expect(approval.ticketId).toBe(issuedTicketId(events))
     expect(approval.operation).toBe('转账')
     // 800 元（不是 8 元）：日志里 amount=800，渠道必须按元解释
     expect(approval.amountText).toBe('¥800.00')
     expect(approval.payeeName).toBe('王建国')
     expect(approval.tier).toBe('yellow')
-    expect(approval.amountConfirmed).toBe(false)
+    // 真日志里同一 turn 先有一笔成功 transfer_preview（收款人/金额一致），
+    // 因此审批金额已由工具结果证实，不应再标"待确认"。
+    expect(approval.amountConfirmed).toBe(true)
     expect(approval.rejectReasonRequired).toBe(true)
   })
 
   it('工具卡拿到真结果：三态收口 + 金额已确认 + 正文可追票据', () => {
-    const { frames } = projectSession(loadEvents())
+    const events = loadEvents()
+    const { frames } = projectSession(events)
     // 演示改为"预览 → 执行"两步后，第一个工具帧是只读预览（绿级）；
     // 要断言的是真正扣款的那张卡，所以按 name 取而不是取第一个
     const tool = frames.find(
@@ -61,7 +81,7 @@ describe('真实日志投影（snapshots/web-channel）', () => {
     expect(tool.amountConfirmed).toBe(true)
     expect(tool.tier).toBe('yellow')
     expect(tool.card?.fields.find((field) => field.amount)?.value).toBe('¥800.00')
-    expect(tool.card?.body ?? '').toContain('ticket:call-create')
+    expect(tool.card?.body ?? '').toContain(issuedTicketId(events))
     expect(tool.card?.body ?? '').toContain('转账成功')
   })
 
@@ -96,7 +116,7 @@ describe('真实日志投影（snapshots/web-channel）', () => {
 
     const { frames } = projectSession(events)
     // 只允许出现已知帧类型（未知领域事件不得被当成"未知帧"混进界面）。
-    // 施工单 01 §3.5：`effects` 是由成功写操作派生的已知帧（本快照里的 transfer_create
+    // ：`effects` 是由成功写操作派生的已知帧（本快照里的 transfer_create
     // 是黄级且成功 ⇒ 这里真的会产出），不是"未知帧"。
     const kinds = new Set(frames.map((frame) => frame.kind))
     for (const kind of kinds) {

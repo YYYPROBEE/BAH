@@ -1,4 +1,4 @@
-# mobile profile patch（层 2）。施工单 01。
+# mobile profile patch（层 2）。
 #
 # 语义是**整块替换**：每行 config 一出现就完全取代 base 的值。
 # 与 profiles/web/patch.yml 的差异**只有三处**（00 D2 原文）：
@@ -15,9 +15,13 @@
     provider: router
     model: router-chat
     chunkSize: 4
+    # 演示节流：离线 router 会在同一批帧里刷完整个 turn，「中断 / 算了」按钮的
+    # 可见窗口只有几毫秒（M-19）。core:model 必须与 web 逐字一致
+    # （verify-channel-capabilities I8），所以两处成对修改。
+    stepDelayMs: 250
     # ── 可替换真实模型（DeepSeek V4.1 Flash / DashScope 兼容端点）──
     # 切换时必须**同时**改这里与 core:agent.loop.model（两处成对，见 docs/deploy.md）：
-    # 把上面三行换成下面整块，并把 loop.model 改成 deepseek:deepseek-v4.1-flash-1017。
+    # 把上面四行换成下面整块，并把 loop.model 改成 deepseek:deepseek-v4.1-flash-1017。
     # provider: deepseek
     # model: deepseek-v4.1-flash-1017
     # baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
@@ -80,8 +84,10 @@
     dryRunDefault: false
     modelTools: true
 
-# ★ 关掉 saga-bridge（与 web-plan 同款理由）：plan 节点本身就是 preview → create 两步，
-#   再叠一层 bridge 会把 transfer_create 展开两次。计划里的转账因此失去自动补偿——
+# ★ saga-bridge 只保留 tick、不接管工具（与 web / web-plan 同款，复审 P1-2）：
+#   plan 节点本身就是 preview → create 两步，接管会把 transfer_create 展开两次；
+#   完全关掉则连 `saga/tick` 也没了，AA 到期 / 主动提醒在常驻进程里只能靠启动补跑。
+#   `eligible: []` = 不接管任何工具；计划里的转账因此失去自动补偿——
 #   这一取舍在 docs/mobile.md 的诚实边界里写明。
 
 # G2/G3（跨场景主动能力）：生活事实库 + 到期唤醒驱动器。
@@ -100,9 +106,18 @@
   use: bank:merchant
   config: { enabled: true, fault: none }
 
+# ADR-0016：订阅续费主动提醒（通用主动通知通道 `bah:proactive`）。
+# 规则写死在代码里，这里只开总开关；boot 补跑保留——启动即扫，不必等第一个 tick。
+- id: proactive:reminder
+  use: proactive:reminder
+  config: { enabled: true, catchUpOnBoot: true }
+
 - id: bank:saga-bridge
   config:
-    enabled: false
+    enabled: true
+    eligible: []
+    tickIntervalMs: 60000
+    saga: { maxAttempts: 1 }
 
 # 知识平面：base bundle 不含此行，必须显式开。channel 随渠道名变（① 之外的 ③）。
 - id: bank:knowledge
@@ -156,7 +171,7 @@
   use: demo:echo
   config: { prefix: '[mobile] ' }
 
-# 渠道行（施工单 01）：必须放在 interaction:approval 之后——本行 inject 审批服务，
+# 渠道行：必须放在 interaction:approval 之后——本行 inject 审批服务，
 # 直接注册移动渠道应答者。
 #
 # ⚠ 部署纪律：**不要**给移动端进程设 BAH_ADMIN_TOKEN（admin 面只服务本机 CLI，未设即 404，

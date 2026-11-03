@@ -82,8 +82,14 @@ jobs:
         shell: bash
         run: |
           BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
-          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then
+          # 基线必须是**本仓历史里存在**的提交：force push 之后，push 前的远端 HEAD
+          # 不在新历史里，此时不退回就会因"基线不可解析"直接红。
+          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
             BASE="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+          elif [ -z "$(git diff --name-only "$BASE" HEAD)" ]; then
+            # 基线可解析却与 HEAD 同树（force push 重写过历史时会出现）：差分为 0 个文件，
+            # snapshot-fresh 会按设计拒绝在无差分下宣称快照可信。退回上一提交取真实差分。
+            BASE="$(git rev-parse HEAD^ 2>/dev/null || echo "$BASE")"
           fi
           echo "BAH_SNAPSHOT_BASE=$BASE" >> "$GITHUB_ENV"
 
@@ -128,8 +134,14 @@ jobs:
         shell: bash
         run: |
           BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
-          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then
+          # 基线必须是**本仓历史里存在**的提交：force push 之后，push 前的远端 HEAD
+          # 不在新历史里，此时不退回就会因"基线不可解析"直接红。
+          if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
             BASE="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+          elif [ -z "$(git diff --name-only "$BASE" HEAD)" ]; then
+            # 基线可解析却与 HEAD 同树（force push 重写过历史时会出现）：差分为 0 个文件，
+            # snapshot-fresh 会按设计拒绝在无差分下宣称快照可信。退回上一提交取真实差分。
+            BASE="$(git rev-parse HEAD^ 2>/dev/null || echo "$BASE")"
           fi
           echo "BAH_SNAPSHOT_BASE=$BASE" >> "$GITHUB_ENV"
 

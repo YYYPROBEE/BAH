@@ -1,5 +1,5 @@
 /**
- * `bah sentry unfreeze`（施工单 HP-0 §3.3）。
+ * `bah sentry unfreeze`。
  *
  * ## 它是什么、不是什么
  *
@@ -22,7 +22,7 @@ export const SENTRY_USAGE =
 
 /** 完整帮助。 */
 export const SENTRY_HELP = [
-  'bah sentry —— sentry 断路器管理（施工单 HP-0）',
+  'bah sentry —— sentry 断路器管理',
   '',
   SENTRY_USAGE,
   '',

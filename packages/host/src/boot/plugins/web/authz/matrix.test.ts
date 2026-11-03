@@ -1,5 +1,5 @@
 /**
- * 越权矩阵（03 TA-48；合流 2026-10-29 扩到 17 行）：4 角色 × 17 条 Web 路由，一张表一个循环。
+ * 越权矩阵（03 TA-48；合流 2026-10-29 扩到 18 行）：4 角色 × 18 条 Web 路由，一张表一个循环。
  *
  * 为什么不用真实 HTTP 跑 68 次：慢、要端口、要 cookie 管理，而且失败时看不出是
  * "授权错了"还是"服务没起来"。这里直接调 `authorize()` 纯函数，1 秒内跑完。
@@ -40,8 +40,18 @@ export const MATRIX: readonly MatrixRow[] = [
     path: '/api/session/fork',
     allow: ['customer', 'admin'],
   },
+  // 历史会话（只读，2026-11-02）：全角色可看。一进程一租户，目录里的会话都属于本租户；
+  // 坐席/审计员要看"客户之前说过什么"是正当需求，没有按角色收窄的理由。
+  { method: 'GET', routePath: '/api/sessions', path: '/api/sessions', allow: ROLES },
+  {
+    method: 'GET',
+    routePath: '/api/sessions/',
+    path: '/api/sessions/s-1',
+    allow: ROLES,
+  },
   // 合流 D3：客户专属动作——坐席不能替客户发消息 / 打断 / 放行 / 强验证
   { method: 'POST', routePath: '/api/turn', path: '/api/turn', allow: ['customer'] },
+  { method: 'POST', routePath: '/api/suggest', path: '/api/suggest', allow: ['customer'] },
   { method: 'POST', routePath: '/api/interrupt', path: '/api/interrupt', allow: ['customer'] },
   {
     method: 'POST',
@@ -53,6 +63,13 @@ export const MATRIX: readonly MatrixRow[] = [
     method: 'POST',
     routePath: '/api/verify/',
     path: '/api/verify/t-1',
+    allow: ['customer'],
+  },
+  // 01 单（ADR-0014）：改自己的交易密码是客户动作——坐席/审计员不得代改
+  {
+    method: 'POST',
+    routePath: '/api/secure/password',
+    path: '/api/secure/password',
     allow: ['customer'],
   },
   { method: 'GET', routePath: '/api/handoff', path: '/api/handoff', allow: ROLES },
@@ -135,7 +152,7 @@ export function coverageGaps(routes: readonly RouteSpec[]): string[] {
 }
 
 describe('TA-48 · 角色 × 路由矩阵', () => {
-  it('68 格逐格判定：允许的角色 ok，其余 403 web-forbidden', () => {
+  it('72 格逐格判定：允许的角色 ok，其余 403 web-forbidden', () => {
     for (const row of MATRIX) {
       const match = matchRoute(row.method, row.path)
       expect(match?.spec.path, `${row.method} ${row.path} 没命中 ${row.routePath}`).toBe(

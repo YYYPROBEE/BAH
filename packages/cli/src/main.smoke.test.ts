@@ -1,5 +1,5 @@
 /**
- * CLI 入口的进程级冒烟（施工单 01 §5 的 unit 面 + 06 §0 出口标准 1/2）。
+ * CLI 入口的进程级冒烟。
  *
  * 为什么放在 unit 面而不是 e2e 面：e2e 面的语义是「真实 DeepSeek API，无密钥整面 skip」，
  * 而这条用例**不需要密钥**、也不打外网——它只验证「入口进程起得来、能加载真实
@@ -85,25 +85,31 @@ describe('CLI 入口（进程级冒烟）', () => {
     expect(result.stderr).toBe('')
   })
 
-  // W04 TC-09：头尾两个 profile 的审批默认值必须与矩阵一致
-  // （headless / plan 的 allow 是**演示开关**，web 是人工弹窗 + 默认 reject）。
-  it('三个 profile 的审批配置实测值（W04 TC-09）', { timeout: 60_000 }, () => {
+  // W04 TC-09：profile 的审批默认值必须与矩阵一致。
+  //
+  // ADR-0010 之后矩阵里**没有任何一格是"无差别放行"**：`autoDecision` 全为 reject，
+  // `responder` 全为 none（等人点），只有需要"到期唤醒代签"的 profile 才开
+  // `windowResponder`。web 是人工弹窗，窗口代签必须关——它一开就等于替人点头。
+  it('四个 profile 的审批配置实测值（W04 TC-09）', { timeout: 90_000 }, () => {
     const expected: readonly (readonly [string, string])[] = [
-      ['headless', '{"responder":"headless","autoDecision":"allow","autoVerify":true}'],
-      ['plan', '{"responder":"headless","autoDecision":"allow","autoVerify":true}'],
-      ['web', '{"responder":"none","autoDecision":"reject","autoVerify":true}'],
+      ['headless', '{"responder":"none","autoDecision":"reject","autoVerify":true,"windowResponder":true}'],
+      ['plan', '{"responder":"none","autoDecision":"reject","autoVerify":true,"windowResponder":true}'],
+      ['web', '{"responder":"none","autoDecision":"reject","autoVerify":true,"windowResponder":false}'],
+      ['web-plan', '{"responder":"none","autoDecision":"reject","autoVerify":true,"windowResponder":true}'],
     ]
     for (const [profile, config] of expected) {
       const result = run(['--profile', profile, '--dump-config'])
       expect(result.status, profile).toBe(0)
       expect(result.stdout, profile).toContain(`interaction:approval`)
       expect(result.stdout, profile).toContain(config)
+      // 反向不变量：谁把某个 profile 改回"自动批准"，这里立刻红
+      expect(result.stdout, profile).not.toContain('"autoDecision":"allow"')
       expect(unexpectedStderr(result.stderr), profile).toEqual([])
     }
   })
 
   // W08 TC-08：headless 的 patch-*.yml 变体都必须能载入，且继承基础 patch 的 trace.sink。
-  // 施工单写“7 个 patch-*.yml”；实测 6 个变体（第 7 份是基础 patch.yml，不是变体），
+  // 设计说明写“7 个 patch-*.yml”；实测 6 个变体（第 7 份是基础 patch.yml，不是变体），
   // 数字差异记在 W08 回执里。
   it('W08 TC-08：6 个 headless patch 变体全部可载入（trace.sink 继承）', { timeout: 120_000 }, () => {
     const dir = join(repoRoot, 'profiles/headless')

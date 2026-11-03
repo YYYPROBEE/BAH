@@ -18,6 +18,9 @@ const STATE = {
   done: { label: '已完成', cls: 'ds-tag ds-tag--success' },
   failed: { label: '未达成', cls: 'ds-tag ds-tag--danger' },
   cancelled: { label: '已撤销', cls: 'ds-tag' },
+  // 提示词 4-2：过期是"终止"，不是"失败"（不补扣）；needs-reconfirm 是"还来得及但要重批"
+  expired: { label: '已过期', cls: 'ds-tag' },
+  'needs-reconfirm': { label: '待重新确认', cls: 'ds-tag ds-tag--warning' },
 }
 
 /** 授权档 → 文案。 */
@@ -36,6 +39,27 @@ const VERDICT = {
   'condition-failed': '条件已变化',
   'plan-cancelled': '计划已撤销',
   'window-clock-ahead': '判定时刻越界',
+  'details-changed': '明细与批准时不一致',
+  'tier-not-allowed': '该档位不允许自动执行',
+}
+
+/** 补偿结果 → 人话（ADR-0013：只有"扣款后商户没成交"才会出现）。 */
+const COMPENSATION = {
+  reversed: '已冲正',
+  'reversal-failed': '冲正失败',
+  'reversal-unavailable': '冲正不可用',
+}
+
+/** 补偿记录 → 一行文案（金额有就带，没有就不编）。 */
+function compensationText(compensation) {
+  const label = COMPENSATION[compensation.kind] ?? String(compensation.kind)
+  const money =
+    typeof compensation.amountCents === 'number'
+      ? ` ¥${(compensation.amountCents / 100).toFixed(2)}`
+      : ''
+  const txn = typeof compensation.txnId === 'string' ? `（原流水 ${compensation.txnId}）` : ''
+  const code = typeof compensation.code === 'string' ? `（${compensation.code}）` : ''
+  return `${label}${money}${txn}${code}`
 }
 
 /** epoch ms → `YYYY-MM-DD HH:mm`（UTC+8；只做展示，不参与判定）。 */
@@ -81,6 +105,17 @@ export function renderPlanCard(frame) {
           ]),
         ]
 
+  const compensation =
+    frame.compensation === undefined
+      ? []
+      : [
+          el('p', {
+            class: 'plan-card__compensation',
+            role: 'status',
+            text: compensationText(frame.compensation),
+          }),
+        ]
+
   return el(
     'section',
     {
@@ -118,6 +153,7 @@ export function renderPlanCard(frame) {
           : el('ul', { class: 'plan-card__condition-list' }, conditionRows),
       ]),
       ...verdict,
+      ...compensation,
     ],
   )
 }

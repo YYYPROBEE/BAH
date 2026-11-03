@@ -1,5 +1,5 @@
 /**
- * base bundle · `safety:sandbox`：沙箱执行宿主行（施工单 11 §3）。
+ * base bundle · `safety:sandbox`：沙箱执行宿主行。
  *
  * 本行只做接线：档位、硬杀、三态失败全部在 `@bah/safety` 的 sandbox-runtime 里。
  * 它向 `BANK_COMPUTE` 提供服务键，`bank:tools` 在调用 `analysis_calc` 时按需取用；

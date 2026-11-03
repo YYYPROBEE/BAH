@@ -1,5 +1,5 @@
 /**
- * P0 查询类工具（施工单 08 §3.1–§3.6，6 个，全部绿级）。
+ * P0 查询类工具。
  *
  * 这些工具只读：`account_list` / `account_balance` / `txn_query` / `bill_analyze` /
  * `bill_report` / `analysis_calc`。写操作一个都不在这里。
@@ -11,10 +11,18 @@ import { assertNever, BahError } from '@bah/util'
 
 import type { ToolDefinition, ToolExecContext } from '@bah/core'
 
-import type { Account, Card, MerchantCategory, Transaction, TxnCategory } from '../core/index.ts'
+import type {
+  Account,
+  Card,
+  CardRestriction,
+  MerchantCategory,
+  Transaction,
+  TxnCategory,
+} from '../core/index.ts'
 import {
   bankIds,
   formatYuan,
+  isMerchantCategory,
   MERCHANT_LABEL,
   merchantCategoryOf,
   PAGE_LIMIT_DEFAULT,
@@ -39,7 +47,7 @@ import type {
   TxnQueryResult,
   TxnView,
 } from './dto.ts'
-import { parsePeriod } from './inputs.ts'
+import { parseBillScope, type BillScope } from './inputs.ts'
 import {
   analysisCard,
   accountsCard,
@@ -48,6 +56,7 @@ import {
   billReportCard,
   CARD_STATUS_LABEL,
   CARD_TYPE_LABEL,
+  CATEGORY_LABEL,
   txnsCard,
 } from './presenters.ts'
 import { specOf } from './specs.ts'
@@ -93,10 +102,21 @@ export function createAccountListTool(deps: BankToolDeps): ToolDefinition<unknow
         (account) =>
           `尾号 ${account.tail}（${account.type}）：余额 ${formatYuan(account.balanceCents)}，可用 ${formatYuan(account.availableCents)}`,
       )
-      const cardLines = result.cards.map(
-        (card) =>
-          `${CARD_TYPE_LABEL[card.type]}卡尾号 ${card.tail}（卡ID ${card.cardId}，${CARD_STATUS_LABEL[card.status]}，日限 ${formatYuan(card.dailyLimitCents)}）`,
-      )
+      const cardLines = result.cards.map((card) => {
+        // 信用产品多一段"额度/已用/可用"（ADR-0015）：可用是派生值，只在文案里算，不落字段。
+        const credit =
+          card.kind === 'credit' && card.creditLimitCents !== undefined
+            ? `，授信额度 ${formatYuan(card.creditLimitCents)}、已用 ${formatYuan(card.usedCreditCents ?? 0)}` +
+              `、可用 ${formatYuan(Math.max(0, card.creditLimitCents - (card.usedCreditCents ?? 0)))}`
+            : ''
+        return (
+          `${CARD_TYPE_LABEL[card.type]}${card.kind === 'credit' ? '信用' : ''}卡尾号 ${card.tail}（卡ID ${card.cardId}，${CARD_STATUS_LABEL[card.status]}，日限 ${formatYuan(card.dailyLimitCents)}` +
+          credit +
+          (card.restrictions === undefined || card.restrictions.length === 0
+            ? '）'
+            : `，限制：${card.restrictions.map((item) => restrictionLabel(item)).join('、')}）`)
+        )
+      })
       return [
         {
           type: 'text',
@@ -244,11 +264,11 @@ export function createBillAnalyzeTool(
     execute: async (args, ctx) => {
       const userId = requireUserId(deps, ctx.sessionId)
       const account = await requireAccount(deps, userId)
-      const period = parsePeriod(args)
+      const scope = parseBillScope(args)
       const groupBy =
         readEnum(args, 'groupBy', 'bill_analyze', ['category', 'payee', 'merchant'] as const) ??
         'category'
-      const result = await buildBillAnalysis(deps, userId, account, period, groupBy)
+      const result = await buildBillAnalysis(deps, userId, account, scope, groupBy)
       deps.audit.append('read/bill-analyzed', { result })
       return result
     },
@@ -270,13 +290,13 @@ export function createBillReportTool(
     execute: async (args, ctx) => {
       const userId = requireUserId(deps, ctx.sessionId)
       const account = await requireAccount(deps, userId)
-      const period = parsePeriod(args)
+      const scope = parseBillScope(args)
       const format = readEnum(args, 'format', 'bill_report', ['summary', 'detail'] as const) ?? 'summary'
       // `format` 只决定"报不报收款人明细"（`composeReport` 那一侧），
       // `groupBy` 只决定"算哪个维度"；两者拆开，避免"要商户维度就必须出详细报告"。
-      const analysis = await buildBillAnalysis(deps, userId, account, period, 'payee')
+      const analysis = await buildBillAnalysis(deps, userId, account, scope, 'payee')
       const result: BillReportResult = {
-        period,
+        period: scope.period,
         format,
         text: composeReport(analysis, format),
         analysis,
@@ -351,11 +371,12 @@ export async function buildBillAnalysis(
   deps: BankToolDeps,
   userId: string,
   account: Account,
-  period: BillPeriod,
+  scope: BillScope,
   groupBy: BillGroupBy,
 ): Promise<BillAnalysisResult> {
   const now = clockOf(deps)()
-  const current = monthKey(now)
+  const period = scope.period
+  const current = resolveBillAnchor(scope, now) ?? monthKey(now)
   const months = billMonths(current, period)
 
   let totalInCents = 0
@@ -421,6 +442,27 @@ export async function buildBillAnalysis(
   return result
 }
 
+/**
+ * 把口径锚点解析成具体账期（`YYYY-MM`）。
+ *
+ * 纯函数、只读入参 `now`：相对口径（上个月 / 只有月份）必须靠**注入钟**换算，
+ * 否则回放与测试会随机器真实时间漂移。
+ */
+function resolveBillAnchor(scope: BillScope, now: number): string | undefined {
+  if (scope.month !== undefined) return scope.month
+  if (scope.year !== undefined) return `${scope.year}-12`
+  const current = monthKey(now)
+  if (scope.monthOffset !== undefined) return shiftMonth(current, scope.monthOffset)
+  if (scope.monthOfYear !== undefined) {
+    const year = Number(current.slice(0, 4))
+    const currentMonth = Number(current.slice(5, 7))
+    // 「9 月账单」在 11 月问 = 今年 9 月；在 3 月问 = 去年 9 月（绝不指向未来）
+    const targetYear = scope.monthOfYear > currentMonth ? year - 1 : year
+    return `${String(targetYear)}-${String(scope.monthOfYear).padStart(2, '0')}`
+  }
+  return undefined
+}
+
 /** 口径 → 账期（升序；年度 = 近 12 个自然账期，含本月）。 */
 function billMonths(current: string, period: BillPeriod): string[] {
   switch (period) {
@@ -438,7 +480,7 @@ function billMonths(current: string, period: BillPeriod): string[] {
 /**
  * 环比基线账期。
  *
- * 年度**不做同比**：需要去年同 12 个月的数据（本单只有 12 个月），
+ * 年度**不做同比**：需要去年同 12 个月的数据（本设计只有 12 个月），
  * 返回空数组让 `momChangePct` 缺省——宁可少一个指标，不编一个数字。
  */
 function baselineFor(current: string, period: BillPeriod): string[] {
@@ -579,7 +621,7 @@ function summarizeBill(result: BillAnalysisResult): string {
     result.byMerchantCategory === undefined
       ? result.byCategory
           .slice(0, 5)
-          .map((line) => `${line.category} ${formatYuan(line.amountCents)}（${line.sharePct}%）`)
+          .map((line) => `${CATEGORY_LABEL[line.category]} ${formatYuan(line.amountCents)}（${line.sharePct}%）`)
       : result.byMerchantCategory
           .slice(0, 5)
           .map(
@@ -620,7 +662,7 @@ function composeReport(analysis: BillAnalysisResult, format: 'summary' | 'detail
     return `${header}\n分类汇总：\n${categories}\n异常：${analysis.anomalies.length} 条`
   }
   const anomalies = analysis.anomalies.length
-    ? analysis.anomalies.map((item) => `- [${item.kind}] ${item.note}`).join('\n')
+    ? analysis.anomalies.map((item) => `- ${item.note}`).join('\n')
     : '- 无'
   const payees = analysis.byPayee?.length
     ? analysis.byPayee
@@ -632,15 +674,18 @@ function composeReport(analysis: BillAnalysisResult, format: 'summary' | 'detail
 }
 
 /**
- * 报告里的分类行（沿用账务分类原值）。
+ * 报告里的分类行（中文分类文案）。
  *
  * `bill_report` 本轮**没有** `groupBy` 参数：报告固定按账务分类，明细才附收款人。
  * 品类维度的模型可见文案走 `bill_analyze` 的 `summarizeBill`——不为一个未承诺的
  * "品类报告"预留不可达分支。
+ *
+ * 分类必须走 `CATEGORY_LABEL`：这份正文同时是模型看到的工具结果和工具卡的正文，
+ * 写 `transfer` 就等于让客户界面出现英文键、模型照着念给客户。
  */
 function reportCategoryLines(analysis: BillAnalysisResult): string {
   const lines = analysis.byCategory.map(
-    (line) => `- ${line.category}：${formatYuan(line.amountCents)}（${line.sharePct}%）`,
+    (line) => `- ${CATEGORY_LABEL[line.category]}：${formatYuan(line.amountCents)}（${line.sharePct}%）`,
   )
   return lines.length > 0 ? lines.join('\n') : '- 无支出'
 }
@@ -722,7 +767,27 @@ function toCardView(card: Card): CardView {
     status: card.status,
     dailyLimitCents: card.dailyLimitCents,
     monthlyLimitCents: card.monthlyLimitCents,
+    // 信用产品三件套（ADR-0015）：借记卡不带，视图形状逐字不变。
+    ...(card.kind === 'credit' && card.creditLimitCents !== undefined
+      ? {
+          kind: card.kind,
+          creditLimitCents: card.creditLimitCents,
+          usedCreditCents: card.usedCreditCents ?? 0,
+        }
+      : {}),
+    ...(card.restrictions === undefined || card.restrictions.length === 0
+      ? {}
+      : { restrictions: card.restrictions.map((item) => ({ ...item })) }),
   }
+}
+
+/** 交易限制的模型可见文案（account_list 回读用）。 */
+function restrictionLabel(restriction: CardRestriction): string {
+  if (restriction.kind === 'online') return '线上交易'
+  if (restriction.kind === 'overseas') return '境外交易'
+  const value = restriction.value
+  const label = value !== undefined && isMerchantCategory(value) ? MERCHANT_LABEL[value] : value
+  return label === undefined ? '指定品类' : `品类(${label})`
 }
 
 /** 交易 → 视图。 */

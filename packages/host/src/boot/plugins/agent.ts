@@ -1,10 +1,10 @@
 /**
- * base bundle · `core:agent`：主循环（施工单 04）。
+ * base bundle · `core:agent`：主循环。
  *
  * 只做装配：会话服务 + 模型注册表 + 提示词/工具注册表 → 一个 `AgentLoop`，
  * 并把它登记进活体注册表（`runtime:agents`），宿主按键取用。
  *
- * `channel` 是**提示词语气/长度**的输入（施工单 05 §4 的 `style` 段），不是"渠道代码分支"：
+ * `channel` 是**提示词语气/长度**的输入，不是"渠道代码分支"：
  * 渠道差异仍由 profile patch 表达，这里只是把值往装配器里传。
  */
 
@@ -43,6 +43,7 @@ import {
   rejectUnknownKeys,
 } from '../config.ts'
 import { createRuntimeContextResolver } from '../runtime-context.ts'
+import { createSuggestService, SUGGEST_SERVICE } from './suggest.ts'
 
 /** 允许的渠道（与 runtime 的 `ChannelKind` 同源）。 */
 const CHANNELS = ['web', 'mobile', 'im', 'desktop', 'headless', 'sdk'] as const
@@ -152,6 +153,11 @@ export const agentPlugin: HostPlugin<AgentSettings> = {
           ? {}
           : { runtimeContext: resolver }),
       })
+
+      ctx.provide(
+        SUGGEST_SERVICE,
+        createSuggestService({ registry: ctx.get(LLM_ADAPTERS), modelId: config.loop.model }),
+      )
 
       ctx.effect(agents.register(loop))
       // 逆序执行：先关驱动器再摘注册表（否则宿主可能拿到已 dispose 的 agent）

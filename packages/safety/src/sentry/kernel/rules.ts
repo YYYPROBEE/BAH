@@ -1,7 +1,7 @@
 /**
- * 危险参数规则库（施工单 10 §3 的内核组件 3：`rules`——工具面的确定性硬拦截面）。
- * 对应源文件 `sentry-dsh-plugin/src/kernel/rules.js`——13 条内置规则的正则、族标签与
- * 规则级白名单校准位全部照搬（IN6 全量对齐）。
+ * 危险参数规则库（`rules`——工具面的确定性硬拦截面）。
+ * 由本工程安全内核的 `kernel/rules` 迁移而来——13 条内置规则的正则、族标签与
+ * 规则级白名单校准位全部保持一致（IN6 全量对齐）。
  *
  * 工具参数槽的确定性危险模式检测：以规则值为准的硬拦截面（零概率误报——
  * 命中与否由正则决定，不由模型打分决定）。规则库级白名单校准位保留
@@ -21,7 +21,7 @@ export interface BuiltinRule {
   readonly note: string
 }
 
-/** 部署侧追加的规则（族与说明可缺省，缺省回落 `unknown` / 空串，与源一致）。 */
+/** 部署侧追加的规则（族与说明可缺省，缺省回落 `unknown` / 空串，与内核口径一致）。 */
 export interface ExtraRule {
   readonly id: string
   readonly pattern: RegExp
@@ -36,7 +36,7 @@ export type ScanRule = BuiltinRule | ExtraRule
 export interface ScanToolArgsOptions {
   /** 停用的内置规则 ID。 */
   readonly disabledIds?: readonly string[]
-  /** 是否启用 NET-001 演示校准（缺省 = 开，与源一致）。 */
+  /** 是否启用 NET-001 演示校准（缺省 = 开，与内核口径一致）。 */
   readonly demoWhitelist?: boolean
   /**
    * 基础规则集（策略外置 S5）：bundle 模式注入编译出的 13 条规则；

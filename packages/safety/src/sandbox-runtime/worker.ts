@@ -1,12 +1,12 @@
 /**
- * 沙箱 worker 入口（施工单 11 §3）。
+ * 沙箱 worker 入口。
  *
  * 这个文件由 Node 直接加载（不经 vitest / tsx），所以它有两条硬约束：
  * 1. **零包名 import**——只 import `node:*` 与本目录的相对模块，否则要靠 `dist/` 才能解析；
  * 2. **可擦除语法**——运行时需要带 `--experimental-strip-types`，enum / 参数属性会被拒。
  *
  * 能力剥离在这里做**第二次**复核：登记表说自己是零能力执行体，worker 只认它自己看到的
- * `SANDBOX_HANDLER.capabilities`；父侧漏检也跑不掉（施工单 00 §9：判决不依赖单点）。
+ * `SANDBOX_HANDLER.capabilities`；父侧漏检也跑不掉（判决不依赖单点）。
  */
 
 import { parentPort, workerData } from 'node:worker_threads'

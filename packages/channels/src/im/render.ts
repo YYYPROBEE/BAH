@@ -1,5 +1,5 @@
 /**
- * `WebFrame[]` → 微信出站消息的**纯投影**（施工单 01 §2.4）。
+ * `WebFrame[]` → 微信出站消息的**纯投影**。
  *
  * WHY 单独一层而不是"帧直接拼字符串"：同一串事件必须投影出同一串消息
  * （无时钟、无随机、无 `Date.now()`），否则"重放后对话不一致"就无法归因。
@@ -21,6 +21,7 @@ import type {
   HandoffFrame,
   MessageBlock,
   NoticeFrame,
+  RiskQuestionnaireFrame,
   ToolFrame,
   WebFrame,
 } from '../web/frames.ts'
@@ -72,11 +73,20 @@ function blocksText(blocks: readonly MessageBlock[]): string {
     .join('\n')
 }
 
-/** 审批摘要（标题 / 金额 / 收款人 / 层级 / 强验证 / 截止；**不含链接**）。 */
+/**
+ * 审批摘要（标题 / 金额 / 收款人 / 层级 / 强验证 / 截止；**不含链接**）。
+ *
+ * 有 `details` 时**不再输出金额与收款人行**：明细里已经有服务端签发的同一份数字，
+ * 两行并列会让人在"两个金额不一致时信哪个"上犯难。明细由网关的文本出口按
+ * 「标签：值」逐行追加（`apps/im-gateway/src/approval/texts.ts`）。
+ */
 function approvalText(frame: ApprovalFrame): string {
   const lines = [`【审批】${frame.operation}`]
-  lines.push(`金额：${frame.amountText ?? '待确认'}`)
-  if (frame.payeeName !== undefined) lines.push(`收款人：${frame.payeeName}`)
+  const hasDetails = frame.details !== undefined && frame.details.length > 0
+  if (!hasDetails) {
+    lines.push(`金额：${frame.amountText ?? '待确认'}`)
+    if (frame.payeeName !== undefined) lines.push(`收款人：${frame.payeeName}`)
+  }
   lines.push(`层级：${TIER_LABEL[frame.tier]}`)
   if (frame.challenge !== undefined) lines.push(`强验证：${CHALLENGE_LABEL[frame.challenge]}`)
   // 只做格式化：`expiresAt` 原样来自帧，本函数不取当前时间
@@ -136,6 +146,34 @@ function choiceText(frame: ChoiceFrame): string {
   return lines.join('\n')
 }
 
+/**
+ * 风险问卷（IM 文本出口）。
+ *
+ * IM 没有表单控件，也**没有逐题累积的会话槽位**（网关侧的待办状态只有审批与计划，
+ * 再加一份"答到第几题"就是第二份问卷状态，且它一旦丢消息就再也对不上）。
+ * 所以这里给一条**一次成型的作答格式**：用户复制模板、把每题换成自己的选项，
+ * 一条消息发回来，服务端按整串校验（齐全性 / 归属 / 过期都在核心判定）。
+ *
+ * 键用英文 `conservative / middle / aggressive` 而不是 1/2/3：序号→键的映射
+ * 只有服务端常量表知道，在渠道里再写一份就会在改题序时静默错位。
+ */
+function riskQuestionnaireText(frame: RiskQuestionnaireFrame): string {
+  const lines = [`【风险测评】共 ${String(frame.questions.length)} 题，请由本人逐题作答。`]
+  for (const question of frame.questions) {
+    lines.push(`第 ${String(question.index)} 题 ${question.title}`)
+    for (const option of question.options) {
+      lines.push(`  · ${option.key} = ${option.text}（${String(option.score)} 分）`)
+    }
+  }
+  const template = frame.questions
+    .map((question) => `${String(question.index)}=${question.options[0]?.key ?? 'conservative'}`)
+    .join(' ')
+  lines.push(
+    `作答格式（把等号右边换成你的选项后整条回复）：风险测评作答 ${frame.questionnaireId} ${template}`,
+  )
+  return lines.join('\n')
+}
+
 /** 单帧投影；`undefined` = 这一帧不进 IM。 */
 function projectFrame(frame: WebFrame): ImOutbound | undefined {
   switch (frame.kind) {
@@ -172,6 +210,8 @@ function projectFrame(frame: WebFrame): ImOutbound | undefined {
       return { kind: 'handoff', text: handoffText(frame) }
     case 'choice':
       return { kind: 'text', text: choiceText(frame) }
+    case 'risk-questionnaire':
+      return { kind: 'text', text: riskQuestionnaireText(frame) }
     // 表外帧：公众号没有对应呈现面（流式 / 图形 / 时间线 / 快照），一律丢弃
     case 'delta':
     case 'turn':

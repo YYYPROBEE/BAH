@@ -6,7 +6,7 @@
 #   pnpm bah --profile headless --patch profiles/headless/patch-balance.yml \
 #     --prompt "查一下我的余额" --session s-balance --jsonl .tmp-balance
 #
-# 语义是**整块替换**（施工单 06 §0 第 3 条）：`core:model` 的 config 一旦出现，
+# 语义是**整块替换**：`core:model` 的 config 一旦出现，
 # 就完全取代默认 patch 里的脚本，不会出现"两段脚本拼在一起"。
 
 - id: core:model

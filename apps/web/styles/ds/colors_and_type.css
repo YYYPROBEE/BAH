@@ -71,24 +71,24 @@
 
   /* body */
   --body-xs-font-family: var(--font-family-default);
-  --body-xs-font-size: 10px;
+  --body-xs-font-size: 11px;
   --body-xs-font-weight: 400;
-  --body-xs-line-height: 14px;
+  --body-xs-line-height: 16px;
   --body-xs-letter-spacing: 0;
   --body-xs-strong-font-family: var(--font-family-default);
-  --body-xs-strong-font-size: 10px;
+  --body-xs-strong-font-size: 11px;
   --body-xs-strong-font-weight: 500;
-  --body-xs-strong-line-height: 14px;
+  --body-xs-strong-line-height: 16px;
   --body-xs-strong-letter-spacing: 0;
   --body-sm-font-family: var(--font-family-default);
-  --body-sm-font-size: 11px;
+  --body-sm-font-size: 12px;
   --body-sm-font-weight: 400;
-  --body-sm-line-height: 16px;
+  --body-sm-line-height: 18px;
   --body-sm-letter-spacing: 0;
   --body-sm-strong-font-family: var(--font-family-default);
-  --body-sm-strong-font-size: 11px;
+  --body-sm-strong-font-size: 12px;
   --body-sm-strong-font-weight: 500;
-  --body-sm-strong-line-height: 16px;
+  --body-sm-strong-line-height: 18px;
   --body-sm-strong-letter-spacing: 0;
   --body-md-font-family: var(--font-family-default);
   --body-md-font-size: 12px;
@@ -239,7 +239,7 @@
   --text-secondary: #404040;
   --text-secondary-hover: #171717;
   --text-secondary-active: #171717;
-  --text-tertiary: #737373;
+  --text-tertiary: #6B6B6B;
   --text-disabled: #A1A1A1;
   --text-onbrand: #FFFFFF;
   --text-onaccent: #FFFFFF;
@@ -299,7 +299,7 @@
   --status-primary-surface-l1: rgba(47, 116, 255, 0.12);
   --status-primary-surface-l2: rgba(47, 116, 255, 0.18);
   --status-primary-surface-l3: rgba(47, 116, 255, 0.36);
-  --status-success-default: #15A877;
+  --status-success-default: #0E7A55;
   --status-success-hover: #2FB287;
   --status-success-active: #1E8B56;
   --status-success-surface-l1: rgba(64, 176, 139, 0.12);
@@ -311,13 +311,13 @@
   --status-alert-surface-l1: rgba(254, 169, 0, 0.14);
   --status-alert-surface-l2: rgba(254, 169, 0, 0.20);
   --status-alert-surface-l3: rgba(254, 169, 0, 0.36);
-  --status-warning-default: #E27900;
+  --status-warning-default: #A85800;
   --status-warning-hover: #F39A35;
   --status-warning-active: #C46F11;
   --status-warning-surface-l1: rgba(226, 121, 0, 0.12);
   --status-warning-surface-l2: rgba(226, 121, 0, 0.16);
   --status-warning-surface-l3: rgba(226, 121, 0, 0.36);
-  --status-error-default: #E8463A;
+  --status-error-default: #C0261C;
   --status-error-hover: #EA574C;
   --status-error-active: #C9382F;
   --status-error-surface-l1: rgba(232, 70, 58, 0.12);

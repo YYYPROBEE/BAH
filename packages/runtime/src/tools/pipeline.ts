@@ -1,5 +1,5 @@
 /**
- * 七段工具执行管线（施工单 03 §2.2，**顺序冻结、不可重排**）。
+ * 七段工具执行管线。
  *
  * ```text
  * ① tool/call 落账（执行前）
@@ -14,9 +14,9 @@
  * ```
  *
  * 纪律：
- * - 工具体抛错**一律**归一化为 `isError` 结果，不冒泡（施工单 03 硬约束 5）；
- * - presenter 是纯函数，管线保证只把参数/结果传进去，不传 ctx（施工单 03 §2.5）；
- * - 判决顺序改动 = 破坏性变更（施工单 03 硬约束 3）。
+ * - 工具体抛错**一律**归一化为 `isError` 结果，不冒泡；
+ * - presenter 是纯函数，管线保证只把参数/结果传进去，不传 ctx；
+ * - 判决顺序改动 = 破坏性变更。
  */
 
 import { randomUUID } from 'node:crypto'
@@ -77,7 +77,7 @@ export interface ToolPipelineOptions {
    */
   readonly mintTicketId?: (callId: string) => TicketId
   /**
-   * 授权来源（ADR-0006）：唤醒执行器为整次 run 注入，逐节点落到 `ticket/*`。
+   * 授权来源（ADR-0008）：唤醒执行器为整次 run 注入，逐节点落到 `ticket/*`。
    *
    * 只由受控执行器（`plan_wake`）设置；页面端永远不会走到这里。
    * ask 判决自带 `authorization` 时以判决为准（更内层、更具体）。
@@ -359,6 +359,9 @@ export class ToolPipeline {
       content,
     )
 
+    // 耗时口径 = **工具执行段**，不含等人批准的那段。`startedAt` 在审批之前，
+    // 直接相减会把"我盯着屏幕想了 21 秒"记成"银行转账要 21 秒"（M-16）。
+    const durationMs = Math.max(0, this.now() - startedAt - (approvalWaitedMs ?? 0))
     const result: ToolResultData = {
       callId: call.callId,
       name: call.name,
@@ -366,7 +369,7 @@ export class ToolPipeline {
       content,
       code,
       reason,
-      durationMs: this.now() - startedAt,
+      durationMs,
     }
 
     // 权威结果先落账，再广播：广播失败不能阻止日志留下结果。
@@ -430,19 +433,30 @@ export class ToolPipeline {
       name: call.name,
       amount: ticket.amount,
       challenge,
+      // 票据 TTL 截止时刻原样出账：渠道只做视觉倒计时，判决仍由服务端裁决。
+      // 漏这一个字段会让移动壳整套倒计时 / 紧迫色 / 读屏播报成为从未执行过的死代码。
+      expiresAt: ticket.expiresAt,
+      ...(ticket.details === undefined ? {} : { details: ticket.details }),
     })
 
     const input: ApprovalInput = {
       ticket,
       callId: call.callId,
       name: call.name,
-      summary: { title: `执行 ${call.name}`, amount: ticket.amount, tier: definition.tier.level },
+      summary: {
+        title: `执行 ${call.name}`,
+        amount: ticket.amount,
+        tier: definition.tier.level,
+        // 摘要与事件是同一份明细：渠道无论走帧还是走 `approval/request`，
+        // 看到的内容必须逐字一致（IM 的 H5 页就读这一份）。
+        ...(ticket.details === undefined ? {} : { details: ticket.details }),
+      },
       challenge,
-      // 授权来源（ADR-0006）：ask 判决自带的优先；否则用执行器为整次 run 注入的那一份
+      // 授权来源（ADR-0008）：ask 判决自带的优先；否则用执行器为整次 run 注入的那一份
       ...(ask.authorization === undefined && this.authorization === undefined
         ? {}
         : { authorization: ask.authorization ?? this.authorization }),
-      // 无人应答 = 拒绝（available 的反面；施工单 00 §11）
+      // 无人应答 = 拒绝（available 的反面）
       decision: { decision: 'unavailable' },
     }
 
@@ -458,6 +472,8 @@ export class ToolPipeline {
       decision: decision.decision,
       reason: decision.reason,
       code: decision.decision === 'allowed-once' ? undefined : `approval-${decision.decision}`,
+      // ADR-0010：窗口代签的采纳者落在这一条上（人工票据不带 `by`，见 session/types.ts）
+      ...(answered.by === undefined ? {} : { by: answered.by }),
     })
 
     if (decision.decision === 'allowed-once')
@@ -546,7 +562,7 @@ export class ToolPipeline {
     return { result, callCard, additionalContexts: [] }
   }
 
-  /** 票据签发（五绑定只做本单可见的三项；状态机属主在 bank-core，施工单 07 §3）。 */
+  /** 票据签发（五绑定只做本设计可见的三项；状态机属主在 bank-core）。 */
   private mintTicket(call: ToolCallInput, ask: AskVerdict): TicketRef {
     const draft = ask.ticket
     return {
@@ -564,6 +580,9 @@ export class ToolPipeline {
       fingerprint: draft.fingerprint,
       amount: draft.amount,
       expiresAt: this.now() + draft.ttlMs,
+      // 明细只做**搬运**：同一份引用进 TicketRef 与 `approval/asked`。
+      // 管线不重算、不格式化、不排序——一旦在这里加工，审批卡与票据就是两份口径。
+      ...(draft.details === undefined ? {} : { details: draft.details }),
     }
   }
 

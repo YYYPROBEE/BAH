@@ -239,7 +239,7 @@ const ITEMS = [
       if (!existsSync(ZIP)) return [null, '未找到 zip（先跑 pnpm desktop:pack）—— 跳过']
       const bytes = readFileSync(ZIP)
       const sha = createHash('sha256').update(bytes).digest('hex')
-      const record = read('docs/evidence/2026-10-30-desktop/desktop-sha256.txt')
+      const record = read('仓库外归档')
       const recorded = /sha256=([0-9a-f]{64})/.exec(record)?.[1]
       if (recorded === undefined) return bad('证据文件里没有 sha256')
       if (recorded !== sha) return bad(`记录 ${recorded.slice(0, 12)}… ≠ 实际 ${sha.slice(0, 12)}…（重新打包后要更新记录）`)

@@ -1,5 +1,5 @@
 /**
- * @bah/util · 统一错误形态与穷尽性收尾（施工单 00 §9）。
+ * @bah/util · 统一错误形态与穷尽性收尾。
  *
  * 独立成文件是为了让 `canonical.ts` 等原语可以引用 `BahError`，
  * 而不必反向 import 包入口（会形成 ESM 循环）。
@@ -8,7 +8,7 @@
 /**
  * 全仓统一的结构化错误形态。
  *
- * 纪律（施工单 00 §9 第 5 条）：错误必须结构化——类型化失败 + 可读理由码，
+ * 纪律：错误必须结构化——类型化失败 + 可读理由码，
  * 禁止静默吞错。`code` 一律 kebab-case（如 `no-identity`、`ticket-expired`）。
  */
 export class BahError extends Error {
@@ -26,7 +26,7 @@ export class BahError extends Error {
 }
 
 /**
- * 封闭联合的穷尽性收尾（施工单 00 §9 第 6 条：判别标签 switch 以 assertNever 收尾）。
+ * 封闭联合的穷尽性收尾（判别标签 switch 以 assertNever 收尾）。
  *
  * 走到这里说明新增了一个未处理的判别标签——必须是运行期失败，不能静默返回。
  */
@@ -39,8 +39,7 @@ export function assertNever(value: never, context = 'unreachable'): never {
  *
  * @param error 抛出物（`unknown`：JS 允许抛任何东西）
  * @param fallback 兜底码。**必须显式传**：`tool-failed` 与 `verify-failed` 的差异是有意的，
- *   调用方按 code 分支决定是否重试；给兜底码一个默认值会把这种可判别性悄悄抹平
- *   （`docs/tech-debt-review-2026-10-20.md` 风险提示 3）。
+ *   调用方按 code 分支决定是否重试；给兜底码一个默认值会把这种可判别性悄悄抹平。
  */
 export function errorCodeOf(error: unknown, fallback: string): string {
   if (error instanceof BahError) return error.code

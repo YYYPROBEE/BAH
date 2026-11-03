@@ -1,5 +1,5 @@
 /**
- * 失败 step 补记单测（施工单 03 §0 第 4 条 / T-LOOP-006 的前置件）。
+ * 失败 step 补记单测。
  */
 
 import { describe, expect, it } from 'vitest'

@@ -1,5 +1,5 @@
 /**
- * Agent 接口、活体注册表与 `agent/*` 接缝派发器（施工单 04 §3 / §6 第 1 步）。
+ * Agent 接口、活体注册表与 `agent/*` 接缝派发器。
  *
  * 三件事，一件都不多：
  * 1. `Agent` 是**宿主面向**的驱动器契约：认领、中断、转向、注入、回退；
@@ -10,7 +10,7 @@
  *    `verify-event-modes` 门禁比对声明与派发点）。
  *
  * 纪律：本文件不碰会话日志、不碰模型——它只描述"谁能挂上来"与"怎么派发"。
- * 具体状态机在 `agent-loop/agent.ts`（施工单 04 §2 的伪代码逐行落地）。
+ * 具体状态机在 `agent-loop/agent.ts`。
  */
 
 import { defineService } from '@bah/core'
@@ -27,7 +27,7 @@ import type { ToolResultData } from '../session/types.ts'
 export type { InboxClaim, InboxMessage, InboxTarget, SendOptions } from '../agent-loop/inbox.ts'
 export type { ForkInfo, ForkRequest, SessionFork } from '../agent-loop/rollback.ts'
 
-/** Agent ID：跨边界不透明（施工单 00 §10 的品牌类型纪律）。 */
+/** Agent ID：跨边界不透明。 */
 export type AgentId = Branded<'agent-id'>
 
 /**
@@ -45,7 +45,7 @@ export interface AgentRef {
 export type AgentStatus = 'idle' | 'running' | 'disposed'
 
 /**
- * 宿主面向的驱动器契约（施工单 04 §3 的五能力）。
+ * 宿主面向的驱动器契约。
  *
  * | 能力 | 方法 | 语义 |
  * |---|---|---|
@@ -90,7 +90,7 @@ export interface Agent {
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
- * `agent/pre-step` 的判决（施工单 04 §2.1）。
+ * `agent/pre-step` 的判决。
  *
  * - `enter`：放行（可改写 `messages`，并可标记"本次认领开启一个新的请求序列"）；
  * - `reject`：入口拒绝 → 该 turn 直接以 `blocked` 关闭，**不产生 step**。
@@ -126,7 +126,7 @@ export interface AgentPreStepInput {
  * `agent/request` 的载荷（waterfall）：请求装配结果，可改写**模型路由 / 参数**。
  *
  * 冻结点：`prepareCall` 之后不再派发本事件，adapter 拿到的 `PreparedCall` 也是冻结对象——
- * 装配完成即冻结（施工单 04 §2.2），后续 listener 改不动已经发出去的请求。
+ * 装配完成即冻结，后续 listener 改不动已经发出去的请求。
  */
 export interface AgentRequestInput {
   readonly agent: AgentRef
@@ -148,7 +148,7 @@ export interface AgentRequestInput {
  *   }),
  * )
  * ```
- * 观测 / 重试 / 限流都在这一层做（施工单 04 §5），不写进 adapter。
+ * 观测 / 重试 / 限流都在这一层做，不写进 adapter。
  */
 export type LlmStreamer = (call: PreparedCall, signal: AbortSignal) => AsyncIterable<StreamChunk>
 
@@ -171,6 +171,13 @@ export interface AgentReplyInput {
   readonly text: string
   /** 本 turn 已执行工具的结果（核验证据；不含本 turn 之外的历史）。 */
   readonly toolResults: readonly ToolResultData[]
+  /**
+   * 本 turn 提交给模型的运行时上下文文本（权威快照，如账户概览）。
+   *
+   * 核验门把它与工具出参并列作为证据：真模型会直接复述快照里的账户与余额，
+   * 只认工具出参会把真话误判成「未核实」。不含用户消息与历史消息。
+   */
+  readonly contextTexts?: readonly string[]
   /** 这条消息是否同时承载工具调用（true 时它不是本 turn 的最终回复）。 */
   readonly hasToolCalls: boolean
   readonly signal: AbortSignal
@@ -179,12 +186,12 @@ export interface AgentReplyInput {
 /**
  * `agent/turn-stopping` 的载荷（serial，**无 next 参数**）。
  *
- * 停止钩子：收尾、汇总、写审计（施工单 04 §2.1），以及**循环 guard 判停**（施工单 10 §4）。
+ * 停止钩子：收尾、汇总、写审计，以及**循环 guard 判停**。
  * `stop()` 是"停止决策"的载体：serial 没有返回值通道，listener 调它即可让本 turn 不再继续；
  * 传入的理由会写进 `turn/end.reason`（`kind: 'failed'`），让"为什么停"在审计里可解释。
  *
  * 想**继续**（而不是停止）的钩子走另一条路：往 inbox 的 `next-step` 目标推一条提示
- * （施工单 10 §4 的"末尾追加纠正提示"正是这么做的），主循环会在本 turn 内再跑一个 step。
+ * ，主循环会在本 turn 内再跑一个 step。
  */
 export interface AgentTurnStoppingInput {
   readonly agent: AgentRef
@@ -296,7 +303,7 @@ export class AgentRegistry {
   }
 }
 
-/** 服务键：跨包只认这个（施工单 00 §9「按键寻址」）。 */
+/** 服务键：跨包只认这个。 */
 export const AGENTS_SERVICE: ServiceKey<AgentRegistry> = defineService<AgentRegistry>(
   'runtime:agents',
 )

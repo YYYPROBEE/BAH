@@ -1,5 +1,5 @@
 /**
- * 派生投影单测（施工单 03 §1.4 / §4 的 T-SESS-002 ~ 004）。
+ * 派生投影单测。
  */
 
 import { describe, expect, it } from 'vitest'
@@ -122,7 +122,7 @@ describe('deriveMessages', () => {
 
   it('request/context 不进模型历史（reconcile 归 05 §5，投影不另塞消息）', () => {
     // 钉住有意的语义：运行时上下文不是"消息"，它由提示词装配按 reconcile 规则并入请求
-    // （施工单 05 §5）。若有人把它当 user 消息塞进历史，会污染模型可见序列。
+    // 。若有人把它当 user 消息塞进历史，会污染模型可见序列。
     const store = new SessionStore()
     store.append('request/context', { turn: 1, step: 1, texts: ['运行时上下文'] })
 

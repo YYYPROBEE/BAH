@@ -1,9 +1,9 @@
 /**
- * @bah/persistence · credentials（施工单 09 §4 的身份绑定渠道）。
+ * @bah/persistence · credentials。
  *
  * 三个渠道统一走**同一个**服务键 `CREDENTIALS`：
  * - `mock-login`：手机号 + mock 短信验证码（演示 / 回归；真实验证码由短信下发，这里回给调用方）；
- * - `im-map`：IM 用户 ID ↔ 银行 userId 映射表（飞书 / 微信，施工单 15 接线）；
+ * - `im-map`：IM 用户 ID ↔ 银行 userId 映射表（飞书 / 微信， 接线）；
  * - `demo-config`：profile 显式写 `demoUserId`（headless 排练用，由 `bank:tools` 直接绑定）。
  *
  * 纪律：
@@ -139,7 +139,7 @@ export class MockSmsLoginService {
   }
 }
 
-/** IM 用户 → 银行 userId 映射表（施工单 15 的网关在启动时灌入）。 */
+/** IM 用户 → 银行 userId 映射表。 */
 export class ImIdentityMap {
   private readonly byImUser = new Map<string, string>()
 
@@ -220,13 +220,13 @@ export class CredentialsService {  private readonly login: MockSmsLoginService
     return { ok: true, userId }
   }
 
-  /** 登记 IM 映射（施工单 15 的网关在启动时调用；重复登记 = 覆盖）。 */
+  /** 登记 IM 映射。 */
   registerImUser(imUserId: string, bankUserId: string): void {
     this.im.register(imUserId, bankUserId)
   }
 
   /**
-   * Web / 桌面端登录页的接缝（施工单 13）：渠道拿到 userId 后调这里。
+   * Web / 桌面端登录页的接缝：渠道拿到 userId 后调这里。
    *
    * @throws `BahError('identity-invalid')` userId 为空
    */
@@ -243,7 +243,7 @@ export class CredentialsService {  private readonly login: MockSmsLoginService
   }
 }
 
-/** 服务键：`persistence:credentials`（渠道插件按需取用；施工单 13/15 接线）。 */
+/** 服务键：`persistence:credentials`（渠道插件按需取用； 接线）。 */
 export const CREDENTIALS: ServiceKey<CredentialsService> = defineService<CredentialsService>(
   'persistence:credentials',
 )

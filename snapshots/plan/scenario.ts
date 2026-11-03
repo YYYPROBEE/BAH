@@ -78,6 +78,9 @@ const PLAN: Plan = {
   ],
 }
 
+/** 本场景的 overlay（层 4）：只给录制夹具一个显式放行的审批应答者（ADR-0010 后 profile 是 `none`）。 */
+const OVERLAY = join(REPO_ROOT, 'snapshots', CASE.name, 'overlay.yml')
+
 /** 一个"不存在"的 home 目录：录制与回放都不读开发机上的 home patch。 */
 function noHome(): string {
   return join(tmpdir(), 'bah-snapshot-no-home')
@@ -105,7 +108,7 @@ export async function runRecord(): Promise<{
 }> {
   const profile = readProfile(REPO_ROOT, CASE.profile)
   const bundles = await loadBundles(REPO_ROOT, profile.bundles)
-  const { layers } = readLayers(REPO_ROOT, profile, { home: noHome(), overlays: [] })
+  const { layers } = readLayers(REPO_ROOT, profile, { home: noHome(), overlays: [OVERLAY] })
 
   const clock = fixedClock(CASE.clock)
   const scratch = mkdtempSync(join(tmpdir(), 'bah-plan-record-'))

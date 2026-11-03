@@ -1,8 +1,8 @@
 /**
- * `channel:web`：Web 渠道的宿主接线（施工单 13 · 前端作为插件模块接入）。
+ * `channel:web`：Web 渠道的宿主接线。
  *
  * 分工：**本文件只做声明与生命周期**——装配体已整体平移到 `web/channel.ts` 的
- * `createHttpChannel`（施工单 01 / 00 D2），与 `channel:mobile` 共用一份实现。
+ * `createHttpChannel`，与 `channel:mobile` 共用一份实现。
  * 路由表在 `web/router.ts`（数据，供快照比对），闸的顺序在 `web/dispatch.ts`，
  * 四组处理器在 `web/handlers/*`；`@bah/channels/web` 是事件→帧的纯投影，`apps/web` 是帧→DOM。
  *
@@ -10,9 +10,9 @@
  * 渠道要按 `inject` 等 `runtime:session` / `runtime:agents` / `interaction:approval` 就绪
  * （缺审批服务就挂起，不静默降级）；装配与回滚走内核 `effect()`。
  *
- * 端口占用**不自动换端口**：答辩时浏览器开着 7331、服务却跑到 7332 是最坏的"看起来能用"。
+ * 端口占用**不自动换端口**：对外说明时浏览器开着 7331、服务却跑到 7332 是最坏的"看起来能用"。
  *
- * W16 拆分：本文件从 916 行降到装配面；施工单 01 再降到"声明 + 调工厂"，行为零变化——
+ * W16 拆分：本文件从 916 行降到装配面； 再降到"声明 + 调工厂"，行为零变化——
  * 证据是路由表快照与 `snapshots/web-channel` 回放 diff=0。新增路由必须走路由表，
  * **不许**再往 `apply` 里加 `if`。
  */

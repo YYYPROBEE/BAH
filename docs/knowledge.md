@@ -1,7 +1,6 @@
 # 知识平面（RAG sidecar）骨架
 
-> 状态：v0 骨架（2026-10-19）｜设计依据：`RAG增强层/微众杯银行AI智能体RAG增强层设计方案（终稿v1.1修复版）.md`
-> 对接方案：`RAG增强层/RAG增强层对接BAH-MonoRepo方案.md`（v2：RAG 自答，不改主循环）
+> 形态：RAG 自答，不改主循环——检索、生成与校验都在 sidecar 内完成，宿主只发一个 HTTP 请求。
 
 ## 1. 这版能跑什么
 
@@ -187,11 +186,11 @@ bah: 知识卡
   `pnpm rag:dev` 只告警（sidecar 本身可用签名 token 联调）。生产签名链路需另行接入宿主签发。
 - `claims` 是演示档的权限映射；生产应由登录凭证绑定，插件只消费 `BANK_IDENTITY` 的 userId。
 
-### 4.1 签名门（W06）
+### 4.1 签名门
 
 ```yaml
     signature:
-      enabled: true            # false = 关掉签名门（仅演示回滚；必须在 PROGRESS 登记）
+      enabled: true            # false = 关掉签名门（仅演示回滚；必须在  登记）
       manifestPath: packages/knowledge/fixtures/knowledge.manifest.json
       corpusPath: packages/knowledge/fixtures/corpus.json
 ```
@@ -261,8 +260,8 @@ Python 侧的锚点：
 | K-2 | ~~抽取式生成，不是 LLM~~ | 表达自然度有限 | **已关闭**：DeepSeek 生成（无 key/失败降级抽取式） |
 | K-3 | ~~熔断是内存态~~ | 重启即清空 | **已关闭**：SQLite `breaker_state` + `breaker_log` + CLI 复位 |
 | K-4 | 没有 `knowledge/answered` 的 schema 门禁 | 事件字段漏写只能靠测试 | 未动（TS 侧） |
-| K-5 | ~~证据面板未接~~ | 答辩只能看 JSONL | **已关闭**：`/panel/`（React+Vite） |
+| K-5 | ~~证据面板未接~~ | 对外说明只能看 JSONL | **已关闭**：`/panel/`（React+Vite） |
 | K-6 | 真实语料解析未接 | 只有 10 篇 demo | **记账，确认以后干**：PDF/DOCX/XLSX + 结构分块 + 哨兵 |
 | K-7 | FTS5 trigram 对长中文问句召回弱 | 混合检索实际由向量通道兜底 | 可选：jieba 分词或 2-4 gram 展开；当前不影响演示题库 |
 | K-8 | 向量绝对距离闸 0.45 为 demo 语料实测值 | 换语料/换模型需重标 | 配置项 `VECTOR_MAX_DISTANCE`，黄金集首跑后校准 |
-| K-9 | 签名清单基于 **10 篇 demo 语料**（`corpus.json` 由 SQLite 导出） | 真实语料接入后必须重跑 `pnpm knowledge:sign`，否则启动 fail-loud | W06 已落地；重签命令与 CI 检查见 §4.1 |
+| K-9 | 签名清单基于 **10 篇 demo 语料**（`corpus.json` 由 SQLite 导出） | 真实语料接入后必须重跑 `pnpm knowledge:sign`，否则启动 fail-loud | 已落地；重签命令与 CI 检查见 §4.1 |

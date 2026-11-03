@@ -204,6 +204,89 @@ describe('additionalProperties: false', () => {
   })
 })
 
+describe('oneOf（R-8：判别式联合，只做根级一层 object 分支）', () => {
+  /** questions / submit 两个互斥分支（照 `risk_assess` 出参缩比）。 */
+  const schema: StructSchema = {
+    type: 'object',
+    oneOf: [
+      {
+        type: 'object',
+        required: ['action', 'questions'],
+        properties: {
+          action: { type: 'string', enum: ['questions'] },
+          questions: { type: 'array' },
+        },
+      },
+      {
+        type: 'object',
+        required: ['action', 'answers'],
+        properties: {
+          action: { type: 'string', enum: ['submit'] },
+          answers: { type: 'array' },
+        },
+      },
+    ],
+  }
+
+  it('正例：恰好命中 questions 分支', () => {
+    pass(schema, { action: 'questions', questions: [] })
+  })
+
+  it('正例：恰好命中 submit 分支', () => {
+    pass(schema, { action: 'submit', answers: [{ index: 1, key: 'middle' }] })
+  })
+
+  it('负例：分支内 required 缺失 → 0 命中，code=oneOf 并列出每个分支的首个错误路径', () => {
+    const found = validateAgainstSchema(schema, { action: 'submit' }, 'result')
+    expect(found?.code).toBe('oneOf')
+    expect(found?.path).toBe('')
+    // 两个分支各自的首个错误：questions 分支缺 questions、submit 分支缺 answers
+    expect(found?.detail).toContain('/questions(required)')
+    expect(found?.detail).toContain('/answers(required)')
+    // PII：detail 只拼 path + code，不回显字段值
+    expect(found?.detail).not.toContain('submit')
+  })
+
+  it('负例：两个分支同时命中 → oneOf-ambiguous（不许随便取一个放行）', () => {
+    const broad: StructSchema = {
+      type: 'object',
+      oneOf: [
+        { type: 'object', required: ['a'], properties: { a: { type: 'integer' } } },
+        { type: 'object', required: ['b'], properties: { b: { type: 'integer' } } },
+      ],
+    }
+    fail(broad, { a: 1, b: 2 }, 'oneOf-ambiguous')
+  })
+
+  it('负例：分支内再套 oneOf → oneOf-nested（不支持就明确报，不静默放过）', () => {
+    const nested: StructSchema = {
+      type: 'object',
+      oneOf: [
+        {
+          type: 'object',
+          required: ['action'],
+          properties: {
+            action: {
+              type: 'object',
+              oneOf: [{ type: 'object', required: ['kind'] }],
+            },
+          },
+        },
+      ],
+    }
+    // 嵌套点在分支的属性上：path 指到 /action，报的是"不支持"而不是"分支不匹配"
+    fail(nested, { action: { kind: 'questions' } }, 'oneOf-nested', '/action')
+  })
+
+  it('负例：分支不是 object → oneOf-non-object（本仓只声明 object 根）', () => {
+    fail({ type: 'object', oneOf: [{ type: 'string' }] }, { a: 1 }, 'oneOf-non-object')
+  })
+
+  it('负例：oneOf 是空数组 → oneOf-invalid（schema 写坏要立刻报）', () => {
+    fail({ type: 'object', oneOf: [] }, { a: 1 }, 'oneOf-invalid')
+  })
+})
+
 describe('phase 与 PII', () => {
   it('schema 本身不是对象 → schema-invalid（契约写错要立刻报，不许当作无约束）', () => {
     const found = validateAgainstSchema('not-a-schema', {}, 'args')

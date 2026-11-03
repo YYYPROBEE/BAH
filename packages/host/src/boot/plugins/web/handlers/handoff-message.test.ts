@@ -18,7 +18,7 @@ import { normalizePrincipal, parseTenantId } from '@bah/util'
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
-import type { HandoffHandle, HandoffSummary } from '../handoff.ts'
+import type { HandoffHandle, HandoffSayResult, HandoffSummary } from '../handoff.ts'
 import type { WebDeps, WebRequest } from '../deps.ts'
 import type { RequestIdentity } from '../auth/identity.ts'
 import {
@@ -253,6 +253,25 @@ describe('POST /api/handoff/message', () => {
     )
     expect(res2.statusCode).toBe(413)
     expect(JSON.parse(res2.body)['error'].code).toBe('handoff-text-too-long')
+  })
+
+  it('名单外的失败码 → 400 + 兜底理由（不给空文案，也不冒充已知理由）', async () => {
+    // 刻意给一个**不在联合里**的失败码：handler 的兜底分支必须承认它、给 400 + 通用理由，
+    // 不能因为类型收窄就当成"不可能发生"。运行时上游（旧版本/坏插件）确实可能给别的码。
+    const { handle } = handoffStub({
+      say: () => ({ ok: false, code: 'handoff-store-broken' }) as unknown as HandoffSayResult,
+    })
+    const res = new FakeRes()
+    await handleHandoffMessage(
+      reqOf({ text: '在吗' }),
+      res as unknown as ServerResponse,
+      request('POST', '/api/handoff/message'),
+      depsOf(handle),
+    )
+    expect(res.statusCode).toBe(400)
+    const error = JSON.parse(res.body)['error'] as { code: string; reason: string }
+    expect(error.code).toBe('handoff-store-broken')
+    expect(error.reason).toBe('发言失败')
   })
 })
 

@@ -1,8 +1,8 @@
 /**
- * headless 自动应答者（施工单 09 §6；只在**显式配置**开启时注册）。
+ * headless 自动应答者。
  *
  * 存在的理由：幕 3 要在没有 Web 弹窗的 headless 里跑通「ask → 批准 → 核销」，
- * 而 Web 渠道要到施工单 13 才有。默认配置下这个应答者**不注册**——默认仍是拒绝
+ * 而 Web 渠道要到 才有。默认配置下这个应答者**不注册**——默认仍是拒绝
  * （无应答者 = `unavailable`），只有 profile 显式写 `responder: headless` 才会装上。
  *
  * 它同时是回归夹具：`decision` / `verifyChallenge` / `delayMs` 三个旋钮覆盖
@@ -47,6 +47,16 @@ export function createHeadlessResponder(
 
   return {
     id: HEADLESS_RESPONDER_ID,
+
+    /**
+     * **不认领窗口票据**（ADR-0010）。
+     *
+     * 自动应答者的语义是"夹具替人点一下"；窗口票据的签署人是授权窗口本身，
+     * 它的凭据必须由宿主逐条核验（标记 / 复验 / 档位 / 预算 / 预授权）。
+     * 若两者同时注册而自动应答者抢先答了窗口票据，窗口核验就被整条绕过——
+     * 那正是本设计要修掉的"无差别放行"。所以这里显式让位。
+     */
+    accepts: (input) => input.authorization?.kind !== 'window',
 
     attach(view) {
       const run = async (): Promise<void> => {

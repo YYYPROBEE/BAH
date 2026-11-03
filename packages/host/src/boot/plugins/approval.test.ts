@@ -1,5 +1,5 @@
 /**
- * `interaction:approval` 插件（施工单 09 §2 / §6 的宿主接线）。
+ * `interaction:approval` 插件。
  *
  * 端到端断言只看看得见的东西：会话事件序列、工具结果、票据状态。
  */
@@ -103,15 +103,28 @@ describe('interaction:approval 配置（fail-loud）', () => {
     expect(approvalPlugin.validate({ responder: 'headless' }).autoDecision).toBe('reject')
   })
 
-  it('显式覆盖：responder / 结论 / 是否验挑战 / 延迟', () => {
+  it('显式覆盖：responder / 结论 / 是否验挑战 / 延迟 / 窗口代签', () => {
     expect(
       approvalPlugin.validate({
         responder: 'headless',
         autoDecision: 'reject',
         autoVerify: false,
         autoDelayMs: 5,
+        windowResponder: true,
       }) as ApprovalSettings,
-    ).toEqual({ responder: 'headless', autoDecision: 'reject', autoVerify: false, autoDelayMs: 5 })
+    ).toEqual({
+      responder: 'headless',
+      autoDecision: 'reject',
+      autoVerify: false,
+      autoDelayMs: 5,
+      windowResponder: true,
+    })
+  })
+
+  it('windowResponder 缺省关闭（ADR-0010：不配就没有代签通道）', () => {
+    expect(DEFAULT_APPROVAL.windowResponder).toBe(false)
+    expect(approvalPlugin.validate({ responder: 'none' }).windowResponder).toBe(false)
+    expect(approvalPlugin.validate({ windowResponder: true }).windowResponder).toBe(true)
   })
 
   it('未知键 / 非法枚举 / 非布尔 / 非法延迟全部拒绝', () => {
@@ -218,7 +231,7 @@ describe('审批服务端到端', () => {
   })
 })
 
-describe('红级挑战链（施工单 09 §6）', () => {
+describe('红级挑战链', () => {
   it('超日限额 → 签发挑战 → 强验证通过 → 才允许批准 → 核销', async () => {
     const app = await run({
       amount: 6_000,

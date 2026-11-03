@@ -9,7 +9,14 @@ import { BahError } from '@bah/util'
 
 import type { CardId, ProductId, RiskGrade, TransferReq, WealthFilter } from '../core/index.ts'
 import { bankIds, yuanToCents } from '../core/index.ts'
-import { readNumber, readObject, readOptionalString, readRequiredEnum, readString } from './args.ts'
+import {
+  readNumber,
+  readObject,
+  readOptionalInteger,
+  readOptionalString,
+  readRequiredEnum,
+  readString,
+} from './args.ts'
 import { parseInstant } from './time.ts'
 
 /** 转账参数（试算与执行共用）。 */
@@ -155,4 +162,91 @@ export function parsePeriod(
   args: Readonly<Record<string, unknown>>,
 ): 'month' | 'quarter' | 'year' {
   return readRequiredEnum(args, 'period', 'bill', ['month', 'quarter', 'year'] as const)
+}
+
+/** 账单口径 + 账期锚点。 */
+export interface BillScope {
+  readonly period: 'month' | 'quarter' | 'year'
+  /** 锚点账期（`YYYY-MM`，显式）。 */
+  readonly month?: string
+  /** 锚点自然年（`YYYY`）：表示"该自然年的 12 个账期"。 */
+  readonly year?: string
+  /** 相对当前月的偏移（0 = 本月，-1 = 上个月，-11 = 去年同月）。 */
+  readonly monthOffset?: number
+  /** 只给月份（1–12）：由调用方按"不晚于当前月"落到具体年份。 */
+  readonly monthOfYear?: number
+}
+
+const MONTH_KEY = /^\d{4}-(?:0[1-9]|1[0-2])$/
+const YEAR_KEY = /^\d{4}$/
+
+/**
+ * 解析账单口径（`bill_analyze` / `bill_report` 共用）。
+ *
+ * 五种写法，**最多给一个**：
+ * - `period`：month / quarter / year（相对当前月，向后兼容）；
+ * - `month: 'YYYY-MM'`：显式历史月份（模型知道今天是几号时用）；
+ * - `year: 'YYYY'`：显式自然年；
+ * - `monthOffset: -1`：上个月（离线脚本用——脚本没有时钟，算不了 `YYYY-MM`）；
+ * - `monthOfYear: 9`：只要月份，年份由调用方按"不晚于当前月"补齐。
+ *
+ * WHY 要有相对口径：用户最自然的话术是"上个月账单""9 月花了多少"。
+ * 只支持相对 period 时，"2025 年" 会被算成"近 12 个月"——数字与用户预期不符，
+ * 在审阅者眼里就是报告编数。**换算留在调用方**：本函数是纯函数，不碰时钟。
+ */
+export function parseBillScope(args: Readonly<Record<string, unknown>>): BillScope {
+  const period = parsePeriod(args)
+  const month = readOptionalString(args, 'month', 'bill')
+  const year = readOptionalString(args, 'year', 'bill')
+  const monthOffset = readOptionalInteger(args, 'monthOffset', 'bill')
+  const monthOfYear = readOptionalInteger(args, 'monthOfYear', 'bill')
+
+  const anchors = [month, year, monthOffset, monthOfYear].filter(
+    (value) => value !== undefined,
+  ).length
+  if (anchors > 1) {
+    throw new BahError(
+      'tool-args-invalid',
+      'bank-tools: month / year / monthOffset / monthOfYear 只能给一个',
+      {},
+    )
+  }
+
+  if (month !== undefined) {
+    if (!MONTH_KEY.test(month)) {
+      throw new BahError('tool-args-invalid', `bank-tools: month 必须是 YYYY-MM（收到 ${month}）`, {
+        month,
+      })
+    }
+    return { period: 'month', month }
+  }
+  if (year !== undefined) {
+    if (!YEAR_KEY.test(year)) {
+      throw new BahError('tool-args-invalid', `bank-tools: year 必须是 YYYY（收到 ${year}）`, {
+        year,
+      })
+    }
+    return { period: 'year', year }
+  }
+  if (monthOffset !== undefined) {
+    if (monthOffset > 0 || monthOffset < -36) {
+      throw new BahError(
+        'tool-args-invalid',
+        `bank-tools: monthOffset 必须在 -36..0（0 = 本月，收到 ${monthOffset}）`,
+        { monthOffset },
+      )
+    }
+    return { period, monthOffset }
+  }
+  if (monthOfYear !== undefined) {
+    if (monthOfYear < 1 || monthOfYear > 12) {
+      throw new BahError(
+        'tool-args-invalid',
+        `bank-tools: monthOfYear 必须在 1..12（收到 ${monthOfYear}）`,
+        { monthOfYear },
+      )
+    }
+    return { period, monthOfYear }
+  }
+  return { period }
 }

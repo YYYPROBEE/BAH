@@ -1,5 +1,5 @@
 /**
- * 每子进程的 overlay YAML（施工单 02 §2.11）。
+ * 每子进程的 overlay YAML。
  *
  * WHY 生成文件而不是 `--set`：CLI 的四层层序里 overlay 是**整块替换**语义
  * （每一行的 `config` 一出现就完全取代 base 的值）。用 `--set` 逐个改字段会
@@ -20,7 +20,7 @@ export const OVERLAY_DIR = '.tmp-im'
 /** 子进程入口页（与 profile 一致：IM 子进程不提供 Web UI）。 */
 const STATIC_ROOT = 'apps/web'
 const ENTRY = 'm.html'
-const HEARTBEAT_MS = 15_000
+export const HEARTBEAT_MS = 15_000
 const HANDOFF_SLA_MS = 180_000
 
 /** overlay 入参（全部来自 profile 的 `channel:im` 行 + 本次分配的端口）。 */

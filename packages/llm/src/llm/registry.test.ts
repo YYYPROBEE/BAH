@@ -29,7 +29,7 @@ function stubAdapter(id: string): LlmAdapter {
   }
 }
 
-describe('LlmAdapterRegistry（施工单 05 §2）', () => {
+describe('LlmAdapterRegistry', () => {
   it('注册即可逆：register 返回幂等 disposer，注销后立即无法解析', () => {
     const registry = new LlmAdapterRegistry()
     const adapter = new MockLlmAdapter({ script: { steps: [textStep('hi')] } })

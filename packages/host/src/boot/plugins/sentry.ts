@@ -1,5 +1,5 @@
 /**
- * base bundle · `safety:sentry`：安全防护层（施工单 10 批次 B）。
+ * base bundle · `safety:sentry`：安全防护层。
  *
  * 本行只做**接线**，判决与算法全在 `@bah/safety` 的 sentry 模块里：
  * - 四接缝：`agent/pre-step` / `tools/pre-execute` / `tools/result` / `session/event`；
@@ -146,6 +146,8 @@ export const sentryPlugin: HostPlugin<SentryPluginSettings> = {
           callId,
           name: 'safety_unfreeze',
           challenge: 'ushield',
+          // 与工具审批同一条口径：TTL 截止时刻随事件出账，渠道据此做倒计时。
+          expiresAt,
         })
         const answered = await ctx.events.waterfall('approval/request', {
           ticket: { ticketId, fingerprint: `safety-unfreeze:${String(ticketId)}`, expiresAt },
@@ -223,7 +225,7 @@ export const sentryPlugin: HostPlugin<SentryPluginSettings> = {
         ticketStatus: (ticketId) => ticketGuard.status(ticketId as TicketId),
         revokeTickets: (reason, at) => ticketGuard.revokeAll(reason, at).length,
         nudge: (agentId, text) => {
-          // 纠正提示走 `next-step` 车道 + `context` 来源：模型下一 step 可见，且不伪装成用户原话
+          // 纠正提示走 `next-step` 车道 + `context` 来源：模型下一 step 可，且不伪装成用户原话
           agents.get(agentId as AgentId).send(text, { source: 'context', target: 'next-step' })
         },
         recordDecision: (decision) => {
