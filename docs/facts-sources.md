@@ -38,7 +38,7 @@ tests_main_cases=5283
 | 覆盖率（包） | **18/18** | 同上 | 18 个包全部 ≥80%，最低 `saga` 90.34% |
 | 主仓测试 | **455 文件 / 5283 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 455 文件 / 5283 例（2026-11-03 全量实测（清理线）：较 446/5148 增 9 个用例文件（远端清理线补的 5 个覆盖率文件 + 本批 4 个），另有路由兜底、核心守卫等用例补齐。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑 17/17 绿），与用例数无关**） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
-| web 测试 | **49 文件 / 592 例** | `pnpm test:web` | 49 文件 / 592 例，**全绿**（2026-11-02 实测；较 47/550 新增 `views/history.test.js` 27 例与 `mobile/history-sheet.test.js` 14 例，覆盖历史列表、只读回放与“不渲染审批按钮”） |
+| web 测试 | **49 文件 / 610 例** | `pnpm test:web` | 49 文件 / 610 例，**全绿**（2026-11-03 实测（清理线）；较 47/550 新增 `views/history.test.js` 27 例、`mobile/history-sheet.test.js` 14 例与批内 18 例，覆盖历史列表、只读回放与“不渲染审批按钮”） |
 | 快照跑批 | **13 文件 / 60 例** | `pnpm test:snapshot` | **60 passed / 0 failed**（2026-11-01 重录后回放；新增 `birthday-reminder` 6 例；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 的录制夹具用 overlay 显式放行审批，生产 profile 仍 `responder: none`） |
 
 ## 3. 覆盖率口径

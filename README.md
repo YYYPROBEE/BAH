@@ -262,7 +262,7 @@ facts.md             演示材料唯一数字来源
 | 命令 | 范围 | 实测（2026-11-02） |
 |---|---|---|
 | `pnpm test` | 主仓 | 455 文件 / 5283 用例（2026-11-03 全量实测，见 facts.md） |
-| `pnpm test:web` | 前端 | 49 文件 / 592 用例（全绿） |
+| `pnpm test:web` | 前端 | 49 文件 / 610 用例（全绿） |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
 | `pnpm test:snapshot` | 快照回放 | 13 文件 / 60 用例（全绿，含 `subscription-reminder` 与 `birthday-reminder`） |
 | `pnpm gate` | 门禁 | 53 项 · 53 通过 |
