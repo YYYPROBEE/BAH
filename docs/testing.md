@@ -6,7 +6,7 @@
 
 | 面 | 命令 | 配置 | 装什么 | 现状（2026-10-31 实测） |
 |---|---|---|---|---|
-| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 449 文件 / 5203 用例（2026-11-03 全量实测；含 `apps/desktop/src`、`apps/im-gateway`） |
+| unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 455 文件 / 5269 用例（2026-11-03 全量实测；含 `apps/desktop/src`、`apps/im-gateway`） |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
 | snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 13 文件 / 60 用例全绿（含 `subscription-reminder` 与 `birthday-reminder`；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 用夹具 overlay 放行审批） |
 | web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 前端 49 文件 / 591 用例（全绿） |

@@ -1930,6 +1930,10 @@ export class MockBankCore implements BankCoreProvider {
         index,
       })
     }
+    // 构造不可达：把某个参与人置为 `expired` 的三条路（closeAa / expireAaGroups / 到期收口）
+    // 都会同时让组离开 `collecting`，而进门第一道闸 `mustCollectingAa` 已经把那种组拒了。
+    // 留这道守卫是给"将来支持单人份额过期"用的，不是防御性摆设。
+    /* v8 ignore next 7 */
     if (participant.status === 'expired') {
       throw new BahError('aa-participant-closed', `bank: ${participant.name} 的份额已经过期`, {
         groupId: group.id,
@@ -2200,10 +2204,15 @@ export class MockBankCore implements BankCoreProvider {
     readonly dailyUsedCents: number
     readonly monthlyUsedCents: number
   } {
+    // 唯一调用点 `spendOnCard` 传的是 `cardOfUser` 刚取到的 `card.id`：缺省支（按账户取第一张
+    // 正常卡）与"卡不存在"支都没有调用方。整段标注而不是删掉——删掉会把"卡口径按单卡归集"
+    // 这条注释背后的意图一起删了，将来按账户查额度时又要重新想一遍。
+    /* v8 ignore next 4 */
     const card =
       cardId === undefined
         ? this.cards.find((item) => item.accountId === accountId && item.status === 'normal')
         : this.cards.find((item) => item.id === cardId)
+    /* v8 ignore next 3 */
     if (card === undefined) {
       return { dailyLimitCents: 0, monthlyLimitCents: 0, dailyUsedCents: 0, monthlyUsedCents: 0 }
     }
