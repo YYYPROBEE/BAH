@@ -290,7 +290,7 @@ confirmed(amount, callId) =
 | POST | `/api/admin/halt/unfreeze-request` | 会话内发起一次 U 盾 MFA 审批，签发解除票据（无应答者 → 409） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 409 / 503 |
 | POST | `/api/admin/halt/unfreeze` | 凭票据解除 HALT（唯一解除路径；没有 `force`） | admin token + 回环 | 200 / 400 / 401 / 403 / 404 / 405 / 409 / 503 |
 | GET | `/api/session` | 会话与能力位：`{ sessionId, lastSeq, capabilities }` | Web 凭证（任一角色） | 200 / 401 |
-| GET | `/api/events` | SSE：先全量快照，再推 frame / delta / 心跳注释；static 模式凭证可用 `?token=`（password 模式只认 cookie）；连接满 → 503 | Web 凭证（任一角色） | 200 / 400 / 401 / 503 |
+| GET | `/api/events` | SSE：先全量快照，再推 frame / delta / 心跳事件（`event: heartbeat`）；static 模式凭证可用 `?token=`（password 模式只认 cookie）；连接满 → 503 | Web 凭证（任一角色） | 200 / 400 / 401 / 503 |
 | GET | `/api/metrics` | 单机指标：turn / 工具成功失败 / 审批分布 / token 与成本 / 工具耗时分位 / SSE 连接数；第一层带 `tenant` | Web 凭证（任一角色） | 200 / 400 / 401 |
 | GET | `/api/trace` | 轨迹：事件派生的 span 森林；`?format=chrome` 导出 Chrome Trace（Perfetto 可直接打开）；当前按调试面处理（ROLES），生产应收窄到 auditor/admin | Web 凭证（任一角色） | 200 / 400 / 401 / 503 |
 | POST | `/api/session/fork` | 在 turn 边界分叉新会话 `{ turn }`（旧会话原样封存；新会话仅进程内存在） | Web 凭证（customer / admin） + CSRF | 200 / 400 / 401 / 403 / 404 / 405 / 409 / 500 |
@@ -408,8 +408,8 @@ HALT 期间新 turn 的 `/api/turn` 返回 **423 `safety-halted`**（不是 500�
 
 约定：
 
-- 全部 JSON 用 `application/json; charset=utf-8`；SSE 用 `text/event-stream`，每 `heartbeatMs`（默认 15s）一条 `: ping` 心跳。
-- SSE 只有三种命名事件：`frame`（帧，含 `snapshot`）、`fault`（渠道级故障）、以及浏览器内置的 `open`/`error`。
+- 全部 JSON 用 `application/json; charset=utf-8`；SSE 用 `text/event-stream`，每 `heartbeatMs`（默认 15s）一条 `event: heartbeat` 命名事件（客户端用它判空闲超时，注释行不会被 EventSource 派发）。
+- SSE 的命名事件：`frame`（帧，含 `snapshot`）、`fault`（渠道级故障）、`heartbeat`（空闲判定的心跳）、以及浏览器内置的 `open`/`error`。
   自定义事件**不能叫 `error`**，否则会和 `EventSource` 内置错误回调撞名。
 - 错误体统一 `{ error: { code, reason } }`，`code` 是结构化理由码（AGENTS.md 编码纪律 5）。
 - POST 成功后返回 `{ ok: true, seq? }`，前端不据此改状态（状态只来自帧）。

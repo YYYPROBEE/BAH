@@ -684,6 +684,9 @@ export function mountApp(options) {
       // 已在接管中：入口禁用（服务端重复请求会回 409，界面不该先给一个假入口）
       handoffButton.disabled = true
       handoffButton.title = '已在人工接管中'
+      // 接管期没有交回入口：把"回到上一步"一并收掉（桌面端它本来就是禁用态，
+      // 这里只是避免接管期还摆着一个看起来能点的回退入口）。
+      backButton.hidden = true
       // 超时告警只在**本次接管**之后才算数（上一轮的红标不能跟到新接管）
       const freshWarn = warn !== null && warn !== undefined && warn.seq > handoff.seq ? warn : null
       const tick = () => {
@@ -718,6 +721,7 @@ export function mountApp(options) {
     if (handoff !== null && handoff !== undefined) handoffAccepted = false
     handoffButton.disabled = handoffInFlight || handoffAccepted
     handoffButton.title = '请求人工坐席接管'
+    backButton.hidden = false
     // 从"接管中"切到"已交回"：一次性提示 3 秒；之后到来的帧不许把它提前抹掉
     if (handoffWasActive) {
       handoffWasActive = false
@@ -752,6 +756,48 @@ export function mountApp(options) {
 
   /** 帮助弹窗（服务范围 / 无障碍 / 常用业务）。 */
   const helpDialog = createDialog(overlay)
+
+  /** 不可逆动作的二次确认（目前只有「转人工」）：与移动壳同一套口径。 */
+  let confirmResolver = null
+  const confirmDialog = createDialog(overlay, {
+    onClose: () => {
+      const resolve = confirmResolver
+      confirmResolver = null
+      resolve?.(false)
+    },
+  })
+
+  function askConfirm(message, confirmLabel) {
+    return new Promise((resolve) => {
+      confirmResolver = resolve
+      const cancel = el('button', {
+        class: 'ds-btn ds-btn--secondary ds-btn--md',
+        type: 'button',
+        dataset: { role: 'confirm-cancel' },
+        text: '取消',
+      })
+      const confirm = el('button', {
+        class: 'ds-btn ds-btn--primary ds-btn--md',
+        type: 'button',
+        dataset: { role: 'confirm-accept' },
+        text: confirmLabel,
+      })
+      const settle = (value) => {
+        if (confirmResolver === resolve) confirmResolver = null
+        resolve(value)
+        confirmDialog.close()
+      }
+      cancel.addEventListener('click', () => settle(false))
+      confirm.addEventListener('click', () => settle(true))
+      confirmDialog.show({
+        title: '请求人工接管？',
+        body: el('div', { class: 'confirm' }, [
+          el('p', { class: 'confirm__text', text: message }),
+          el('div', { class: 'confirm__actions' }, [cancel, confirm]),
+        ]),
+      })
+    })
+  }
 
   /**
    * 历史对话弹窗（2026-11-02）。
@@ -1036,15 +1082,39 @@ export function mountApp(options) {
   // 同一句话会提交两轮，银行场景下就是两次工具调用、两次审批。用标志位把入口关死。
   let inFlight = false
   let lastFailedText = null
+  /** 错误行的动作是"重发"还是"重新加载页面"（凭证失效时后者才是出路）。 */
+  let composerReloadMode = false
+
+  function setRetryLabel(label) {
+    composerRetry.setAttribute('aria-label', label)
+    composerRetry.title = label
+  }
 
   function showComposerError(message, retryText) {
+    composerReloadMode = false
+    setRetryLabel('重试发送')
     lastFailedText = retryText ?? null
     composerErrorText.textContent = message
     composerError.hidden = false
     composerRetry.hidden = retryText === undefined
   }
 
+  /**
+   * 凭证失效（static 模式下没有登录卡片）：把错误行的动作换成"重新加载页面"。
+   * 与移动壳同一条口径，不再让用户对着"连接异常"发呆。
+   */
+  function showComposerReload(message) {
+    composerReloadMode = true
+    lastFailedText = null
+    composerErrorText.textContent = message
+    composerError.hidden = false
+    composerRetry.hidden = false
+    setRetryLabel('重新加载页面')
+  }
+
   function clearComposerError() {
+    composerReloadMode = false
+    setRetryLabel('重试发送')
     lastFailedText = null
     composerError.hidden = true
     composerErrorText.textContent = ''
@@ -1073,8 +1143,13 @@ export function mountApp(options) {
     try {
       const result = await api.turn(text)
       if (!result.ok) {
-        // 失败保留原话与输入框内容，并给一键重试：不逼用户重打一遍
-        showComposerError(String(result.reason ?? result.code ?? '发送失败'), text)
+        // 失败保留原话与输入框内容，并给一键重试：不逼用户重打一遍。
+        // 网络层失败（status=0）不直出 `TypeError: Failed to fetch`（M-09）。
+        const message =
+          Number(result.status ?? 0) === 0
+            ? '网络不通，请检查信号后重试。'
+            : String(result.reason ?? result.code ?? '发送失败')
+        showComposerError(message, text)
         return
       }
       if (fromComposer) {
@@ -1094,6 +1169,10 @@ export function mountApp(options) {
   })
 
   composerRetry.addEventListener('click', () => {
+    if (composerReloadMode) {
+      window.location.reload()
+      return
+    }
     if (lastFailedText === null) return
     const fromInput = composerInput.value.trim() === lastFailedText
     void submitText(lastFailedText, fromInput)
@@ -1127,13 +1206,24 @@ export function mountApp(options) {
   // 转人工：成功不等 optimistic 渲染——横幅由 `handoff/requested` 帧点亮（与移动壳同一口径）。
   handoffButton.addEventListener('click', async () => {
     if (handoffInFlight) return
+    // 不可逆状态先确认：接管后只能由坐席工作台交回，误点一次演示就报废。
+    const approved = await askConfirm(
+      '接管后智能体停止响应，且只能在坐席工作台交回会话。确定转人工？',
+      '确认转人工',
+    )
+    if (approved !== true) return
     handoffInFlight = true
     handoffButton.disabled = true
     let accepted = false
     try {
       const result = await control.handoff('客户请求人工')
       if (!result.ok) {
-        notify(`转人工失败：${result.reason}`, 'danger')
+        // 网络层失败不直出 TypeError；其余照服务端理由（M-09）
+        const reason =
+          Number(result.status ?? 0) === 0
+            ? '网络不通，请检查信号后重试'
+            : String(result.reason ?? '请求失败')
+        notify(`转人工失败：${reason}`, 'danger')
         return
       }
       accepted = true
@@ -1185,6 +1275,11 @@ export function mountApp(options) {
     TAB_BUTTONS[target].focus()
   })
 
+  // 先挂 401 监听再读会话：页面加载时 token 已失效（典型是刚重启宿主）也应被接住。
+  if (typeof window !== 'undefined') {
+    window.addEventListener('bah:unauthorized', onUnauthorized)
+  }
+
   // 会话信息（失败不阻断：界面仍可从 SSE 取数）
   void api.session().then((result) => {
     const sessionId = result.ok ? result.data?.sessionId : undefined
@@ -1194,19 +1289,70 @@ export function mountApp(options) {
     }
   })
 
-  const connection = connect({
-    since: 0,
-    onFrame: (frame) => {
-      // 快照是历史：先推播报基线，再让 sync 看到它（否则会朗读整段历史）。
-      if (frame.kind === 'snapshot') spokenSeq = latestAssistantSeq(frame.frames)
-      store.apply(frame)
-    },
-    onFault: (fault) => store.setFault(fault),
-    onStatus: (status) => {
-      store.setStatus(status)
-      if (status === 'online') store.setFault(null)
-    },
-  })
+  /** 续订点：断线重连必须从已应用的最大 seq 继续，不能回到 0（重复渲染历史）。 */
+  let lastSeq = 0
+  /** 最后一次收到服务端心跳的时刻（SSE `event: heartbeat`）。 */
+  let lastHeartbeatAt = 0
+  let watchdogTimer = null
+  let connection = null
+  let authProbePending = false
+
+  /**
+   * 401：页面里的 web token 已失效（典型是演示中途重启了宿主进程）。
+   *
+   * password 模式有登录门兜底；static 模式没有，所以这里给一条可点的
+   * "重新加载页面"——否则用户只会看到"连接异常"和一个永远 401 的僵尸页面。
+   */
+  function onUnauthorized() {
+    store.setStatus('offline')
+    showComposerReload('登录凭证已失效，请重新加载页面后进入。')
+    setBanner('登录凭证已失效，请重新加载页面后进入。')
+  }
+
+  function openConnection() {
+    connection?.close()
+    lastHeartbeatAt = Date.now()
+    connection = connect({
+      since: lastSeq,
+      onFrame: (frame) => {
+        // 快照是历史：先推播报基线，再让 sync 看到它（否则会朗读整段历史）。
+        if (frame.kind === 'snapshot') spokenSeq = latestAssistantSeq(frame.frames)
+        const seq = typeof frame.maxSeq === 'number' ? frame.maxSeq : frame.seq
+        if (typeof seq === 'number' && Number.isFinite(seq) && seq > lastSeq) lastSeq = seq
+        store.apply(frame)
+      },
+      // 心跳只推进空闲计时；连接是否在线仍由 open/error 与下面的看门狗决定。
+      onHeartbeat: () => {
+        lastHeartbeatAt = Date.now()
+      },
+      onFault: (fault) => store.setFault(fault),
+      onStatus: (status) => {
+        store.setStatus(status)
+        if (status === 'online') {
+          lastHeartbeatAt = Date.now()
+          store.setFault(null)
+        }
+      },
+    })
+  }
+
+  openConnection()
+
+  // 空闲看门狗：TCP 黑洞时 EventSource 不会报 error，界面会一直显示"已连接"。
+  // 1.5 × 15s 收不到心跳 ⇒ 判离线并主动丢弃旧连接重连（M-01）。
+  watchdogTimer = setInterval(() => {
+    if (store.state().status !== 'online') return
+    if (Date.now() - lastHeartbeatAt <= 22_500) return
+    store.setStatus('offline')
+    openConnection()
+    // 服务重启换了 token 时，主动探一次会话：401 会触发上面的 onUnauthorized。
+    if (!authProbePending && typeof api.session === 'function') {
+      authProbePending = true
+      void api.session().catch(() => undefined).finally(() => {
+        authProbePending = false
+      })
+    }
+  }, 5_000)
 
   sync(store.state())
 
@@ -1217,8 +1363,15 @@ export function mountApp(options) {
     speaker,
     close: () => {
       obs.stop()
-      connection.close()
+      if (watchdogTimer !== null) clearInterval(watchdogTimer)
+      watchdogTimer = null
+      connection?.close()
+      connection = null
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('bah:unauthorized', onUnauthorized)
+      }
       helpDialog.dispose()
+      confirmDialog.dispose()
       speaker.dispose()
     },
   }

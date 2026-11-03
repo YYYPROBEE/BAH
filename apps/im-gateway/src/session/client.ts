@@ -13,6 +13,7 @@
 import type { WebFrame } from '@bah/channels'
 
 import { parseSseBuffer, frameOfEvent } from '../bridge/sse.ts'
+import { HEARTBEAT_MS } from './overlay.ts'
 
 /** 一次请求的最小响应面（测试注入假实现用）。 */
 export interface ClientResponse {
@@ -212,6 +213,8 @@ export function createChildClient(deps: ChildClientDeps): ChildClient {
 
     subscribe(handlers: SubscribeHandlers): () => void {
       const controller = new AbortController()
+      let idleTimer: ReturnType<typeof setInterval> | undefined
+      let lastActivityAt = Date.now()
       void (async () => {
         try {
           const response = await fetchImpl(`${base}/api/events?token=${encodeURIComponent(deps.token)}&since=0`, {
@@ -222,12 +225,23 @@ export function createChildClient(deps: ChildClientDeps): ChildClient {
             throw new Error(`im-gateway: SSE 连接失败（状态 ${String(response.status)}）`)
           }
           handlers.onOpen?.()
+          // 空闲看门狗：TCP 黑洞时 `reader.read()` 会一直挂起、不会报错。
+          // 宿主每 HEARTBEAT_MS 发一条 `event: heartbeat`；1.5 个周期收不到就主动放弃连接，
+          // 让上层按既有 onError 路径重订阅（M-01 的网关侧等价物）。
+          idleTimer = setInterval(() => {
+            if (controller.signal.aborted) return
+            if (Date.now() - lastActivityAt <= HEARTBEAT_MS * 1.5) return
+            controller.abort()
+            handlers.onError?.(new Error('im-gateway: SSE 心跳超时（连接疑似已被黑洞）'))
+          }, Math.min(HEARTBEAT_MS, 5_000))
+          idleTimer.unref?.()
           const reader = response.body.getReader()
           const decoder = new TextDecoder()
           let buffer = ''
           while (!controller.signal.aborted) {
             const chunk = await reader.read()
             if (chunk.done) break
+            lastActivityAt = Date.now()
             buffer += decoder.decode(chunk.value, { stream: true })
             const parsed = parseSseBuffer(buffer)
             buffer = parsed.rest
@@ -238,10 +252,13 @@ export function createChildClient(deps: ChildClientDeps): ChildClient {
           }
         } catch (error) {
           if (!controller.signal.aborted) handlers.onError?.(error)
+        } finally {
+          if (idleTimer !== undefined) clearInterval(idleTimer)
         }
       })()
       return () => {
         controller.abort()
+        if (idleTimer !== undefined) clearInterval(idleTimer)
       }
     },
 

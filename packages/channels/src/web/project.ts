@@ -841,6 +841,8 @@ export class WebProjector {
             ...(payeePhone === undefined ? {} : { payeePhone }),
             ...(feeText === undefined ? {} : { feeText }),
             tier,
+            // TTL 截止时刻原样透传（不在渠道按 now + ttl 重算：同一份事实只该有一个来源）。
+            ...(typeof data.expiresAt === 'number' ? { expiresAt: data.expiresAt } : {}),
             ...(data.challenge === undefined ? {} : { challenge: data.challenge }),
             rejectReasonRequired: true,
             ...(confirmText === undefined ? {} : { confirmText }),

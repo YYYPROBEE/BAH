@@ -54,6 +54,36 @@ describe('会话控制条', () => {
     controls.dispose()
   })
 
+  it('M-02 转人工先二次确认；取消时零 POST、横幅不动', async () => {
+    const confirm = vi.fn(async () => false)
+    const controls = createSessionControls(host, { client, onNotice: notify, confirm })
+
+    host.querySelector('[data-role="handoff"]').click()
+    await vi.waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+
+    expect(client.handoff).not.toHaveBeenCalled()
+    expect(controls.banner.hidden).toBe(true)
+    controls.dispose()
+  })
+
+  it('M-02 确认后才发 POST /api/handoff', async () => {
+    const confirm = vi.fn(async () => true)
+    const controls = createSessionControls(host, { client, onNotice: notify, confirm })
+
+    host.querySelector('[data-role="handoff"]').click()
+    await vi.waitFor(() => expect(client.handoff).toHaveBeenCalledTimes(1))
+    expect(confirm.mock.calls[0][0]).toContain('只能在坐席工作台交回')
+    controls.dispose()
+  })
+
+  it('M-03 接管中「回到上一步」一并隐藏（移动端没有交回入口，别让他撞 409）', async () => {
+    client.handoffStatus.mockResolvedValue({ ok: true, status: 200, data: { active: true } })
+    const controls = createSessionControls(host, { client, onNotice: notify })
+    await controls.refresh()
+    expect(host.querySelector('[data-role="fork"]').hidden).toBe(true)
+    controls.dispose()
+  })
+
   it('回到上一步 → 发 turn 号 = 最近一个已完成轮次；提示原会话保留', async () => {
     const controls = createSessionControls(host, { client, onNotice: notify, latestTurn: () => 3 })
 

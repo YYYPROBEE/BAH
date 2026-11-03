@@ -29,7 +29,8 @@ export { createSessionControlClient } from '../transport.js'
  * 造会话控制条。
  *
  * @param {HTMLElement} host 挂载点（composer 上方）
- * @param {{ client?: ReturnType<typeof createSessionControlClient>, onNotice?: (text: string, level?: 'info' | 'warning') => void, latestTurn?: () => number | undefined }} options
+ * @param {{ client?: ReturnType<typeof createSessionControlClient>, onNotice?: (text: string, level?: 'info' | 'warning') => void, latestTurn?: () => number | undefined,
+ *   confirm?: (message: string) => Promise<boolean> }} options
  */
 export function createSessionControls(host, options) {
   const client = options.client ?? createSessionControlClient()
@@ -100,12 +101,21 @@ export function createSessionControls(host, options) {
     timer = null
   }
 
+  /** 网络层失败（status=0）不能把 `TypeError: Failed to fetch` 甩给用户。 */
+  function failureTextOf(result) {
+    return Number(result?.status ?? 0) === 0
+      ? '网络不通，请检查信号后重试'
+      : String(result?.reason ?? '请求失败')
+  }
+
   function applyActive(next, nextSummary) {
     active = next === true
     if (nextSummary !== undefined) summary = nextSummary
     if (!active) summary = null
     banner.hidden = !active
     handoffButton.hidden = active
+    // 接管期没有可交回的入口：把"回到上一步"一起收掉，别让用户撞 409 的死胡同。
+    forkButton.hidden = active
     if (active) {
       renderBanner()
       startTimer()
@@ -132,9 +142,17 @@ export function createSessionControls(host, options) {
   }
 
   handoffButton.addEventListener('click', async () => {
+    // 不可逆状态先确认：移动渠道没有交回入口（`POST /api/handoff/resume` 恒 404），
+    // 一次误点就会把演示现场变成"智能体不再响应"。
+    if (typeof options.confirm === 'function') {
+      const approved = await options.confirm(
+        '接管后智能体停止响应，且只能在坐席工作台交回会话。确定转人工？',
+      )
+      if (approved !== true) return
+    }
     const result = await client.handoff('用户在移动壳请求人工')
     if (!result.ok) {
-      notify(`转人工失败：${result.reason}`, 'warning')
+      notify(`转人工失败：${failureTextOf(result)}`, 'warning')
       return
     }
     applyActive(true, result.data)
@@ -150,7 +168,13 @@ export function createSessionControls(host, options) {
     }
     const result = await client.fork(turn)
     if (!result.ok) {
-      notify(`回退失败：${result.reason}`, 'warning')
+      // 409 = 接管中不能分叉；移动端没有交回入口，文案必须给出真正的出路，
+      // 不能照抄服务端的"先交回会话"就把用户支到一条不存在的路上。
+      if (result.code === 'handoff-active' || result.status === 409) {
+        notify('接管期间无法回退：请在坐席工作台交回会话，或结束本次接管会话后重试。', 'warning')
+        return
+      }
+      notify(`回退失败：${failureTextOf(result)}`, 'warning')
       return
     }
     notify(`已从第 ${String(turn)} 步分叉，原会话保留可查（不会删除、不会改写）`)

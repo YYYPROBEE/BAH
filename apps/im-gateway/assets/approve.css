@@ -127,6 +127,11 @@ textarea {
   color: var(--text);
 }
 
+/* 失败态里的「重新加载」：与正文同一行，避免把状态区撑成第二排按钮 */
+.status-action {
+  margin-left: 8px;
+}
+
 @media (max-width: 420px) {
   .actions {
     grid-template-columns: 1fr;

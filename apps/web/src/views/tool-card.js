@@ -9,6 +9,7 @@
  */
 
 import { el, icon } from '../dom.js'
+import { reasonLabelOf } from '../format.js'
 
 /** 状态 → 文案与色调。 */
 const STATE = {
@@ -132,8 +133,10 @@ export function renderTool(frame) {
         ? []
         : [
             el('footer', { class: 'tool-card__foot' }, [
-              ...(frame.code === undefined ? [] : [el('code', { class: 'ds-code', text: frame.code })]),
-              ...(frame.reason === undefined ? [] : [el('span', { text: frame.reason })]),
+              ...(frame.code === undefined
+                ? []
+                : [el('code', { class: 'ds-code', text: reasonLabelOf(frame.code) })]),
+              ...(frame.reason === undefined ? [] : [el('span', { text: reasonLabelOf(frame.reason) })]),
               ...(frame.durationMs === undefined
                 ? []
                 : [el('span', { class: 'tool-card__duration', text: `${String(frame.durationMs)}ms` })]),

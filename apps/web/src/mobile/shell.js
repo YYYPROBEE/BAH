@@ -131,7 +131,10 @@ export function uiErrorOf(result) {
   }
   const status = Number(result?.status ?? 0)
   const raw = String(result?.code ?? (status === 0 ? 'network-error' : `http-${String(status)}`))
-  const message = String(result?.reason ?? raw)
+  // 网络层异常不能直出 `TypeError: Failed to fetch`：银行界面里把 JS 异常名甩给用户，
+  // 既不解决问题，也会让人误以为是自己点错了。
+  const message =
+    status === 0 ? '网络不通，请检查信号后重试。' : String(result?.reason ?? raw)
   if (status === 429 || raw === 'turn-rate-limited') {
     const retryAfter = Number(result?.retryAfterSeconds ?? RATE_LIMIT_FALLBACK_SECONDS)
     return { ok: false, code: 'turn-rate-limited', message, retryAfterSeconds: retryAfter }
@@ -377,7 +380,12 @@ export function createMobileShell(deps) {
   const safetyHost = el('div', { dataset: { role: 'safety' } })
   const quickHost = el('div', { class: 'm-quick', dataset: { role: 'quick-entry' } })
 
-  const conversationHost = el('div', { dataset: { role: 'feed-conversation' } })
+  // 读屏：新回答 / 新卡片进流时播报一次（`polite` 不打断用户当前朗读）。
+  const conversationHost = el('div', {
+    dataset: { role: 'feed-conversation' },
+    'aria-live': 'polite',
+    'aria-atomic': 'false',
+  })
   const resultHost = el('div', { dataset: { role: 'feed-result' } })
   const echoHost = el('div', { dataset: { role: 'feed-echo' } })
   const planHost = el('div', { dataset: { role: 'feed-plan' } })
@@ -409,7 +417,51 @@ export function createMobileShell(deps) {
   const planSteps = createPlanSteps(planHost, { renderTool })
   const effectsList = createEffectsList(effectsHost)
   const auditGroup = createAuditGroup(auditHost)
-  const services = createDialog(overlayHost)
+  /** 待决的确认框 resolver：用户用 Esc / 遮罩 / 关闭钮离开时按"取消"结算。 */
+  let confirmResolver = null
+  const services = createDialog(overlayHost, {
+    onClose: () => {
+      const resolve = confirmResolver
+      confirmResolver = null
+      resolve?.(false)
+    },
+  })
+
+  /**
+   * 二次确认（不可逆动作的前置门）。
+   *
+   * 复用 `services` 这张弹窗而不是 `window.confirm`：后者在移动 WebView 里会被拦截或
+   * 变成系统原生框，样式与焦点管理都不可控；这里保持与"服务与帮助"同一套焦点陷阱。
+   */
+  function askConfirm(message, confirmLabel) {
+    return new Promise((resolve) => {
+      confirmResolver = resolve
+      const cancel = el('button', {
+        class: 'ds-btn ds-btn--secondary ds-btn--md',
+        type: 'button',
+        text: '取消',
+      })
+      const confirm = el('button', {
+        class: 'ds-btn ds-btn--primary ds-btn--md',
+        type: 'button',
+        text: confirmLabel,
+      })
+      const settle = (value) => {
+        if (confirmResolver === resolve) confirmResolver = null
+        resolve(value)
+        services.close()
+      }
+      cancel.addEventListener('click', () => settle(false))
+      confirm.addEventListener('click', () => settle(true))
+      services.show({
+        title: '请求人工接管？',
+        body: el('div', { class: 'm-confirm' }, [
+          el('p', { class: 'm-confirm__text', text: message }),
+          el('div', { class: 'm-confirm__actions' }, [cancel, confirm]),
+        ]),
+      })
+    })
+  }
 
   if (prefs.get(PREF_KEYS.safetyDismissed) !== '1') {
     safetyHost.append(
@@ -597,6 +649,15 @@ export function createMobileShell(deps) {
   let connection = null
   let reconnectTimer = null
   let unsubscribe = null
+  /** 最后一次收到服务端心跳（SSE `event: heartbeat`）的时刻。 */
+  let lastHeartbeatAt = 0
+  let watchdogTimer = null
+  let authProbePending = false
+  /** 启动期的 401 可能早于 composer 建好：先记下，建好后补一条可点的重新加载提示。 */
+  let authExpired = false
+  /** 服务端心跳间隔（`channel:mobile.heartbeatMs` 的默认值）；1.5 倍未收到即判离线。 */
+  const heartbeatMs = deps.tuning?.heartbeatMs ?? 15_000
+  const idleLimitMs = Math.round(heartbeatMs * 1.5)
 
   /** 上一次应用到界面的接管状态（初值由启动的 `GET /api/handoff` 给出）：只在"接管 → 交回"的跃迁上说一次话。 */
   let handoffActive = false
@@ -656,6 +717,20 @@ export function createMobileShell(deps) {
       ]),
     ])
     feedRegion.append(unstableNotice)
+  }
+
+  /**
+   * 401：页面里的 web token 已失效（典型场景是演示中途重启了宿主进程）。
+   *
+   * 移动壳没有重新登录卡片（static token 模式），唯一的自愈动作是刷新页面；
+   * 所以这里给一条**可点的**"重新加载"，而不是让用户对着"连接不稳定"发呆。
+   */
+  function onUnauthorized() {
+    if (stopped) return
+    authExpired = true
+    online = false
+    store.setStatus('offline')
+    composer?.showReloadPrompt('登录凭证已失效，请重新加载页面后进入。')
   }
 
   /** 全量同步（幂等；每帧都可能触发一次）。 */
@@ -774,9 +849,15 @@ export function createMobileShell(deps) {
     if (frame.kind === 'handoff-warn') applyHandoffWarn(frame)
   }
 
+  /** SSE 心跳：只推进空闲计时，不凭一次心跳改写"已断开（重试中）"。 */
+  function onHeartbeat() {
+    lastHeartbeatAt = Date.now()
+  }
+
   function onStatus(status) {
     if (status === 'online') {
       online = true
+      lastHeartbeatAt = Date.now()
       attempts = 0
       emptyReconnects = 0
       framesSinceConnect = 0
@@ -795,6 +876,14 @@ export function createMobileShell(deps) {
       // 2^5 × 1s = 32s > maxMs(30s) ⇒ 从这一次起退避恒等于封顶值
       attempts = Math.max(attempts, 5)
       showUnstable(true)
+      // 退避期间探一次会话：进程重启换了 token 时，这里会收到 401 →
+      // `bah:unauthorized` ⇒ 把"无限重试"换成"重新加载页面"的明确出路。
+      if (!authProbePending && typeof api.session === 'function') {
+        authProbePending = true
+        void api.session().catch(() => undefined).finally(() => {
+          authProbePending = false
+        })
+      }
     }
     scheduleReconnect()
   }
@@ -809,6 +898,7 @@ export function createMobileShell(deps) {
       since: lastSeq,
       maxRetries: 0,
       onFrame,
+      onHeartbeat,
       onFault: (fault) => store.setFault(fault),
       onStatus,
     })
@@ -978,6 +1068,8 @@ export function createMobileShell(deps) {
     stopped = false
     applyFontScale(doc, isLargeFont(prefs) ? 'large' : 'normal')
     speaker.setEnabled(prefs.get(PREF_KEYS.speech) === '1')
+    // 先挂 401 监听再读会话：页面加载时 token 已失效（典型是刚重启宿主）也应被接住。
+    win?.addEventListener?.('bah:unauthorized', onUnauthorized)
     const session = capabilities === undefined ? await loadSession(api) : { capabilities }
     capabilities = session.capabilities
     const confirmed = capabilities !== undefined
@@ -1012,6 +1104,8 @@ export function createMobileShell(deps) {
     // 测试可注入 `deps.controlClient`（不为此在壳里再造第二份 transport）。
     controls = createSessionControls(dock, {
       ...(deps.controlClient === undefined ? {} : { client: deps.controlClient }),
+      // 转人工是不可逆单向门（移动壳没有交回入口）：先确认，再 POST。
+      confirm: (message) => askConfirm(message, '确认转人工'),
       latestTurn: () => {
         let turn
         for (const frame of store.state().frames) {
@@ -1031,6 +1125,9 @@ export function createMobileShell(deps) {
 
     composer = createComposer(dock, {
       submit: submitTurn,
+      // 输入框 / chips 与其余四条发送入口共用同一条本地回显（D6）。
+      echo: echoUserMessage,
+      onReload: () => win?.location?.reload?.(),
       interrupt: async (reason) => uiErrorOf(await api.interrupt(reason)),
       onOpenServices: openServices,
       // chips 只在渠道声明"语音走系统输入法"时渲染（D10 第 5 条）
@@ -1053,10 +1150,33 @@ export function createMobileShell(deps) {
       composer.showError('渠道声明的呈现面与移动壳不一致（layout / approvalSurface / dagView）。', true)
     }
 
+    // 启动期的 401 优先级最高：上面那条"能力位读不到"只是它的后果，
+    // 真正要用户做的动作是刷新页面拿新 token。
+    if (authExpired) {
+      composer.showReloadPrompt('登录凭证已失效，请重新加载页面后进入。')
+    }
+
     unsubscribe = store.subscribe(sync)
     doc.addEventListener('visibilitychange', onVisibilityChange)
     openConnection()
     sync(store.state())
+
+    // 空闲看门狗：SSE 的 `error` 只在 TCP 被掰断时才触发；断网/黑洞连接下
+    // 浏览器会一直报"已连接"。服务端每 heartbeatMs 发一条 `event: heartbeat`，
+    // 1.5 个周期收不到就主动翻成离线并重连（不凭一次心跳覆盖这个判断）。
+    watchdogTimer = setInterval(() => {
+      if (stopped || !online) return
+      if (Date.now() - lastHeartbeatAt <= idleLimitMs) return
+      onStatus('offline')
+      // 顺带探一次会话：旧页面的 token 在服务重启后已失效，401 会触发下面的
+      // `onUnauthorized`，把"永远重试"换成"重新加载页面"。
+      if (!authProbePending && typeof api.session === 'function') {
+        authProbePending = true
+        void api.session().catch(() => undefined).finally(() => {
+          authProbePending = false
+        })
+      }
+    }, Math.min(heartbeatMs, 5_000))
   }
 
   function stop() {
@@ -1065,7 +1185,12 @@ export function createMobileShell(deps) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
     }
+    if (watchdogTimer !== null) {
+      clearInterval(watchdogTimer)
+      watchdogTimer = null
+    }
     doc.removeEventListener('visibilitychange', onVisibilityChange)
+    win?.removeEventListener?.('bah:unauthorized', onUnauthorized)
     connection?.close()
     connection = null
     unsubscribe?.()

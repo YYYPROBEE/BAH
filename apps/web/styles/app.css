@@ -78,6 +78,7 @@ textarea {
 .icon--search { --icon-url: url('../assets/icons/Search.svg'); }
 .icon--up { --icon-url: url('../assets/icons/arrow_up.svg'); }
 /* 银行标识 / 会话气泡 / 选项箭头 / 上一步（Brand 与 DS 图标库逐字节一致） */
+.icon--ai { --icon-url: url('../assets/icons/ai.svg'); }
 .icon--bank { --icon-url: url('../assets/icons/Bank.svg'); }
 .icon--message { --icon-url: url('../assets/icons/chatNew.svg'); }
 .icon--right { --icon-url: url('../assets/icons/Right.svg'); }
@@ -2885,6 +2886,26 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: var(--spacer-20);
+}
+
+/* 不可逆动作的二次确认（桌面端「转人工」）：与移动壳 `.m-confirm` 同一结构。 */
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-16);
+}
+
+.confirm__text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--body-base-font-size);
+  line-height: var(--body-base-line-height);
+}
+
+.confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacer-8);
 }
 
 /* ────────────────────────────── 大字模式（只放大文字，不改触控几何） */
