@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { asSessionId, asTicketId, captureRejection } from '@bah/test-support'
 
 import { buildBankDataset, DEMO_NOW, type BankDataset } from '../forge/index.ts'
-import { bankIds, accountDisplayName, type Account } from './model.ts'
+import { bankIds, accountDisplayName, type Account, type Transaction, type TxnId } from './model.ts'
 import { MockBankCore } from './mock.ts'
 import type { TicketBinding, TicketRef } from './ticket.ts'
 
@@ -167,24 +167,24 @@ describe('卡与内部划转：形状与方向', () => {
   it('同日退款冲正计入卡日累计的减项（已用 = 转出/消费 − 退款）', async () => {
     const base = buildBankDataset({ seed: 1 })
     const at = DEMO_NOW
-    const spend = {
-      id: base.transactions[0]!.id,
+    const spend: Transaction = {
+      id: 'txn-guards-out' as TxnId,
       accountId: ACCOUNT,
       at,
       amountCents: 30_000,
-      direction: 'out' as const,
+      direction: 'out',
       counterparty: { name: '测试商户' },
-      category: 'consumption' as const,
-      channel: 'app' as const,
-      status: 'success' as const,
+      category: 'consumption',
+      channel: 'app',
+      status: 'success',
       viaCardId: bankIds.card('c-1'),
     }
-    const refund = {
+    const refund: Transaction = {
       ...spend,
-      id: `r-${String(spend.id)}`,
+      id: 'txn-guards-refund' as TxnId,
       amountCents: 10_000,
-      direction: 'in' as const,
-      category: 'refund' as const,
+      direction: 'in',
+      category: 'refund',
       reversalOf: spend.id,
     }
     const core = coreOf({ transactions: [...base.transactions, spend, refund] })
