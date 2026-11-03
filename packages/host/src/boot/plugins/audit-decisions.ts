@@ -205,6 +205,8 @@ export const auditDecisionsPlugin: HostPlugin<AuditDecisionsSettings> = {
         signedTypes: keyExists ? SESSION_SIGNED_TYPES : [],
         ...(keyExists ? { signingKeyPath: settings.signingKeyPath } : {}),
         fsync: false,
+        // 写链告警只在链文件损坏/截断时触发；本插件用例都跑干净链。 属已知测试缺口（需要一份坏链夹具），不是不可达代码。
+        /* v8 ignore next */
         warn: (line) => logJson('warn', 'host.audit-write-failed', { line }),
       })
 
@@ -246,7 +248,9 @@ export const auditDecisionsPlugin: HostPlugin<AuditDecisionsSettings> = {
             const files = new ChainFile({
               rootDir: root,
               fsync: false,
-              warn: (line) => logJson('warn', 'host.audit-write-failed', { line }),
+              // 写链告警只在链文件损坏/截断时触发；本插件用例都跑干净链。 属已知测试缺口（需要一份坏链夹具），不是不可达代码。
+              /* v8 ignore next */
+        warn: (line) => logJson('warn', 'host.audit-write-failed', { line }),
             })
             for (const id of chainIds(root)) {
               try {

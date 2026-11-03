@@ -535,6 +535,8 @@ export function assertRouteRoles(path: string, roles: readonly Role[] | undefine
 // 模块加载期自检：路由表写错是**开发期错误**，不许活到第一次请求。
 for (const route of ROUTES) {
   if (route.auth !== 'web' && route.roles !== undefined) {
+    // 构造不可达：ROUTES 是模块内常量，写错时**加载即抛**，测试面拿不到一份错表。这道自检的存在本身就是判据，不为它开注入口。
+    /* v8 ignore next 3 */
     throw new BahError('web-invalid-route', `${route.path}: auth=${route.auth} 的路由不许声明 roles`)
   }
   assertRouteRoles(route.path, route.roles)

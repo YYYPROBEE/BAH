@@ -1057,6 +1057,8 @@ function resolveAaParticipant(
     return index
   }
   const name = raw.trim()
+  // 构造不可达：空白 participant 在上一层 `readOptionalString` 就按 "缺参数"拒了（`tool-args-invalid`），到这里的 `raw` 必然非空白。留这道守卫是为了 换读取器时不静默把"空名字"匹配到某个参与人。
+  /* v8 ignore next 3 */
   if (name.length === 0) {
     return { code: 'aa-participant-unknown', reason: 'AA 参与人不能为空' }
   }

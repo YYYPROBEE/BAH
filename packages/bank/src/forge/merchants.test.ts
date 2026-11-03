@@ -5,10 +5,12 @@ import { captureThrown } from '@bah/test-support'
 import {
   MERCHANT_OFFERS,
   applyFault,
+  commitOffer,
   orderOffer,
   searchOffers,
   type MerchantFault,
   type MerchantOffer,
+  type MerchantReservation,
 } from './merchants.ts'
 
 describe('商户域：搜索（纯函数）', () => {
@@ -140,5 +142,51 @@ describe('商户域：判决边界（同价稳定序 / 零库存 / 未知故障�
       applyFault(MERCHANT_OFFERS, 'power-down' as MerchantFault),
     )
     expect(error.code).toBe('unreachable-branch')
+  })
+})
+
+describe('商户域：commit 结算（预占之后库存可能已经变了）', () => {
+  const base = MERCHANT_OFFERS[0]!
+  const reservation: MerchantReservation = {
+    orderId: 'mo-commit-1',
+    offerId: base.offerId,
+    merchantId: base.merchantId,
+    merchantName: base.merchantName,
+    totalCents: base.priceCents,
+    etaMinutes: base.etaMinutes,
+  }
+
+  it('库存被别的订单吃光 ⇒ out-of-stock（预占成功不等于还能交付）', () => {
+    expect(commitOffer([{ ...base, stock: 0 }], reservation, 'none')).toEqual({
+      ok: false,
+      code: 'out-of-stock',
+      offerId: base.offerId,
+    })
+  })
+
+  it('缺货商户 + stockout 故障 ⇒ out-of-stock（目录里还有库存也判死）', () => {
+    const soldOutOffer = MERCHANT_OFFERS.find((offer) => offer.offerId === 'o-flower-a1')!
+    expect(soldOutOffer.stock).toBeGreaterThan(0)
+    const target: MerchantReservation = {
+      orderId: 'mo-commit-2',
+      offerId: soldOutOffer.offerId,
+      merchantId: soldOutOffer.merchantId,
+      merchantName: soldOutOffer.merchantName,
+      totalCents: soldOutOffer.priceCents,
+      etaMinutes: soldOutOffer.etaMinutes,
+    }
+    expect(commitOffer(MERCHANT_OFFERS, target, 'stockout')).toEqual({
+      ok: false,
+      code: 'out-of-stock',
+      offerId: soldOutOffer.offerId,
+    })
+  })
+
+  it('报价不在目录 ⇒ unknown-offer；库存与价格都没动 ⇒ 成功', () => {
+    expect(commitOffer([], reservation, 'none')).toMatchObject({
+      ok: false,
+      code: 'unknown-offer',
+    })
+    expect(commitOffer([base], reservation, 'none')).toMatchObject({ ok: true })
   })
 })

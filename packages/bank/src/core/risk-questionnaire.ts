@@ -387,6 +387,8 @@ function assertComplete(
     byIndex.set(answer.index, option)
   }
   if (byIndex.size !== expected) {
+    // 构造不可达：长度已先校验等于 expected，循环内又排除越界与重复，五个合法唯一题号必然让 size === expected。留这道守卫是为了改动时不静默放行。
+    /* v8 ignore next 6 */
     throw new BahError('risk-questionnaire-incomplete', 'bank: 必须回答全部 5 题', {
       expected,
       count: byIndex.size,

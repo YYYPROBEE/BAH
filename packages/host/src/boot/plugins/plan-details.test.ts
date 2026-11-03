@@ -221,6 +221,21 @@ describe('明细渲染（纯函数）', () => {
     expect(detailsDigestOf(cheaper)).not.toBe(detailsDigestOf(base))
   })
 
+  it('认不出的条件不省略：原样显示 kind，连 kind 都没有时显示 unknown', () => {
+    const details = renderArmDetails({
+      title: '未知条件窗口',
+      budgetCents: 20_000,
+      dueAt: Date.UTC(2026, 1, 6, 9),
+      tier: 'standard',
+      conditions: [{ kind: 'quantum-lock' }, {}] as unknown as Parameters<
+        typeof renderArmDetails
+      >[0]['conditions'],
+      legs: [],
+    })
+    const rendered = details.filter((d) => d.label === '条件快照').map((d) => d.value)
+    expect(rendered).toEqual(['quantum-lock', 'unknown'])
+  })
+
   it('同一份事实两次渲染逐字相同（摘要稳定），且与入参顺序无关的键序无关', () => {
     const facts = {
       title: '查余额',
@@ -668,5 +683,169 @@ describe('detailsDigest：日志被篡改 → 唤醒不自动放行', () => {
     // 降级 = 人工确认，不是"自动放行后再看"：会话里不能有执行痕迹
     const types = eventsOf(app).map((event) => event.type)
     expect(types.filter((type) => type === 'plan/created')).toEqual([])
+  })
+})
+
+describe('birthday_plan 入参边界（日期与金额一律 fail-loud）', () => {
+  // 夹具的 now = 1_000 ⇒ 1970-01-01T00:00:01Z，年份/月份都从这一天算，分支可复现。
+  const invalid: readonly (readonly [string, Record<string, unknown>])[] = [
+    ['空串', { birthday: '' }],
+    ['非字符串', { birthday: 19900308 }],
+    ['认不出的说法', { birthday: '明年春天' }],
+    ['ISO 月份越界', { birthday: '2026-13-01' }],
+    ['ISO 日期不存在', { birthday: '2026-02-30' }],
+    ['N月N号 日越界', { birthday: '1月32号' }],
+    ['下个月N号 该月没这天', { birthday: '下个月29号' }],
+    ['裸日越界', { birthday: '32号' }],
+    ['生日已过（到期时刻在过去）', { birthday: '1970-01-01' }],
+    ['锁定金额 0', { birthday: '2026-04-08', lockYuan: 0 }],
+    ['鲜花金额非数字', { birthday: '2026-04-08', flowerYuan: '三百' }],
+    ['蛋糕金额为负', { birthday: '2026-04-08', cakeYuan: -1 }],
+  ]
+
+  const accepted: readonly (readonly [string, Record<string, unknown>])[] = [
+    ['ISO 日期', { birthday: '2026-04-08' }],
+    ['N月N号（今年还没到）', { birthday: '4月8号' }],
+    ['N月N号（今年已过 ⇒ 顺延明年）', { birthday: '1月1号' }],
+    ['下个月N号', { birthday: '下个月8号' }],
+    ['裸日（本月内）', { birthday: '8号' }],
+    ['裸日（早于今天就按下个月）', { birthday: '1号' }],
+  ]
+
+  it('非法入参全部报 birthday-plan-invalid，绝不静默按"猜出来的日期"签票', async () => {
+    const { app, cleanup } = await bootPlan()
+    try {
+      const session = app.ctx.get(SESSION_SERVICE)
+      const pipeline = new ToolPipeline({
+        ctx: app.ctx,
+        registry: app.ctx.get(TOOLS_SERVICE),
+        session,
+        guard: new ToolGuard(),
+        sessionId: session.sessionId,
+        now: () => NOW,
+      })
+      for (const [label, args] of invalid) {
+        const execution = await pipeline.execute({
+          callId: `call-bad-${label}`,
+          name: 'birthday_plan',
+          args,
+        })
+        expect(execution.result.isError, label).toBe(true)
+        expect(execution.result.code, label).toBe('birthday-plan-invalid')
+      }
+    } finally {
+      await app.dispose('test-done')
+      cleanup()
+    }
+  })
+
+  it('六种演示语料写法都被接受（不被判成非法日期）', async () => {
+    const { app, cleanup } = await bootPlan()
+    try {
+      const session = app.ctx.get(SESSION_SERVICE)
+      const pipeline = new ToolPipeline({
+        ctx: app.ctx,
+        registry: app.ctx.get(TOOLS_SERVICE),
+        session,
+        guard: new ToolGuard(),
+        sessionId: session.sessionId,
+        now: () => NOW,
+      })
+      for (const [label, args] of accepted) {
+        const execution = await pipeline.execute({
+          callId: `call-ok-${label}`,
+          name: 'birthday_plan',
+          args,
+        })
+        expect(execution.result.code, label).not.toBe('birthday-plan-invalid')
+      }
+    } finally {
+      await app.dispose('test-done')
+      cleanup()
+    }
+  })
+})
+
+describe('transfer_schedule 的时间话术边界（认不出就 fail-loud，绝不猜"明天"）', () => {
+  const base = { amount: 200, payee: { name: '王建国' } }
+
+  const invalid: readonly (readonly [string, string])[] = [
+    ['空串', ''],
+    ['纯汉字', '改天吧'],
+    ['ISO 已过期', '1970-01-01T00:00:00.000Z'],
+    ['今天 00:00（已过）', '今天 00:00'],
+    ['小时越界', '今天 25:00'],
+    ['下周几小时越界', '下周三 24:00'],
+    ['下个月日越界', '下个月32号'],
+    ['下个月分钟越界', '下个月8号 09:99'],
+    ['下个月不存在的日（2 月 30）', '下个月30号'],
+    ['月份越界', '13月1号'],
+    ['M月D号 不存在的日', '2月30号'],
+    ['M月D号 已过（今年 1 月 1 日 00:00）', '1月1号 00:00'],
+  ]
+
+  const accepted: readonly (readonly [string, string])[] = [
+    ['明天', '明天'],
+    ['后天带时刻', '后天 10:30'],
+    ['下周X', '下周三'],
+    ['下周X 带时刻', '下周日 18:05'],
+    ['下个月N号 带时刻', '下个月8号 14:00'],
+    ['下个月N号（不带时刻）', '下个月2号'],
+    ['M月D号', '3月8号'],
+    ['M月D号 带时刻', '3月8号 14:30'],
+    ['ISO 未来时刻', '2030-05-06T07:08:09.000Z'],
+  ]
+
+  it('非法时间一律 transfer-schedule-invalid（不静默顺延、不改成"现在转"）', async () => {
+    const { app, cleanup } = await bootPlan()
+    try {
+      const session = app.ctx.get(SESSION_SERVICE)
+      const pipeline = new ToolPipeline({
+        ctx: app.ctx,
+        registry: app.ctx.get(TOOLS_SERVICE),
+        session,
+        guard: new ToolGuard(),
+        sessionId: session.sessionId,
+        now: () => NOW,
+      })
+      for (const [label, when] of invalid) {
+        const execution = await pipeline.execute({
+          callId: `call-sched-bad-${label}`,
+          name: 'transfer_schedule',
+          args: { ...base, when },
+        })
+        expect(execution.result.isError, label).toBe(true)
+        expect(execution.result.code, label).toBe('transfer-schedule-invalid')
+      }
+    } finally {
+      await app.dispose('test-done')
+      cleanup()
+    }
+  })
+
+  it('六种时点写法都能签成窗口（不被判成非法时间）', async () => {
+    const { app, cleanup } = await bootPlan()
+    try {
+      const session = app.ctx.get(SESSION_SERVICE)
+      const pipeline = new ToolPipeline({
+        ctx: app.ctx,
+        registry: app.ctx.get(TOOLS_SERVICE),
+        session,
+        guard: new ToolGuard(),
+        sessionId: session.sessionId,
+        now: () => NOW,
+      })
+      for (const [label, when] of accepted) {
+        const execution = await pipeline.execute({
+          callId: `call-sched-ok-${label}`,
+          name: 'transfer_schedule',
+          args: { ...base, when },
+        })
+        expect(execution.result.code, label).not.toBe('transfer-schedule-invalid')
+      }
+    } finally {
+      await app.dispose('test-done')
+      cleanup()
+    }
   })
 })

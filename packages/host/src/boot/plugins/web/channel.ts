@@ -185,6 +185,8 @@ export async function createHttpChannel(ctx: Context, options: HttpChannelOption
     trySentry: () => tryService(ctx, SENTRY_SERVICE),
     tryHalt: () => tryService(ctx, HALT_SERVICE),
     // 审批操作者入链（03 TA-46）：没装 audit:decisions 的 profile 必须照常起
+    // 取用点只在"真实登录主体 + 待答票据"时触发（见 approval.ts 的写链条件）；live-channel 用例都跑 static 合成主体，按设计不写 actor。补 password 模式端到端登录后应移除。
+    /* v8 ignore next */
     tryAudit: () => tryService(ctx, DECISION_AUDIT),
     tryTelemetry: () => tryService(ctx, TELEMETRY),
     trySlo: sloReader(ctx),

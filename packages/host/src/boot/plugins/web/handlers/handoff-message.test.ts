@@ -254,6 +254,21 @@ describe('POST /api/handoff/message', () => {
     expect(res2.statusCode).toBe(413)
     expect(JSON.parse(res2.body)['error'].code).toBe('handoff-text-too-long')
   })
+
+  it('名单外的失败码 → 400 + 兜底理由（不给空文案，也不冒充已知理由）', async () => {
+    const { handle } = handoffStub({ say: () => ({ ok: false, code: 'handoff-store-broken' }) })
+    const res = new FakeRes()
+    await handleHandoffMessage(
+      reqOf({ text: '在吗' }),
+      res as unknown as ServerResponse,
+      request('POST', '/api/handoff/message'),
+      depsOf(handle),
+    )
+    expect(res.statusCode).toBe(400)
+    const error = JSON.parse(res.body)['error'] as { code: string; reason: string }
+    expect(error.code).toBe('handoff-store-broken')
+    expect(error.reason).toBe('发言失败')
+  })
 })
 
 describe('POST /api/handoff/heartbeat', () => {

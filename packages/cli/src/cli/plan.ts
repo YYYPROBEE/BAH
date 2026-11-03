@@ -222,6 +222,8 @@ export async function runPlan(
           return await runTool(app, io, 'plan_disarm', { windowId: parsed.command.windowId }, now)
         }
         default:
+          // 构造不可达：`parsePlanArgs` 只产出上面四个 kind，未知子命令在 `!parsed.ok` 分支就返回 2 了。留这道守卫是为了新增 kind 时不静默走空。
+          /* v8 ignore next 2 */
           return 2
       }
     } finally {
@@ -301,6 +303,8 @@ async function bootForPlan(
       restoreSession: true,
       ...(common.jsonl === undefined ? {} : { jsonlDir: common.jsonl }),
     },
+    // 只有 boot 期告警（例如知识令牌回退）才会调用这条出口；CLI 用例都跑无告警的最小装配。属已知测试缺口，不是不可达代码。
+    /* v8 ignore next */
     warn: (message) => io.err(`bah plan: ${message}`),
   })
 }

@@ -2294,3 +2294,37 @@ describe('03 TA-44/45 · 操作者不可伪造（追加用例，不改既有行�
     }
   })
 })
+
+describe('能力位缺失时的诚实降级（真实通道，不是桩 deps）', () => {
+  it('没装 bah:suggest ⇒ /api/suggest 回 200 unavailable（建议是辅助件，不报 5xx）', async () => {
+    const harness = await boot()
+    try {
+      const res = await authedFetch(`${harness.url}api/suggest`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ user: '查余额', assistant: '余额 1298.00 元' }),
+      })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ suggestions: [], source: 'unavailable' })
+    } finally {
+      await shutdown(harness)
+    }
+  })
+
+  it('没装 bank:tools ⇒ /api/secure/password 回 501 password-handoff-unavailable', async () => {
+    const harness = await boot()
+    try {
+      const res = await authedFetch(`${harness.url}api/secure/password`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ticketId: 'h-1', oldPassword: 'bank1234', newPassword: 'NewPass1' }),
+      })
+      expect(res.status).toBe(501)
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        'password-handoff-unavailable',
+      )
+    } finally {
+      await shutdown(harness)
+    }
+  })
+})

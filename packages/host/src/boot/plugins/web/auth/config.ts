@@ -171,6 +171,8 @@ export function resolveAuthSettings(raw: unknown): AuthSettings {
 
   // `password` 模式没有目录 = 空城：必须在 boot 期就失败（TA-22 的反例）
   if (mode === 'password' && directory.path.trim() === '') {
+    // 构造不可达：空白 / 非字符串的 path 在上一层 `readString` 就以 `invalid-config` 拒了，缺键则取默认（非空）。这道守卫留作 mode=password 的语义兜底。
+    /* v8 ignore next 3 */
     throw new BahError('web-invalid-config', `${WHERE}.directory.path 在 mode=password 时必填`)
   }
 

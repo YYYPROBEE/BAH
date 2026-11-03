@@ -662,6 +662,15 @@ describe('到期回执（提示词 4-2）', () => {
     ).toBe('计划《定时转账》的条件不满足（balance-at-least 期望 >= 100000，实际 60000），本次未执行')
     expect(planNoticeText({ code: 'unknown-code', title: 'x', dueAt: at })).toBeUndefined()
     expect(planNoticeText({ code: undefined, title: 'x', dueAt: at })).toBeUndefined()
+
+    // 缺 expiresAt ⇒ 有效期回落到 dueAt（不写"有效期未知"这种含糊话）
+    expect(planNoticeText({ code: 'window-expired', title: '定时转账', dueAt: at })).toBe(
+      `计划《定时转账》已过期未执行（有效期至 ${new Date(at).toISOString()}），未扣款`,
+    )
+    // 条件失守但明细为空 ⇒ 只说"条件已变化"，不编造具体期望/实际
+    expect(
+      planNoticeText({ code: 'condition-failed', title: '定时转账', dueAt: at }),
+    ).toBe('计划《定时转账》的条件不满足（条件已变化），本次未执行')
   })
 
   it('条件失守：回执随 notified 一起发出，且判决仍是降级（回执不改变判决）', async () => {

@@ -28,6 +28,7 @@ import type { Context, SessionId } from '@bah/core'
 import { RUN_SERVICE } from '../boot.ts'
 import { testRunContext } from '../test-run-context.ts'
 import { BANK_AUDIT, BANK_SUBSCRIPTION_PROBE } from './bank-tools.ts'
+import { FACT_SERVICE } from './fact.ts'
 import {
   DEFAULT_PROACTIVE,
   PROACTIVE_SERVICE,
@@ -91,6 +92,12 @@ interface Options {
   readonly catchUpOnBoot?: boolean
   /** `false` 时不提供 `bank:identity`（模拟未绑定会话）。 */
   readonly withIdentity?: boolean
+  /** `true` 时订阅探测直接 reject（测 tick 的吞异常面）。 */
+  readonly probeFails?: boolean
+  /** `true` 时审计写入抛错（测"一条投递失败不影响整轮"）。 */
+  readonly auditFails?: boolean
+  /** `true` 时装一个 `list()` 就抛的事实账本（测生日扫描的 reject 面）。 */
+  readonly factFails?: boolean
 }
 
 /** 装一个最小的 ctx：只有本插件真正读的那几个服务。 */
@@ -106,6 +113,7 @@ async function withPlugin(options: Options, run: (harness: Harness) => Promise<v
   ctx.provide(SESSION_SERVICE, { sessionId: 's-proactive' } as unknown as SessionApi)
   const audit: BankAudit = {
     append: (type, data) => {
+      if (options.auditFails === true) throw new Error('会话链写入失败')
       events.push({ type: String(type), data: data as Readonly<Record<string, unknown>> })
     },
   }
@@ -117,9 +125,18 @@ async function withPlugin(options: Options, run: (harness: Harness) => Promise<v
     } as unknown as BankIdentityStore)
   }
   ctx.provide(BANK_SUBSCRIPTION_PROBE, {
-    upcoming: () => Promise.resolve([...options.charges]),
+    upcoming: () =>
+      options.probeFails === true ? Promise.reject(new Error('探测失败')) : Promise.resolve([...options.charges]),
     idleIds: () => Promise.resolve([...(options.idle ?? [])]),
   })
+  if (options.factFails === true) {
+    // 生日依赖只读 `list()`：让它抛错就能钉住"扫描 reject 也不冒给时钟源"
+    ctx.provide(FACT_SERVICE, {
+      list: () => {
+        throw new Error('事实账本不可用')
+      },
+    } as never)
+  }
   const settings: ProactiveSettings = {
     ...DEFAULT_PROACTIVE,
     catchUpOnBoot: options.catchUpOnBoot ?? false,
@@ -430,5 +447,58 @@ describe('tick job 生命周期', () => {
     } finally {
       await ctx.dispose()
     }
+  })
+})
+
+describe('proactive:reminder 的失败面（一条坏数据不能拖死时钟源）', () => {
+  it('订阅探测 reject ⇒ tick 内部吞掉并记 error，不把异常抛给 saga/tick', async () => {
+    await withPlugin({ charges: [], probeFails: true }, async (h) => {
+      await expect(h.tick()).resolves.toBeUndefined()
+      expect(h.events).toHaveLength(0)
+    })
+  })
+
+  it('投递写不进会话链 ⇒ 该条不进 delivered，整轮不抛', async () => {
+    await withPlugin(
+      {
+        charges: [charge({ subscriptionId: 's-audit-fail', dueAt: MORNING + 86_400_000 })],
+        auditFails: true,
+      },
+      async (h) => {
+        await h.tick()
+        expect(h.events).toHaveLength(0)
+      },
+    )
+  })
+
+  it('boot 补跑：依赖没装齐时按 50ms 重试，20 次后自行放弃（不无限挂定时器）', async () => {
+    await withPlugin(
+      { charges: [], catchUpOnBoot: true, withIdentity: false },
+      async (h) => {
+        // 20 × 50ms = 1s，两条补跑链（订阅 + 生日）各自都要在此后停手；留足调度余量
+        await new Promise((resolve) => setTimeout(resolve, 2_000))
+        expect(h.events).toHaveLength(0)
+      },
+    )
+  })
+
+  it('补跑时订阅探测 reject ⇒ 记 proactive-catchup-failed，不冒给启动链', async () => {
+    await withPlugin({ charges: [], catchUpOnBoot: true, probeFails: true }, async (h) => {
+      await new Promise((resolve) => setTimeout(resolve, 120))
+      expect(h.events).toHaveLength(0)
+    })
+  })
+
+  it('生日扫描 reject ⇒ tick 与补跑都只记 error（两条时钟路径共用同一个吞异常口径）', async () => {
+    await withPlugin({ charges: [], factFails: true }, async (h) => {
+      // 夹具的 `tick()` 只驱动 sub-reminder；生日 job 要显式点名
+      runTickJob('birthday-reminder')
+      await flush()
+      expect(h.events).toHaveLength(0)
+    })
+    await withPlugin({ charges: [], factFails: true, catchUpOnBoot: true }, async (h) => {
+      await new Promise((resolve) => setTimeout(resolve, 120))
+      expect(h.events).toHaveLength(0)
+    })
   })
 })

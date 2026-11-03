@@ -1078,6 +1078,8 @@ export function parseAa(text: string): DemoIntent {
     .split(/[、,，和]/)
     .map((name) => name.trim())
     .filter((name) => name.length > 0)
+  // 构造不可达：上面的名单正则要求至少两段姓名（`(?:[、,，和]name)+`），单人说法在 `group === undefined` 那一步就已经追问了。留这道守卫是为了放宽正则时不静默放行。
+  /* v8 ignore next 4 */
   if (participants.length < 2) {
     return { kind: 'clarify', question: 'AA 至少需要两个参与人。' }
   }

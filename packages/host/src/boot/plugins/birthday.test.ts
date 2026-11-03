@@ -30,6 +30,8 @@ import {
   birthdayCandidatesOf,
   occurrenceOf,
   parseBirthday,
+  scanBirthdays,
+  type BirthdayScanDeps,
 } from './birthday.ts'
 import { FACT_SERVICE } from './fact.ts'
 import { DEFAULT_PROACTIVE, proactivePlugin } from './proactive.ts'
@@ -254,5 +256,49 @@ describe('04 §6 手工路径闭环：用户话术 → fact_remember → tick �
       expect(events[0]?.data).toMatchObject({ source: 'birthday', channel: 'in-app' })
       expect(String(events[0]?.data['title'])).toContain('3 天后是爱人的生日（3 月 8 日）')
     })
+  })
+})
+
+describe('scanBirthdays（纯注入：不碰时钟与账本）', () => {
+  const fact = {
+    factId: 'f-scan',
+    person: '爱人',
+    relation: 'spouse',
+    kind: 'birthday',
+    date: '1990-03-08',
+    confirmed: true,
+    sourceTurn: 1,
+    version: 1,
+    updatedAt: MAR_5,
+  } as const
+
+  it('投递成功：一条候选 ⇒ 一条 delivered', async () => {
+    const delivered = await scanBirthdays({
+      now: () => MAR_8,
+      facts: () => [fact],
+      push: (async () => ({})) as BirthdayScanDeps['push'],
+    })
+    expect(delivered).toHaveLength(1)
+  })
+
+  it('投递抛错：这一条不进 delivered，整轮不抛（一条坏通道不能拖死调度）', async () => {
+    const delivered = await scanBirthdays({
+      now: () => MAR_8,
+      facts: () => [fact],
+      push: (async () => {
+        throw new Error('channel-down')
+      }) as BirthdayScanDeps['push'],
+    })
+    expect(delivered).toEqual([])
+  })
+
+  it('未装配 fact:store（facts 返回 undefined）⇒ 静默跳过整轮', async () => {
+    expect(
+      await scanBirthdays({
+        now: () => MAR_8,
+        facts: () => undefined,
+        push: (async () => ({})) as BirthdayScanDeps['push'],
+      }),
+    ).toEqual([])
   })
 })

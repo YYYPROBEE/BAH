@@ -98,6 +98,8 @@ export function occurrenceOf(
       daysUntil,
     }
   }
+  // 构造不可达：候选年份是 [今年, 明年]，今年已过（daysUntil < 0）时 明年必然 daysUntil >= 0，循环必定 return。留这里是防止有人把年份表改短。
+  /* v8 ignore next 3 */
   return undefined
 }
 

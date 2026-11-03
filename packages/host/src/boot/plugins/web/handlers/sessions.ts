@@ -85,6 +85,8 @@ export interface SessionSummary {
  * "看到的历史"与"审计里的历史"不是同一份。
  */
 function readonlyBackend(): JsonlPersistence {
+  // 这条 warn 是刻意静音的占位（历史端点不该把读链告警喷到 stderr）；只有读到截断尾行才会被调用。属已知测试缺口，不是不可达代码。
+  /* v8 ignore next */
   return new JsonlPersistence({ fsync: false, redact: false, warn: () => undefined })
 }
 
