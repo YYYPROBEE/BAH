@@ -224,7 +224,7 @@ docker compose down
 - 回滚：`docker tag bah-web:local bah-web:<日期>`；回滚 = `docker compose down` + 跑回上一个 tag，
   并把 `sessions` 卷指回原目录（**不要**在回滚时清理卷：那会连带删掉审计证据）。
 
-**验证状态（必须照实说）**：本机**没有 Docker CLI**，`docker build` 一次都没跑过。
+**验证状态**：本机**没有 Docker CLI**，`docker build` 一次都没跑过。
 只做了静态核对，逐条可复核：
 
 | 静态核对项 | 结论 |
