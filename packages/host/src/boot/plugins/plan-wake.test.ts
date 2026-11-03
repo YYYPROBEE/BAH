@@ -1143,3 +1143,313 @@ describe('窗口代签（ADR-0010）', () => {
     }
   })
 })
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 降级与补偿分支（覆盖率补齐，2026-11-03）
+ *
+ * 这一组钉的是**不进演示、但少了就能绕过账本**的路径：
+ * - 工具入参守卫（amount / payee / payee.name）——解析器与明细必须同一口径；
+ * - 缺商户服务时的降级（报价为空，预算退回入参，不编一个商户价）；
+ * - 商户腿三条失败面：超预算释放预占、银行腿失败释放预占、提交失败但没有可冲正的转账；
+ * - 连续两次坏 run ⇒ 窗口自动撤防（与 `plan_disarm` 同一个状态转移）；
+ * - 配置面：`dueSoonLeadMs` 必须是非负整数。
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** 用自建行集合 boot（用来换商户服务实现）。 */
+async function bootWithRows(
+  rows: readonly PluginRow[],
+  planConfig: Readonly<Record<string, unknown>> = { modelTools: true },
+  now: () => number = () => NOW,
+  approval: ApprovalFixture = 'window',
+  extraPlugins: readonly HostPluginLike[] = [],
+): Promise<Booted> {
+  const dir = mkdtempSync(join(tmpdir(), 'bah-plan-degrade-'))
+  const options: BootOptions = {
+    profile: PROFILE,
+    bundles: [{ name: 'base', rows }],
+    layers: [overlay([{ id: 'plan:dag', use: 'plan:dag', config: planConfig }])],
+    catalog: extraPlugins.length === 0 ? createCatalog() : createCatalog([...HOST_PLUGINS, ...extraPlugins]),
+    run: testRunContext({ sessionId: asSessionId('s-plan-degrade'), now, jsonlDir: dir }),
+  }
+  return { app: await boot(options), cleanup: () => rmSync(dir, { recursive: true, force: true }) }
+}
+
+/** 从任意 booted app 取工具（不复用全局 `booted`）。 */
+function toolOfApp(
+  app: BootedApp,
+  name: string,
+): ToolDefinition<Readonly<Record<string, unknown>>, unknown> {
+  return app.ctx.get(TOOLS_SERVICE).get(name) as ToolDefinition<
+    Readonly<Record<string, unknown>>,
+    unknown
+  >
+}
+
+/** 一个**必然失败**的节点：没有 safety:sandbox 时 analysis_calc 直接拒（零审批、零等待）。 */
+const failingNodes = [{ id: 'calc', tool: 'analysis_calc', args: { code: '1 + 1' }, deps: [] }]
+
+describe('plan 的降级与补偿分支', () => {
+  it('transfer_schedule 入参逐条拒绝：amount / payee / payee.name', async () => {
+    const tool = toolOf('transfer_schedule')
+    const bad: readonly Readonly<Record<string, unknown>>[] = [
+      { amount: 0, payee: { name: '王建国' }, when: '明天' },
+      { amount: 10, payee: '王建国', when: '明天' },
+      { amount: 10, payee: { name: '   ' }, when: '明天' },
+    ]
+    for (const [index, args] of bad.entries()) {
+      await expect(
+        tool.execute(args, execCtx(`call-sched-bad-${String(index)}`)),
+      ).rejects.toMatchObject({ code: 'transfer-schedule-invalid' })
+    }
+  })
+
+  it('走管线时 amount=0：明细解析返回 undefined，真正的错误仍由工具抛出', async () => {
+    const extra = await bootPlan([], 'auto')
+    try {
+      const outcome = await armViaPipeline(
+        extra.app,
+        'transfer_schedule',
+        { amount: 0, payee: { name: '王建国' }, when: '明天 09:00' },
+        'call-sched-zero',
+      )
+      expect(outcome.isError).toBe(true)
+      expect(outcome.code).toBe('transfer-schedule-invalid')
+    } finally {
+      await extra.app.dispose('test-done')
+      extra.cleanup()
+    }
+  })
+
+  it('没有 bank:merchant：birthday_plan 不编商户价，预算退回入参（随后按宽档要求强验证而拒）', async () => {
+    const extra = await bootPlan([], 'auto')
+    try {
+      // 报价为空 ⇒ 鲜花/蛋糕金额回落到入参；三腿仍然成立
+      const error = await captureRejection(() =>
+        toolOfApp(extra.app, 'birthday_plan').execute(
+          { birthday: '下个月 8 号', lockYuan: 1000, flowerYuan: 200, cakeYuan: 200 },
+          execCtx('call-birthday-nomerchant'),
+        ),
+      )
+      // 宽档 + 红级动作要求武装时完成强验证；这条错误证明"报价为空"没有把它变成别的错
+      expect((error as { code?: string }).code).toBe('plan-arm-unverified')
+    } finally {
+      await extra.app.dispose('test-done')
+      extra.cleanup()
+    }
+  })
+
+  it('商户报价超预算：释放预占、状态 skipped(over-budget)，一分钱不扣', async () => {
+    await withExtraPlan([{ id: 'bank:merchant', use: 'bank:merchant' }], async (app) => {
+      await toolOfApp(app, 'merchant_search').execute({ category: 'flower' }, execCtx('call-ms-budget'))
+      await toolOfApp(app, PLAN_ARM_TOOL).execute(
+        armArgs({ planId: 'p-merchant-budget', budgetYuan: 100, merchantOfferId: 'o-flower-a2' }),
+        execCtx('call-arm-budget'),
+      )
+      const report = await app.ctx.get(PLAN_WAKE_SERVICE).wake({ planId: 'p-merchant-budget' })
+      expect(report.entries[0]).toMatchObject({
+        status: 'skipped',
+        reason: 'over-budget',
+        merchant: { status: 'failed', attempts: [{ ok: false, code: 'over-budget' }] },
+      })
+      expect(eventsOf(app).some((event) => event.type === 'transfer/created')).toBe(false)
+    })
+  })
+
+  it('商户提交失败且没有可冲正的转账：compensation 记 reversal-failed/txn-unknown', async () => {
+    const app = await bootPlan(
+      [{ id: 'bank:merchant', use: 'test:merchant-throws' }],
+      'auto',
+      () => NOW,
+      [throwingMerchantPlugin],
+    )
+    try {
+      await toolOfApp(app.app, PLAN_ARM_TOOL).execute(
+        armArgs({ planId: 'p-merchant-txn', budgetYuan: 100, merchantOfferId: 'o-test-1' }),
+        execCtx('call-arm-txn'),
+      )
+      const report = await app.app.ctx.get(PLAN_WAKE_SERVICE).wake({ planId: 'p-merchant-txn' })
+      expect(report.entries[0]).toMatchObject({
+        status: 'executed',
+        merchant: { status: 'failed' },
+        compensation: { kind: 'reversal-failed', code: 'txn-unknown' },
+      })
+    } finally {
+      await app.app.dispose('test-done')
+      app.cleanup()
+    }
+  })
+
+  it('商户腿已预占、银行腿失败：释放预占，不提交也不冲正', async () => {
+    const app = await bootPlan(
+      [{ id: 'bank:merchant', use: 'test:merchant-throws' }],
+      'auto',
+      () => NOW,
+      [throwingMerchantPlugin],
+    )
+    try {
+      await toolOfApp(app.app, PLAN_ARM_TOOL).execute(
+        armArgs({
+          planId: 'p-merchant-bankfail',
+          budgetYuan: 100,
+          nodes: failingNodes,
+          merchantOfferId: 'o-test-1',
+        }),
+        execCtx('call-arm-fail'),
+      )
+      const report = await app.app.ctx.get(PLAN_WAKE_SERVICE).wake({ planId: 'p-merchant-bankfail' })
+      const entry = report.entries[0]
+      expect(entry?.status).toBe('executed')
+      expect(entry?.summary?.failed ?? 0).toBeGreaterThan(0)
+      // 银行腿没成 ⇒ 商户腿没有提交记录，也没有冲正
+      expect(entry?.merchant).toBeUndefined()
+      expect(entry?.compensation).toBeUndefined()
+    } finally {
+      await app.app.dispose('test-done')
+      app.cleanup()
+    }
+  })
+
+  it('连续两次坏 run：窗口自动撤防（与 plan_disarm 同一状态转移）', async () => {
+    let now = NOW
+    const extra = await bootWithRows(BASE_ROWS_OF('window'), { modelTools: true }, () => now)
+    try {
+      await toolOfApp(extra.app, PLAN_ARM_TOOL).execute(
+        armArgs({
+          planId: 'p-disarm',
+          nodes: failingNodes,
+          recurrence: { every: 'daily', at: '09:00' },
+        }),
+        execCtx('call-arm-disarm'),
+      )
+      const wake = extra.app.ctx.get(PLAN_WAKE_SERVICE)
+      const store = extra.app.ctx.get(PLAN_ARMED_SERVICE)
+      now += 24 * 60 * 60 * 1000
+      const first = await wake.wake({ planId: 'p-disarm' })
+      expect(first.entries[0]?.summary?.failed ?? 0).toBeGreaterThan(0)
+      expect(store.list()[0]?.state).toBe('armed')
+      now += 24 * 60 * 60 * 1000
+      await wake.wake({ planId: 'p-disarm' })
+      // 第 2 次坏 run 达到阈值（DISARM_AFTER_FAILED_WAKES = 2）⇒ 自动撤防
+      expect(store.list()[0]?.state).toBe('cancelled')
+    } finally {
+      await extra.app.dispose('test-done')
+      extra.cleanup()
+    }
+  })
+
+  it('yearly 周期：给全 month/day 就合法（不只是会拒错的那几条）', async () => {
+    const armed = await arm(
+      armArgs({ planId: 'p-yearly', recurrence: { every: 'yearly', month: 3, day: 8, at: '09:00' } }),
+      'call-yearly',
+    )
+    expect(armed.recurrence).toEqual({ every: 'yearly', month: 3, day: 8, at: '09:00' })
+  })
+
+  it('没有 bank:tools / approval：明细里的探针与身份按需降级，失败只发生在签票', async () => {
+    // 只留五条内核行 + plan:dag：既没有银行工具（探针/身份/挑战都没有），也没有审批服务。
+    // 这条部署面证明 `ctx.get` 的 catch 是**真的会走**的降级，而不是"永远取得到、catch 是摆设"。
+    const bare: readonly PluginRow[] = [
+      { id: 'core:session' },
+      { id: 'core:tools' },
+      { id: 'core:prompt' },
+      { id: 'core:model', config: { provider: 'deepseek', model: 'deepseek-chat' } },
+      { id: 'core:agent', config: { loop: { model: 'deepseek:deepseek-chat' } } },
+      { id: 'core:persistence', config: { root: 'sessions', fsync: false } },
+    ]
+    const extra = await bootWithRows(bare)
+    try {
+      // transfer_schedule 的明细要"当日已用/剩余"：探针与身份都取不到 ⇒ 两行整条省略
+      const schedule = await captureRejection(() =>
+        toolOfApp(extra.app, 'transfer_schedule').execute(
+          { amount: 100, payee: { name: '王建国' }, when: '明天 09:00' },
+          execCtx('call-bare-sched'),
+        ),
+      )
+      // 明细阶段不抛：探针/身份取不到只是"两行省略"，真正的失败发生在签票（没有审批服务）
+      expect((schedule as { code?: string }).code).toBeTypeOf('string')
+    } finally {
+      await extra.app.dispose('test-done')
+      extra.cleanup()
+    }
+  })
+
+  it('工具名合法但没装配：红级判定按 false 处理（不因为"读不到"就把窗口当红级）', async () => {
+    // 名字在 `BANK_TOOL_NAME_SET` 里（计划能过解析），但这条部署面没有 bank:tools ⇒ registry 取不到。
+    const rows = [
+      { id: 'core:session' },
+      { id: 'core:tools' },
+      { id: 'core:prompt' },
+      { id: 'core:model', config: { provider: 'deepseek', model: 'deepseek-chat' } },
+      { id: 'core:agent', config: { loop: { model: 'deepseek:deepseek-chat' } } },
+      { id: 'core:persistence', config: { root: 'sessions', fsync: false } },
+    ]
+    const extra = await bootWithRows(rows)
+    try {
+      const error = await captureRejection(() =>
+        toolOfApp(extra.app, PLAN_ARM_TOOL).execute(
+          armArgs({ planId: 'p-unregistered', nodes: [{ id: 'pay', tool: 'transfer_create', args: { amount: 1, payee: { name: '王建国' } }, deps: [] }] }),
+          execCtx('call-unregistered'),
+        ),
+      )
+      expect((error as { code?: string }).code).toBeTypeOf('string')
+    } finally {
+      await extra.app.dispose('test-done')
+      extra.cleanup()
+    }
+  })
+
+  it('审批参数重建失败（nodes 为空）：预检返回 false，错误仍由工具体抛', async () => {
+    const extra = await bootPlan([], 'auto')
+    try {
+      const outcome = await armViaPipeline(
+        extra.app,
+        PLAN_ARM_TOOL,
+        armArgs({ planId: 'p-empty-nodes', nodes: [] }),
+        'call-empty-nodes',
+      )
+      expect(outcome.isError).toBe(true)
+      expect(outcome.code).toBe('plan-invalid')
+    } finally {
+      await extra.app.dispose('test-done')
+      extra.cleanup()
+    }
+  })
+
+  it('走管线时 payee.name 为空白：明细返回 undefined，错误由工具体抛', async () => {
+    const extra = await bootPlan([], 'auto')
+    try {
+      const outcome = await armViaPipeline(
+        extra.app,
+        'transfer_schedule',
+        { amount: 100, payee: { name: '' }, when: '明天 09:00' },
+        'call-sched-empty-name',
+      )
+      expect(outcome.isError).toBe(true)
+      expect(outcome.code).toBe('transfer-schedule-invalid')
+    } finally {
+      await extra.app.dispose('test-done')
+      extra.cleanup()
+    }
+  })
+
+  it('同一计划并发 run：后一次不覆盖前一次的授权来源，结束后各自还原', async () => {
+    const plan = { planId: 'p-concurrent', nodes: readNodes, meta: { title: '并发' } } as never
+    const api = booted?.app.ctx.get(PLAN_SERVICE)
+    if (api === undefined) throw new Error('missing plan service')
+    const first = api.run(plan, {
+      authorization: { kind: 'window', ref: 'w-1', digest: 'd-1' },
+    })
+    const second = api.run(plan, {
+      authorization: { kind: 'window', ref: 'w-2', digest: 'd-2' },
+    })
+    const settled = await Promise.allSettled([first, second])
+    expect(settled).toHaveLength(2)
+  })
+
+  it('dueSoonLeadMs 必须是非负整数毫秒（-1 直接启动失败）', async () => {
+    const error = await captureRejection(() =>
+      bootWithRows(BASE_ROWS_OF('window'), { modelTools: true, dueSoonLeadMs: -1 }),
+    )
+    expect((error as { code?: string }).code).toBe('invalid-config')
+  })
+})

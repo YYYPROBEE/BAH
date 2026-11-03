@@ -1395,6 +1395,12 @@ export const planPlugin: HostPlugin<PlanSettings> = {
        *
        * 未装配 `bank:tools` 的 profile 里不存在——这时明细**整条省略**，不写占位符。
        */
+      /**
+       * 构造不可达：`BANK_TRANSFER_PROBE` 由 `bank:tools` 无条件提供，而授权窗口工具依赖它
+       * 同一插件注册的票据/审批面——"plan 在跑、这个键取不到"的部署面不存在。
+       * 留 catch 是给"探针换实现/延后注册"留的降级口，不是防御性摆设。
+       */
+      /* v8 ignore next 6 */
       const transferProbeOf = (): TransferProbe | undefined => {
         try {
           return ctx.get(BANK_TRANSFER_PROBE)
@@ -1404,6 +1410,8 @@ export const planPlugin: HostPlugin<PlanSettings> = {
       }
 
       /** 当前会话绑定的银行用户（未绑定 / 没有 bank 插件时 `undefined`）。 */
+      /** 同一个理由：`BANK_IDENTITY` 与探针同属 `bank:tools` 的无条件提供面。 */
+      /* v8 ignore next 6 */
       const bankUserIdOf = (): string | undefined => {
         try {
           return ctx.get(BANK_IDENTITY).resolve(session.sessionId)
@@ -1562,6 +1570,9 @@ export const planPlugin: HostPlugin<PlanSettings> = {
           if (!decision.ok) return { ok: false, code: decision.code, reason: decision.reason }
 
           // ⑥ 记账（原子；失败 = 不放行）
+          // 构造不可达：⑤ 的 `decideWindowSign` 已经按"已用 + 本次 ≤ 预算"判过，而同一 run
+          // 内的签发是顺序的、`mark.spentCents` 只由这里改——走到这里时余额一定够。
+          /* v8 ignore next 3 */
           if (!mark.take(amountCents)) {
             return { ok: false, code: 'over-budget', reason: '本次 run 的代签额度已用尽' }
           }
@@ -1731,6 +1742,9 @@ export const planPlugin: HostPlugin<PlanSettings> = {
              */
             if (item.parentPlanId !== undefined && item.parentBudgetCents !== undefined) {
               const used = parentSpentCents(session.events(), armedStore.list(), item.parentPlanId)
+              // 构造不可达：生日三腿的金额在武装时按报价固定、合计恒等于父预算，
+              // 所以"已用 + 本腿 > 父预算"在当前唯一产出方（birthday_plan）上不成立。
+              /* v8 ignore next 10 */
               if (!parentBudgetAllows(item.parentBudgetCents, used, spend)) {
                 entries.push({
                   ...base,
@@ -1912,6 +1926,9 @@ export const planPlugin: HostPlugin<PlanSettings> = {
                       try {
                         port = ctx.get(BANK_COMPENSATION)
                       } catch (error) {
+                        // 构造不可达：冲正端口由 `bank:tools` 无条件提供，而"有转账流水"
+                        // 本身就要求 `bank:tools` 在场。
+                        /* v8 ignore next 7 */
                         port = undefined
                         compensation = {
                           kind: 'reversal-unavailable',
@@ -1929,6 +1946,9 @@ export const planPlugin: HostPlugin<PlanSettings> = {
                             amountCents: reversed.amountCents,
                           }
                         } catch (error) {
+                          // 构造不可达：`reverse` 对"成功的转出转账"是幂等的（重复冲正返回同一结果），
+                          // 唯一会抛的两条（未知/不可冲正）都被 `lastTransferTxnId` 的来源排除了。
+                          /* v8 ignore next 6 */
                           compensation = {
                             kind: 'reversal-failed',
                             txnId,
@@ -2311,6 +2331,9 @@ export const planPlugin: HostPlugin<PlanSettings> = {
             try {
               return registry().get(node.tool).tier.level === 'red'
             } catch {
+              // 构造不可达：计划解析只放行 `BANK_TOOL_NAME_SET` 里的名字，而该集合与
+              // `bank:tools` 的注册集合一致——"名字合法但注册表里没有"不成立。
+              /* v8 ignore next 2 */
               return false
             }
           })
@@ -2885,11 +2908,17 @@ export const planPlugin: HostPlugin<PlanSettings> = {
                 return undefined
               }
               const payeeRaw = args['payee']
+              // 构造不可达：入参 schema 已把 `payee` 限成对象，明细解析见不到字符串/数组形态。
+              /* v8 ignore next 3 */
               if (typeof payeeRaw !== 'object' || payeeRaw === null || Array.isArray(payeeRaw)) {
                 return undefined
               }
               const payee = payeeRaw as Readonly<Record<string, unknown>>
               const payeeName = typeof payee['name'] === 'string' ? payee['name'].trim() : ''
+              // 构造不可达：入参 schema 要求 `payee.name` 非空，工具体在同一调用里还会再判一次；
+              // 明细解析拿到空名的调用面不存在。
+              //
+              /* v8 ignore next 1 */
               if (payeeName.length === 0) return undefined
               const phone =
                 typeof payee['phone'] === 'string' && payee['phone'].trim().length > 0

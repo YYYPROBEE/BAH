@@ -28,7 +28,7 @@ pnpm install
 | **容器演示** | `docker build -t bah:local . && docker run --rm -p 7331:7331 bah:local` | 单容器 Web，默认离线 router（不需要密钥）；RAG sidecar 不在镜像内，知识工具降级为 `knowledge-unavailable` |
 | **移动 H5 演示** | `pnpm bah --profile mobile` | 第二个壳（`staticRoot` 同为 `apps/web`），打开 `http://127.0.0.1:7551`；与 7331 共用同一份 `createHttpChannel`（路由 / 闸序 / 安全头 / 审批端点） |
 | **桌面端演示** | `pnpm build && pnpm desktop:dev` | Electron 窗口内嵌私有 host（`port:0`，只绑 `127.0.0.1`），加载同一份 `apps/web`；断网可用。打包见 `pnpm desktop:pack`，说明见 [docs/desktop.md](docs/desktop.md) |
-| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 455 文件 / 5269 用例 |
+| **自检** | `pnpm typecheck && pnpm test` | 类型 + 主仓 455 文件 / 5283 用例 |
 | **门禁** | `pnpm gate` | 53 项静态与契约检查，任一红即失败 |
 | **审计** | `pnpm bah audit --dir <path>` | 离线复验会话日志 + 审计链（`--format json` 出机器可读） |
 
@@ -261,7 +261,7 @@ facts.md             演示材料唯一数字来源
 
 | 命令 | 范围 | 实测（2026-11-02） |
 |---|---|---|
-| `pnpm test` | 主仓 | 455 文件 / 5269 用例（2026-11-03 全量实测，见 facts.md） |
+| `pnpm test` | 主仓 | 455 文件 / 5283 用例（2026-11-03 全量实测，见 facts.md） |
 | `pnpm test:web` | 前端 | 49 文件 / 592 用例（全绿） |
 | `pnpm -F @bah/eval test` | 评测包 | 22 文件 / 158 用例 |
 | `pnpm test:snapshot` | 快照回放 | 13 文件 / 60 用例（全绿，含 `subscription-reminder` 与 `birthday-reminder`） |

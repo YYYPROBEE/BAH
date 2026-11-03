@@ -182,7 +182,7 @@
   "packages/host/src/boot/plugins/model.test.ts": 51,
   "packages/host/src/boot/plugins/persistence-tenant.test.ts": 11,
   "packages/host/src/boot/plugins/plan-details.test.ts": 75,
-  "packages/host/src/boot/plugins/plan-wake.test.ts": 146,
+  "packages/host/src/boot/plugins/plan-wake.test.ts": 169,
   "packages/host/src/boot/plugins/plan-window-signer.test.ts": 19,
   "packages/host/src/boot/plugins/plan.test.ts": 150,
   "packages/host/src/boot/plugins/policy.test.ts": 144,
