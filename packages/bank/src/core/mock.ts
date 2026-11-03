@@ -1640,6 +1640,8 @@ export class MockBankCore implements BankCoreProvider {
       holding.accountId === undefined
         ? this.accounts.find((item) => item.userId === req.userId && item.type === 'current')
         : this.requireAccount(holding.accountId)
+    // 构造不可达：`purchaseWealth` 要求 accountId 并当场 `requireAccount`，所以持仓的 `accountId` 永不为空；演示数据集也没有"删账户"的动作。留这道守卫是给未来"从外部导入持仓"用的，不能让赎回静默回款到任意活期。
+    /* v8 ignore next 5 */
     if (account === undefined) {
       throw new BahError('account-unknown', 'bank: 当前用户没有可回款的活期账户', {
         userId: req.userId,
@@ -2079,6 +2081,8 @@ export class MockBankCore implements BankCoreProvider {
       .filter((item) => item.userId === userId)
       .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
     const primary = accounts[0]
+    // 构造不可达：`createAa` 先校验用户在册，而造数器给每个在册用户都配了 至少一张账户；"有用户但零账户"只能来自外部导入。留这道守卫是不让 AA 静默落到别人的户上。
+    /* v8 ignore next 4 */
     if (primary === undefined) {
       throw new BahError('account-unknown', `bank: 用户 ${userId} 没有可入账账户`, { userId })
     }

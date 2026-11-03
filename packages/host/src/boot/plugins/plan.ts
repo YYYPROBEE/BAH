@@ -918,6 +918,8 @@ function parseScheduleWhen(value: unknown, now: number): number {
     if (new Date(dueAt).getUTCDate() !== day) {
       throw new BahError('transfer-schedule-invalid', `定时转账日期不存在：${text}`, { when: text })
     }
+    // 构造不可达：`下个月N号` 的 dueAt 恒在下个自然月之内，必然晚于当前时刻 （跨月溢出已由上面那道日期存在性检查拦下）。留这道守卫是给"改成支持上个月"这类改动兜底。
+    /* v8 ignore next 6 */
     if (dueAt <= now) {
       throw new BahError('transfer-schedule-invalid', '定时转账时间必须晚于当前时刻', {
         dueAt,

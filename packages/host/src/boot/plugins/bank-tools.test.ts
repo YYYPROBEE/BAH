@@ -24,6 +24,7 @@ import {
   BANK_RESULT_SCHEMAS,
   BANK_TOOL_NAME_SET,
   DEFAULT_CONTEXT_SLOTS,
+  PASSWORD_HANDOFF,
   SessionIdentityStore,
   restoreSessionIdentity,
   specOf,
@@ -35,6 +36,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { boot, type BootOptions } from '../boot.ts'
 import { createCatalog } from './index.ts'
 import {
+  BANK_CARD_SPEND,
+  BANK_TRANSFER_PROBE,
+  BANK_USER_DIRECTORY,
   DEFAULT_BANK_TOOLS,
   bankToolsPlugin,
   warnContextSlots,
@@ -821,6 +825,46 @@ describe('02 TA-27 · 登录身份绑定（session-auth）', () => {
       })
     } finally {
       await app.dispose('test')
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('bank:tools 交出的探针与端口（身份只从会话解析）', () => {
+  it('风险冷却按天换算成毫秒；用户目录、转账探针、卡消费与改密端口各有判据', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-probes-'))
+    const app = await bootWith({ demoUserId: 'u-1', riskCooldownDays: 30 }, 's-probes', dir)
+    try {
+      const directory = app.ctx.get(BANK_USER_DIRECTORY)
+      expect(directory.has('u-1')).toBe(true)
+      expect(directory.has('u-ghost')).toBe(false)
+      expect(directory.list()).toContain('u-1')
+
+      const probe = app.ctx.get(BANK_TRANSFER_PROBE)
+      // 金额非法，或卡号对不上任何被试账户 ⇒ 试完即省略（undefined），不把异常抛给签票面
+      expect(await probe.preview('u-1', 0, '王建国')).toBeUndefined()
+      expect(await probe.preview('u-1', 100, '王建国', 'c-不存在')).toBeUndefined()
+      expect(await probe.preview('u-1', 100, '王建国')).toBeDefined()
+
+      const spend = app.ctx.get(BANK_CARD_SPEND)
+      const spent = await captureRejection(() =>
+        spend.spend('s-probes', { cardId: 'c-ghost', merchantCategory: 'dining', amountCents: 1_000 }),
+      )
+      expect(String(spent.code)).toMatch(/^card-/)
+      // 未绑定身份的会话解析不出 userId：探针不接收调用方传入的 userId
+      await expect(
+        spend.spend('s-unbound', { cardId: 'c-ghost', merchantCategory: 'dining', amountCents: 1_000 }),
+      ).rejects.toMatchObject({ code: 'no-identity' })
+
+      await expect(
+        app.ctx.get(PASSWORD_HANDOFF).submit('s-unbound', {
+          ticketId: 'h-1',
+          oldPassword: 'bank1234',
+          newPassword: 'NewPass1',
+        }),
+      ).rejects.toMatchObject({ code: 'no-identity' })
+    } finally {
+      await app.dispose('test-done')
       rmSync(dir, { recursive: true, force: true })
     }
   })
