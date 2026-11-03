@@ -15,6 +15,9 @@
     provider: router
     model: router-chat
     chunkSize: 4
+    # 演示节流：让 running 态可见。core:model 必须与 web 逐字一致
+    # （verify-channel-capabilities I8），所以各渠道成对修改。
+    stepDelayMs: 250
 
 - id: policy:rules
   config:

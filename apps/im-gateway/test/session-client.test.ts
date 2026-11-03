@@ -17,6 +17,7 @@ import {
   type ClientRequestInit,
   type ClientResponse,
 } from '../src/session/client.ts'
+import { HEARTBEAT_MS } from '../src/session/overlay.ts'
 
 const PORT = 4_100
 const TOKEN = 'child-token/with-slash'
@@ -334,5 +335,118 @@ describe('subscribe：SSE 订阅', () => {
     release?.()
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(onError).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 心跳看门狗（M-01 的网关侧等价物）。
+ *
+ * 为什么要钉：TCP 被中间设备黑洞掉时 `reader.read()` 只是**一直挂着**，既不报错也不结束。
+ * 没有看门狗，IM 子进程会停在"看起来还连着"的状态，用户发的话永远进不去、也没有任何故障信号。
+ * 心跳本身是宿主 `sse.ts` 的命名事件（`event: heartbeat`），所以这里同时钉两件事：
+ * 心跳块**当作活跃度**续命，但**不能被当成帧**上报。
+ */
+describe('subscribe：心跳空闲看门狗', () => {
+  /** 空闲判死阈值 = 1.5 个心跳周期；看门狗自身的轮询间隔。 */
+  const IDLE_LIMIT_MS = HEARTBEAT_MS * 1.5
+  const POLL_MS = Math.min(HEARTBEAT_MS, 5_000)
+
+  /**
+   * 一条"发完给定块就再也不动"的流。
+   *
+   * `gapMs > 0` 时每块之间按假计时器等待（模拟宿主按心跳节拍出话）；
+   * 块用完之后 `read()` 返回一个**永不 settle** 的 promise —— 这正是黑洞。
+   */
+  function pacedStream(chunks: readonly string[], gapMs: number): ClientResponse {
+    const encoder = new TextEncoder()
+    let index = 0
+    return {
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: () => {
+            const chunk = chunks[index]
+            if (chunk === undefined) return new Promise(() => undefined)
+            index += 1
+            return new Promise((resolve) => {
+              setTimeout(
+                () => resolve({ done: false, value: encoder.encode(chunk) }),
+                gapMs,
+              )
+            })
+          },
+        }),
+      } as unknown as NonNullable<ClientResponse['body']>,
+      text: async () => '',
+    }
+  }
+
+  const heartbeatBlock = (at: number) => `event: heartbeat\ndata: ${String(at)}\n\n`
+
+  it('1.5 个心跳周期没有任何字节 ⇒ 主动 abort 并按 onError 上报（浏览器不会替我们报）', async () => {
+    vi.useFakeTimers()
+    try {
+      const { fetch, calls } = recorder(async () => pacedStream([], 0))
+      const onFrame = vi.fn()
+      const onOpen = vi.fn()
+      const onError = vi.fn()
+      const unsubscribe = clientWith(fetch).subscribe({ onFrame, onOpen, onError })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(onOpen).toHaveBeenCalledTimes(1)
+      expect(onError).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(IDLE_LIMIT_MS + POLL_MS)
+      expect(onError).toHaveBeenCalledTimes(1)
+      expect(String(onError.mock.calls[0]?.[0])).toContain('心跳超时')
+      // 判死必须把连接关掉：否则同一条僵尸连接还占着宿主的并发额度
+      expect(calls[0]?.init?.signal?.aborted).toBe(true)
+
+      unsubscribe()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('心跳持续到达 ⇒ 不误判离线；心跳停了才判死，且心跳不被当成帧上报', async () => {
+    vi.useFakeTimers()
+    try {
+      const chunks = [heartbeatBlock(1), heartbeatBlock(2), heartbeatBlock(3), heartbeatBlock(4)]
+      const { fetch } = recorder(async () => pacedStream(chunks, 10_000))
+      const onFrame = vi.fn()
+      const onError = vi.fn()
+      const unsubscribe = clientWith(fetch).subscribe({ onFrame, onError })
+
+      // 4 个心跳 × 10s：每次都在 22.5s 的空闲阈值之内 ⇒ 一次都不该判死
+      await vi.advanceTimersByTimeAsync(4 * 10_000 + POLL_MS)
+      expect(onError).not.toHaveBeenCalled()
+      // 心跳只证明"连接还活着"，不是业务帧
+      expect(onFrame).not.toHaveBeenCalled()
+
+      // 心跳停了：从最后一个字节起再空转 1.5 个周期 ⇒ 判死
+      await vi.advanceTimersByTimeAsync(IDLE_LIMIT_MS + POLL_MS)
+      expect(onError).toHaveBeenCalledTimes(1)
+      expect(String(onError.mock.calls[0]?.[0])).toContain('心跳超时')
+
+      unsubscribe()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('取消订阅 ⇒ 看门狗计时器一并撤掉（不留一个会给已关闭连接报障的定时器）', async () => {
+    vi.useFakeTimers()
+    try {
+      const { fetch } = recorder(async () => pacedStream([heartbeatBlock(1)], 10_000))
+      const onError = vi.fn()
+      const unsubscribe = clientWith(fetch).subscribe({ onFrame: vi.fn(), onError })
+
+      await vi.advanceTimersByTimeAsync(0)
+      unsubscribe()
+      await vi.advanceTimersByTimeAsync(IDLE_LIMIT_MS * 2)
+      expect(onError).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -276,7 +276,7 @@ describe('scanBirthdays（纯注入：不碰时钟与账本）', () => {
     const delivered = await scanBirthdays({
       now: () => MAR_8,
       facts: () => [fact],
-      push: (async () => ({})) as BirthdayScanDeps['push'],
+      push: async () => ({ sent: true, channel: 'in-app', reason: 'ok' }),
     })
     expect(delivered).toHaveLength(1)
   })
@@ -285,9 +285,9 @@ describe('scanBirthdays（纯注入：不碰时钟与账本）', () => {
     const delivered = await scanBirthdays({
       now: () => MAR_8,
       facts: () => [fact],
-      push: (async () => {
+      push: async () => {
         throw new Error('channel-down')
-      }) as BirthdayScanDeps['push'],
+      },
     })
     expect(delivered).toEqual([])
   })
@@ -297,7 +297,7 @@ describe('scanBirthdays（纯注入：不碰时钟与账本）', () => {
       await scanBirthdays({
         now: () => MAR_8,
         facts: () => undefined,
-        push: (async () => ({})) as BirthdayScanDeps['push'],
+        push: async () => ({ sent: true, channel: 'in-app', reason: 'ok' }),
       }),
     ).toEqual([])
   })

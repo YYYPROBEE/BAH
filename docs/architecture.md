@@ -7,19 +7,19 @@
 > 本文不重复各包的机制细节——每种机制都有唯一的说明书（`docs/plan.md`、`docs/sentry.md`、
 > `docs/pipeline.md`、`docs/knowledge.md`、`docs/audit.md`），本文只负责**把组件摆到正确的位置上**。
 
-## 1. 两张面，两个问题
+## 1. 组件面与装配面
 
-架构图最容易被问倒的不是"你有哪些组件"，而是**"这个组件在哪个入口生效"**。
-所以这里刻意分成两面，每面用"能说清的那张载体"（图或表）来表达：
+架构图需要优先回答的不是“你有哪些组件”，而是**“这个组件在哪个入口生效”**。
+所以这里刻意分成两面，两面各选一种可核对的载体（图或表）：
 
 | 面 | 回答的问题 | 载体 | 数据来源 |
 |---|---|---|---|
-| **组件与依赖** | "系统由哪些部件组成、谁依赖谁" | 分层表 + 依赖图 + 依赖明细表 | `HOST_PLUGINS` + 每个插件的 `inject` |
-| **装配** | "**这个 profile** 到底装了哪些" | 差异图 + 20×3 矩阵 | 真实装载器：`readProfile` → `loadBundles` → `readLayers` → `mergeLayers` |
+| **组件与依赖** | “系统由哪些部件组成、谁依赖谁” | 分层表 + 依赖图 + 依赖明细表 | `HOST_PLUGINS` + 每个插件的 `inject` |
+| **装配** | “**这个 profile** 到底装了哪些” | 差异图 + 32×6 矩阵 | 真实装载器：`readProfile` → `loadBundles` → `readLayers` → `mergeLayers` |
 
-### 1.1 三种状态，不是两种
+### 1.1 装配状态的三种取值
 
-早期方案只写了"装配 / 未装配"两态，实测必须三态——否则会把"装了但关掉"讲成"没装"：
+只区分“装配 / 未装配”两态会把“已装配但关闭”误读为“未装配”，因此区分三种状态：
 
 | 态 | 判据 | 画法 | 例子 |
 |---|---|---|---|
@@ -27,17 +27,17 @@
 | **装配但关闭** | 有行，但 `enabled: false`（插件 `apply()` 里直接 `return`） | 虚线 + 标注 | `bank:saga-bridge` 在 `profiles/plan` 里 |
 | **未装配** | 该 profile 根本没有这一行（注册表里有，但没人 `use`） | 不画；在别的 profile 里画灰虚线 | `channel:web` 只在 `profiles/web` |
 
-`enabled: false` 的区别是真金白银的：`bank:saga-bridge` 关掉时，它的 tick 定时器、补偿依赖
-全都不接管，但插件实例仍在（`ctx.get` 得到的是"什么都不做"的实现）。把它画成"没装"，
-对外说明时被问"那 plan 里的转账谁补偿"就会答错——正确答案是**plan 本身没有整图补偿，只有前向执行**，
+`enabled: false` 与未装配在运行时行为上不同：`bank:saga-bridge` 关掉时，它的 tick 定时器、补偿依赖
+全都不接管，但插件实例仍在（`ctx.get` 得到的是“什么都不做”的实现）。把它画成“没装”，
+“那 plan 里的转账由谁补偿”的答案是**plan 本身没有整图补偿，只有前向执行**，
 要整图补偿得让 plan 去编排一整笔 saga。
 
 **第三种形态：tick-only**（`enabled: true, eligible: []`）。`web` / `mobile` / `web-plan`
 用这一形态：桥接不接管任何工具（`transfer_create` 不会被双层展开），但 `saga/tick` 的
-定时器仍在，AA 到期、订阅与生日提醒在常驻进程里有派发源。它和"生效"的区别只在
-`eligible`，和"关闭"的区别只在 tick 是否运行——对外说明时不要把它说成"关了"。
+定时器仍在，AA 到期、订阅与生日提醒在常驻进程里有派发源。它和“生效”的区别只在
+`eligible`，与“关闭”的区别只在 tick 是否运行。
 
-**唯一的例外是生日计划（ADR-0013）**：`birthday_plan` 的商户腿在"银行腿已扣款、商户 commit 失败"
+**唯一的例外是生日计划（ADR-0013）**：`birthday_plan` 的商户腿在“银行腿已扣款、商户 commit 失败”
 时会调用 `bank:compensation` 冲正**那一条腿**的银行流水，entry 记 `compensation.kind='reversed'`。
 这是逐腿对冲，不是分布式事务；部分成功仍是合法终态。
 
@@ -58,11 +58,11 @@
 | 覆盖率 | **97.43%（行口径，60053/61636 行，实测 2026-11-02）；18/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
-## 3. 组件与依赖（20 个组件）
+## 3. 组件与依赖（32 个组件）
 
 ### 3.0 分层
 
-按 id 前缀归层。**分层用表格不用图**：mermaid 对"8 个分组 × 20 个节点、组间无连线"这种输入
+按 id 前缀归层。**分层用表格不用图**：mermaid 对“多分组 × 32 节点、组间无连线”这种输入
 没有稳定布局（实测要么横排到画布外，要么每组自成一列），而分层本身是**分类信息**，
 表格比图准、也比图好核对。
 
@@ -77,6 +77,7 @@
 | ⑥ 编排原语（plan） | `plan:dag`、`plan:scheduler` | 2 |
 | ⑦ 渠道（channel） | `channel:web`、`channel:mobile`、`channel:desktop`、`channel:im` | 4 |
 | ⑧ 演示件（demo） | `demo:echo` | 1 |
+| ⑨ 未单列分层 | `obs:telemetry`、`policy:rules`、`fact:store`、`proactive:reminder`、`bah:memory-store`、`intent:plane`、`prompt:ask` | 7 |
 | **合计** | — | **32** |
 <!-- END GENERATED:layers -->
 
@@ -185,7 +186,7 @@ graph LR
 `safety:sentry` 是依赖最多的一个（6 个），因为它站在四个接缝上，既是观察者又是阻断者；
 `channel:web` 只依赖运行时与审批服务——它**不认识**银行域，这是渠道可替换的前提。
 
-图上只画箭头不带标签（8 条同名 `bah:run` 会糊成一片），**具体依赖哪个服务看这张表**：
+图上只画箭头不带标签（同名服务键的重复边会显著降低可读性），**具体依赖哪个服务看这张表**：
 
 ![依赖图](diagrams/architecture-dependencies.png)
 
@@ -226,10 +227,10 @@ graph LR
 | channel:im | `bah:run`、`runtime:session`、`runtime:agents`、`interaction:approval`、`runtime:system-prompt` | 宿主运行时 boot()、`core:session`、`core:agent`、`interaction:approval`、`core:prompt` |
 <!-- END GENERATED:dependencies -->
 
-## 4. 装配图与矩阵（五个可运行 profile）
+## 4. 装配图与矩阵（六个演示 profile）
 
-`profiles/` 下有 7 个目录，但只有 `headless` / `plan` / `web` 有 `profile.yml`，
-其余四个是空壳。差异的本质：
+`profiles/` 下实测 9 个目录，其中 8 个含 `profile.yml`（`desktop`、`headless`、`im`、`mobile`、`plan`、`subscription`、`web`、`web-plan`），仅 `sdk` 为空壳；
+本文矩阵覆盖主演示路径的 6 个 profile（`headless`、`plan`、`web`、`web-plan`、`mobile`、`im`）。差异的本质：
 
 <!-- BEGIN GENERATED:assembly -->
 ```mermaid
@@ -330,7 +331,7 @@ graph TB
 图中：实线 = 生效；灰虚线 = 该 profile 未装配（别的 profile 装了）；橙色虚线 = 装配但
 `enabled: false`。**只画三个 profile 状态不一致的组件**，一致的组件见下面的矩阵表。
 
-同一份数据的表格视图（对外说明时按行念更清楚）：
+同一份数据的表格视图：
 
 <!-- BEGIN GENERATED:matrix -->
 | 组件 | profiles/headless | profiles/plan | profiles/web | profiles/web-plan | profiles/mobile | profiles/im |
@@ -369,12 +370,12 @@ graph TB
 | channel:im | · 未装配 | · 未装配 | · 未装配 | · 未装配 | · 未装配 | ● 生效 |
 <!-- END GENERATED:matrix -->
 
-### 4.1 六处差异的**理由**（不是随手配的）
+### 4.1 六处差异的配置依据
 
 | 差异 | 为什么 |
 |---|---|
 | `channel:web` 只在 web / web-plan | 渠道是入口，headless/plan 不需要 HTTP 端口；装上会白占端口并让 `main.smoke` 撞端口 |
-| `plan:dag` 在 plan 与 web-plan | 默认 web **不装** plan——不让主演示路径的模型自己画 DAG；要演示"模型可见的规划 + DAG 节点图"用 `web-plan`（B1/B2）：`modelTools: true` 显式打开，且 saga-bridge 只保留 tick（`eligible: []`） |
+| `plan:dag` 在 plan 与 web-plan | 默认 web **不装** plan——不让主演示路径的模型自己画 DAG；要演示“模型可见的规划 + DAG 节点图”用 `web-plan`：`modelTools: true` 显式打开，且 saga-bridge 只保留 tick（`eligible: []`） |
 | `bank:knowledge` 只在 web / web-plan | 它要 `mode: http` 连 RAG sidecar；headless/plan 不联网、零依赖是硬约束 |
 | `bank:saga-bridge` 在 plan 关闭、在 web/mobile/web-plan 为 tick-only | 接管工具会让 `transfer_create` 被再展开成一笔 saga，一条 `plan/node-result` 会对上两条 `tool/call`，plan 的计数断言全部失真；常驻 profile 又需要 `saga/tick` 驱动 AA 到期与主动提醒，所以只关接管、不关时钟 |
 | `interaction:approval.responder` | headless/plan 用自动应答者（无人值守），web/web-plan 用 `none` + 真人点——**默认结论都是拒绝**，绝不默认放行 |
@@ -403,42 +404,41 @@ POST /api/turn
             └─ channel:web 的投影器               事件 → 帧 → SSE
 ```
 
-两个容易被忽略但**必须讲**的点：
+两个容易被忽略的点：
 
-- **落账是单点**：所有事件（含领域事件）都过 `runtime:session`，磁盘顺序 = 广播顺序
-  （这里修的就是这条：嵌套 append 曾经让排在后面的监听器先收到 N+1）；
+- **落账是单点**：所有事件（含领域事件）都过 `runtime:session`，磁盘顺序 = 广播顺序；
 - **工具结果只有一份**：`tool/result` 既是落账事实，也是模型能看到的唯一结果；
   卡片、DAG、审计时间线都是它的**投影**，不是第二份真相。
 
-## 6. 怎么改架构图（以及它为什么不会腐烂）
+## 6. 架构图的更新方式与一致性保障
 
 ```bash
 npx tsx scripts/gen-architecture.ts           # 重写生成块
 npx tsx scripts/gen-architecture.ts --check   # 只校验（门禁与 CI 用这条）
 
-# PNG（进 PPT / 给不渲染 mermaid 的读者）：需要一次性准备渲染器
-curl -sSL -o .tmp-w19/mermaid.min.js https://unpkg.com/mermaid@11/dist/mermaid.min.js
-MERMAID_JS=.tmp-w19/mermaid.min.js npx tsx scripts/render-diagrams.ts
+# PNG（给不渲染 mermaid 的读者；可选步骤，需联网下载渲染器）
+curl -sSL -o docs/vendor/mermaid.min.js https://unpkg.com/mermaid@11/dist/mermaid.min.js
+MERMAID_JS=docs/vendor/mermaid.min.js npx tsx scripts/render-diagrams.ts
 ```
 
 - 组件名只能来自 `HOST_PLUGINS`，脚本里**没有一个**组件名字面量；
 - 装配状态只能来自真实装载器，不自己解析 YAML；
 - 事实表的数值来自 `PLAN_NODE_STATES` / `SAGA_TRANSITIONS` / `BANK_TOOL_SPECS` /
   `planPlugin.validate()` / `scripts/verify-*.ts` 计数——全是运行时真值；
-- 唯一"跑一遍才有"的事实是覆盖率，它落在 `docs/coverage-baseline.json`（带测量命令与日期），
+- 唯一“跑一遍才有”的事实是覆盖率，它落在 `docs/coverage-baseline.json`（带测量命令与日期），
   改它必须是一次真实测量。
 
 ## 7. 已知限制（架构层面的，不是缺陷清单）
 
-1. **依赖图不表达"同一插件多实例"**：脚本遇到一个插件被两行引用会直接抛错，
-   而不是画一张含糊的图。当前没有这种用法，将来要有，先决定图的表达方式。
+1. **依赖图不表达“同一插件多实例”**：脚本遇到一个插件被两行引用会直接抛错，
+   而不是画一张含糊的图。当前没有这种用法。
 2. **装配图不表达层序**：`mergeLayers` 的四层（bundle → profile patch → home → overlay）
    在图上被压成了一个结果。层序本身在 `docs/profile.md`，这里不重复。
-3. **依赖边只到"服务键"粒度**：`inject` 是服务级契约，不是函数调用图。
+3. **依赖边只到“服务键”粒度**：`inject` 是服务级契约，不是函数调用图。
    想看函数级调用请直接读包的 `index.ts`。
    **懒取的服务不是 `inject` 边，图里不画**：`safety:halt` 与
    `runtime:context-source`（实体槽位数据源，由 `bank:tools` 提供、`core:agent`
    每 step 懒取）都属这一类。它们的存在由对应插件/端口文档说明；
    `SERVICE_OWNER` 只服务 `inject` 解析，不是全量服务清单。
 4. **本文不含部署拓扑**：单进程、无外部中间件（除可选的 RAG sidecar），
-   所以没有"部署图"这一层可画。
+   所以没有“部署图”这一层可画。

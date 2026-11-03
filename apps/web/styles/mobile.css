@@ -43,6 +43,7 @@ body {
 /* ────────────────────────────── 壳与三区骨架 */
 
 .m-shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100dvh;
@@ -51,6 +52,29 @@ body {
   font-family: var(--body-base-font-family);
   font-size: var(--body-base-font-size);
   line-height: var(--body-base-line-height);
+}
+
+/*
+ * 跳到输入框（M-13）：常态移出视口，聚焦时回到左上角。
+ * 不用正 tabindex；它只依靠 DOM 顺序做"第一站"。
+ */
+.m-skip {
+  position: absolute;
+  left: var(--spacer-16);
+  top: -80px;
+  z-index: 60;
+  padding: var(--spacer-8) var(--spacer-12);
+  border: var(--border-width-default) solid var(--border-neutral-l1);
+  border-radius: var(--radius-8);
+  background: var(--bg-base-default);
+  color: var(--text-brand);
+  font-size: var(--body-sm-font-size);
+  line-height: var(--body-sm-line-height);
+  text-decoration: none;
+}
+
+.m-skip:focus {
+  top: calc(var(--spacer-8) + env(safe-area-inset-top));
 }
 
 /* 安全区：viewport-fit=cover 下 env() 才有非零值（m.html 已声明）。
@@ -199,6 +223,7 @@ body {
 .icon--chevron-down { --icon-url: url('../assets/icons/chevron_down_large.svg'); }
 .icon--warning { --icon-url: url('../assets/icons/warning-fill.svg'); }
 /* 银行标识 / 会话气泡 / 选项箭头 / 上一步 */
+.icon--ai { --icon-url: url('../assets/icons/ai.svg'); }
 .icon--bank { --icon-url: url('../assets/icons/Bank.svg'); }
 .icon--message { --icon-url: url('../assets/icons/chatNew.svg'); }
 .icon--right { --icon-url: url('../assets/icons/Right.svg'); }
@@ -330,7 +355,8 @@ body {
 
 .tool-card__id {
   flex: none;
-  color: var(--text-disabled);
+  /* 调用 ID 是正文的一部分（不是禁用态）：用 tertiary，避免 2.37:1 的灰字（M-11）。 */
+  color: var(--text-tertiary);
   font-size: var(--body-xs-font-size);
   line-height: var(--body-xs-line-height);
   overflow-wrap: anywhere;
@@ -443,7 +469,7 @@ body {
 }
 
 .audit__time { flex: none; color: var(--text-tertiary); font-family: var(--font-family-mono); font-size: var(--body-xs-font-size); line-height: var(--body-xs-line-height); }
-.audit__seq { flex: none; margin-left: auto; color: var(--text-disabled); font-size: var(--body-xs-font-size); }
+.audit__seq { flex: none; margin-left: auto; color: var(--text-tertiary); font-size: var(--body-xs-font-size); }
 .audit__body { display: flex; flex-direction: column; gap: var(--spacer-4); min-width: 0; }
 .audit__label { font-size: var(--body-sm-strong-font-size); line-height: var(--body-sm-strong-line-height); font-weight: var(--body-sm-strong-font-weight); }
 .audit__category {
@@ -527,6 +553,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--spacer-12);
+  /* 展开后滚到明细第一行：与卡片同一条 72px 粘顶避让（M-05）。 */
+  scroll-margin-top: 72px;
 }
 
 /* 模块内部条目不再各自成卡：卡片由模块承担，条目只保留元信息 + 正文。 */
@@ -1221,6 +1249,26 @@ body {
 
 .session-controls__banner[hidden] { display: none; }
 
+/* 「转人工」二次确认卡（M-02）：正文 + 两个按钮，配色只用 DS 令牌。 */
+.m-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacer-16);
+}
+
+.m-confirm__text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--body-base-font-size);
+  line-height: var(--body-base-line-height);
+}
+
+.m-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacer-8);
+}
+
 
 /* ── 移动端计划卡（G7）── */
 .m-plan-card {
@@ -1851,6 +1899,34 @@ body {
   color: var(--status-error-default);
   font-size: var(--body-sm-font-size);
   line-height: var(--body-sm-line-height);
+}
+
+/* ────────────────────────────── 横屏短视口（M-12）
+
+   844×390 下停靠栏恒为 249px，吃掉 64% 屏高。这里只做两件事：
+   压掉占用高度的 IME 提示行，并给停靠栏一个上限（超出时自己滚），
+   chips 与输入框都保留——不为了省高度把演示主入口藏掉。 */
+@media (orientation: landscape) and (max-height: 480px) {
+  .m-dock {
+    max-height: 45vh;
+    overflow-y: auto;
+    padding-top: var(--spacer-4);
+    padding-bottom: var(--spacer-4);
+  }
+
+  .m-dock [data-role='ime-row'] { display: none; }
+  .m-composer { gap: var(--spacer-4); }
+  .session-controls { padding-top: var(--spacer-4); }
+}
+
+/* 280–320 窄屏：头部状态与标题不折行，宁可用省略号（M-21）。 */
+@media (max-width: 340px) {
+  .m-header__title,
+  .m-status {
+    white-space: nowrap;
+  }
+
+  .m-header__session { display: none; }
 }
 
 /* ────────────────────────────── 大字模式（只放大文字，不改触控几何） */

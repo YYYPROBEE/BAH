@@ -8,9 +8,9 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **446 文件 / 5148 用例**（2026-11-02 全量实测；较 444/5092 新增 `web/handlers/sessions.test.ts` 32 例与 `im-gateway/test/gateway-history.test.ts` 24 例，均为历史对话列表。**如实登记**：全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有 1 例时序偶发失败，单文件重跑 17/17 绿，与用例数口径无关） |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **449 文件 / 5203 用例**（2026-11-03 全量实测；较上一版 446/5148 新增 `channels/web/project.ttl.test.ts` 3 例与路由兜底追问 8 例，其余为 `model` / `sentry` / `session-client` / `pipeline` 等既有文件的用例补齐。**如实登记**：全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有 1 例时序偶发失败，单文件重跑 17/17 绿，与用例数口径无关） |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
-| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **49 文件 / 592 用例**（全绿；较 47/550 新增 `views/history.test.js` 27 例与 `mobile/history-sheet.test.js` 14 例） |
+| `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **49 文件 / 592 用例**（全绿；2026-11-02 实测；较 47/550 新增 `views/history.test.js` 27 例与 `mobile/history-sheet.test.js` 14 例） |
 
 其他口径：
 

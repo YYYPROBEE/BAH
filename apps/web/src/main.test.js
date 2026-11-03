@@ -40,10 +40,13 @@ function fakeApi(overrides = {}) {
 /** 假传输：把 `onFrame` 抓出来，测试自己推帧。 */
 function fakeTransport() {
   let handlers = null
+  let calls = 0
   const transport = (options) => {
+    calls += 1
     handlers = options
     return { close: () => undefined }
   }
+  transport.calls = () => calls
   transport.push = (frame) => handlers?.onFrame(frame)
   transport.fault = (fault) => handlers?.onFault(fault)
   transport.status = (status) => handlers?.onStatus(status)
@@ -342,6 +345,12 @@ describe('mountApp · 交互细节', () => {
 
     button.click()
     await Promise.resolve()
+    // M-02：转人工不可逆，先弹确认；点「确认转人工」后才发 POST。
+    expect(calls).toEqual([])
+    const accept = root.querySelector('[data-role="confirm-accept"]')
+    expect(accept).not.toBeNull()
+    accept.click()
+    await Promise.resolve()
     await Promise.resolve()
     expect(calls).toEqual(['客户请求人工'])
     expect(root.textContent).toContain('已提交转人工请求')
@@ -358,6 +367,56 @@ describe('mountApp · 交互细节', () => {
     // 交回帧到达后入口恢复可用
     transport.push({ kind: 'handoff', seq: 3, at: 3, active: false })
     expect(button.disabled).toBe(false)
+  })
+
+  it('M-01 桌面壳心跳空闲超时 ⇒ 翻离线并主动重连', () => {
+    vi.useFakeTimers()
+    try {
+      const { app, transport } = mount()
+      transport.status('online')
+      expect(app.store.state().status).toBe('online')
+      expect(transport.calls()).toBe(1)
+
+      vi.advanceTimersByTime(25_000)
+      expect(app.store.state().status).toBe('offline')
+      expect(transport.calls()).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('M-02 转人工确认框取消 ⇒ 零 POST', async () => {
+    const calls = []
+    const control = {
+      handoff: async (reason) => {
+        calls.push(reason)
+        return { ok: true, status: 200, data: { active: true } }
+      },
+      handoffStatus: async () => ({ ok: true, status: 200, data: { active: false } }),
+      fork: async () => ({ ok: true, status: 200, data: {} }),
+    }
+    const { root } = mount(fakeApi(), { control })
+    const button = [...root.querySelectorAll('.composer button')].find((item) =>
+      item.textContent.includes('转人工'),
+    )
+    button.click()
+    await Promise.resolve()
+    root.querySelector('[data-role="confirm-cancel"]').click()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(calls).toEqual([])
+    expect(button.disabled).toBe(false)
+  })
+
+  it('M-04 401 ⇒ 错误行给「重新加载页面」的明确动作', async () => {
+    const { root } = mount()
+    window.dispatchEvent(new CustomEvent('bah:unauthorized'))
+    const error = root.querySelector('[data-role="composer-error"]')
+    const retry = root.querySelector('[data-role="composer-retry"]')
+    expect(error.hidden).toBe(false)
+    expect(error.textContent).toContain('登录凭证已失效')
+    expect(retry.hidden).toBe(false)
+    expect(retry.getAttribute('aria-label')).toBe('重新加载页面')
   })
 
   it('"回到上一步"显式禁用', () => {

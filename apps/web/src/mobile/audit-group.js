@@ -35,8 +35,10 @@ export function createAuditGroup(host) {
   toggle.addEventListener('click', () => {
     expanded = !expanded
     render()
-    // 模块在会话流末尾：展开后把模块顶到视口顶，否则新增的明细全在停靠栏下面。
-    if (expanded) node.scrollIntoView?.({ block: 'start' })
+    // 模块在会话流末尾：展开后要露出**明细第一行**，而不是卡片顶。
+    // 卡片自己的标题 + 计数约占 90px；把卡片顶对齐视口顶（旧的 `node.scrollIntoView`），
+    // 320×480 下明细会正好落在会话区下沿之外 ⇒ 用户以为"展开没反应"（M-05）。
+    if (expanded) list.scrollIntoView?.({ block: 'start' })
     else node.scrollIntoView?.({ block: 'nearest' })
   })
 

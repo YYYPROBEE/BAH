@@ -15,9 +15,12 @@
     provider: router
     model: router-chat
     chunkSize: 4
+    # 演示节流：让 running 态（中断按钮）可见。core:model 必须与 web 逐字一致
+    # （verify-channel-capabilities I8），所以各渠道成对修改。
+    stepDelayMs: 250
     # ── 可替换真实模型（DeepSeek V4.1 Flash / DashScope 兼容端点）──
     # 切换时必须**同时**改这里与 core:agent.loop.model（两处成对，见 docs/deploy.md）：
-    # 把上面三行换成下面整块，并把 loop.model 改成 deepseek:deepseek-v4.1-flash-1017。
+    # 把上面四行换成下面整块，并把 loop.model 改成 deepseek:deepseek-v4.1-flash-1017。
     # provider: deepseek
     # model: deepseek-v4.1-flash-1017
     # baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1

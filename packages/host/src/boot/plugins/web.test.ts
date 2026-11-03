@@ -933,7 +933,7 @@ describe('channel:web 请求边界', () => {
 })
 
 describe('channel:web 实时链路', () => {
-  it('会话事件推 frame，llm/stream 文本分片推 delta，心跳是注释行', async () => {
+  it('会话事件推 frame，llm/stream 文本分片推 delta，心跳是命名事件', async () => {
     const harness = await boot({ heartbeatMs: 1 })
     const controller = new AbortController()
     try {
@@ -964,8 +964,9 @@ describe('channel:web 实时链路', () => {
       for await (const chunk of tapped({} as never, new AbortController().signal)) void chunk
       expect(await readUntil(reader, decoder, '"kind":"delta"')).toContain('"kind":"delta"')
 
-      // ③ 心跳是不带 event: 的注释行，前端 EventSource 不会当事件派发
-      expect(await readUntil(reader, decoder, ': ping')).toContain(': ping')
+      // ③ 心跳是命名事件：EventSource 能把 `event: heartbeat` 派发给监听者，
+      // 客户端据此判断"连接还在"（注释行不会派发，断网黑洞时也就无法判死）。
+      expect(await readUntil(reader, decoder, 'event: heartbeat')).toContain('event: heartbeat')
     } finally {
       controller.abort()
       await shutdown(harness)

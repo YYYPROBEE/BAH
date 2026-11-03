@@ -18,8 +18,8 @@ coverage_total=61636
 coverage_pct=97.43
 coverage_package_ok=18
 coverage_package_total=18
-tests_main_files=446
-tests_main_cases=5148
+tests_main_files=449
+tests_main_cases=5203
 <!-- facts:sources:end -->
 
 > `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。
@@ -36,7 +36,7 @@ tests_main_cases=5148
 | 快照文件 / 用例 | **13 / 60** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 13 文件 / 60 例（`pnpm test:snapshot` 同值；新增 `birthday-reminder` 场景 1 文件 6 例：3 天窗口 / 同日幂等 / 生日当天不重复 / 通知帧回放 / 负控） |
 | 覆盖率（行） | **97.43%** | `pnpm test:coverage:all` | 覆盖 60053 行 / 参与统计 61636 行（2026-11-02 CI 跑批实测） |
 | 覆盖率（包） | **18/18** | 同上 | 18 个包全部 ≥80%，最低 `saga` 90.34% |
-| 主仓测试 | **446 文件 / 5148 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 446 文件 / 5148 例（2026-11-02 全量实测；较 444/5092 新增 `web/handlers/sessions.test.ts` 32 例与 `im-gateway/test/gateway-history.test.ts` 24 例。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑 17/17 绿），与用例数无关**） |
+| 主仓测试 | **449 文件 / 5203 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 449 文件 / 5203 例（2026-11-03 全量实测；较上一版 446/5148 新增 `channels/web/project.ttl.test.ts` 3 例与路由兜底追问 8 例，其余为 `model` / `sentry` / `session-client` / `pipeline` 等既有文件的用例补齐。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑 17/17 绿），与用例数无关**） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
 | web 测试 | **49 文件 / 592 例** | `pnpm test:web` | 49 文件 / 592 例，**全绿**（2026-11-02 实测；较 47/550 新增 `views/history.test.js` 27 例与 `mobile/history-sheet.test.js` 14 例，覆盖历史列表、只读回放与“不渲染审批按钮”） |
 | 快照跑批 | **13 文件 / 60 例** | `pnpm test:snapshot` | **60 passed / 0 failed**（2026-11-01 重录后回放；新增 `birthday-reminder` 6 例；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 的录制夹具用 overlay 显式放行审批，生产 profile 仍 `responder: none`） |

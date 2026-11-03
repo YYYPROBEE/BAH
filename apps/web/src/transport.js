@@ -23,14 +23,24 @@ function readWebToken() {
 }
 
 /**
- * 从 cookie 读 CSRF 令牌（W09 double-submit）。
+ * 读 `retry-after` 响应头（秒数或 HTTP 日期）。
  *
- * 服务端在 index.html 响应里下发 `bah_csrf`（非 HttpOnly），前端把它回填到
- * `x-bah-csrf` 请求头；跨站脚本既读不到同源响应体，也读不到这条 cookie。
+ * 无效 / 负数一律返回 `undefined`：宁可让界面说"稍后再试"，也不编一个倒计时。
  *
- * @param {string} name
- * @returns {string} 没有 cookie 时返回空串
+ * @param {Response} response
+ * @returns {number | undefined}
  */
+function retryAfterOf(response) {
+  const header = response.headers?.get?.('retry-after')
+  if (header === null || header === undefined || header.trim() === '') return undefined
+  const seconds = Number(header)
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds)
+  const at = Date.parse(header)
+  if (!Number.isFinite(at)) return undefined
+  return Math.max(0, Math.ceil((at - Date.now()) / 1000))
+}
+
+/** 从 cookie 读 CSRF 令牌（W09 double-submit）；读不到返回空串。 */
 function readCookie(name) {
   if (typeof document === 'undefined') return ''
   for (const part of String(document.cookie ?? '').split(';')) {
@@ -83,7 +93,16 @@ export function createHttpApi(options = {}) {
       if (response.status === 401 && typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('bah:unauthorized'))
       }
-      return { ok: false, status: response.status, code, reason }
+      // 429 的 `retry-after` 是服务端权威等待时长：透出来，界面就不必白等 60 秒。
+      // 只做纯增量字段，不影响既有的 `{ ok, status, code, reason }` 并行线语义。
+      const retryAfterSeconds = retryAfterOf(response)
+      return {
+        ok: false,
+        status: response.status,
+        code,
+        reason,
+        ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
+      }
     }
     return { ok: true, status: response.status, data }
   }
@@ -199,6 +218,7 @@ export function createSessionControlClient(options = {}) {
  *   retryDelayMs?: number,
  *   maxRetries?: number,
  *   onFrame: (frame: unknown) => void,
+ *   onHeartbeat?: () => void,
  *   onFault?: (fault: { code: string, reason: string }) => void,
  *   onStatus?: (status: 'online'|'offline') => void,
  * }} options
@@ -247,6 +267,17 @@ export function connectEvents(options) {
     options.onStatus?.('online')
   }
 
+  /**
+   * 服务端心跳（`event: heartbeat`）。
+   *
+   * 它存在的原因很具体：SSE 的注释行（`: ping`）不会派发给 EventSource，
+   * 浏览器在"TCP 已被黑洞、但连接尚未报错"时也永远不触发 `error`。
+   * 把心跳做成命名事件，宿主才能用"多久没收到"判死连接。
+   */
+  const handleHeartbeat = () => {
+    options.onHeartbeat?.()
+  }
+
   const handleError = () => {
     options.onStatus?.('offline')
     // password 模式下会话失效时 SSE 连接会收到 401；`EventSource` 拿不到状态码，
@@ -277,10 +308,11 @@ export function connectEvents(options) {
     scheduleReconnect()
   }
 
-  /** 关掉当前连接并摘掉四个监听（不复用：旧连接的事件不能再进来）。 */
+  /** 关掉当前连接并摘掉全部监听（不复用：旧连接的事件不能再进来）。 */
   function detach() {
     if (source === null) return
     source.removeEventListener('frame', handleFrame)
+    source.removeEventListener('heartbeat', handleHeartbeat)
     source.removeEventListener('fault', handleFault)
     source.removeEventListener('open', handleOpen)
     source.removeEventListener('error', handleError)
@@ -305,6 +337,7 @@ export function connectEvents(options) {
     const next = new EventSource(`${base}/api/events?since=${String(maxSeq)}${query}`)
     source = next
     next.addEventListener('frame', handleFrame)
+    next.addEventListener('heartbeat', handleHeartbeat)
     next.addEventListener('fault', handleFault)
     next.addEventListener('open', handleOpen)
     next.addEventListener('error', handleError)

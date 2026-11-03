@@ -14,7 +14,8 @@ import { asSessionId, asTicketId, captureRejection } from '@bah/test-support'
 
 import { buildBankDataset, DEMO_NOW, type BankDataset } from '../forge/index.ts'
 import { bankIds, type Account } from './model.ts'
-import { MockBankCore, TXN_PASSWORD_LOCK_MS } from './mock.ts'
+import { MockBankCore } from './mock.ts'
+import { TXN_PASSWORD_LOCK_MS } from './password.ts'
 import type { TicketBinding, TicketRef } from './ticket.ts'
 
 const USER = bankIds.user('u-1')

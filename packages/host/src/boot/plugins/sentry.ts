@@ -146,6 +146,8 @@ export const sentryPlugin: HostPlugin<SentryPluginSettings> = {
           callId,
           name: 'safety_unfreeze',
           challenge: 'ushield',
+          // 与工具审批同一条口径：TTL 截止时刻随事件出账，渠道据此做倒计时。
+          expiresAt,
         })
         const answered = await ctx.events.waterfall('approval/request', {
           ticket: { ticketId, fingerprint: `safety-unfreeze:${String(ticketId)}`, expiresAt },

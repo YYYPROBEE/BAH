@@ -193,6 +193,32 @@ describe('bank:tools 配置（fail-loud）', () => {
   })
 })
 
+describe('riskCooldownDays = 0：关闭冷却（该键整条不传，核心用自己的缺省）', () => {
+  it('装配成功且余额工具可用 —— 0 走"不传 riskCooldownMs"这一支，不是传 0 毫秒', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-bank-cooldown-'))
+    const app = await bootWith(
+      { demoUserId: 'u-1', seed: 7, datasetTier: 'demo', riskCooldownDays: 0 },
+      's-cooldown',
+      dir,
+    )
+    try {
+      const definition = app.ctx.get(TOOLS_SERVICE).get('account_balance')
+      const result = await definition.execute(
+        {},
+        {
+          sessionId: asSessionId('s-cooldown'),
+          callId: 'c-bal',
+          signal: new AbortController().signal,
+        },
+      )
+      expect(result).toBeTruthy()
+    } finally {
+      await app.dispose('test')
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('headless 端到端', () => {
   it('D5① fail-closed：未装 safety:sandbox 时 analysis_calc 拒绝执行，不回退进程内', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'bah-bank-calc-'))

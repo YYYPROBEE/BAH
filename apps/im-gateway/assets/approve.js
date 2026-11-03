@@ -14,10 +14,33 @@
     if (statusEl) statusEl.textContent = text
   }
 
+  var reloadOffered = false
+
   function disableAll() {
     if (approveEl) approveEl.disabled = true
     if (rejectEl) rejectEl.disabled = true
     if (verifyEl) verifyEl.disabled = true
+  }
+
+  /**
+   * 失败态的人话 + 可点的「重新加载」。
+   *
+   * 审批链接没有登录态：401/403/404 都是"这条链接不能用了"，唯一自愈动作是重新打开；
+   * 网络不通则需要用户恢复网络后重试。不能把 `TypeError: Failed to fetch` 甩到屏幕上。
+   */
+  function fail(message) {
+    disableAll()
+    say(message)
+    if (reloadOffered || !statusEl) return
+    reloadOffered = true
+    var button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'status-action'
+    button.textContent = '重新加载'
+    button.addEventListener('click', function () {
+      window.location.reload()
+    })
+    statusEl.appendChild(button)
   }
 
   function call(suffix, payload) {
@@ -36,12 +59,26 @@
         .then(function (data) {
           if (response.ok && data && data.ok) return { ok: true }
           var error = (data && data.error) || {}
+          var fallback =
+            response.status === 410
+              ? '审批链接已过期，请重新发起审批'
+              : response.status === 401 || response.status === 403 || response.status === 404
+                ? '审批链接已失效，请重新从 IM 消息打开'
+                : '处理失败，请稍后重试'
           return {
             ok: false,
             code: error.code || '',
-            reason: error.reason || '处理失败，请稍后重试'
+            reason: error.reason || fallback,
+            status: response.status
           }
         })
+    }).catch(function () {
+      return {
+        ok: false,
+        code: 'network-error',
+        reason: '网络不通，请检查信号后重试',
+        status: 0
+      }
     })
   }
 
@@ -71,6 +108,10 @@
           say('验证通过，可以批准一次')
           return
         }
+        if (result.status === 401 || result.status === 403 || result.status === 404 || result.status === 410 || result.code === 'network-error') {
+          fail(result.reason)
+          return
+        }
         if (verifyEl) verifyEl.disabled = false
         if (rejectEl) rejectEl.disabled = false
         say(result.reason)
@@ -83,7 +124,11 @@
       disableAll()
       say('正在提交…')
       call('', { decision: 'allowed-once' }).then(function (result) {
-        say(result.ok ? '已批准一次' : result.reason)
+        if (result.ok) {
+          say('已批准一次')
+          return
+        }
+        fail(result.reason)
       })
     })
   }
@@ -98,7 +143,11 @@
       disableAll()
       say('正在提交…')
       call('', { decision: 'rejected', reason: reason }).then(function (result) {
-        say(result.ok ? '已拒绝' : result.reason)
+        if (result.ok) {
+          say('已拒绝')
+          return
+        }
+        fail(result.reason)
       })
     })
   }

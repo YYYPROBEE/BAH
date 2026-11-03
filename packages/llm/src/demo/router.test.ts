@@ -17,6 +17,8 @@ import {
   extractAmount,
   extractPayee,
   lastUserText,
+  parseAa,
+  parseCard,
   parseTransfer,
   planFor,
   planFromRequest,
@@ -67,18 +69,51 @@ describe('要素抽取：抽不全就追问，不补默认值', () => {
     expect(extractAmount('给王建国转账')).toBeUndefined()
   })
 
-  it('"给 X 转" 与 "转给 X" 两种说法都能抽姓名', () => {
+  it('"给 X 转" / "转给 X" / "转 <金额> 给 X" 三种说法都能抽姓名', () => {
     expect(extractPayee('给王建国转 800 元')).toBe('王建国')
     expect(extractPayee('转给李四 200 元')).toBe('李四')
+    // 自然语序不能被当成"缺收款人"再追问一次（M-20）
+    expect(extractPayee('转 500 给王建国')).toBe('王建国')
     expect(extractPayee('转 800 元')).toBeUndefined()
   })
 
   it('11 位手机号可作为收款人', () => {
     expect(extractPayee('给 13800005678 转 2000')).toBe('13800005678')
     expect(extractPayee('转给 13800005678 200 元')).toBe('13800005678')
+    expect(extractPayee('转 500 给 13800005678')).toBe('13800005678')
     expect(parseTransfer('给 13800005678 转 2000')).toMatchObject({
       kind: 'transfer',
       request: { amount: 2000, payeeName: '13800005678' },
+    })
+  })
+
+  /**
+   * 为什么要单独钉：代词一旦进了槽位，智能体就会拿"他"当一个真实收款人去查联系人、
+   * 签票据——那是"猜"出来的转账，比追问一句贵得多。这条用例把 `isPronoun` 的封闭表
+   * 与"自然语序仍要能抽到真名"两头同时锁住。
+   */
+  it('代词不是收款人：「转 500 给他」继续走 slotGap 追问，称呼照抽', () => {
+    for (const text of ['转 500 给他', '转 500 给她', '转 500 给我', '转 500 给您', '转 500 给对方', '转 500 给大家']) {
+      expect(extractPayee(text)).toBeUndefined()
+    }
+    // 代词在别的语序里同样不入槽位
+    expect(extractPayee('给他转 500')).toBeUndefined()
+    expect(extractPayee('收款人：他')).toBeUndefined()
+    // 拒付对象写成"他"也不能被当成名字
+    expect(classifyIntent('转 500 给他')).toMatchObject({ kind: 'intent', route: 'slotGap', ask: { slot: 'payee' } })
+
+    // 反向控制：关系称呼不在代词表里，必须照抽（否则"给老婆转"会被追问成缺收款人）
+    expect(extractPayee('转 500 给老婆')).toBe('老婆')
+    expect(extractPayee('转 500 给妈妈')).toBe('妈妈')
+  })
+
+  it('自然语序的写法变体都同一口径：省空格 / 带"元" / 中文数词金额', () => {
+    for (const text of ['转500给王建国', '转 500 元给王建国', '转一千给王建国']) {
+      expect(extractPayee(text)).toBe('王建国')
+    }
+    expect(parseTransfer('转 500 元给王建国')).toMatchObject({
+      kind: 'transfer',
+      request: { amount: 500, payeeName: '王建国' },
     })
   })
 
@@ -1159,3 +1194,95 @@ function merchantIntentOf(text: string): { readonly action: 'search' | 'order' }
   if (intent.kind !== 'merchant') throw new BahError('test-intent', `不是商户意图：${intent.kind}`, { text })
   return intent
 }
+
+/**
+ * 追问兜底与「剧本能表达的、路由暂不产出」的形态。
+ *
+ * 这一组守的是两件不同的事，别混着读：
+ * 1. **缺要素必须追问**（无卡号 / 无金额 / 无参与人）——不替用户补默认值；
+ * 2. `planFor` 收到的 `DemoIntent` 是**手写剧本**也能构造的：`monthlyLimitYuan` 目前
+ *    只有剧本会给（路由只产日限额与授信额度），但剧本里写了就必须真的进 args，
+ *    否则模型说"月限额 500"会被静默丢掉。
+ */
+describe('追问兜底：缺哪件问哪件，不补默认值', () => {
+  it('说"额度"但没指卡 → 追问哪张卡，且把三张演示卡都列出来', () => {
+    const intent = parseCard('帮我把额度调高一点')
+    expect(intent.kind).toBe('clarify')
+    if (intent.kind !== 'clarify') throw new BahError('test-intent', '不是追问', {})
+    expect(intent.question).toContain('尾号 1234')
+    expect(intent.question).toContain('尾号 5678')
+    expect(intent.question).toContain('尾号 2468')
+  })
+
+  it('指了卡但没说调多少 → 追问金额（卡号先剔掉，不当金额读）', () => {
+    expect(parseCard('把尾号 1234 的额度调高')).toMatchObject({
+      kind: 'clarify',
+      question: '要把额度调到多少元？',
+    })
+  })
+
+  it('说"交易限制"但没指卡 → 追问哪张卡', () => {
+    const intent = parseCard('帮我设置交易限制')
+    expect(intent.kind).toBe('clarify')
+    if (intent.kind !== 'clarify') throw new BahError('test-intent', '不是追问', {})
+    expect(intent.question).toContain('交易限制')
+  })
+
+  it('AA 没说总额 → 追问总额；说了总额但参与人不足两个 → 追问参与人', () => {
+    expect(parseAa('张三、李四 AA 聚一下')).toMatchObject({ kind: 'clarify' })
+    // 「和」既是分隔符又是合法姓名字（`[\u4e00-\u9fa5]`）：名单整体由它组成时，
+    // 正则能匹配、按分隔符切完却一个名字都不剩 —— 这种情况必须落到"至少两人"守卫上，
+    // 不能带着空名单进 AA 建组。
+    expect(parseAa('和和和和和 AA 300')).toMatchObject({
+      kind: 'clarify',
+      question: 'AA 至少需要两个参与人。',
+    })
+  })
+})
+
+describe('手写剧本的合法形态（路由不产出 ≠ 剧本不能写）', () => {
+  it('card.setLimit 带月限额 → 月限额真的进了 args，不被静默丢弃', () => {
+    const steps = planFor({
+      kind: 'card',
+      action: 'setLimit',
+      cardId: 'c-1',
+      monthlyLimitYuan: 50_000,
+    })
+    expect(steps[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'card_limit_set',
+      args: { cardId: 'c-1', monthlyLimitYuan: 50_000 },
+    })
+  })
+
+  it('资金锁定的三种动作各说各话（status / lock / release 不共用一句）', () => {
+    const okOf = (action: 'lock' | 'release' | 'status'): string => {
+      const steps = planFor({ kind: 'fundLock', action })
+      const ok = steps[1]?.outcome?.ok
+      if (ok === undefined) throw new BahError('test-intent', '没有收尾话术', { action })
+      return ok
+    }
+    expect(okOf('status')).toContain('当前锁定金额')
+    expect(okOf('lock')).toContain('资金已锁定')
+    expect(okOf('release')).toContain('已解除锁定')
+    // 三句互不相等：共用一句就会让"锁定成功"和"查询结果"在界面上无法区分
+    expect(new Set([okOf('status'), okOf('lock'), okOf('release')]).size).toBe(3)
+  })
+
+  it('交易密码查状态与发起修改用不同话术', () => {
+    const request = planFor({ kind: 'password', action: 'request' })[1]?.outcome?.ok
+    const status = planFor({ kind: 'password', action: 'status' })[1]?.outcome?.ok
+    expect(request).toContain('安全页')
+    expect(status).toContain('交易密码状态')
+    expect(request).not.toBe(status)
+  })
+
+  it('商户下单剧本走 merchant_order，收尾话术交代"超预算不擅自加价"', () => {
+    const steps = planFor({ kind: 'merchant', action: 'order', category: 'flower' })
+    expect(steps[0]?.content?.[0]).toMatchObject({
+      kind: 'tool-call',
+      name: 'merchant_order',
+    })
+    expect(steps[1]?.outcome?.ok).toContain('不会擅自加价')
+  })
+})

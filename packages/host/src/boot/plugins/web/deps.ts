@@ -89,7 +89,7 @@ export interface WebDeps {
   readonly csrfToken: string
   /** 每个来源的固定窗口限流。 */
   readonly rateLimiter: RateLimiter
-  /** 注入钟（落帧时间戳与心跳注释都用它，禁 `Date.now()`）。 */
+  /** 注入钟（落帧时间戳与心跳事件都用它，禁 `Date.now()`）。 */
   readonly now: () => number
   /** 取唯一活体 agent（profile 里只有一个 `core:agent`）。 */
   readonly firstAgent: () => Agent | undefined

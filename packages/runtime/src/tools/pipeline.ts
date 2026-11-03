@@ -359,6 +359,9 @@ export class ToolPipeline {
       content,
     )
 
+    // 耗时口径 = **工具执行段**，不含等人批准的那段。`startedAt` 在审批之前，
+    // 直接相减会把"我盯着屏幕想了 21 秒"记成"银行转账要 21 秒"（M-16）。
+    const durationMs = Math.max(0, this.now() - startedAt - (approvalWaitedMs ?? 0))
     const result: ToolResultData = {
       callId: call.callId,
       name: call.name,
@@ -366,7 +369,7 @@ export class ToolPipeline {
       content,
       code,
       reason,
-      durationMs: this.now() - startedAt,
+      durationMs,
     }
 
     // 权威结果先落账，再广播：广播失败不能阻止日志留下结果。
@@ -430,6 +433,9 @@ export class ToolPipeline {
       name: call.name,
       amount: ticket.amount,
       challenge,
+      // 票据 TTL 截止时刻原样出账：渠道只做视觉倒计时，判决仍由服务端裁决。
+      // 漏这一个字段会让移动壳整套倒计时 / 紧迫色 / 读屏播报成为从未执行过的死代码。
+      expiresAt: ticket.expiresAt,
       ...(ticket.details === undefined ? {} : { details: ticket.details }),
     })
 

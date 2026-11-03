@@ -32,7 +32,12 @@ export function createLayout(root, deps = {}) {
   const win = deps.win ?? globalThis.window
 
   const statusText = el('span', { class: 'm-status__text', text: '连接中' })
-  const statusNode = el('span', { class: 'm-status m-status--connecting' }, [
+  const statusNode = el('span', {
+    class: 'm-status m-status--connecting',
+    role: 'status',
+    'aria-live': 'polite',
+    'aria-atomic': 'true',
+  }, [
     el('span', { class: 'm-status__dot', 'aria-hidden': 'true' }),
     statusText,
   ])
@@ -46,12 +51,20 @@ export function createLayout(root, deps = {}) {
     el('div', { class: 'm-header__meta' }, [sessionLabel, statusNode]),
     headerActions,
   ])
+  // 键盘用户的第一站：跳过头部、历史入口与 6 颗常用业务，直接落到输入框（M-13）。
+  // 不用正 `tabindex`——它会把整个文档的焦点顺序拧成无法预测的跳跃。
+  const skipLink = el('a', {
+    class: 'm-skip',
+    href: '#m-composer-input',
+    dataset: { role: 'skip-to-composer' },
+    text: '跳到输入框',
+  })
   const feed = el('main', { class: 'm-feed', id: 'm-feed', 'aria-label': '对话与执行' })
   const dock = el('div', { class: 'm-dock' })
   // `display: contents`：挂载点自己不产生盒子，抽屉的 position:fixed 直接对视口定位
   const overlayHost = el('div', { class: 'm-overlay-host', id: 'm-overlay' })
 
-  root.append(header, feed, dock, overlayHost)
+  root.append(skipLink, header, feed, dock, overlayHost)
 
   /** 键盘顶起的订阅者（返回退订函数）。 */
   const keyboardListeners = new Set()

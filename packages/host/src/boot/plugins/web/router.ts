@@ -234,7 +234,7 @@ export const ROUTES: readonly RouteSpec[] = [
     statuses: [200, 400, 401, 503],
     handler: 'events',
     roles: ROLES,
-    note: 'SSE：先全量快照，再推 frame / delta / 心跳注释；static 模式凭证可用 `?token=`（password 模式只认 cookie）；连接满 → 503',
+    note: 'SSE：先全量快照，再推 frame / delta / 心跳事件（`event: heartbeat`）；static 模式凭证可用 `?token=`（password 模式只认 cookie）；连接满 → 503',
   },
   {
     methods: ['GET'],
