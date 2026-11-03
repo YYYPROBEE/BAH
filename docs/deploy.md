@@ -188,7 +188,7 @@ headless 走 `provider: router`（读消息现规划，不是固定磁带），�
 ### 4.4 一键自证（不需要密钥）
 
 ```bash
-pnpm test              # 446 文件 / 5148 用例（2026-11-02 全量实测；前端另有 591 例）
+pnpm test              # 449 文件 / 5203 用例（2026-11-03 全量实测；前端另有 591 例）
 pnpm test:snapshot     # 13 文件 60 用例全绿（含 `subscription-reminder` / `birthday-reminder` 场景）
 pnpm gate              # 53 项静态与契约检查
 pnpm demo:verifier-fail # 判决件异常 → 结果被挡在模型之外（20 条断言）
@@ -224,7 +224,7 @@ docker compose down
 - 回滚：`docker tag bah-web:local bah-web:<日期>`；回滚 = `docker compose down` + 跑回上一个 tag，
   并把 `sessions` 卷指回原目录（**不要**在回滚时清理卷：那会连带删掉审计证据）。
 
-**验证状态（必须照实说）**：本机**没有 Docker CLI**，`docker build` 一次都没跑过。
+**验证状态**：本机**没有 Docker CLI**，`docker build` 一次都没跑过。
 只做了静态核对，逐条可复核：
 
 | 静态核对项 | 结论 |

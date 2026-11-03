@@ -1314,12 +1314,14 @@ export function extractScheduleWhen(
 /**
  * 抽收款人姓名。
  *
- * 覆盖 `给<姓名>转` 与 `转给<姓名>` 两种说法；姓名取 1–8 个非标点字符。
+ * 覆盖 `给<姓名>转`、`转给<姓名>` 与 `转 <金额> 给<姓名>` 三种说法；姓名取 1–8 个非标点字符。
  */
 export function extractPayee(text: string): string | undefined {
   // 手机号优先：姓名模式上限 8 字符，11 位号码匹配不到。
   const phonePatterns: readonly RegExp[] = [
     /给\s*(1\d{10})\s*(?:转|汇款|打款|打钱)/,
+    // 「转 500 给 13800138000」（自然语序）
+    /转\s*(?:[\d一二三四五六七八九十百千万]+(?:\s*(?:元|块|块钱))?\s*)?给\s*(1\d{10})/,
     /转给\s*(1\d{10})/,
     /(?:收款人|对方)[:：]?\s*(1\d{10})/,
   ]
@@ -1329,14 +1331,23 @@ export function extractPayee(text: string): string | undefined {
   }
   const patterns: readonly RegExp[] = [
     /给\s*([^\s，。！？,、]{1,8}?)\s*(?:转|汇款|打款|打钱)/,
+    // 「转 500 给王建国」：金额在动词与「给」之间，旧规则三种写法都不匹配，
+    // 于是会出现"选项里摆着用户刚才说过的名字"这种明知故问（M-20）。
+    /转\s*(?:[\d一二三四五六七八九十百千万]+(?:\s*(?:元|块|块钱))?\s*)?给\s*([^\s，。！？,、]{1,8})/,
     /转给\s*([^\s，。！？,、]{1,8})/,
     /(?:收款人|对方)[:：]?\s*([^\s，。！？,、]{1,8})/,
   ]
   for (const pattern of patterns) {
     const name = pattern.exec(text)?.[1]?.trim()
-    if (name !== undefined && name.length > 0 && !/^\d+$/.test(name)) return name
+    // 代词不是收款人：「转500给他」必须继续走 slotGap 追问（不能猜"他"是谁）。
+    if (name !== undefined && name.length > 0 && !/^\d+$/.test(name) && !isPronoun(name)) return name
   }
   return undefined
+}
+
+/** 指代性称呼：出现在「转 500 给他」里时不是收款人，而是缺失槽位。 */
+function isPronoun(name: string): boolean {
+  return /^(?:他|她|它|我|你|您|他们|她们|它们|咱们|大家|对方)$/.test(name)
 }
 
 /**

@@ -1,5 +1,5 @@
 import { BahError } from '@bah/util'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { assembleStream } from '../llm/assemble.ts'
 import type { LlmMessage, StreamChunk } from '../llm/types.ts'
@@ -362,5 +362,86 @@ describe('构造与 plan 模式的两条错误/步进路径', () => {
     })
     // 3 条 assistant 远超步数，仍取最后一步而不是抛错（plan 模式有意比固定脚本宽容）
     expect(await firstText(adapter, [user('查下余额'), assistant(), assistant(), assistant()])).toBe('唯一一步')
+  })
+})
+
+/**
+ * 演示节流（`stepDelayMs`）。
+ *
+ * 为什么要钉：离线 router 原本在同一批帧里刷完整个 turn，"中断 / 算了"按钮的可见
+ * 窗口只有几毫秒——这个旋钮是**演示能演示中断**的唯一前提。它同时是 mock 适配器里
+ * 唯一一处真正的异步等待，所以两条形状必须锁死：
+ * 1. 缺省 0 时**一个计时器都不创建**（确定性回放逐字节不变，快照门不受影响）；
+ * 2. 等待期被中断 ⇒ 只吐 `finish(aborted)`，且**这一步不被消费**（否则重放会错位）。
+ */
+describe('演示节流 stepDelayMs', () => {
+  const scripted = (text: string): MockLlmAdapter =>
+    new MockLlmAdapter({ script: { steps: [textStep(text)] }, chunkSize: 100 })
+
+  it('缺省（不写 stepDelayMs）⇒ 不创建任何计时器，分片形状与不节流时逐字一致', async () => {
+    const adapter = scripted('余额 100')
+    const prepared = await adapter.prepareCall({ modelId: 'mock-chat', messages: [] })
+    const timers = vi.spyOn(globalThis, 'setTimeout')
+
+    const chunks = await collect(adapter.stream(prepared, new AbortController().signal))
+    const created = timers.mock.calls.length
+    timers.mockRestore()
+
+    expect(created).toBe(0)
+    expect(chunks).toEqual([
+      { kind: 'block-start', index: 0 },
+      { kind: 'text-delta', index: 0, text: '余额 100' },
+      { kind: 'block-end', index: 0 },
+      { kind: 'usage', ...MOCK_USAGE },
+      { kind: 'finish', reason: 'stop' },
+    ])
+  })
+
+  it('写了 stepDelayMs ⇒ 这一轮调用前确实等过（中断按钮因此有可见窗口）', async () => {
+    const adapter = new MockLlmAdapter({
+      script: { steps: [textStep('正在查'), textStep('第二句')] },
+      stepDelayMs: 40,
+      chunkSize: 100,
+    })
+    const startedAt = performance.now()
+    await collect(adapter.stream(await adapter.prepareCall({ modelId: 'mock-chat', messages: [] }), new AbortController().signal))
+    // 只钉下界：计时器不会提前到期，所以"等了"是可证明的；上界留余量免得机器负载造成假红
+    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(30)
+
+    const secondStartedAt = performance.now()
+    await collect(adapter.stream(await adapter.prepareCall({ modelId: 'mock-chat', messages: [] }), new AbortController().signal))
+    expect(performance.now() - secondStartedAt).toBeGreaterThanOrEqual(30)
+  })
+
+  it('等待期被中断 ⇒ 只出 finish(aborted)，且这一步不被消费（下一次调用照旧出脚本内容）', async () => {
+    const adapter = new MockLlmAdapter({ script: { steps: [textStep('没有被说出来')] }, stepDelayMs: 500 })
+    const prepared = await adapter.prepareCall({ modelId: 'mock-chat', messages: [] })
+    const controller = new AbortController()
+
+    const collected = collect(adapter.stream(prepared, controller.signal))
+    const abortTimer = setTimeout(() => controller.abort(), 20)
+    const chunks = await collected
+    clearTimeout(abortTimer)
+
+    expect(chunks).toEqual([{ kind: 'finish', reason: 'aborted' }])
+
+    // 游标没动：脚本第一步还在，重放/续跑不会因为一次中断而整体错位
+    const retry = await adapter.prepareCall({ modelId: 'mock-chat', messages: [] })
+    const assembled = await assembleStream(adapter.stream(retry, new AbortController().signal))
+    expect(assembled.content).toEqual([{ kind: 'text', text: '没有被说出来' }])
+  })
+
+  it('负数 / NaN 的 stepDelayMs 夹成 0（不许把一个坏配置变成"卡住的演示"）', async () => {
+    for (const value of [-5_000, Number.NaN]) {
+      const adapter = new MockLlmAdapter({ script: { steps: [textStep('照旧')] }, stepDelayMs: value, chunkSize: 100 })
+      const prepared = await adapter.prepareCall({ modelId: 'mock-chat', messages: [] })
+      const timers = vi.spyOn(globalThis, 'setTimeout')
+      const chunks = await collect(adapter.stream(prepared, new AbortController().signal))
+      const created = timers.mock.calls.length
+      timers.mockRestore()
+
+      expect(created).toBe(0)
+      expect(chunks.at(-1)).toEqual({ kind: 'finish', reason: 'stop' })
+    }
   })
 })

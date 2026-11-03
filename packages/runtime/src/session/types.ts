@@ -100,6 +100,13 @@ declare module '@bah/core' {
       amount?: number
       challenge?: ApprovalChallenge
       /**
+       * 票据 TTL 截止时刻（epoch ms）。
+       *
+       * 与 `ApprovalFrame.expiresAt` 同一份事实：签票时算一次、事件原样落账、
+       * 投影原样透传。渠道只做视觉倒计时，不重算也不据此提交任何结论。
+       */
+      expiresAt?: number
+      /**
        * 服务端签发的结构化操作明细（**可选、只展示**）。
        *
        * 由治理面随 `TicketDraft.details` 一起给出；落账后渠道只做原样投影。
