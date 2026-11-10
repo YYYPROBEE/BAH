@@ -87,4 +87,15 @@ jobs:
       - name: Run full check
         # 严格模式：未执行面（如无密钥的 e2e）不得算绿。用 `pnpm check` 会 SKIP 后退出 0，
         # Actions 显示通过而 e2e 实际没跑——这正是本仓库要避免的"假绿"。
-        run: pnpm check:ci
+        #
+        # 例外：来自 fork 的 PR 拿不到 Repository secrets，`DEEPSEEK_API_KEY` 为空，
+        # e2e 必然跳过。此时用 `BAH_CI_ALLOW_SKIP=test:e2e` 显式声明该面未验证：
+        # 汇总里仍是 ○ skipped，日志里会打一行 warning，不会伪装成通过。
+        shell: bash
+        run: |
+          if [ -z "${DEEPSEEK_API_KEY}" ]; then
+            echo "::warning::DEEPSEEK_API_KEY 缺失（fork PR 常见）：test:e2e 未执行，真实模型路径本次未验证"
+            BAH_CI_ALLOW_SKIP=test:e2e pnpm check:ci
+          else
+            pnpm check:ci
+          fi

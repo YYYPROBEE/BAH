@@ -13,9 +13,9 @@ tools=30
 plan_lines=2260
 snapshot_files=13
 snapshot_cases=60
-coverage_covered=60053
-coverage_total=61636
-coverage_pct=97.43
+coverage_covered=60540
+coverage_total=61576
+coverage_pct=98.32
 coverage_package_ok=18
 coverage_package_total=18
 tests_main_files=455
@@ -34,7 +34,7 @@ tests_main_cases=5283
 | 工具数 | **30** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 30（与 `result-schemas.ts` 30 个出参键一一对应；官方子能力补齐新增 7 个；2026-11-01 新增 `fund_lock` 与 `password_change`） |
 | plan 非测试行数 | **2,260** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,260（2026-10-30 合流后重算） |
 | 快照文件 / 用例 | **13 / 60** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 13 文件 / 60 例（`pnpm test:snapshot` 同值；新增 `birthday-reminder` 场景 1 文件 6 例：3 天窗口 / 同日幂等 / 生日当天不重复 / 通知帧回放 / 负控） |
-| 覆盖率（行） | **97.43%** | `pnpm test:coverage:all` | 覆盖 60053 行 / 参与统计 61636 行（2026-11-02 CI 跑批实测） |
+| 覆盖率（行） | **98.32%** | `pnpm test:coverage:all` | 覆盖 60540 行 / 参与统计 61576 行（2026-11-04 CI 跑批实测） |
 | 覆盖率（包） | **18/18** | 同上 | 18 个包全部 ≥80%，最低 `saga` 90.34% |
 | 主仓测试 | **455 文件 / 5283 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 455 文件 / 5283 例（2026-11-03 全量实测（清理线）：较 446/5148 增 9 个用例文件（远端清理线补的 5 个覆盖率文件 + 本批 4 个），另有路由兜底、核心守卫等用例补齐。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑 17/17 绿），与用例数无关**） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
@@ -46,7 +46,8 @@ tests_main_cases=5283
 **只有一个口径**：CI（Ubuntu / Node 22.19）上 `pnpm test:coverage:all` 的实测值。
 分母 = `packages/*/src/**/*.ts`，去掉测试文件、纯类型模块与纯 barrel。
 
-2026-11-02 实测：**97.43%（60053/61636）**，包口径 **18/18**（18 个包全部 ≥80%，最低 `saga` 90.34%）。
+2026-11-04 实测：**98.32%（60540/61576）**，包口径 **18/18**（18 个包全部 ≥80%，最低 `saga` 90.34%）。
+相对上一版 97.43%（60053/61636）：补齐拒绝面与 plan 唤醒环用例后覆盖行 +487、参与统计行 -60。
 
 上一版是 89.87%（49571/55161）、包 16/18。两处**配置缺陷**把数字压低了（都在 `vitest.coverage.config.ts`）：
 

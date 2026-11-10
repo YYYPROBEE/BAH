@@ -1,0 +1,70 @@
+name: Bug 报告
+description: 报告可复现的缺陷（安全问题请勿用此模板，见 SECURITY.md）
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请先确认：这是**安全漏洞**吗？如果是，请停止填写，改走
+        [SECURITY.md](https://github.com/YYYPROBEE/BAH/blob/main/SECURITY.md) 的私密通道。
+        提交前也请搜索现有 issue，避免重复。
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 现象
+      description: 实际发生了什么？期望是什么？
+      placeholder: 期望 …，实际 …（贴关键日志行，注意去掉密钥与个人信息）
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 最小复现。能落到一条命令或一个测试文件最好。
+      placeholder: |
+        1. pnpm install
+        2. pnpm demo:web
+        3. 在对话里输入 …
+        4. 观察到 …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / 提交
+      description: tag、commit sha 或 `git log -1 --oneline` 的输出
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: 影响面
+      multiple: true
+      options:
+        - 宿主 / 装配（host、profile）
+        - 主循环 / 工具管线（runtime）
+        - 银行工具与账本（bank）
+        - 安全平面 / 沙箱（safety）
+        - 计划编排 / Saga（plan、saga）
+        - 持久化 / 审计链（persistence）
+        - Web / 移动 H5 / 桌面端（apps）
+        - IM 网关（im-gateway）
+        - 知识库 sidecar（services/rag）
+        - 文档 / 脚本 / 门禁
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境
+      description: OS、Node 版本、pnpm 版本、是否 Docker、是否接了真实模型
+      placeholder: Windows 11 / Node 22.19.0 / pnpm 10.34.7 / 离线 router
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 相关日志、截图、`pnpm check` 的失败步骤（**不要**贴密钥、会话原文或个人信息）
+    validations:
+      required: false
