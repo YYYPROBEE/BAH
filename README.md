@@ -1,9 +1,14 @@
 # BAH · 银行智能体
 
-> 仓库：https://github.com/YYYPROBEE/BAH
-> 许可：源码公开可见，但不是开源许可；授权范围见 [LICENSE](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![ci](https://github.com/YYYPROBEE/BAH/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/YYYPROBEE/BAH/actions/workflows/ci.yml)
+[![Node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-3c873a.svg)](.nvmrc)
 
-**一个把"模型能做什么"关进可审计边界里的银行智能体演示系统。**
+> 仓库 <https://github.com/YYYPROBEE/BAH> · 许可 **[Apache-2.0](LICENSE)**：可商用、可修改、可再分发，保留版权声明与 [NOTICE](NOTICE.md) 即可 · 文档中文
+
+**一个把"模型能做什么"关进可审计边界里的银行智能体底座。**
+
+<sub>**English** — BAH (Banking Agent Harness) is a Node.js + TypeScript monorepo for building bank-facing AI agents: a cordis-style plugin kernel, a seven-stage tool pipeline with exactly one blocking point, one-shot ticket approval, a four-seam safety plane (`sentry`), DAG plan orchestration with resume, saga compensation, an append-only session log with a SHA-256 audit chain, and Web / mobile / desktop / IM / CLI channels. The model only understands and speaks — whether an action may run, how far it may go, and how it is explained afterwards are decided by deterministic code. Apache-2.0 licensed; documentation is in Chinese. Start with `pnpm install && pnpm demo:web` (no API key required).</sub>
 
 模型只负责理解和表达；能不能执行、执行到什么程度、出事后怎么解释，全部由确定性代码决定。
 30 个银行工具、七段工具管线、三级权限、一次性票据、四接缝安全平面、append-only 会话日志与
@@ -216,7 +221,7 @@ flowchart LR
   `incident` 状态**没有真实触发源**（全内存 mock，Web DAG 视图按 `tool/call` 派生，不区分 incident 与 failed）；
 - 对抗集幻觉族 15 例中 **H-14 / H-15 共 2 条未降级**（期望 `degrade` 实际 `allowed`，
   rule-gap：断言抽取未覆盖这两类表述，详见 `docs/security-design.md` §4 第 3 条；H-13 已由收益承诺禁词规则收口）；
-- 覆盖率取 CI 实测：**行口径 97.43%**（60053/61636）、**包口径 18/18**（18 个包全部 ≥80%，
+- 覆盖率取 CI 实测：**行口径 98.32%**（60540/61576）、**包口径 18/18**（18 个包全部 ≥80%，
   最低 `saga` 90.34%）。两个口径必须一起引用；逐文件 100% 只对强制名单生效，
   名单与取值命令见 [facts.md](facts.md)。
 - 卡片挂失已实现（`card_report_lost`，红档不可逆、必进审批 + 强验证）；**解挂与密码修改未实现**；
@@ -272,3 +277,24 @@ facts.md             演示材料唯一数字来源
 更多材料：[docs/](docs/)；200 字简介见 [docs/简介-200字.md](docs/简介-200字.md)；
 部署见 [docs/deploy.md](docs/deploy.md)，安全设计（威胁模型、攻击面与缺口）见
 [docs/security-design.md](docs/security-design.md)，漏洞披露见 [SECURITY.md](SECURITY.md)。
+
+---
+
+## 8. 参与贡献
+
+- 先读 [CONTRIBUTING.md](CONTRIBUTING.md)：环境要求、`pnpm check` 链路、提交信息格式、PR 流程。
+- 本项目只接受**可复现的证据**：改行为要带用例，改契约要同步 `docs/contracts/`，改装配要重录快照；
+  拿不准时先开 issue 对齐口径，再动手。
+- 安全问题不要开公开 issue，走 [SECURITY.md](SECURITY.md) 的私密通道。
+- 参与即表示同意遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
+
+## 9. 许可与致谢
+
+本项目以 **Apache License 2.0** 发布，全文见 [LICENSE](LICENSE)：允许商业使用、修改与再分发，
+分发时需保留版权、许可与 [NOTICE.md](NOTICE.md) 中的来源声明。
+
+第三方组件与机制借鉴逐项登记在 [NOTICE.md](NOTICE.md)：Electron / Chromium 二进制许可随包分发；
+`plan:dag` 的九项编排机制只借鉴公开文档中的概念形态，实现全部自写，并逐条标注了借鉴粒度。
+
+本工程最初为银行 AI 智能体赛题而建。部分 ADR 里的「赛题 §x」指当时任务书的章节号，
+保留原文是为了让决策依据可追溯；赛程结束后不再有提交线，`main` 即唯一开发线。

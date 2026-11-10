@@ -44,6 +44,12 @@ typecheck → lint → build → test → test:coverage:all → test:coverage �
 | `pnpm check` | 记为 SKIP，**退出码 0** | 本地开发 |
 | `pnpm check:ci` | **退出码 1**（严格模式不接受 SKIP） | CI 必需检查 |
 
+> **唯一例外**：`BAH_CI_ALLOW_SKIP=<step 名,逗号分隔>` 可以把指定面声明为例外。
+> 它只用于"外部环境拿不到密钥"这种结构性缺失——典型是 fork 的 PR 没有
+> `DEEPSEEK_API_KEY`，e2e 必然跳过。此时该步在汇总里**仍是 `○ skipped`**，
+> 严格模式只把它从"阻断"里摘出来，日志里另行打印哪一面未验证；
+> 未声明的 SKIP 依旧整条红。`ci.yml` 在密钥为空时才设置该变量，见工作流注释。
+
 > 为什么不叫 `pnpm ci`：`ci` 是 pnpm 内建命令（`ERR_PNPM_CI_NOT_IMPLEMENTED`），脚本名会被它占掉。
 >
 > 为什么严格模式用 `--ci` 而不是 `CI=true` 环境变量：`CI=true` 还会强制要求显式 `BAH_SNAPSHOT_BASE`

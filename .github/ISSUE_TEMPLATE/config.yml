@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 安全漏洞（私密）
+    url: https://github.com/YYYPROBEE/BAH/security/advisories/new
+    about: 不要在公开 issue 里披露安全问题，请走 GitHub Advisories。
+  - name: 使用与架构问题
+    url: https://github.com/YYYPROBEE/BAH/tree/main/docs
+    about: 先看 docs/：管线、sentry、审计链、计划编排、部署与测试口径都在这里。
+  - name: 贡献流程
+    url: https://github.com/YYYPROBEE/BAH/blob/main/CONTRIBUTING.md
+    about: 环境、门禁链路、提交信息格式与 PR 要求。

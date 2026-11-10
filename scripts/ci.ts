@@ -104,6 +104,20 @@ const hasE2eKey = Boolean(process.env['DEEPSEEK_API_KEY'])
  */
 const strictMode = process.argv.includes('--ci')
 
+/**
+ * 公开贡献者的声明式例外（`BAH_CI_ALLOW_SKIP=test:e2e`）。
+ *
+ * 来自 fork 的 PR 拿不到仓库 Secrets，e2e 必然 SKIP；照旧整条红，外部贡献者永远过不了 CI。
+ * 例外**不改变**该步的标记（汇总里仍是 ○ skipped），只在严格模式下允许它不触发失败，
+ * 并把"哪一步没跑"打进日志——看得见的未执行，不算假绿。
+ */
+const allowedSkips = new Set(
+  (process.env['BAH_CI_ALLOW_SKIP'] ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0),
+)
+
 const outcomes: Outcome[] = []
 let blocked = false
 
@@ -151,11 +165,21 @@ if (snapshotBase === undefined) {
       console.log('\n全部通过')
     } else if (strictMode) {
       // 严格模式：有面没跑，不得算绿——这是"CI 不撒谎"的唯一判据。
-      console.error(
-        `\n阻断合并：${skipped.length} 步未执行（${skipped.map((item) => item.name).join(', ')}）` +
-          '——严格模式不接受 SKIP',
-      )
-      process.exitCode = 1
+      // 唯一例外是调用方显式声明的面（BAH_CI_ALLOW_SKIP），见常量注释。
+      const unexpected = skipped.filter((item) => !allowedSkips.has(item.name))
+      const excused = skipped.filter((item) => allowedSkips.has(item.name))
+      if (unexpected.length > 0) {
+        console.error(
+          `\n阻断合并：${unexpected.length} 步未执行（${unexpected.map((item) => item.name).join(', ')}）` +
+            '——严格模式不接受 SKIP',
+        )
+        process.exitCode = 1
+      } else {
+        console.log(
+          `\n严格模式：其余步骤全部执行；${excused.map((item) => item.name).join(', ')} 未执行，` +
+            '但已由 `BAH_CI_ALLOW_SKIP` 显式声明为例外（该面本次未验证）',
+        )
+      }
     } else {
       console.log(
         `\n通过 ${outcomes.length - skipped.length} 步，未执行面 ${skipped.map((item) => item.name).join(', ')}` +
