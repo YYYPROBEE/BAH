@@ -1,5 +1,11 @@
 # NOTICE
 
+BAH (Banking Agent Harness)
+Copyright 2026 YYYPROBEE
+
+以 **Apache License 2.0** 授权，全文见 [LICENSE](LICENSE)。本文件按 Apache-2.0 §4(d)
+保留来源与归属声明：分发本软件或其衍生作品时，须随附本文件的内容。
+
 本仓库（BAH, Banking Agent Harness）为独立实现：架构、机制与全部代码由本项目维护，
 未包含、也未衍生自任何第三方 Harness 项目的源代码。
 

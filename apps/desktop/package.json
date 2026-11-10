@@ -1,6 +1,7 @@
 {
   "name": "@bah/desktop",
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "private": true,
   "type": "module",
   "description": "BAH 桌面端（Electron 私有 host + 复用 apps/web）",
