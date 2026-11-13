@@ -1,10 +1,31 @@
+# 依赖更新策略（2026-11-13 调整，起因是 5 条必红 PR）
+#
+# 1) `github/codeql-action` 的 init 与 analyze **必须同版本**：init 写进追踪配置的版本号
+#    与 analyze 运行时版本不一致时，analyze 直接报
+#    "Loaded a configuration file for version '4.39.3', but running version '3.39.1'" 并判红。
+#    dependabot 按"action 用途"拆成两个 PR，于是单独升任何一个都必红 —— 归成一组即可。
+# 2) 大版本不自动开 PR：本仓按 Electron 39 / jsdom 26 / tsdown 0.12 验证过，
+#    tsdown 0.13+ 改了产物布局（`dist/` 入口解析失败，43 个测试文件 collect 失败）、
+#    jsdom 27+ 改了 DOM 默认行为；自动跟进只会制造必红 PR。大版本人工评估后手改。
+# 3) tsdown 处于 0.x：0.12 → 0.23 在 semver 里算 minor，对本仓却是破坏性变更，单独忽略 minor。
+
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
+    groups:
+      # 小版本合并成一个 PR：一周一条，而不是五条各跑一遍 30 分钟 CI
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: tsdown
+        update-types: ["version-update:semver-minor"]
 
   - package-ecosystem: pip
     directory: /services/rag
@@ -16,4 +37,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
+    groups:
+      codeql-action:
+        patterns: ["github/codeql-action/*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

@@ -3,6 +3,24 @@
 本项目遵循语义化版本；日期为发布日。条目按「许可 / 新增 / 变更 / 修复」组织，
 只记录对外可观察的行为差异，不记录内部施工过程。
 
+## 未发布
+
+### 变更
+
+- `README.md`：压到原来的一半（300 → 160 行），只保留定位、快速开始、架构、关键设计、安全边界与文档入口；
+  逐条工具表与 16 行安全矩阵改为指向 `docs/`，数字仍对齐 `facts.md`。
+- `.github/workflows/codeql.yml`：`init` / `analyze` 同时升到 `v4.39.3`（锁同一 SHA）。此前两个 action 被
+  dependabot 拆成两条 PR 单独升级，必然触发
+  "Loaded a configuration file for version '4.39.3', but running version '3.39.1'" 并判红。
+- `.github/dependabot.yml`：`github/codeql-action/*` 归成一组；npm 与 github-actions 不再自动开**大版本** PR
+  （tsdown 处于 0.x，其 minor 也按破坏性变更忽略），小版本合并成一条 PR。
+
+### 修复
+
+- 关闭 7 条必红或无法验证的依赖 PR，依赖停留在 v1.0.0 实测过的组合：
+  tsdown 0.23（改产物布局，43 个测试文件 collect 失败）、jsdom 31、electron 45、pnpm/action-setup 6、
+  trufflehog SHA 与两条被拆散的 codeql 升级（已由上面的同版本升级取代）。
+
 ## v1.0.0 — 2026-11-10
 
 首个开源版本。此前代码在比赛提交线（tag `v1.0-submit`）上迭代；本版把许可、文档与 CI
