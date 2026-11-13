@@ -6,8 +6,13 @@
 #
 # 语言面：`javascript-typescript` 覆盖 packages / scripts / apps；Python 覆盖 services/rag。
 #
-# 说明：两个 action 用版本 tag 未锁 SHA（本设计不能凭空编 SHA）；转正前按
-# `gh api repos/github/codeql-action/git/refs/tags/v3` 查到 SHA 后替换。
+# 说明：两个 action 都锁到同一个 SHA（v4.39.3）。**必须同版本**——init 写进去的
+# 配置文件带版本号，analyze 版本不一致会直接报
+# "Loaded a configuration file for version '4.39.3', but running version '3.39.1'" 并判红。
+# 这也是 dependabot 把 init / analyze 拆成两个 PR 时必红的原因，故在
+# `.github/dependabot.yml` 里把 `github/codeql-action/*` 归成一组。
+# 换版时按 `git ls-remote --tags https://github.com/github/codeql-action 'refs/tags/v4*'` 取 SHA，
+# 或 `gh api repos/github/codeql-action/git/ref/tags/v4.39.3` 看 peeled commit。
 
 name: codeql
 
@@ -38,13 +43,13 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: ${{ matrix.language }}
           # 只做安全查询：本仓库要的是"有没有洞"，不是风格建议
           queries: security-extended
 
       - name: Analyze
-        uses: github/codeql-action/analyze@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           category: /language:${{ matrix.language }}
