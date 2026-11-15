@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 | unit / 集成 | `pnpm test` | `vitest.config.ts` | 纯函数内核 + 接缝集成（真 Context，不 mock 内核） | 455 文件 / 5283 用例（2026-11-03 全量实测；含 `apps/desktop/src`、`apps/im-gateway`） |
 | e2e | `pnpm test:e2e` | `vitest.e2e.config.ts` | **真实 LLM API**（`*.e2e.test.ts`，端点与模型可配，见 §7.1） | 无 `DEEPSEEK_API_KEY` 时零收集（**设计如此**，见 §7） |
-| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 13 文件 / 60 用例全绿（含 `subscription-reminder` 与 `birthday-reminder`；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 用夹具 overlay 放行审批） |
+| snapshot | `pnpm test:snapshot` | `vitest.snapshot.config.ts` | `snapshots/**/*.test.ts`，**无密钥回放**（录制需显式开关） | 14 文件 / 64 用例全绿（含 `subscription-reminder` / `birthday-reminder` / `scheduled-funds`；后四者用夹具 overlay 放行审批） |
 | web | `pnpm test:web` | `vitest.web.config.ts` | `apps/web/src/**/*.test.js`，jsdom | 前端 49 文件 / 610 用例（全绿） |
 
 意图/追问平面在前两个面里各占一块：`packages/runtime/src/intent/*.test.ts`（规则引擎、
@@ -288,9 +288,11 @@ snapshots/<case>/
   录完会在同一条用例里立刻回放比对，保证新录的也自洽。
 - **纪律**：任何影响**模型可见或用户可见**的改动（提示词段、装配顺序、工具 schema、模型参数、
   事件落账顺序），必须重录快照并在 PR 里说明 `llm.jsonl` / `session.jsonl` 的差异。
-  这条已由门禁 `snapshot-fresh` 自动执行：改 `packages/{runtime,llm}/src`（测试文件除外）
-  却没改 `snapshots/` 即阻断；纯重构用 `BAH_ALLOW_NO_SNAPSHOT=1` 或提交信息 `[no-snapshot]` 放行。
-  门禁默认比对 `HEAD` 与工作树；CI/评审要对比更长区间时设 `BAH_SNAPSHOT_BASE=<ref>`。
+  这条已由门禁 `snapshot-fresh` 自动执行：治理平面（`runtime` / `llm` / `bank` / `policy` /
+  `saga` / `persistence` / `safety` 的 `src/`，以及 `host/src/boot/`，测试文件除外）有行为改动
+  却没改 `snapshots/` 即阻断；纯重构用 `BAH_ALLOW_NO_SNAPSHOT=1` 放行（仅本地，CI 不接受）。
+  基线优先取 `BAH_SNAPSHOT_BASE`，否则 `origin/main` 的 merge-base，最后回退 `HEAD`；
+  本地干净树没有改动时自动放行（无从证明，也无需证明），CI 的干净检出仍必须显式给基线。
 
 ### 9.2 实体槽位的快照负控（entity-slots）
 

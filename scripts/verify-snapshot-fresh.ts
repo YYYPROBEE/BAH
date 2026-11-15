@@ -169,8 +169,15 @@ const gate: Gate = {
     for (const line of audit.notes) notes.push(line)
 
     if (changed.files.length === 0) {
-      if (allowSkip && !isCi) {
-        notes.push('工作树干净；BAH_ALLOW_NO_SNAPSHOT=1 显式放行（仅本地）')
+      if (!isCi) {
+        // 本地干净树：没有改动就没有"行为改动待背书"这回事，拒绝通过只会逼人记住一个
+        // 环境变量（`docs/deploy.md` 的演示前检查第一步就踩过）。CI 不走这条分支——
+        // 干净检出在 CI 里依然是"无法证明快照新鲜"，必须显式给基线。
+        notes.push(
+          allowSkip
+            ? '工作树干净；BAH_ALLOW_NO_SNAPSHOT=1 显式放行（仅本地）'
+            : '本地工作树相对基线没有改动：无需证明快照新鲜，自动放行（CI 仍要求显式基线）',
+        )
         return { ok: true, findings: [], notes }
       }
       return {
@@ -483,13 +490,19 @@ function changedFiles(
   return { ok: true, files: [...files].sort() }
 }
 
-/** `git status --porcelain=v1 -z`：包含未跟踪与重命名两端。 */
+/**
+ * `git status --porcelain=v1 -z -uall`：包含未跟踪与重命名两端。
+ *
+ * `-uall` 不是可选项：默认 `-unormal` 对未跟踪**目录**只报目录名
+ * （`?? snapshots/<case>/`），而"是否重录"判的是目录里的 `session.jsonl`。
+ * 少这个参数，新增场景永远会被判成"没有重录"（2026-11-15 实测）。
+ */
 function gitStatus(
   root: string,
 ): { ok: true; files: string[] } | { ok: false; reason: string } {
   let output: string
   try {
-    output = execFileSync('git', ['status', '--porcelain=v1', '-z'], {
+    output = execFileSync('git', ['status', '--porcelain=v1', '-z', '-uall'], {
       cwd: root,
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,

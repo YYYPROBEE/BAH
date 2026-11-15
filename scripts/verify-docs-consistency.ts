@@ -224,11 +224,14 @@ export const gate: Gate = {
         }
       }
 
-      // 允许表格写法（`| 门禁 | 36/36 |`）：中间可能隔着 `|` 或空格
-      const gates = /(?:门禁|gate)[^\n]{0,8}?(\d{1,3})\s*\/\s*(\d{1,3})/gi
+      // 两种写法都要抓：`| 门禁 | 36/36 |` 与 `pnpm gate（44 项）`。
+      // 旧正则只认"gate 后 8 字符内的 N/N"，`pnpm gate                 # 44/44` 因此
+      // 一路绿到 2026-11-15（负控：对那行 match 为空）。距离放宽到 24，并接受"N 项"。
+      // 中间不允许汉字：否则"这条门禁的局限：判据 1/2"会被当成门禁通过数（负控实测）。
+      const gates = /(?:门禁|gate)[^\n\u4e00-\u9fa5]{0,24}?(\d{1,3})\s*(?:\/\s*(\d{1,3})|项)/gi
       for (const match of text.matchAll(gates)) {
         const passed = Number(match[1])
-        const total = Number(match[2])
+        const total = match[2] === undefined ? passed : Number(match[2])
         if (total !== facts.gates || passed !== facts.gates) {
           findings.push(
             `${relative}: 门禁写成 ${String(passed)}/${String(total)}，facts 是 ` +

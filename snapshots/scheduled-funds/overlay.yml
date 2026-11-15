@@ -1,0 +1,15 @@
+# scheduled-funds 快照场景的层 4 overlay（只服务录制/回放夹具，不是生产配置）。
+#
+# `transfer_schedule` 武装的是**宽档**窗口（到期代签 `transfer_create`），
+# 按 ADR-0010 必须在武装时完成一次强验证。生产 `profiles/plan` 的应答者是
+# `none`，本场景显式打开 headless 应答 + autoVerify，让"审批 → 挑战 → 通过"
+# 这条链真的跑一遍；窗口代签仍走 `windowResponder: true`。
+#
+# 放行只写进本快照的 rows（scenario.json），不回写 profile。
+
+- id: interaction:approval
+  config:
+    responder: headless
+    autoDecision: allow
+    autoVerify: true
+    windowResponder: true

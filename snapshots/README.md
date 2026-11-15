@@ -24,6 +24,7 @@ snapshots/
 ├─ sandbox-compute/     沙箱计算 + 转账（4 例，stress 档）
 ├─ plan/                plan:dag 编排（4 例）
 ├─ entity-slots/        实体槽位通电（5 例，overlay 打开 slots.source=bank）
+├─ scheduled-funds/     定时转账入口 + 资金锁定三动作（4 例，含到期代签安全失败与零误扣）
 ├─ fixtures.test.ts     快照通道冒烟（2 例：命名解析 + 代次选择）
 └─ README.md
 ```
@@ -63,8 +64,9 @@ pnpm snapshot:record
 
 录制会在同一条用例里**立刻回放比对**：新录的快照如果不自洽，当场就红。
 
-> 门禁 `snapshot-fresh` 会拦「改了 `packages/{runtime,llm}/src` 却没改 `snapshots/`」的提交。
-> 纯重构（无行为变化）用 `BAH_ALLOW_NO_SNAPSHOT=1 pnpm gate` 放行，或在提交信息里写 `[no-snapshot]`。
+> 门禁 `snapshot-fresh` 会拦「改了治理平面（`runtime` / `llm` / `bank` / `policy` / `saga` /
+> `persistence` / `safety` 的 `src/` 与 `host/src/boot/`）却没改 `snapshots/`」的提交。
+> 纯重构（无行为变化）用 `BAH_ALLOW_NO_SNAPSHOT=1 pnpm gate` 放行（仅本地）；本地干净树自动放行，CI 不接受豁免。
 
 ## 回放为什么不需要密钥与 profile
 

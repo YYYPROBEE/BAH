@@ -281,7 +281,9 @@ pnpm policy:explain --session <sessionId> --dir <tenant-sessions> --call-id <cal
 | `verify-policy-registry` | registry/state 形状与引用完整；runtime-state 不入库；rollout 链连续（存在时）；fixtures 不入 registry |
 
 ```bash
-pnpm gate                 # 44 项；策略相关 4 条
+pnpm gate                 # 53 项；策略相关 4 条
+# `policy:lint` / `policy:test` 必须显式给 bundle 目录（裸跑只打印用法并以 2 退出）
+pnpm policy:lint policies/bank-tier/1.0.0
 npx tsx scripts/verify-policy-bundle.ts   # 单独跑
 npx tsx scripts/verify-policy-conformance.ts
 npx tsx scripts/verify-policy-hardcode.ts

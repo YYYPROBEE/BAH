@@ -236,7 +236,7 @@ bah: 知识卡
 ```bash
 pnpm rag:check     # pytest（含契约一致性）
 pnpm test          # TS 单测（knowledge 包 + host 插件 + CLI 卡片）
-pnpm gate          # 12 项，含 verify-knowledge-contract
+pnpm gate          # 53 项，含 verify-knowledge-contract
 pnpm test:coverage # 100% 行覆盖（knowledge 包已进 allowlist）
 ```
 

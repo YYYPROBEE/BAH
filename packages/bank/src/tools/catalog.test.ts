@@ -117,7 +117,7 @@ describe('工具目录', () => {
       verify_sms: { level: 'green' },
       verify_ushield: { level: 'green' },
       card_report_lost: { level: 'red' },
-      fund_lock: { level: 'yellow' },
+      fund_lock: { level: 'yellow', amountPath: 'amountYuan' },
       sub_cancel: { level: 'yellow' },
       sub_list: { level: 'green' },
       sub_watch: { level: 'yellow' },

@@ -136,7 +136,7 @@ facts.md         演示材料唯一数字来源
 ```
 
 实测（2026-11-03）：`pnpm test` 455 文件 / 5283 用例；`pnpm test:web` 610 用例；`pnpm eval:unit` 158 用例；
-`pnpm test:snapshot` 60 例；`pnpm gate` 全绿；行覆盖 98.32%。**三行测试数不能相加**，取值命令与原始输出
+`pnpm test:snapshot` 64 例；`pnpm gate` 全绿；行覆盖 98.32%。**三行测试数不能相加**，取值命令与原始输出
 见 [facts.md](facts.md) 与 [docs/facts-sources.md](docs/facts-sources.md)。
 
 ## 更多文档

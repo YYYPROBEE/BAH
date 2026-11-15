@@ -613,6 +613,21 @@ async function evaluateCall(args: EvaluateArgs): Promise<DecisionAudit> {
     amountCents = checked.amountCents
   }
 
+  /**
+   * `fund_lock` 的金额字段是 `amountYuan`（不是 `amount`）。不在治理面算出来，
+   * 审批票据的 `amount` 就是 0，而工具体核销时传实际分值，
+   * `TicketStore.redeem()` 必然以 `ticket-binding-mismatch` 拒绝（快照场景实测）。
+   *
+   * 只做"读得出来就带上"：金额非法仍归工具体 fail-loud，治理面不抢答。
+   * `status` 是只读动作，不走 ask，也不需要金额。
+   */
+  if (spec.name === 'fund_lock' && call.args['action'] !== 'status') {
+    const rawAmount = call.args['amountYuan']
+    if (typeof rawAmount === 'number' && Number.isFinite(rawAmount) && rawAmount > 0) {
+      amountCents = yuanToCents(rawAmount)
+    }
+  }
+
   // B-05：代收的票据金额 = **该参与人的份额**。不先算出来，审批卡上就只剩一个
   // 没有金额的"执行 aa_create"，用户批准的东西和真正入账的金额对不上。
   // 这里只做只读预览（`getAa`）；执行期的完整五道校验仍在 core。

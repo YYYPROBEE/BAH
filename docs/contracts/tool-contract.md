@@ -133,7 +133,7 @@ const transferCreateContract: ToolContract<ToolSchema, ToolSchema> = {
 ## 5. 变更流程
 
 1. 写 ADR（`docs/adr/`，半页即可）：改什么、为什么现在改、影响哪几个单；
-2. **L1 owner 签字**（`docs/owners-2026-10-25.md` 的 `L1-A`）；
+2. **L1 owner 签字**（签署位随对应 ADR 归档，见 `docs/adr/`；不引用未入库的内部件）；
 3. 版本号升位：加字段 = minor，改字段语义 = major；
 4. **开工后 1 天内只允许一次改签**，之后冻结到期。
 

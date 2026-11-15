@@ -10,5 +10,5 @@
     "atLeast80": 18,
     "total": 18
   },
-  "note": "2026-11-04 CI（Ubuntu / Node 22.19）跑批实测（`pnpm test:coverage:all`，数字取 `.ci-artifacts/cov-all/coverage-summary.json`）：行 60540/61576 = 98.32%，包 18/18（18 个包全部 ≥80%，最低 saga 90.34%）。较上一版 97.43%（60053/61636）：补齐拒绝面与 plan 唤醒环用例后覆盖行 +487、参与统计行 -60。更早的 89.87%（49571/55161）与 91.14% 只作历史记录。"
+  "note": "2026-11-04 CI（Ubuntu / Node 22.19）跑批实测（`pnpm test:coverage:all`，数字取 `.ci-artifacts/cov-all/coverage-summary.json`）：行 60540/61576 = 98.32%，包 18/18（18 个包全部 ≥80%，最低 saga 90.34%）。较上一版 97.43%（60053/61636）：补齐拒绝面与 plan 唤醒环用例后覆盖行 +487、参与统计行 -60。更早的 89.87%（49571/55161）与 91.14% 只作历史记录。2026-11-15 复核：历史重写未改树（最终树与 11bfa8a 逐字节一致），a28f431 与本数字对应的树等价；本机 Windows 不重跑该口径（`verify-facts` 在 Windows 跳过严格比对），下次改数字仍须 CI/Ubuntu 跑批。"
 }

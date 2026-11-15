@@ -565,7 +565,10 @@ export const BANK_TOOL_SPECS = [
       },
       required: ['action'],
     },
-    tier: { level: 'yellow' },
+    // 金额字段是 `amountYuan`（不是 `amount`）：不声明 amountPath 时审批票据的
+    // `binding.amountCents` 是 undefined，而工具体核销时传的是实际分值，
+    // `TicketStore.redeem()` 会以 `ticket-binding-mismatch` 拒绝——快照场景实测。
+    tier: { level: 'yellow', amountPath: 'amountYuan' },
     event: 'transfer/created',
     readEvent: 'read/balance',
     batch: 'P0',
