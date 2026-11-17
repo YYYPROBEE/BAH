@@ -125,6 +125,30 @@ describe('策略外置 S2 · 正常判决', () => {
   })
 })
 
+describe('策略外置 S2 · 早拒路径的版本求值（I12）', () => {
+  it('activePolicyVersion 传函数：每次判决现取，热重载后早拒写新版本', async () => {
+    let version = 'v1'
+    const h = createPipelineHarness({
+      userId: null,
+      // 生产端口允许 `string | (() => string)`；testing.ts 的选项类型尚未放宽，
+      // 这里按生产形态注入，钉住"装配期不缓存版本"的语义。
+      activePolicyVersion: (() => version) as unknown as string,
+    })
+    try {
+      expect((await h.run('account_balance')).result.code).toBe('no-identity')
+      version = 'v2'
+      expect((await h.run('account_balance')).result.code).toBe('no-identity')
+
+      expect(auditPayloads(h, 'tier/decided').map((audit) => audit['policyVersion'])).toEqual([
+        'v1',
+        'v2',
+      ])
+    } finally {
+      await h.dispose()
+    }
+  })
+})
+
 describe('策略外置 S2 · 组合规则（I2 / I3 / I4）', () => {
   it('策略 allow 不能把已声明的红降级', async () => {
     const engine = engineOf({ level: 'green', tierReason: 'declared' })
