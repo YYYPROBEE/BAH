@@ -2,13 +2,13 @@
   "measuredAt": "2026-11-23",
   "command": "NODE_EXTRA_CA_CERTS= pnpm test:coverage:all",
   "line": {
-    "covered": 60710,
-    "total": 61734,
-    "pct": 98.34
+    "covered": 60760,
+    "total": 61792,
+    "pct": 98.33
   },
   "packages": {
     "atLeast80": 18,
     "total": 18
   },
-  "note": "2026-11-23 CI（Ubuntu / Node 22.19）跑批实测（`pnpm test:coverage:all`，数字取 `.ci-artifacts/cov-all/coverage-summary.json`）：行 60710/61734 = 98.34%，包 18/18（18 个包全部 ≥80%，最低 saga 90.34%）。相对上一版 60540/61576：F-01 预授权回执新增可执行行全部被测试覆盖，覆盖行 +170、参与统计行 +158。本机 Windows 分母 62254 比 CI 多 520 行（无执行行文件按物理行计入），仍不能直接用本机数；CI 注解 `coverage 60710/61734` 是本次唯一取值来源。"
+  "note": "2026-11-23 CI（Ubuntu / Node 22.19）跑批实测（`pnpm test:coverage:all`，数字取 CI 注解）：行 60760/61792 = 98.33%，包 18/18（18 个包全部 ≥80%，最低 saga 90.34%）。相对上一版 60710/61734：F-02/F-03 的边车回放与 payeeId 分支新增测试，覆盖行 +50、参与统计行 +58。本机 Windows 分母 62254 比 CI 多 462 行（无执行行文件按物理行计入），仍不能直接用本机数；CI 注解 `coverage 60760/61792` 是本次唯一取值来源。"
 }

@@ -13,9 +13,9 @@ tools=30
 plan_lines=2260
 snapshot_files=14
 snapshot_cases=64
-coverage_covered=60710
-coverage_total=61734
-coverage_pct=98.34
+coverage_covered=60760
+coverage_total=61792
+coverage_pct=98.33
 coverage_package_ok=18
 coverage_package_total=18
 tests_main_files=458
@@ -34,7 +34,7 @@ tests_main_cases=5312
 | 工具数 | **30** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 30（与 `result-schemas.ts` 30 个出参键一一对应；官方子能力补齐新增 7 个；2026-11-01 新增 `fund_lock` 与 `password_change`） |
 | plan 非测试行数 | **2,260** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,260（2026-10-30 合流后重算） |
 | 快照文件 / 用例 | **14 / 64** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 14 文件 / 64 例（`pnpm test:snapshot` 同值）；`scheduled-funds` 1 文件 4 例：`transfer_schedule` 入口、`fund_lock` 三动作、到期代签**成功**（武装预授权，2026-11-22 重录；修复前被 `challenge-required` 阻断）、篡改负控。它同时是 `fund_lock` 票据金额缺陷的回归 |
-| 覆盖率（行） | **98.34%** | `pnpm test:coverage:all` | 覆盖 60710 行 / 参与统计 61734 行（2026-11-23 CI 跑批实测；数值取自 CI 注解 `coverage 60710/61734`，见 `docs/coverage-baseline.json` 的 note） |
+| 覆盖率（行） | **98.33%** | `pnpm test:coverage:all` | 覆盖 60760 行 / 参与统计 61792 行（2026-11-23 CI 跑批实测；数值取自 CI 注解 `coverage 60760/61792`，见 `docs/coverage-baseline.json` 的 note） |
 | 覆盖率（包） | **18/18** | 同上 | 18 个包全部 ≥80%，最低 `saga` 90.34% |
 | 主仓测试 | **458 文件 / 5312 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 458 文件 / 5312 例，全绿（2026-11-23 全量实测：较 2026-11-03 台账 455/5283 增 3 文件 / 29 例。**拆账**：7 例 + 2 文件为台账日期后的存量漂移（本轮复审登记），22 例 + 1 文件为修复新增（F-01 审批预授权 7、回执单测 6、跨重启集成 2、密钥配置 2；复审回归 5：票据精度 1、窗口边车回放 2、payeeId 与告警覆盖 2）。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑绿），与用例数无关**） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
@@ -46,9 +46,9 @@ tests_main_cases=5312
 **只有一个口径**：CI（Ubuntu / Node 22.19）上 `pnpm test:coverage:all` 的实测值。
 分母 = `packages/*/src/**/*.ts`，去掉测试文件、纯类型模块与纯 barrel。
 
-2026-11-23 CI 实测：**98.34%（60710/61734）**，包口径 **18/18**（18 个包全部 ≥80%，最低 `saga` 90.34%）。
-相对上一版 60540/61576：F-01 新增可执行行全部被测试覆盖，覆盖行 +170、参与统计行 +158。
-本机 Windows 分母 62254 比 CI 多 520 行（无执行行文件按物理行计入），**不能直接用本机数**。
+2026-11-23 CI 实测：**98.33%（60760/61792）**，包口径 **18/18**（18 个包全部 ≥80%，最低 `saga` 90.34%）。
+相对上一版 60710/61734：F-02/F-03 的边车回放与 payeeId 分支新增测试，覆盖行 +50、参与统计行 +58。
+本机 Windows 分母 62254 比 CI 多 462 行（无执行行文件按物理行计入），**不能直接用本机数**。
 相对上一版 97.43%（60053/61636）：补齐拒绝面与 plan 唤醒环用例后覆盖行 +487、参与统计行 -60。
 
 上一版是 89.87%（49571/55161）、包 16/18。两处**配置缺陷**把数字压低了（都在 `vitest.coverage.config.ts`）：
