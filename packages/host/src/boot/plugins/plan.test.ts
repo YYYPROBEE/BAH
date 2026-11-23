@@ -124,7 +124,10 @@ interface Booted {
   readonly cleanup: () => void
 }
 
-async function bootPlan(extraLayers: readonly ConfigLayer[] = []): Promise<Booted> {
+async function bootPlan(
+  extraLayers: readonly ConfigLayer[] = [],
+  runPatch: Parameters<typeof testRunContext>[0] = {},
+): Promise<Booted> {
   const dir = mkdtempSync(join(tmpdir(), 'bah-plan-'))
   const bundle: Bundle = { name: 'base', rows: BASE_ROWS }
   const options: BootOptions = {
@@ -149,7 +152,7 @@ async function bootPlan(extraLayers: readonly ConfigLayer[] = []): Promise<Boote
       ...extraLayers,
     ],
     catalog: createCatalog(),
-    run: testRunContext({ sessionId: asSessionId('s-plan'), now: () => 1_000, jsonlDir: dir }),
+    run: testRunContext({ sessionId: asSessionId('s-plan'), now: () => 1_000, jsonlDir: dir, ...runPatch }),
   }
   return { app: await boot(options), cleanup: () => rmSync(dir, { recursive: true, force: true }) }
 }
@@ -961,6 +964,33 @@ describe('04 单：goal / todo 平面在 plan 插件里注册', () => {
         deps: [],
       },
     ])
+  })
+
+  it('transfer_schedule 带 payeeId：计划体引用 payeeId，不落手机号', async () => {
+    booted = await bootPlan()
+    const outcome = await executeViaPipeline(
+      booted.app,
+      'transfer_schedule',
+      {
+        amount: 500,
+        payee: { name: '王建国', phone: '13900002222', payeeId: 'payee-1' },
+        when: '明天 09:00',
+      },
+      'call-schedule-payee',
+    )
+    expect(outcome.isError).toBe(false)
+    const armed = booted.app.ctx.get(PLAN_ARMED_SERVICE).list()
+    expect(armed).toHaveLength(1)
+    const args = armed[0]?.plan.nodes[0]?.args as Readonly<Record<string, unknown>>
+    expect(args['payee']).toEqual({ name: '王建国', payeeId: 'payee-1' })
+  })
+
+  it('无回执密钥：真实启动留一条“未配置”告警（dump 路径由 probe=false 静音）', async () => {
+    const warnings: string[] = []
+    booted = await bootPlan([], { warn: (message) => warnings.push(message) })
+    const receiptWarnings = warnings.filter((message) => message.includes('BAH_WINDOW_RECEIPT_KEY'))
+    expect(receiptWarnings).toHaveLength(1)
+    expect(receiptWarnings[0]).toContain('未配置')
   })
 
   it('birthday_plan：生日前 2 天三张授权窗口，鲜花/蛋糕带商户腿', async () => {

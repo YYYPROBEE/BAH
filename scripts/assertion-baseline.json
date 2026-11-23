@@ -185,7 +185,7 @@
   "packages/host/src/boot/plugins/plan-details.test.ts": 75,
   "packages/host/src/boot/plugins/plan-wake.test.ts": 169,
   "packages/host/src/boot/plugins/plan-window-signer.test.ts": 19,
-  "packages/host/src/boot/plugins/plan.test.ts": 150,
+  "packages/host/src/boot/plugins/plan.test.ts": 155,
   "packages/host/src/boot/plugins/policy.test.ts": 144,
   "packages/host/src/boot/plugins/proactive.test.ts": 43,
   "packages/host/src/boot/plugins/resident-tick.test.ts": 3,

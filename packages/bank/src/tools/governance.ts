@@ -1200,21 +1200,18 @@ async function checkWealthRedeem(
 }
 
 /**
- * 元 → 分（票据桥接；缺省金额按 0 处理，真正的金额校验在工具体）。
+ * 元 → 分（票据桥接；缺省金额按 0 处理）。
  *
  * **必须复用 `yuanToCents`，不能用 `Math.round(amount * 100)`**：后者在
  * `1.005` 这类二进制表示下界的值上会少 1 分，而核销侧 `ticketRefForCall`
  * 用的是 `yuanToCents`，`ticket.ts` 的 `bindingDiff` 会以
  * `ticket-binding-mismatch` 拒绝整笔转账（2026-11-23 复审实测）。
+ *
+ * 不做 try/catch 兜底：能走到 `approval/request` 的金额已经过工具体校验，
+ * 这里再吞异常只会签出一张 0 元票；让异常冒泡成审批失败才是 fail-closed。
  */
 function centsOf(amount: number | undefined): number {
-  if (amount === undefined) return 0
-  try {
-    return yuanToCents(amount)
-  } catch {
-    // 与旧行为一致：治理面不抢答非法金额，交给工具体 fail-loud。
-    return 0
-  }
+  return amount === undefined ? 0 : yuanToCents(amount)
 }
 
 /** 调用 ID → 票据 ID（与管线 `mintTicket` 同一规则）。 */
