@@ -957,7 +957,7 @@ describe('04 单：goal / todo 平面在 plan 插件里注册', () => {
       {
         id: 'pay',
         tool: 'transfer_create',
-        args: { amount: 500, payee: PAYEE, remark: '房租' },
+        args: { amount: 500, payee: { name: '王建国' }, remark: '房租' },
         deps: [],
       },
     ])

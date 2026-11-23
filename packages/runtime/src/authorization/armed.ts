@@ -66,26 +66,77 @@ export function createArmedStore(): ArmedStore {
   return makeStore().store
 }
 
-/** 从 `tool/result` 的正文里取结构化出参（无 projectContent ⇒ 默认 JSON）。 */
-function resultRecord(event: AnySessionEvent): Readonly<Record<string, unknown>> | undefined {
+/**
+ * 窗口结构化边车块的标记。
+ *
+ * 定时场景（`transfer_schedule` / `birthday_plan`）的 `tool/result` 第一块仍是
+ * 人话正文，窗口本体放在带本前缀的后续 text 块里：渠道渲染会跳过它，
+ * `replayArmedPlans` 只认它。与 `packages/channels/src/web/cards.ts` 的
+ * `blocksToText` 是**同一个字符串**（那里是浏览器包，不引 runtime）。
+ */
+export const WINDOW_PLAN_PREFIX = '<!--bah:window-plan-->'
+
+/** 会携带窗口的工具：`plan_arm` 是原始入口，后两个是定时场景入口。 */
+const WINDOW_TOOLS: ReadonlySet<string> = new Set([
+  PLAN_ARM_TOOL,
+  PLAN_DISARM_TOOL,
+  'transfer_schedule',
+  'birthday_plan',
+])
+
+interface WindowRecords {
+  readonly name: string
+  readonly callId: string
+  readonly records: readonly Readonly<Record<string, unknown>>[]
+}
+
+/** 从 `tool/result` 的正文里取结构化窗口记录（一个事件可带多条）。 */
+function resultRecords(event: AnySessionEvent): WindowRecords | undefined {
   if (event.type !== 'tool/result') return undefined
   const data = event.data
   if (data.isError) return undefined
-  if (data.name !== PLAN_ARM_TOOL && data.name !== PLAN_DISARM_TOOL) return undefined
-  const text = data.content.find((block) => block.type === 'text')
-  if (text === undefined || text.type !== 'text') return undefined
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text.text)
-  } catch {
-    throw new BahError('window-replay-invalid', `${data.name}: 结果不是 JSON`, {
-      callId: data.callId,
-    })
+  if (!WINDOW_TOOLS.has(data.name)) return undefined
+
+  const records: Readonly<Record<string, unknown>>[] = []
+  for (const block of data.content) {
+    if (block.type !== 'text' || !block.text.startsWith(WINDOW_PLAN_PREFIX)) continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(block.text.slice(WINDOW_PLAN_PREFIX.length))
+    } catch {
+      throw new BahError('window-replay-invalid', `${data.name}: 边车块不是 JSON`, {
+        callId: data.callId,
+      })
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new BahError('window-replay-invalid', `${data.name}: 边车块不是对象`, {
+        callId: data.callId,
+      })
+    }
+    records.push(parsed as Readonly<Record<string, unknown>>)
   }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new BahError('window-replay-invalid', `${data.name}: 结果不是对象`, { callId: data.callId })
+
+  // 兼容旧日志：`plan_arm` / `plan_disarm` 的出参契约是整段 JSON，没有前缀。
+  if (records.length === 0 && (data.name === PLAN_ARM_TOOL || data.name === PLAN_DISARM_TOOL)) {
+    const text = data.content.find((block) => block.type === 'text')
+    if (text !== undefined && text.type === 'text') {
+      try {
+        const parsed: unknown = JSON.parse(text.text)
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          records.push(parsed as Readonly<Record<string, unknown>>)
+        }
+      } catch {
+        // 落到下面的 fail-loud（仅 plan_arm）
+      }
+    }
+    if (records.length === 0 && data.name === PLAN_ARM_TOOL) {
+      throw new BahError('window-replay-invalid', `${data.name}: 结果不是 JSON`, {
+        callId: data.callId,
+      })
+    }
   }
-  return parsed as Readonly<Record<string, unknown>>
+
+  return { name: data.name, callId: data.callId, records }
 }
 
 function armedPlanOf(record: Readonly<Record<string, unknown>>, callId: string): ArmedPlan {
@@ -101,27 +152,29 @@ function armedPlanOf(record: Readonly<Record<string, unknown>>, callId: string):
 /**
  * 从会话事件重建已武装计划账本。
  *
- * 只认 `plan_arm` / `plan_disarm` 且非 `isError` 的 `tool/result`；
+ * 认 `plan_arm` / `plan_disarm` 的旧版纯 JSON 出参，也认
+ * `transfer_schedule` / `birthday_plan` 的边车块（`WINDOW_PLAN_PREFIX`）。
  * `plan_disarm` 把对应窗口置为 `cancelled`（**不删除**：审计要看得见撤回过什么）。
  */
 export function replayArmedPlans(sessionEvents: readonly AnySessionEvent[]): ArmedStore {
   const internals = makeStore()
   for (const event of sessionEvents) {
-    const record = resultRecord(event)
-    if (record === undefined) continue
-    if (event.type !== 'tool/result') continue
-    if (event.data.name === PLAN_ARM_TOOL) {
-      internals.load(armedPlanOf(record, event.data.callId))
-      continue
+    const result = resultRecords(event)
+    if (result === undefined) continue
+    for (const record of result.records) {
+      if (result.name === PLAN_DISARM_TOOL) {
+        const windowId = record['windowId']
+        if (typeof windowId !== 'string') {
+          throw new BahError('window-replay-invalid', 'plan_disarm: 出参缺 windowId', {
+            callId: result.callId,
+          })
+        }
+        const existing = internals.store.get(windowId)
+        if (existing !== undefined) internals.load({ ...existing, state: 'cancelled' })
+        continue
+      }
+      internals.load(armedPlanOf(record, result.callId))
     }
-    const windowId = record['windowId']
-    if (typeof windowId !== 'string') {
-      throw new BahError('window-replay-invalid', 'plan_disarm: 出参缺 windowId', {
-        callId: event.data.callId,
-      })
-    }
-    const existing = internals.store.get(windowId)
-    if (existing !== undefined) internals.load({ ...existing, state: 'cancelled' })
   }
   return internals.store
 }

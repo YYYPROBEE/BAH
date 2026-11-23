@@ -119,7 +119,8 @@ async function runActs(
   // 第 1 幕：定时转账（ISO 绝对时刻，避免自然语言时间词的时区依赖）
   const scheduled = (await callTool(app, 'call-schedule-1', 'transfer_schedule', {
     amount: 200,
-    payee: { name: '王建国', phone: '13900002222' },
+    // F-03：手机号不进计划体（落盘脱敏会破坏重启回放）；只用 name 匹配已登记收款人。
+    payee: { name: '王建国' },
     when: new Date(DUE).toISOString(),
     remark: '定时房租',
   })) as {

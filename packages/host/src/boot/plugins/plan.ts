@@ -21,8 +21,8 @@
  * ## 三层超时/取消的取舍
  *
  * - `planTimeoutMs` 只覆盖**本 plan 的调度**：超时置 abort，已进入的节点跑完；
- * - 兜底的硬约束是 `planTimeoutMs < ticketTtlMs`（方案 §3.8）：票据 TTL 是 10 分钟、
- *   计划排队 30 秒还行，排 11 分钟就是拿过期票据扣款。v1 没有 lease（那是治理平面的活）；
+ * - 兜底的硬约束是 `planTimeoutMs < ticketTtlMs`（方案 §3.8）：票据 TTL 是 2 分钟（120 秒）、
+ *   计划排队 30 秒还行，排 2 分钟以上就是拿过期票据扣款。v1 没有 lease（那是治理平面的活）；
  * - `ctx.dispose()` 时在跑的 plan 全部 abort（`reason: 'disposed'`）。
  *
  * **已知限制**（README 也写了）：plan 拿不到 turn 的 `AbortSignal`（`tools/execute` 的
@@ -53,6 +53,7 @@ import {
   idempotencyKey,
   occurrenceOf,
   replayArmedPlans,
+  WINDOW_PLAN_PREFIX,
   DEFAULT_NOTIFY_BUDGET,
   deriveNotify,
   PLAN_ARM_TOOL,
@@ -1108,10 +1109,15 @@ export const planPlugin: HostPlugin<PlanSettings> = {
        */
       const rawReceiptKey = ctx.get(RUN_SERVICE).receiptKey ?? process.env['BAH_WINDOW_RECEIPT_KEY']
       const receiptKey = resolveWindowReceiptKey(rawReceiptKey)
-      if (rawReceiptKey !== undefined && rawReceiptKey.trim().length > 0 && receiptKey === undefined) {
+      if (receiptKey === undefined && ctx.get(RUN_SERVICE).probe !== false) {
+        const configured = rawReceiptKey !== undefined && rawReceiptKey.trim().length > 0
         ctx
           .get(RUN_SERVICE)
-          .warn?.('BAH_WINDOW_RECEIPT_KEY 过短（需 ≥32 字节）：本次运行不签发跨重启回执')
+          .warn?.(
+            configured
+              ? 'BAH_WINDOW_RECEIPT_KEY 过短（需 ≥32 字节）：本次运行不签发跨重启回执'
+              : 'BAH_WINDOW_RECEIPT_KEY 未配置：本次运行不签发跨重启回执，重启后到期代签会降级回人工',
+          )
       }
 
       /** 每 run 一个 guard：同 plan 内同名同参的 deny 单调生效，跨 plan 不串味。 */
@@ -2675,6 +2681,8 @@ export const planPlugin: HostPlugin<PlanSettings> = {
             readonly amount: number
             readonly payeeName: string
             readonly title: string
+            /** 窗口本体：同时以边车块落 `tool/result`，供重启回放（F-02）。 */
+            readonly armed: ArmedPlan
           }
         > = {
           name: 'transfer_schedule',
@@ -2689,7 +2697,14 @@ export const planPlugin: HostPlugin<PlanSettings> = {
                 type: 'object',
                 properties: {
                   name: { type: 'string', description: '收款人姓名（必填）' },
-                  phone: { type: 'string', description: '手机号（可选）' },
+                  phone: {
+                    type: 'string',
+                    description: '手机号（可选；只用于本次校验，不写进计划体）',
+                  },
+                  payeeId: {
+                    type: 'string',
+                    description: '已登记收款人 ID（可选；同名收款人建议给，计划体优先引用它）',
+                  },
                 },
                 required: ['name'],
               },
@@ -2719,10 +2734,17 @@ export const planPlugin: HostPlugin<PlanSettings> = {
             if (payeeName.length === 0) {
               throw new BahError('transfer-schedule-invalid', 'transfer_schedule.payee.name 必填', {})
             }
-            const phone =
-              typeof payeeRecord['phone'] === 'string' && payeeRecord['phone'].trim().length > 0
-                ? payeeRecord['phone'].trim()
+            const payeeId =
+              typeof payeeRecord['payeeId'] === 'string' && payeeRecord['payeeId'].trim().length > 0
+                ? payeeRecord['payeeId'].trim()
                 : undefined
+            /**
+             * F-03：手机号只留在本次工具入参里（审批明细照常显示），**不写进计划体**。
+             * 原因是 `redact.ts` 会把 `tool/result` 里的手机号掩成 `139****3333`，
+             * 重启回放后 `planDigest` 必不一致，窗口会以 `plan-digest-mismatch`
+             * 拒绝签名。计划体引用 `name` +（可选的）`payeeId`，与 `transfer_create`
+             * 的收款人匹配口径一致；同名收款人请显式给 `payeeId`。
+             */
             const dueAt = parseScheduleWhen(args['when'], clock())
             const remark = typeof args['remark'] === 'string' ? args['remark'] : undefined
             /**
@@ -2740,7 +2762,9 @@ export const planPlugin: HostPlugin<PlanSettings> = {
                     tool: 'transfer_create',
                     args: {
                       amount,
-                      payee: { name: payeeName, ...(phone === undefined ? {} : { phone }) },
+                      // 计划体只引用 name / payeeId：手机号会被落盘脱敏，回放时
+                      // `planDigest` 必不一致（F-03）。
+                      payee: { name: payeeName, ...(payeeId === undefined ? {} : { payeeId }) },
                       ...(remark === undefined ? {} : { remark }),
                     },
                   },
@@ -2760,6 +2784,7 @@ export const planPlugin: HostPlugin<PlanSettings> = {
               amount,
               payeeName,
               title: armed.title,
+              armed,
             }
           },
           projectContent: (result) => [
@@ -2770,6 +2795,8 @@ export const planPlugin: HostPlugin<PlanSettings> = {
                 `到期由授权窗口代签（宽档，凭据 = 本次审批里完成的那次强验证）；` +
                 `余额/收款人条件失守时立即降级回人工，不会自动扣款。`,
             },
+            // 机器可读的窗口本体（F-02）：渠道渲染会过滤，重启回放只认它。
+            { type: 'text', text: `${WINDOW_PLAN_PREFIX}${JSON.stringify(result.armed)}` },
           ],
         }
 
@@ -2797,6 +2824,8 @@ export const planPlugin: HostPlugin<PlanSettings> = {
               readonly amountYuan: number
               readonly merchant?: string
             }[]
+            /** 三张子窗口本体：同时以边车块落 `tool/result`，供重启回放（F-02）。 */
+            readonly plans: readonly ArmedPlan[]
           }
         > = {
           name: 'birthday_plan',
@@ -2880,7 +2909,7 @@ export const planPlugin: HostPlugin<PlanSettings> = {
               budgetYuan: number,
               merchantOfferId: string | undefined,
               merchant?: { readonly merchantName: string; readonly priceCents: number },
-            ): { scheduleId: string; planId: string } => {
+            ): ArmedPlan => {
               const armed = armPlan(
                 {
                   title,
@@ -2918,7 +2947,7 @@ export const planPlugin: HostPlugin<PlanSettings> = {
                       }),
                 },
               )
-              return { scheduleId: armed.windowId, planId: armed.planId }
+              return armed
             }
 
             const lock = armOne(
@@ -2956,20 +2985,28 @@ export const planPlugin: HostPlugin<PlanSettings> = {
               dueAt,
               totalYuan: totalCents / 100,
               schedules: [
-                { kind: 'lock' as const, ...lock, amountYuan: lockYuan },
+                {
+                  kind: 'lock' as const,
+                  scheduleId: lock.windowId,
+                  planId: lock.planId,
+                  amountYuan: lockYuan,
+                },
                 {
                   kind: 'flower' as const,
-                  ...flower,
+                  scheduleId: flower.windowId,
+                  planId: flower.planId,
                   amountYuan: flowerAmountCents / 100,
                   ...(flowerOffer === undefined ? {} : { merchant: flowerOffer.merchantName }),
                 },
                 {
                   kind: 'cake' as const,
-                  ...cake,
+                  scheduleId: cake.windowId,
+                  planId: cake.planId,
                   amountYuan: cakeAmountCents / 100,
                   ...(cakeOffer === undefined ? {} : { merchant: cakeOffer.merchantName }),
                 },
               ],
+              plans: [lock, flower, cake],
             }
           },
           projectContent: (result) => [
@@ -2989,6 +3026,11 @@ export const planPlugin: HostPlugin<PlanSettings> = {
                 `余额/条件只要有一条失守就立即降级回人工确认，不会扣款。` +
                 `商户腿是 mock 商户域，不是真实商户 API。`,
             },
+            // 三张子窗口的机器可读副本（F-02）：渠道渲染会过滤，重启回放只认它。
+            ...result.plans.map((plan) => ({
+              type: 'text' as const,
+              text: `${WINDOW_PLAN_PREFIX}${JSON.stringify(plan)}`,
+            })),
           ],
         }
 

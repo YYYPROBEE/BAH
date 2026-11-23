@@ -85,8 +85,13 @@ export function toolTitle(name: string): string {
 export function blocksToText(blocks: readonly { type: string; text?: string; mimeType?: string }[]): string {
   const parts: string[] = []
   for (const block of blocks) {
-    if (block.type === 'text' && typeof block.text === 'string') parts.push(block.text)
-    else if (block.type === 'image') parts.push(`[图片 ${block.mimeType ?? 'unknown'}]`)
+    if (block.type === 'text' && typeof block.text === 'string') {
+      // 窗口边车块是给 `replayArmedPlans` 的机器可读副本，不是给用户看的正文。
+      // 前缀与 `packages/runtime/src/authorization/armed.ts` 的 WINDOW_PLAN_PREFIX 一致
+      // （浏览器包不引 runtime，故这里写字面量，由 armed.test.ts 锁同一个值）。
+      if (block.text.startsWith('<!--bah:window-plan-->')) continue
+      parts.push(block.text)
+    } else if (block.type === 'image') parts.push(`[图片 ${block.mimeType ?? 'unknown'}]`)
     else parts.push('[非文本内容]')
   }
   return parts.join('\n')

@@ -591,3 +591,25 @@ describe('动作豁免（READ_ONLY_ACTIONS）：只读分支不签票，写分�
     }
   })
 })
+
+describe('T-TOOLS-002b 票据金额精度（2026-11-23 复审回归）', () => {
+  it('1.005 元：票据绑定与核销同为 101 分，不得因 Math.round 少 1 分被拒', async () => {
+    const h = createPipelineHarness({ approval: 'allowed-once' })
+    try {
+      const execution = await h.run('transfer_create', {
+        amount: 1.005,
+        payee: { name: '王建国', phone: '13900002222' },
+        remark: '精度回归',
+      })
+
+      expect(execution.result.isError).toBe(false)
+      const asked = payloads(h, 'approval/asked')
+      expect(asked).toHaveLength(1)
+      expect(h.core.tickets.size).toBe(1)
+      expect(h.core.tickets.status(asked[0]?.['ticketId'] as TicketId)).toBe('redeemed')
+      expect(auditPayloads(h, 'transfer/created')[0]?.result).toMatchObject({ amountCents: 101 })
+    } finally {
+      await h.dispose()
+    }
+  })
+})

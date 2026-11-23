@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { captureThrown } from '@bah/test-support'
 
-import { replayArmedPlans, createArmedStore, executedInstanceKeys } from './armed.ts'
+import { replayArmedPlans, createArmedStore, executedInstanceKeys, WINDOW_PLAN_PREFIX } from './armed.ts'
 import { occurrenceOf } from './recurrence.ts'
 
 import type { AnySessionEvent } from '../session/types.ts'
@@ -160,5 +160,45 @@ describe('executedInstanceKeys（从 plan/created 派生，不新增事件键）
   it('别的计划互不干扰', () => {
     const keys = executedInstanceKeys([created('p-other', daily.dueAt)], [daily])
     expect(keys.size).toBe(0)
+  })
+})
+
+describe('窗口边车块（F-02 / F-03）', () => {
+  /** `transfer_schedule` / `birthday_plan` 的真实出参形状：人话 + 若干带前缀的 JSON 块。 */
+  function edgeEvent(name: string, records: readonly unknown[], seq = 1): AnySessionEvent {
+    return {
+      seq,
+      at: seq,
+      formatVersion: 1,
+      type: 'tool/result',
+      data: {
+        callId: `call-${String(seq)}`,
+        name,
+        isError: false,
+        content: [
+          { type: 'text', text: '已设置定时转账：一句人话正文' },
+          ...records.map((record) => ({
+            type: 'text' as const,
+            text: `${WINDOW_PLAN_PREFIX}${JSON.stringify(record)}`,
+          })),
+        ],
+      },
+    } as AnySessionEvent
+  }
+
+  it('transfer_schedule 的边车块可回放，人话正文被跳过', () => {
+    const store = replayArmedPlans([edgeEvent('transfer_schedule', [plan()])])
+    expect(store.get('w-1')?.planId).toBe('p-1')
+  })
+
+  it('birthday_plan 一个事件回放三张子窗口', () => {
+    const store = replayArmedPlans([
+      edgeEvent('birthday_plan', [
+        plan({ planId: 'p-lock', windowId: 'w-lock' }),
+        plan({ planId: 'p-flower', windowId: 'w-flower' }),
+        plan({ planId: 'p-cake', windowId: 'w-cake' }),
+      ]),
+    ])
+    expect(store.listArmed().map((item) => item.windowId)).toEqual(['w-lock', 'w-flower', 'w-cake'])
   })
 })
