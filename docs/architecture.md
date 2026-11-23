@@ -55,7 +55,7 @@
 | 工具数 | **30 个** | packages/bank/src/tools/specs.ts 的 `BANK_TOOL_SPECS` |
 | 注册表条目（项） | **32** | `HOST_PLUGINS` 计数 |
 | 门禁（项） | **53** | `scripts/verify-*.ts` 计数 |
-| 覆盖率 | **98.34%（行口径，60704/61728 行，实测 2026-11-23）；18/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
+| 覆盖率 | **98.34%（行口径，60710/61734 行，实测 2026-11-23）；18/18（包口径：包级行覆盖 ≥80% 的包数 / 参与统计的包数）** | docs/coverage-baseline.json（含测量命令） |
 <!-- END GENERATED:facts -->
 
 ## 3. 组件与依赖（32 个组件）

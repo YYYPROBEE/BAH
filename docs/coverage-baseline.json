@@ -2,13 +2,13 @@
   "measuredAt": "2026-11-23",
   "command": "NODE_EXTRA_CA_CERTS= pnpm test:coverage:all",
   "line": {
-    "covered": 60704,
-    "total": 61728,
+    "covered": 60710,
+    "total": 61734,
     "pct": 98.34
   },
   "packages": {
     "atLeast80": 18,
     "total": 18
   },
-  "note": "2026-11-23 更新（F-01 预授权回执）：以 5fe6e49 的 CI 台账 60540/61576 为锚点，叠加同树串行增量 +152 行（F-01 新增可执行行全部被测试覆盖；覆盖偏差 +12 已由 5fe6e49 新增用例解释），推算为 60704/61728 = 98.34%，包 18/18（最低 saga 90.34%）。本机 Windows 分母 62254 比 CI 多 526 行（无执行行文件按物理行计入），故不能直接用本机数。**下一次 CI 跑批是唯一权威**：若报表与 60704/61728 不符，以 CI 的 `.ci-artifacts/cov-all/coverage-summary.json` 为准更新本文件与 6 处台账。"
+  "note": "2026-11-23 CI（Ubuntu / Node 22.19）跑批实测（`pnpm test:coverage:all`，数字取 `.ci-artifacts/cov-all/coverage-summary.json`）：行 60710/61734 = 98.34%，包 18/18（18 个包全部 ≥80%，最低 saga 90.34%）。相对上一版 60540/61576：F-01 预授权回执新增可执行行全部被测试覆盖，覆盖行 +170、参与统计行 +158。本机 Windows 分母 62254 比 CI 多 520 行（无执行行文件按物理行计入），仍不能直接用本机数；CI 注解 `coverage 60710/61734` 是本次唯一取值来源。"
 }
