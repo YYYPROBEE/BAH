@@ -90,6 +90,12 @@ import type { HostPlugin, ValidatedRow } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
 import { createWakeMarkStore, type WakeMarkStore } from '../wake-marks.ts'
 import {
+  createWindowReceipt,
+  resolveWindowReceiptKey,
+  verifyWindowReceipt,
+  type WindowReceiptPayload,
+} from '../window-receipt.ts'
+import {
   BANK_BALANCE_PROBE,
   BANK_TRANSFER_PROBE,
   type TransferProbe,
@@ -97,7 +103,7 @@ import {
 } from './bank-tools.ts'
 import { FACT_SERVICE, type FactStore } from './fact.ts'
 import { MERCHANT_SERVICE, type MerchantFulfilment, type MerchantService } from './merchant.ts'
-import { WINDOW_SIGNER, type WindowSigner } from './plan-grant.ts'
+import { WINDOW_PREAUTH, WINDOW_SIGNER, type WindowPreauthVerifier, type WindowSigner } from './plan-grant.ts'
 import {
   detailsDigestOf,
   maskPhone,
@@ -1093,6 +1099,21 @@ export const planPlugin: HostPlugin<PlanSettings> = {
        */
       const clock = (): number => ctx.get(RUN_SERVICE).now()
 
+      /**
+       * 跨重启回执密钥（F-01 阶段 B）。
+       *
+       * 来源优先级：`RunContext.receiptKey`（测试 / 嵌入式装配）→ 环境变量
+       * `BAH_WINDOW_RECEIPT_KEY`。**密钥不进仓**：没有它就不签发回执，
+       * 到期代签退回"同进程挑战结论"，并在启动期留一条告警（不静默降级）。
+       */
+      const rawReceiptKey = ctx.get(RUN_SERVICE).receiptKey ?? process.env['BAH_WINDOW_RECEIPT_KEY']
+      const receiptKey = resolveWindowReceiptKey(rawReceiptKey)
+      if (rawReceiptKey !== undefined && rawReceiptKey.trim().length > 0 && receiptKey === undefined) {
+        ctx
+          .get(RUN_SERVICE)
+          .warn?.('BAH_WINDOW_RECEIPT_KEY 过短（需 ≥32 字节）：本次运行不签发跨重启回执')
+      }
+
       /** 每 run 一个 guard：同 plan 内同名同参的 deny 单调生效，跨 plan 不串味。 */
       const runGuards = new Map<string, ToolGuard>()
       // 必须清：长跑进程里每个 plan 泄漏一个 Map，一天下来就是内存增长
@@ -1124,6 +1145,29 @@ export const planPlugin: HostPlugin<PlanSettings> = {
         /* v8 ignore stop */
         const session = ctx.get(SESSION_SERVICE)
         const run = ctx.get(RUN_SERVICE)
+        const authorization = runAuthorization.get(ictx.planId)
+        /**
+         * 预授权凭据（F-01）：窗口票据 + 在途唤醒标记 + 标记里带着的挑战。
+         *
+         * 三个条件缺一不可——`authorization` 声明"这是窗口票"，标记证明"这次 run 是
+         * 唤醒执行器开的"，挑战证明"武装那一刻真的验过人"。任何一条缺失都不构造。
+         * 真正的判定不在这里：审批服务会把凭据交给 `plan:window-preauth` 逐条核验。
+         */
+        const mark =
+          authorization?.kind === 'window' ? wakeMarks.get(authorization.ref) : undefined
+        const preauth =
+          mark?.challenge === undefined || mark.verifiedAt === undefined || mark.expiresAt === undefined
+            ? undefined
+            : {
+                windowId: mark.windowId,
+                planId: mark.planId,
+                nodeId: node.id,
+                challengeId: mark.challenge.challengeId,
+                channel: mark.challenge.channel,
+                verifiedAt: mark.verifiedAt,
+                expiresAt: mark.expiresAt,
+                ...(mark.challenge.receipt === undefined ? {} : { receipt: mark.challenge.receipt }),
+              }
         const pipeline = new ToolPipeline({
           ctx,
           registry: registry(),
@@ -1133,9 +1177,9 @@ export const planPlugin: HostPlugin<PlanSettings> = {
           now: run.now,
           signal: ictx.signal,
           // 授权窗口代签：整次 run 的每个节点审批都会带上它（ADR-0008）
-          ...(runAuthorization.get(ictx.planId) === undefined
-            ? {}
-            : { authorization: runAuthorization.get(ictx.planId) }),
+          ...(authorization === undefined ? {} : { authorization }),
+          // 预授权只随窗口票据走；管线还会再确认一次 authorization.kind
+          ...(preauth === undefined ? {} : { preauth }),
           // 验收面（快照回放）注入确定性票号；生产不传，仍走随机 UUID
           ...(run.mintTicketId === undefined ? {} : { mintTicketId: run.mintTicketId }),
         })
@@ -1582,6 +1626,81 @@ export const planPlugin: HostPlugin<PlanSettings> = {
 
       ctx.effect(ctx.provide(WINDOW_SIGNER, signer))
 
+      /**
+       * 预授权核验端口（F-01 的判定面）。
+       *
+       * 判定顺序（顺序即安全边界，不可重排）：
+       * 1. 票据必须自称窗口票，且窗口 id 与凭据一致；
+       * 2. 渠道必须与本次 ask 要求的一致（不能用短信凭据抵人脸要求）；
+       * 3. 窗口存在、仍在 `armed`，planId / 挑战 / 验证时刻 / 过期时刻逐项对齐
+       *    （对齐的是**账本里的**值，不是凭据自称的值）；
+       * 4. 节点必须真的在这张计划里（同一窗口的另一条腿不能复用）；
+       * 5. 当前时刻落在 `[verifiedAt, expiresAt]`；
+       * 6. 有回执 + 有密钥 ⇒ **只认验签**（失败即拒绝，不退回内存路径）；
+       *    否则退回同进程 `passed(challengeId)`（阶段 A）。
+       *
+       * 任何一步拿不到确定答案都返回 `false`：审批服务会落 `challenge-required`，
+       * 方向仍是拒绝。
+       */
+      const preauthVerifier: WindowPreauthVerifier = {
+        verify(claim, expectation) {
+          if (expectation.authorization.kind !== 'window') return false
+          if (claim.windowId !== expectation.authorization.ref) return false
+          if (claim.channel !== expectation.channel) return false
+
+          /**
+           * ★ 标记是"这次 run 由唤醒执行器发起"的唯一证据（与 `WindowSigner` 同一判据）。
+           *
+           * 少了这一步，任何能往 ask 判决里塞 `authorization` 的路径都能拿一张
+           * **真实存在**的窗口凭据在非唤醒 run 里花掉预算——窗口应答者会沉默，
+           * 但另一个应答者（或未来的同步渠道）一答 `allowed-once` 就绕过了代签核验。
+           * 字段可以仿，标记不能：它只由本文件的 `wake()` 开、run 结束即撤销。
+           */
+          const mark = wakeMarks.get(claim.windowId)
+          if (mark === undefined) return false
+          if (mark.planId !== claim.planId) return false
+          if (mark.digest !== expectation.authorization.digest) return false
+          if (mark.challenge?.challengeId !== claim.challengeId) return false
+
+          const armed = armedStore.get(claim.windowId)
+          if (armed === undefined || armed.state !== 'armed') return false
+          if (armed.planId !== claim.planId) return false
+          const armedChallenge = armed.challenge
+          if (armedChallenge === undefined) return false
+          if (armedChallenge.challengeId !== claim.challengeId) return false
+          if (armedChallenge.channel !== claim.channel) return false
+          if (armed.verifiedAt !== claim.verifiedAt) return false
+          if (armed.expiresAt === undefined || armed.expiresAt !== claim.expiresAt) return false
+          if (!armed.plan.nodes.some((node) => node.id === claim.nodeId)) return false
+
+          const at = clock()
+          if (at < claim.verifiedAt || at > claim.expiresAt) return false
+
+          if (claim.receipt !== undefined && receiptKey !== undefined) {
+            const payload: WindowReceiptPayload = {
+              sessionId: session.sessionId,
+              windowId: armed.windowId,
+              planId: armed.planId,
+              nodeIds: armed.plan.nodes.map((node) => node.id).sort(),
+              challengeId: armedChallenge.challengeId,
+              channel: armedChallenge.channel,
+              verifiedAt: claim.verifiedAt,
+              expiresAt: claim.expiresAt,
+            }
+            return verifyWindowReceipt(receiptKey, payload, claim.receipt)
+          }
+
+          // 阶段 A：武装时的挑战还在本进程的 `VerifyService` 里（重启即失）
+          try {
+            return ctx.get(BANK_CHALLENGE).passed(claim.challengeId)
+          } catch {
+            return false
+          }
+        },
+      }
+
+      ctx.effect(ctx.provide(WINDOW_PREAUTH, preauthVerifier))
+
       const wake: PlanWakeRunner = {
         wake: async (input = {}) => {
           const at = input.at ?? clock()
@@ -1879,6 +1998,8 @@ export const planPlugin: HostPlugin<PlanSettings> = {
                 budgetCents: item.budgetCents,
                 ...(item.verifiedAt === undefined ? {} : { verifiedAt: item.verifiedAt }),
                 ...(item.expiresAt === undefined ? {} : { expiresAt: item.expiresAt }),
+                // 武装时的挑战凭据（F-01）：标记只搬运，核验在 `plan:window-preauth`
+                ...(item.challenge === undefined ? {} : { challenge: item.challenge }),
               })
               const eventsBefore = session.events().length
               let summary: PlanRunSummary
@@ -2431,9 +2552,31 @@ export const planPlugin: HostPlugin<PlanSettings> = {
             }
           }
 
+          const windowId = `w-${ictx.callId}`
+          /**
+           * 跨重启回执（F-01 阶段 B）：三者同时成立才签。
+           *
+           * 1. 有预授权（武装时真的验过人）；
+           * 2. 有窗口过期时刻（回执必须有明确寿命，不接受"永久有效"）；
+           * 3. 有部署密钥（没有密钥就不签，退回同进程路径）。
+           */
+          const receipt =
+            preauth === undefined || expiresAt === undefined || receiptKey === undefined
+              ? undefined
+              : createWindowReceipt(receiptKey, {
+                  sessionId: ictx.sessionId,
+                  windowId,
+                  planId: plan.planId,
+                  nodeIds: plan.nodes.map((node) => node.id).sort(),
+                  challengeId: preauth.challenge.challengeId,
+                  channel: preauth.challenge.channel,
+                  verifiedAt: preauth.verifiedAt,
+                  expiresAt,
+                })
+
           const armed: ArmedPlan = {
             planId: plan.planId,
-            windowId: `w-${ictx.callId}`,
+            windowId,
             planDigest: planDigest(plan),
             title: plan.meta?.title ?? plan.planId,
             tier,
@@ -2447,7 +2590,13 @@ export const planPlugin: HostPlugin<PlanSettings> = {
             state: 'armed',
             ...(preauth === undefined
               ? {}
-              : { verifiedAt: preauth.verifiedAt, challenge: preauth.challenge }),
+              : {
+                  verifiedAt: preauth.verifiedAt,
+                  challenge: {
+                    ...preauth.challenge,
+                    ...(receipt === undefined ? {} : { receipt }),
+                  },
+                }),
             ...(args['merchantOfferId'] === undefined
               ? {}
               : {

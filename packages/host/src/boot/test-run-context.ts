@@ -61,6 +61,7 @@ export function testRunContext(partial: Partial<RunContext> = {}): RunContext {
     ...(partial.probe === undefined ? {} : { probe: partial.probe }),
     ...(partial.restoreSession === undefined ? {} : { restoreSession: partial.restoreSession }),
     ...(partial.restoreEvents === undefined ? {} : { restoreEvents: partial.restoreEvents }),
+    ...(partial.receiptKey === undefined ? {} : { receiptKey: partial.receiptKey }),
     // 唤醒标记账本（ADR-0010）：每个夹具一套，避免用例之间共享"在途窗口"
     wakeMarks: partial.wakeMarks ?? createWakeMarkStore(),
   }

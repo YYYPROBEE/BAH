@@ -77,7 +77,12 @@ export interface WindowResponderDeps {
   readonly verifyWindow: (
     request: WindowSignRequest,
   ) => WindowSignGrant | Promise<WindowSignGrant>
-  /** 渠道 id 覆盖（缺省 {@link WINDOW_RESPONDER_ID}；只给多窗口演练用）。 */
+  /**
+   * 渠道 id 覆盖（缺省 {@link WINDOW_RESPONDER_ID}；只给多窗口演练用）。
+   *
+   * 注意：审批服务只认默认 id 作预授权证据（F-01）；覆盖 id 后窗口仍能代签黄级，
+   * 但红级预授权不会成立——这是有意的，避免"换个 id 就绕过预算核验"。
+   */
   readonly id?: string
 }
 

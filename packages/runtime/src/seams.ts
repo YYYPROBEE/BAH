@@ -81,6 +81,41 @@ export interface ApprovalResponse {
 }
 
 /**
+ * 窗口代签的**预授权凭据**（ADR-0010；F-01 的修复面）。
+ *
+ * 为什么票据字段（`TicketAuthorization`）不承载它：
+ * 票据契约只有 `{kind, ref, digest}`，往里加字段等于改冻结契约面（R-1）；
+ * 而且"这张票是窗口签的"与"武装那一刻真的验过人"是两件事，分开表达更不容易被误用。
+ *
+ * 判定顺序与信任边界写在 `@bah/interaction` 的 `ApprovalService.satisfied()`：
+ * 本结构只是**声明**，能不能算数由宿主提供的挑战端口逐条核验
+ * （窗口状态 / 绑定 / 有效期 / 签名回执 / 同进程挑战结论）。
+ */
+export interface ApprovalPreauth {
+  /** 授权窗口 id（必须等于票据 `authorization.ref`）。 */
+  readonly windowId: string
+  /** 计划 id（必须等于窗口条目里的 planId）。 */
+  readonly planId: string
+  /** 本节点 id（回执按节点绑定：同一窗口的另一条腿不能复用）。 */
+  readonly nodeId: string
+  /** 武装时通过的挑战 id。 */
+  readonly challengeId: string
+  /** 挑战渠道（必须与本次红级 ask 要求的渠道一致）。 */
+  readonly channel: 'face' | 'sms' | 'ushield'
+  /** 武装时的强验证时刻（epoch ms）。 */
+  readonly verifiedAt: number
+  /** 窗口过期时刻（epoch ms；预授权只在窗口内有效）。 */
+  readonly expiresAt: number
+  /**
+   * 跨重启签名回执（可选）。
+   *
+   * 有它且密钥配置正确时，宿主验签即可放行，**不再依赖进程内的 `VerifyService`**；
+   * 没有它时退回"同进程挑战结论"（阶段 A）。两种路径都不改变票据契约。
+   */
+  readonly receipt?: string
+}
+
+/**
  * `approval/request` 的载荷：票据 + 渠道无关的安全 payload + 当前结论。
  *
  * `decision` 默认 `unavailable`：**无人应答 = 拒绝**。
@@ -105,6 +140,13 @@ export interface ApprovalInput {
   readonly challenge?: ApprovalChallenge
   /** 授权来源（ADR-0008；缺省 = 人工点击）。由 `tools/pre-execute` 的 ask 判决透传。 */
   readonly authorization?: TicketAuthorization
+  /**
+   * 窗口代签的预授权凭据（ADR-0010 / F-01）。
+   *
+   * 只由受控执行器（`plan_wake`）在唤醒 run 内注入；人工票据永远不带它。
+   * 红级 ask 上审批服务先用它核验，核验不过才落到 `challenge-required`。
+   */
+  readonly preauth?: ApprovalPreauth
   /**
    * 采纳者（ADR-0010；**只有窗口代签才会被审批服务写回**）。
    *

@@ -8,7 +8,7 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **455 文件 / 5283 用例**（2026-11-03 全量实测（清理线）：较 446/5148 增 9 个用例文件（远端清理线补的 5 个覆盖率文件 + 本批 4 个），另有路由兜底、核心守卫等用例补齐。**如实登记**：全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有 1 例时序偶发失败，单文件重跑 17/17 绿，与用例数口径无关） |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **458 文件 / 5301 用例**（2026-11-23 实测：较 2026-11-03 台账 455/5283 增 3 文件 / 18 例。**如实拆账**：其中 7 例 + 2 文件是台账日期之后已合入的存量漂移（`vitest list` 与台账的差，本轮复审登记），11 例 + 1 文件是本轮 F-01 修复新增——审批预授权 4、回执单测 5、跨重启集成 2。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑绿），与用例数无关**） |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **49 文件 / 610 用例**（全绿；2026-11-03 实测（清理线）：较 47/550 新增 `views/history.test.js` 27 例、`mobile/history-sheet.test.js` 14 例与批内 18 例） |
 
@@ -18,7 +18,7 @@
 |---|---|---|
 | `pnpm gate` | **53/53** 项已发现（本次 **53 全绿**） | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1 |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
-| `pnpm test:snapshot` | 14 文件 / 64 用例（**64 全绿**） | 新增 `scheduled-funds`（定时转账入口 + `fund_lock` 三动作 + 到期代签安全失败 + 零误扣，4 例）；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 用夹具 overlay 显式放行审批（ADR-0010 后 profile 是 `responder: none`），重录只写快照产物，未改生产 profile |
+| `pnpm test:snapshot` | 14 文件 / 64 用例（**64 全绿**） | 新增 `scheduled-funds`（定时转账入口 + `fund_lock` 三动作 + 到期代签**成功**（武装预授权）+ 只扣一笔，4 例）；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 用夹具 overlay 显式放行审批（ADR-0010 后 profile 是 `responder: none`），重录只写快照产物，未改生产 profile |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
 | `pnpm test:coverage:all` | **行口径 98.32%**（60540/61576）/ **包口径 18/18** | 两个口径必须一起说；18 个包全部 ≥80%（最低 `saga` 90.34%），见台账注记 |
 评测平面（`pnpm eval`）：

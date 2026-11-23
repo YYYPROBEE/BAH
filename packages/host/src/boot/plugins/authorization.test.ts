@@ -105,6 +105,7 @@ async function bootHost(
   dir = mkdtempSync(join(tmpdir(), 'bah-authz-')),
   rows: readonly PluginRow[] = ROWS,
   restoreSession = false,
+  receiptKey?: string,
 ): Promise<Booted> {
   const ownDir = dir.startsWith(tmpdir())
   const bundle: Bundle = { name: 'base', rows }
@@ -119,6 +120,7 @@ async function bootHost(
       now: () => NOW,
       jsonlDir: dir,
       ...(restoreSession ? { restoreSession: true } : {}),
+      ...(receiptKey === undefined ? {} : { receiptKey }),
     }),
   }
   void ownDir
@@ -274,6 +276,88 @@ describe('重启补跑（D1 的实测证据）', () => {
     await second.app.dispose('test-done')
     rmSync(dir, { recursive: true, force: true })
   }, 15_000)
+
+  /**
+   * 跨重启回执（F-01 阶段 B）。
+   *
+   * 与上一条的区别：这里节点在到期时**升红**（金额超过日限额 1000 元），
+   * 所以代签不仅要过窗口复验，还要回答"武装时那次强验证凭什么算到现在"。
+   * 第一个进程的 `VerifyService` 随 `dispose` 消失，第二个进程的 `passed()` 必为 false
+   * ——能成功只可能是回执验签通过。
+   */
+  const RECEIPT_KEY = 'bah-window-receipt-test-key-0123456789abcdef'
+  const RED_PLAN_ARGS = {
+    title: '跨重启用例：大额房租',
+    budgetYuan: 1500,
+    dueAt: DUE_ISO,
+    expiresAt: new Date(NOW + 60_000).toISOString(),
+    tier: 'wide',
+    conditions: [{ kind: 'balance-at-least', cents: 1 }],
+    nodes: [
+      {
+        id: 'pay',
+        tool: 'transfer_create',
+        args: { amount: 1500, payee: { name: '李雷' }, remark: '跨重启' },
+        deps: [],
+      },
+    ],
+  }
+
+  /** 从 `tool/result` 里读 `plan_arm` 的结构化出参（回执就在里面）。 */
+  function planArmResult(app: BootedApp): { readonly challenge?: { readonly receipt?: string } } {
+    const event = eventsOf(app)
+      .filter((item) => item.type === 'tool/result' && item.data['name'] === 'plan_arm')
+      .at(-1)
+    const text = (event?.data['content'] as { text?: string }[] | undefined)?.[0]?.text
+    return JSON.parse(text ?? '{}') as { readonly challenge?: { readonly receipt?: string } }
+  }
+
+  it('回执让宽档红级代签跨进程成立（新进程内存里没有那条挑战）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-authz-receipt-'))
+    const first = await bootHost(dir, ROWS, false, RECEIPT_KEY)
+    await callTool(first.app, 'plan_arm', RED_PLAN_ARGS)
+    // 回执真的写进了 `plan_arm` 出参（否则重启后无从验签）
+    expect(planArmResult(first.app).challenge?.receipt).toEqual(expect.any(String))
+    await first.app.dispose('simulated-exit')
+
+    const second = await bootHost(dir, ROWS, true, RECEIPT_KEY)
+    const report = await second.app.ctx.get(PLAN_WAKE_SERVICE).wake({ at: NOW, source: 'cli' })
+    expect(report.entries[0]).toMatchObject({ status: 'executed' })
+
+    const completed = eventsOf(second.app).filter((event) => event.type === 'plan/completed')
+    expect(completed.at(-1)?.data).toMatchObject({ status: 'succeeded', succeeded: 1, failed: 0 })
+    // 钱真的动了，且只动一笔
+    expect(eventsOf(second.app).filter((event) => event.type === 'transfer/created')).toHaveLength(1)
+    expect(
+      eventsOf(second.app).filter(
+        (event) => event.type === 'approval/decided' && event.data['by'] === 'window-responder',
+      ),
+    ).toHaveLength(1)
+
+    await second.app.dispose('test-done')
+    rmSync(dir, { recursive: true, force: true })
+  }, 20_000)
+
+  it('回执密钥不一致 ⇒ 重启后仍按 challenge-required 拒绝（零动账）', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bah-authz-receipt-bad-'))
+    const first = await bootHost(dir, ROWS, false, RECEIPT_KEY)
+    await callTool(first.app, 'plan_arm', RED_PLAN_ARGS)
+    await first.app.dispose('simulated-exit')
+
+    // 换一把密钥 = 回执验不过：不能退回"内存里没有挑战"就当没事
+    const second = await bootHost(dir, ROWS, true, 'another-window-receipt-key-0123456789abcdef')
+    const report = await second.app.ctx.get(PLAN_WAKE_SERVICE).wake({ at: NOW, source: 'cli' })
+    expect(report.entries[0]).toMatchObject({ status: 'executed' })
+
+    const completed = eventsOf(second.app).filter((event) => event.type === 'plan/completed')
+    expect(completed.at(-1)?.data).toMatchObject({ status: 'failed', succeeded: 0, failed: 1 })
+    const blocked = eventsOf(second.app).filter((event) => event.type === 'ticket/blocked')
+    expect(blocked.at(-1)?.data).toMatchObject({ reason: 'challenge-required' })
+    expect(eventsOf(second.app).filter((event) => event.type === 'transfer/created')).toHaveLength(0)
+
+    await second.app.dispose('test-done')
+    rmSync(dir, { recursive: true, force: true })
+  }, 20_000)
 })
 
 

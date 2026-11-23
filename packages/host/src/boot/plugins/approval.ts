@@ -20,14 +20,14 @@ import {
   createHeadlessResponder,
   createWindowResponder,
 } from '@bah/interaction'
-import type { ApprovalInputLike, WindowSignGrant, WindowSignRequest } from '@bah/interaction'
+import type { ApprovalInputLike, ChallengePort, WindowSignGrant, WindowSignRequest } from '@bah/interaction'
 import { SESSION_SERVICE } from '@bah/runtime'
 import { assertNever } from '@bah/util'
 
 import type { HostPlugin } from '../../plugin-manager/index.ts'
 import { RUN_SERVICE } from '../boot.ts'
 import { readBoolean, readEnum, readPositiveInteger, rejectUnknownKeys } from '../config.ts'
-import { WINDOW_SIGNER } from './plan-grant.ts'
+import { WINDOW_PREAUTH, WINDOW_SIGNER } from './plan-grant.ts'
 
 /** 自动应答策略（只在 `responder: headless` 时生效）。 */
 export type AutoDecision = 'allow' | 'reject' | 'cancel'
@@ -81,11 +81,35 @@ export const approvalPlugin: HostPlugin<ApprovalSettings> = {
       const run = ctx.get(RUN_SERVICE)
       const session = ctx.get(SESSION_SERVICE)
 
+      const bankChallenge = ctx.get(BANK_CHALLENGE)
+      /**
+       * 挑战端口 + 预授权核验（F-01）。
+       *
+       * 前三个动作原样转发给银行侧 `bank:challenge`；第四个是宿主独有的判定面：
+       * 窗口账本与回执密钥只有 `plan:dag` 看得到，所以按服务键懒取
+       * （`plan:dag` 在本行之后装配，eager `get` 会在载入期抛 `service-missing`）。
+       * 取不到 = 没有窗口核验面 = 不放行（fail-closed）。
+       */
+      const challenges: ChallengePort = {
+        issue: (channel) => bankChallenge.issue(channel),
+        verify: (challengeId, channel) => bankChallenge.verify(challengeId, channel),
+        passed: (challengeId) => bankChallenge.passed(challengeId),
+        verifyPreauth: (preauth, expectation) => {
+          let verifier
+          try {
+            verifier = ctx.get(WINDOW_PREAUTH)
+          } catch {
+            return false
+          }
+          return verifier.verify(preauth, expectation)
+        },
+      }
+
       const service = new ApprovalService({
         sessionId: run.sessionId,
         now: run.now,
-        // 银行侧提供的强验证端口（红级挑战链）
-        challenges: ctx.get(BANK_CHALLENGE),
+        // 银行侧提供的强验证端口（红级挑战链）+ 窗口预授权核验（F-01）
+        challenges,
         record: (record) => {
           session.appendDomain(record.type, record.data, { ignorable: true })
         },

@@ -89,3 +89,58 @@
   依赖 `DEFAULT_APPROVAL.windowResponder = false`。要支持无人值守需显式打开并在本文补一行。
 - `subscription` 的定时扣款走 `plan:scheduler`，代签生效但端到端**无快照背书**
   （13 份快照 38 次 `tool/call` 里 0 次触发）；不得据此宣称"订阅扣款已自动化验证"。
+
+## 7 补记（2026-11-22）：预授权凭据必须跨重启可验证（F-01）
+
+### 7.1 问题
+
+武装时的强验证结论只存在银行侧 `VerifyService` 的进程内 `Map` 里
+（`packages/bank/src/verify/index.ts`）。窗口到期执行红级节点时，审批服务的
+`challenge-required` 分支看的是**本次新签发**的挑战，而窗口代签从未验过它；
+同进程还能靠"武装时的挑战仍 `passed()`"兜住，**进程一重启就必然失败**。
+实测形态：窗口执行了、计划 `failed`、钱没动（安全但不可兑付）。
+
+### 7.2 决定
+
+`TicketAuthorization` 仍只带 `{kind, ref, digest}`（不改 ADR-0008 的契约面），
+预授权凭据走**审批输入的内部字段** `preauth`，由三个条件共同约束：
+
+1. `authorization.kind === 'window'`，且 `preauth.windowId === authorization.ref`；
+2. 窗口仍在 `armed`，**本次 run 的唤醒标记在**（planId / digest / challengeId 对齐），
+   `planId` / `challengeId` / `channel` / `verifiedAt` / `expiresAt` 与账本逐项一致，
+   `nodeId` 必须在这张计划里；
+3. 当前时刻落在 `[verifiedAt, expiresAt]`；
+4. 应答者必须是窗口代签者本人（`window-responder`）：通用渠道抢答不算数——
+   否则预授权会绕过 `WindowSigner` 的世界复验与预算记账。
+
+满足后，强验证的判据按**可用证据**降级，但只降级到"有据可查"为止：
+
+- 有签名回执且部署配置了密钥 ⇒ **只认验签**（失败即拒绝，不退回内存路径）；
+- 否则退回同进程 `passed(武装挑战)`；再不行一律 `challenge-required`。
+
+预授权成立时的 `approval/decided.reason` 固定写 **`window-preauth`**，
+与"当场验过人"的记录区分；`window-authorized` 仍只是应答者的应答理由，不当作证据。
+
+### 7.3 回执
+
+`receipt = HMAC-SHA256(key, canonicalJson({sessionId, windowId, planId, nodeIds,
+challengeId, channel, verifiedAt, expiresAt}))`，写入
+`ArmedPlan.challenge.receipt`，随 `plan_arm` 的 `tool/result` 落进会话日志。
+密钥来自部署环境（`BAH_WINDOW_RECEIPT_KEY`，≥32 字节），**不进仓**；
+没有密钥时回执缺省不签发，启动期留告警，行为退回同进程路径。
+
+回执按 `(windowId, planId, nodeId)` 绑定：同一窗口的另一条腿不能复用；
+同一节点在 `resume` 里的重试可以复用（验证的是"人"，不是"第几次尝试"）。
+它不替代 `WindowSigner` 的世界复验（余额 / 条件 / 预算每次重算）。
+
+### 7.4 未覆盖（显式登记）
+
+- `transfer_schedule` / `birthday_plan` 的工具出参是**人话摘要**，
+  不含完整 `ArmedPlan`；`replayArmedPlans` 只认 `plan_arm` / `plan_disarm` 的
+  结构化出参 ⇒ 这两类窗口本身不跨重启（回执再对也回放不出窗口）。要支持需另立
+  持久化方案（标记 JSON 边车或新领域事件），不得在本 ADR 下宣称已支持。
+- 会话日志落盘前会做 PII 掩码（`packages/persistence/src/jsonl/redact.ts`）。
+  `plan_arm` 出参是 JSON 字符串，手机号会被掩码成 `139****3333`；重启回放后
+  `planDigest` 与武装时不一致，`plan-digest-mismatch` 会**正确拒绝**签名。
+  也就是说：带手机号的计划目前不能跨重启续跑，修法应是计划里引用 `payeeId`
+  而不是原始 PII，而不是放宽摘要校验。

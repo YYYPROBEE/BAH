@@ -37,6 +37,7 @@ import type {
   Timer,
 } from './types.ts'
 import { isApprovalOutcome, systemTimer } from './types.ts'
+import { WINDOW_RESPONDER_ID } from './window-responder.ts'
 
 /** 一次待裁决的审批（`dispose()` 用它取消全部在途请求）。 */
 interface PendingApproval {
@@ -144,14 +145,13 @@ export class ApprovalService {
     }
 
     if (downstream.decision.decision !== 'unavailable') {
-      // 下游（如 sentry 归一化或同步渠道）已有结论：红级仍必须验过挑战才允许放行
-      if (
-        downstream.decision.decision === 'allowed-once' &&
-        issued !== undefined &&
-        !this.passed(issued)
-      ) {
-        this.recordChallengeFailed(input, issued, 'challenge-required')
-        return this.settleNow(input, { decision: 'rejected', reason: 'challenge-required' }, 'challenge')
+      if (downstream.decision.decision === 'allowed-once' && issued !== undefined) {
+        // 下游（同步渠道）没有"窗口代签者"这个身份：只可能是 'challenge' 或没有证据
+        const proof = this.proofOf(input, issued, undefined)
+        if (proof === undefined) {
+          this.recordChallengeFailed(input, issued, 'challenge-required')
+          return this.settleNow(input, { decision: 'rejected', reason: 'challenge-required' }, 'challenge')
+        }
       }
       return downstream
     }
@@ -257,15 +257,21 @@ export class ApprovalService {
           finish({ decision: 'unavailable', reason: 'ticket-expired' }, by)
           return { accepted: false, code: 'expired' }
         }
-        if (reply.decision === 'allowed-once' && challenge !== undefined && !this.passed(challenge)) {
-          this.recordChallengeFailed(input, challenge, 'challenge-required')
-          finish({ decision: 'rejected', reason: 'challenge-required' }, by)
-          return { accepted: true }
+        let reason = reply.reason
+        if (reply.decision === 'allowed-once' && challenge !== undefined) {
+          const proof = this.proofOf(input, challenge, by)
+          if (proof === undefined) {
+            this.recordChallengeFailed(input, challenge, 'challenge-required')
+            finish({ decision: 'rejected', reason: 'challenge-required' }, by)
+            return { accepted: true }
+          }
+          // 审计口径：预授权放行必须与"当场验过人"可区分（`approval/decided.reason`）
+          if (proof === 'preauth') reason = 'window-preauth'
         }
         finish(
           {
             decision: reply.decision,
-            ...(reply.reason === undefined ? {} : { reason: reply.reason }),
+            ...(reason === undefined ? {} : { reason }),
           },
           by,
         )
@@ -354,6 +360,52 @@ export class ApprovalService {
   /** 挑战是否已通过（没有端口 = 永远不通过：默认拒绝）。 */
   private passed(challenge: ChallengeView): boolean {
     return this.challenges?.passed(challenge.challengeId) ?? false
+  }
+
+  /**
+   * 这次批准的证据来源（F-01 的判决点）。
+   *
+   * 三条可能，顺序即安全边界：
+   * 1. `'challenge'`——本次签发的挑战已通过：人工票据与"当场验人"的唯一正路；
+   * 2. `'preauth'`——窗口预授权：仅当票据自带 `authorization.kind === 'window'`
+   *    且宿主端口逐条核验通过（窗口状态 / 唤醒标记 / 绑定 / 有效期 / 回执签名）；
+   * 3. `undefined`——没有证据：一律 `challenge-required`。
+   *
+   * 为什么要返回"来源"而不是布尔：`approval/decided` 必须能区分
+   * "当场验过人"与"用武装时的凭据抵账"，否则审计上两者长得一模一样。
+   * 为什么核验不在这里做：窗口账本、唤醒标记、回执密钥只有宿主看得到；
+   * 审批服务只认"端口说行"。端口抛错按没有证据处理——**异常不是授权**。
+   */
+  private proofOf(
+    input: ApprovalInputLike,
+    challenge: ChallengeView,
+    by: string | undefined,
+  ): 'challenge' | 'preauth' | undefined {
+    if (this.passed(challenge)) return 'challenge'
+    const preauth = input.preauth
+    const authorization = input.authorization
+    if (preauth === undefined) return undefined
+    if (authorization === undefined || authorization.kind !== 'window') return undefined
+    /**
+     * ★ 只有窗口代签者答的才算预授权。
+     *
+     * 为什么必须钉死"谁答的"：`WindowSigner` 在做世界复验、档位判定与**预算记账**；
+     * 若一个通用应答者（或未来的同步渠道）先答了 `allowed-once`，预授权一过，
+     * 这笔钱就绕过了预算与余额复验。证伪路径只需要"多注册一个 accepts() 全放的渠道"。
+     */
+    if (by !== WINDOW_RESPONDER_ID) return undefined
+    const port = this.challenges
+    if (port?.verifyPreauth === undefined) return undefined
+    try {
+      const ok = port.verifyPreauth(preauth, {
+        authorization,
+        channel: challenge.channel,
+        callId: input.callId,
+      })
+      return ok ? 'preauth' : undefined
+    } catch {
+      return undefined
+    }
   }
 
   /** 立即结算（不进入仲裁：挑战不可用 / 无应答者 / 下游已裁决但验不过）。 */

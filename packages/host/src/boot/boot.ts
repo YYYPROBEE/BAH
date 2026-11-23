@@ -114,6 +114,13 @@ export interface RunContext {
    * CLI 与测试夹具都显式传，好让"标记"这件事在装配面上看得。
    */
   readonly wakeMarks?: WakeMarkStore
+  /**
+   * 授权窗口回执密钥（F-01 阶段 B）。
+   *
+   * 测试 / 嵌入式装配显式注入；生产走环境变量 `BAH_WINDOW_RECEIPT_KEY`。
+   * 缺省不签发跨重启回执（退回同进程挑战结论），不会静默假装已支持。
+   */
+  readonly receiptKey?: string
 }
 
 /** 服务键：`bah:run`（插件以 `inject: ['bah:run']` 声明依赖）。 */

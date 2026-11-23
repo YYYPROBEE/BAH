@@ -64,7 +64,7 @@ describe(`快照回放 · ${CASE.name}`, () => {
     expect(second).toEqual(first)
   })
 
-  it('事件级不变量：两个工具真的被调用，到期代签被挑战校验阻断且零误扣', () => {
+  it('事件级不变量：两个工具真的被调用，到期代签凭预授权成功且只扣一笔', () => {
     const snapshot = loadSnapshot(DIR)
     const events = snapshot.events
 
@@ -76,13 +76,13 @@ describe(`快照回放 · ${CASE.name}`, () => {
     // 武装宽档窗口前必须完成一次强验证（否则 preauthOf 返回 undefined，工具会抛错）
     expect(events.filter((event) => event.type === 'approval/challenge-issued').length).toBeGreaterThan(0)
 
-    // 只有 fund_lock 的两笔内部划转真的动了账；定时转账到期**没有**产生第三笔
-    // （见下面的安全失败断言——这条"零误扣"是本场景最重要的负向证据）。
-    expect(events.filter((event) => event.type === 'transfer/created')).toHaveLength(2)
+    // 三笔：`fund_lock` 的两笔内部划转 + 定时转账到期的那一笔。
+    // 修复 F-01 前这里是 2 笔（到期被 `challenge-required` 阻断）；现在到期腿真的动账，
+    // 但仍必须**只动一笔**——重复扣款由窗口幂等（`already-ran`）与预算记账挡住。
+    expect(events.filter((event) => event.type === 'transfer/created')).toHaveLength(3)
     expect(events.filter((event) => event.type === 'plan/created')).toHaveLength(1)
 
-    // 到期代签：票据在**签发时**就带 window 授权来源（`ticket/issued` 是唯一携带它的
-    // 事件；`ticket/approved` 只有票据 ID，因为本次代签随后被挑战校验阻断）。
+    // 到期代签：票据在**签发时**就带 window 授权来源。
     const issued = events.filter((event) => event.type === 'ticket/issued')
     const windowIssued = issued.filter(
       (event) => (event.data as { authorization?: { kind?: string } }).authorization?.kind === 'window',
@@ -90,14 +90,17 @@ describe(`快照回放 · ${CASE.name}`, () => {
     expect(windowIssued).toHaveLength(1)
 
     /*
-     * 到期代签的真实语义（2026-11-15 实测，已登记为待修缺陷 F-01）：
+     * 到期代签的真实语义（F-01 修复后，2026-11-22 重录）：
      *
-     * `transfer_schedule` 武装时做了强验证，但 `TicketAuthorization` 只有
-     * `{kind, ref, digest}`，没有承载 challenge 的字段；窗口到期执行
-     * `transfer_create`（红级）时，审批服务只能判定 `challenge-required` 并阻断。
-     * 结果是"窗口执行了、计划失败了、钱没动"——安全方向正确，但不是"到期必成功"。
+     * `transfer_schedule` 武装时做了强验证，凭据写进 `ArmedPlan.challenge`；
+     * 窗口到期执行 `transfer_create`（红级，`daily-limit` 升红）时，审批服务通过
+     * `preauth`（窗口账本 + 绑定 + 有效期 + 同进程挑战结论）确认"这次要求的那次
+     * 验证已经发生过"，于是 `window-responder` 的 `allowed-once` 被采纳。
      *
-     * 这条断言刻意钉死当前行为：谁把窗口代签改成"无凭据也放行"，这里立刻红。
+     * 这条断言钉死三件事：
+     * 1. 代签人必须是 `window-responder`（不是 headless 夹具）；
+     * 2. 计划必须 `succeeded` 且只成功一个节点；
+     * 3. 不得再出现 `challenge-required`（修复前正是它把计划打成 failed）。
      */
     const wakeResults = events.filter(
       (event) => event.type === 'tool/result' && (event.data as { name?: string }).name === 'plan_wake',
@@ -107,15 +110,23 @@ describe(`快照回放 · ${CASE.name}`, () => {
 
     const completed = events.filter((event) => event.type === 'plan/completed')
     expect(completed).toHaveLength(1)
-    expect(completed[0]?.data).toMatchObject({ status: 'failed', failed: 1, succeeded: 0 })
+    expect(completed[0]?.data).toMatchObject({ status: 'succeeded', succeeded: 1, failed: 0 })
 
     const nodeResult = events.filter((event) => event.type === 'plan/node-result')
     expect(nodeResult).toHaveLength(1)
-    expect(nodeResult[0]?.data).toMatchObject({ status: 'failed', code: 'approval-rejected' })
+    expect(nodeResult[0]?.data).toMatchObject({ status: 'succeeded' })
 
-    const blocked = events.filter((event) => event.type === 'ticket/blocked')
-    expect(blocked).toHaveLength(1)
-    expect(blocked[0]?.data).toMatchObject({ reason: 'challenge-required' })
+    const decided = events.filter((event) => event.type === 'approval/decided')
+    const windowDecision = decided.find(
+      (event) => (event.data as { by?: string }).by === 'window-responder',
+    )
+    expect(windowDecision?.data).toMatchObject({
+      decision: 'allowed-once',
+      // 与"当场验过人"区分：这一次是武装时的预授权凭据在抵账（F-01）
+      reason: 'window-preauth',
+    })
+
+    expect(events.filter((event) => event.type === 'ticket/blocked')).toHaveLength(0)
   })
 
   it('负控：篡改一条事件 ⇒ 比对必须红', () => {

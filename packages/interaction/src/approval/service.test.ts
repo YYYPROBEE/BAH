@@ -479,6 +479,113 @@ describe('红级挑战链', () => {
   })
 })
 
+describe('窗口预授权（F-01）', () => {
+  const windowAuth = { kind: 'window' as const, ref: 'w-1', digest: 'd-1' }
+  const preauth = {
+    windowId: 'w-1',
+    planId: 'p-1',
+    nodeId: 'pay',
+    challengeId: 'vc-arm',
+    channel: 'sms' as const,
+    verifiedAt: 900,
+    expiresAt: 5_000,
+  }
+
+  it('本次挑战没验过、但窗口预授权核验通过：允许批准', async () => {
+    const seen: { readonly channel: string; readonly callId: string }[] = []
+    const service = new ApprovalService({
+      sessionId,
+      now: clock().now,
+      challenges: {
+        issue: () => ({ ok: true, challengeId: 'vc-new' }),
+        verify: async () => ({ ok: false, code: 'x', reason: 'x' }),
+        passed: () => false,
+        verifyPreauth: (_claim, expectation) => {
+          seen.push({ channel: expectation.channel, callId: expectation.callId })
+          return true
+        },
+      },
+    })
+    service.attach(answerWith('window-responder', { decision: 'allowed-once' }))
+
+    const result = await service.handle(
+      request({
+        challenge: 'sms',
+        authorization: windowAuth,
+        preauth,
+        summary: { title: '执行 transfer_create', tier: 'red' },
+      }),
+      async (value) => value,
+    )
+    expect(result.decision.decision).toBe('allowed-once')
+    // 期望值来自本次 ask，不由凭据自称
+    expect(seen).toEqual([{ channel: 'sms', callId: 'c1' }])
+  })
+
+  it('核验端口抛错：按不满足处理（challenge-required）', async () => {
+    const service = new ApprovalService({
+      sessionId,
+      now: clock().now,
+      challenges: {
+        issue: () => ({ ok: true, challengeId: 'vc-new' }),
+        verify: async () => ({ ok: true }),
+        passed: () => false,
+        verifyPreauth: () => {
+          throw new Error('boom')
+        },
+      },
+    })
+    service.attach(answerWith('window-responder', { decision: 'allowed-once' }))
+
+    const result = await service.handle(
+      request({ challenge: 'sms', authorization: windowAuth, preauth }),
+      async (value) => value,
+    )
+    expect(result.decision).toEqual({ decision: 'rejected', reason: 'challenge-required' })
+  })
+
+  it('人工票据带了预授权也不认（必须自称窗口票）', async () => {
+    const service = new ApprovalService({
+      sessionId,
+      now: clock().now,
+      challenges: {
+        issue: () => ({ ok: true, challengeId: 'vc-new' }),
+        verify: async () => ({ ok: true }),
+        passed: () => false,
+        verifyPreauth: () => true,
+      },
+    })
+    service.attach(answerWith('web', { decision: 'allowed-once' }))
+
+    const result = await service.handle(
+      request({ challenge: 'sms', preauth }),
+      async (value) => value,
+    )
+    expect(result.decision).toEqual({ decision: 'rejected', reason: 'challenge-required' })
+  })
+
+  it('非窗口代签者抢答：预授权不作数（防绕过 WindowSigner 的预算记账）', async () => {
+    const service = new ApprovalService({
+      sessionId,
+      now: clock().now,
+      challenges: {
+        issue: () => ({ ok: true, challengeId: 'vc-new' }),
+        verify: async () => ({ ok: true }),
+        passed: () => false,
+        verifyPreauth: () => true,
+      },
+    })
+    // 渠道接受窗口票、且答得比窗口代签者早
+    service.attach(answerWith('greedy-channel', { decision: 'allowed-once' }))
+
+    const result = await service.handle(
+      request({ challenge: 'sms', authorization: windowAuth, preauth }),
+      async (value) => value,
+    )
+    expect(result.decision).toEqual({ decision: 'rejected', reason: 'challenge-required' })
+  })
+})
+
 describe('注册与销毁', () => {
   it('重复注册同一渠道 id：fail-loud', () => {
     const service = new ApprovalService({ sessionId, now: clock().now })

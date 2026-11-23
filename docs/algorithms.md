@@ -80,8 +80,12 @@ tools/pre-execute  waterfall（注册顺序 = 外层顺序）
 - **lease**：`planTimeoutMs`（30 s）必须 < `ticketTtlMs`（120 s，见事实表）——
   这条不等式是引擎侧唯一能防“排队排过票据有效期、再拿过期票扣款”的闸，
   `validate` 里 fail-loud 校验；
-- **强验证**在票据签发**之前**完成：`ApprovalService.handle` 的 `challenge-required` 分支会拒，
-  所以“拿到 `allowed-once`”等价于“MFA 已通过”。
+- **强验证**在票据签发**之前**完成：红级 ask 上 `ApprovalService.proofOf()` 只认两种证据——
+  ①本次签发的挑战 `passed()`；②窗口票据（`authorization.kind='window'`）自带的预授权，
+  由宿主 `verifyPreauth` 逐条核验（窗口状态 / 唤醒标记 / 节点绑定 / 有效期 / 签名回执；有回执以验签为准），
+  且必须由窗口代签者本人应答（通用渠道抢答不算数，防绕过预算记账）。
+  两种都不成立一律 `challenge-required`。所以“拿到 `allowed-once`”仍等价于“这一次要求的 MFA 有据可查”。
+  预授权放行时 `approval/decided.reason='window-preauth'`，与当场验过人的记录可区分。
 
 ### 2.4 可执行例子（本次真实输出）
 

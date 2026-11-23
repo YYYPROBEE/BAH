@@ -104,6 +104,14 @@ export interface ArmedPlan {
   readonly challenge?: {
     readonly channel: 'face' | 'sms' | 'ushield'
     readonly challengeId: string
+    /**
+     * 跨重启签名回执（F-01 阶段 B；可选）。
+     *
+     * 由武装方用部署密钥对 `{sessionId, windowId, planId, nodeIds, challengeId,
+     * channel, verifiedAt, expiresAt}` 做 HMAC。没有密钥的部署不签发它，
+     * 唤醒时退回"同进程挑战结论"。
+     */
+    readonly receipt?: string
   }
 }
 

@@ -42,6 +42,17 @@ export interface WakeGrant {
   readonly verifiedAt?: number
   /** 窗口过期时刻（红级预授权必须落在它之内）。 */
   readonly expiresAt?: number
+  /**
+   * 武装时的挑战凭据（F-01：让审批服务知道"这次红级要求的那次验证"已经发生过）。
+   *
+   * 它不是"放行开关"：`plan:window-preauth` 仍会逐条核验窗口状态、绑定、
+   * 有效期与签名回执，任何一条不成立都不放行。
+   */
+  readonly challenge?: {
+    readonly channel: 'face' | 'sms' | 'ushield'
+    readonly challengeId: string
+    readonly receipt?: string
+  }
 }
 
 /** 标记的只读视图 + 唯一的记账动作。 */

@@ -18,8 +18,8 @@ coverage_total=61576
 coverage_pct=98.32
 coverage_package_ok=18
 coverage_package_total=18
-tests_main_files=455
-tests_main_cases=5283
+tests_main_files=458
+tests_main_cases=5301
 <!-- facts:sources:end -->
 
 > `gates` 是**含本门禁**的 `scripts/verify-*.ts` 文件数（新增门禁后必须同步 +1）。
@@ -33,13 +33,13 @@ tests_main_cases=5283
 | 门禁数 | **53** | `ls scripts/verify-*.ts \| grep -v '\.test\.ts$' \| wc -l` | 以本命令实测为准 |
 | 工具数 | **30** | `grep -c "name: '" packages/bank/src/tools/specs.ts` | 30（与 `result-schemas.ts` 30 个出参键一一对应；官方子能力补齐新增 7 个；2026-11-01 新增 `fund_lock` 与 `password_change`） |
 | plan 非测试行数 | **2,260** | `packages/runtime/src/plan/*.ts` 去掉 `*.test.ts` 后逐文件计行 | 2,260（2026-10-30 合流后重算） |
-| 快照文件 / 用例 | **14 / 64** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 14 文件 / 64 例（`pnpm test:snapshot` 同值）；新增 `scheduled-funds` 1 文件 4 例：`transfer_schedule` 入口、`fund_lock` 三动作、到期代签被挑战校验阻断、篡改负控。它同时是 `fund_lock` 票据金额缺陷的回归 |
+| 快照文件 / 用例 | **14 / 64** | `snapshots/**/*.test.ts` 计文件数，`it(` 计用例数 | 14 文件 / 64 例（`pnpm test:snapshot` 同值）；`scheduled-funds` 1 文件 4 例：`transfer_schedule` 入口、`fund_lock` 三动作、到期代签**成功**（武装预授权，2026-11-22 重录；修复前被 `challenge-required` 阻断）、篡改负控。它同时是 `fund_lock` 票据金额缺陷的回归 |
 | 覆盖率（行） | **98.32%** | `pnpm test:coverage:all` | 覆盖 60540 行 / 参与统计 61576 行（2026-11-04 CI 跑批实测） |
 | 覆盖率（包） | **18/18** | 同上 | 18 个包全部 ≥80%，最低 `saga` 90.34% |
-| 主仓测试 | **455 文件 / 5283 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 455 文件 / 5283 例（2026-11-03 全量实测（清理线）：较 446/5148 增 9 个用例文件（远端清理线补的 5 个覆盖率文件 + 本批 4 个），另有路由兜底、核心守卫等用例补齐。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑 17/17 绿），与用例数无关**） |
+| 主仓测试 | **458 文件 / 5301 例** | `NODE_EXTRA_CA_CERTS= npx vitest run` | 458 文件 / 5301 例，全绿（2026-11-23 全量实测：较 2026-11-03 台账 455/5283 增 3 文件 / 18 例。**拆账**：7 例 + 2 文件为台账日期后的存量漂移（本轮复审登记），11 例 + 1 文件为本轮 F-01 修复新增（审批预授权 4、回执单测 5、跨重启集成 2）。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑绿），与用例数无关**） |
 | eval 包测试 | **22 文件 / 158 例** | `pnpm eval:unit` | 22 passed / 158 passed（**不是** `pnpm -F @bah/eval test`：该命令 cwd 在包内，会丢 `profiles/`） |
 | web 测试 | **49 文件 / 610 例** | `pnpm test:web` | 49 文件 / 610 例，**全绿**（2026-11-03 实测（清理线）；较 47/550 新增 `views/history.test.js` 27 例、`mobile/history-sheet.test.js` 14 例与批内 18 例，覆盖历史列表、只读回放与“不渲染审批按钮”） |
-| 快照跑批 | **14 文件 / 64 例** | `pnpm test:snapshot` | **64 passed / 0 failed**（2026-11-15 新增 `scheduled-funds` 4 例后全量回放；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` / `scheduled-funds` 的录制夹具用 overlay 显式放行审批，生产 profile 仍 `responder: none`） |
+| 快照跑批 | **14 文件 / 64 例** | `pnpm test:snapshot` | **64 passed / 0 failed**（2026-11-22 重录 `scheduled-funds` 后全量回放；该场景的到期腿从"被挑战校验阻断"改为"凭武装预授权成功"，4 例断言同批更新；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` / `scheduled-funds` 的录制夹具用 overlay 显式放行审批，生产 profile 仍 `responder: none`） |
 
 ## 3. 覆盖率口径
 

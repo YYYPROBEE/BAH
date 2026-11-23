@@ -99,13 +99,20 @@ decide() → ask + challenge('sms'|'face'|'ushield')
   ▼
 应答者 answer({allowed-once})
   ▼
-仲裁器强制检查 challenges.passed(challengeId)
-  ├─ 未通过 → rejected + reason=challenge-required + approval/challenge-failed
-  └─ 通过   → allowed-once → 票据 approved
+仲裁器检查证据来源（proofOf）
+  ├─ 本次挑战 passed → challenge
+  ├─ 窗口代签者应答 + 预授权核验通过 → preauth
+  │   （宿主 verifyPreauth：窗口仍在 armed / 唤醒标记在 / planId+node 绑定
+  │     / 在有效期内 / 有签名回执时只认验签，否则退回同进程 passed(武装挑战)）
+  └─ 其余 → rejected + reason=challenge-required + approval/challenge-failed
+  ▼
+通过 → allowed-once → 票据 approved → 工具执行
 ```
 
 强验证尝试与锁定仍按既有事件族落账（`verify/face|sms|ushield|locked`），
 所以"审批弹窗里做的验证"和"模型直接调 `verify_*` 工具"在审计上同构。
+走预授权放行时，`approval/decided.reason` 是 **`window-preauth`**（不是 `window-authorized`）：
+前者表示"武装时的验证凭据成立"，后者只是窗口应答者的应答理由；两者必须在审计上可区分。
 
 ## 7. headless 自动应答者（配置）
 

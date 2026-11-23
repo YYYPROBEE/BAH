@@ -35,7 +35,7 @@ import type {
   UiCard,
 } from '@bah/core'
 
-import type { ApprovalInput, PostExecuteInput, PreExecuteInput, ToolExecutor } from '../seams.ts'
+import type { ApprovalInput, ApprovalPreauth, PostExecuteInput, PreExecuteInput, ToolExecutor } from '../seams.ts'
 import type { SessionId } from '@bah/core'
 import type { ApprovalChallenge, ToolResultData } from '../session/types.ts'
 import type { SessionSink } from '../session/service.ts'
@@ -83,6 +83,13 @@ export interface ToolPipelineOptions {
    * ask 判决自带 `authorization` 时以判决为准（更内层、更具体）。
    */
   readonly authorization?: TicketAuthorization
+  /**
+   * 窗口代签的预授权凭据（F-01）：与 `authorization` 同源，只由唤醒执行器注入。
+   *
+   * 它是"武装那一刻验过人"的结构化声明；是否算数由审批服务交给宿主核验，
+   * 管线只负责搬运（不读窗口账本、不做判定）。
+   */
+  readonly preauth?: ApprovalPreauth
 }
 
 export class ToolPipeline {
@@ -97,6 +104,7 @@ export class ToolPipeline {
   private readonly emitResult: (result: ToolResultData) => void
   private readonly mintTicketId: (callId: string) => TicketId
   private readonly authorization: TicketAuthorization | undefined
+  private readonly preauth: ApprovalPreauth | undefined
 
   constructor(options: ToolPipelineOptions) {
     this.ctx = options.ctx
@@ -118,6 +126,7 @@ export class ToolPipeline {
     this.mintTicketId =
       options.mintTicketId ?? ((_callId) => `ticket:${randomUUID()}` as TicketId)
     this.authorization = options.authorization
+    this.preauth = options.preauth
   }
 
   /**
@@ -439,6 +448,7 @@ export class ToolPipeline {
       ...(ticket.details === undefined ? {} : { details: ticket.details }),
     })
 
+    const authorization = ask.authorization ?? this.authorization
     const input: ApprovalInput = {
       ticket,
       callId: call.callId,
@@ -453,9 +463,11 @@ export class ToolPipeline {
       },
       challenge,
       // 授权来源（ADR-0008）：ask 判决自带的优先；否则用执行器为整次 run 注入的那一份
-      ...(ask.authorization === undefined && this.authorization === undefined
+      ...(authorization === undefined ? {} : { authorization }),
+      // 预授权凭据只跟随窗口票据：人工票据即使被塞了 preauth 也不搬运
+      ...(authorization?.kind !== 'window' || this.preauth === undefined
         ? {}
-        : { authorization: ask.authorization ?? this.authorization }),
+        : { preauth: this.preauth }),
       // 无人应答 = 拒绝（available 的反面）
       decision: { decision: 'unavailable' },
     }

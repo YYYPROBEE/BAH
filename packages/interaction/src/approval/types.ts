@@ -43,6 +43,44 @@ export type ChallengeChannel = 'face' | 'sms' | 'ushield'
 /** 全部挑战渠道（配置校验与穷尽 switch 用）。 */
 export const CHALLENGE_CHANNELS: readonly ChallengeChannel[] = ['face', 'sms', 'ushield']
 
+/**
+ * 窗口代签的预授权凭据（ADR-0010 / F-01）。
+ *
+ * 与 `@bah/runtime` 的 `ApprovalPreauth` 同形（结构兼容，不是第二份真相源：
+ * 运行时负责搬运，本包负责在判决点交给端口核验）。
+ *
+ * **它不是"放行开关"**：本包只做结构前置检查（窗口授权 + 字段齐全），
+ * 真正的判定由宿主实现的 `ChallengePort.verifyPreauth` 逐条核验。
+ */
+export interface ApprovalPreauth {
+  /** 授权窗口 id（必须等于票据 `authorization.ref`）。 */
+  readonly windowId: string
+  /** 计划 id（必须等于窗口条目里的 planId）。 */
+  readonly planId: string
+  /** 本节点 id（回执按节点绑定）。 */
+  readonly nodeId: string
+  /** 武装时通过的挑战 id。 */
+  readonly challengeId: string
+  /** 挑战渠道（必须与本次红级 ask 要求的渠道一致）。 */
+  readonly channel: ChallengeChannel
+  /** 武装时的强验证时刻（epoch ms）。 */
+  readonly verifiedAt: number
+  /** 窗口过期时刻（epoch ms）。 */
+  readonly expiresAt: number
+  /** 跨重启签名回执（可选；同进程路径可以没有它）。 */
+  readonly receipt?: string
+}
+
+/** 核验预授权时的期望值（由本次 ask 决定，不由凭据自称）。 */
+export interface PreauthExpectation {
+  /** 票据自带的窗口授权（`kind` 恒为 `window`）。 */
+  readonly authorization: AuthorizationRef
+  /** 本次红级 ask 要求的挑战渠道。 */
+  readonly channel: ChallengeChannel
+  /** 本次调用 ID（审计与节点绑定用）。 */
+  readonly callId: string
+}
+
 /** 票据视图（运行时 `TicketRef` 的最小可见面）。 */
 export interface ApprovalTicketView {
   /** 票据 ID（由管线按调用 ID 铸造）。 */
@@ -111,6 +149,12 @@ export interface ApprovalInputLike {
    * 渠道面（Web / IM）永远不写这个字段——页面端不可自证"我是窗口"。
    */
   readonly authorization?: AuthorizationRef
+  /**
+   * 窗口代签的预授权凭据（F-01）。
+   *
+   * 只随窗口票据出现；人工票据即使带了也不认（判决点会先看 `authorization.kind`）。
+   */
+  readonly preauth?: ApprovalPreauth
   /**
    * 采纳者（`SettledApproval.by` 的回写；ADR-0010）。
    *
@@ -222,6 +266,14 @@ export interface ChallengePort {
   verify(challengeId: string, channel: ChallengeChannel): Promise<ChallengeVerdict>
   /** 挑战是否已通过（批准前的强制检查）。 */
   passed(challengeId: string): boolean
+  /**
+   * 核验窗口代签的预授权凭据（F-01；可选）。
+   *
+   * 实现方是宿主：它同时看得到窗口账本、武装时的挑战与回执密钥。
+   * **抛错 = 核验不过**（本包会把异常归一化为"不满足"，绝不放行）。
+   * 缺省 = 没有这条通道：红级窗口票据仍会落到 `challenge-required`（安全失败）。
+   */
+  verifyPreauth?(preauth: ApprovalPreauth, expectation: PreauthExpectation): boolean
 }
 
 /** 定时器接缝（测试注入手动时钟；生产用 `systemTimer`）。 */
