@@ -99,3 +99,11 @@ jobs:
           else
             pnpm check:ci
           fi
+
+      - name: Coverage numbers (always)
+        # 覆盖率台账的对账口径：CI/Ubuntu 是唯一权威（本机 Windows 分母多算无执行行文件）。
+        # 用 notice 注解把 covered/total 暴露到 Checks API：台账过期时不必翻整页日志。
+        if: always()
+        shell: bash
+        run: |
+          node -e "const fs=require('fs');const p='.ci-artifacts/cov-all/coverage-summary.json';if(!fs.existsSync(p)){console.log('::notice::coverage-report missing');process.exit(0)}const d=JSON.parse(fs.readFileSync(p,'utf8'));const l=d.total.lines;console.log('::notice::coverage '+l.covered+'/'+l.total+' pct '+l.pct);"

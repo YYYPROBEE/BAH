@@ -154,6 +154,21 @@ if (snapshotBase === undefined) {
     console.log(`${mark} ${outcome.name.padEnd(16)} ${String(outcome.ms).padStart(6)}ms${detail}`)
   }
 
+  /**
+   * GitHub Actions 注解：逐步暴露结论。
+   *
+   * 为什么需要：`pnpm check:ci` 在 workflow 里是**一个大步骤**，失败时页面只有
+   * "exit code 1"，看不出是哪一步红。注解会进 Checks API，排障不必翻整页日志
+   * （公开仓库也能读）。只在 Actions 里打，避免污染本地输出。
+   */
+  if (process.env['GITHUB_ACTIONS'] === 'true') {
+    for (const outcome of outcomes) {
+      const level = outcome.status === 'failed' ? 'error' : 'notice'
+      const detail = outcome.detail === undefined ? '' : ` (${outcome.detail})`
+      console.log(`::${level}::ci-step ${outcome.name}: ${outcome.status}${detail}`)
+    }
+  }
+
   const notRun = STEPS.length - outcomes.length
   const failed = outcomes.filter((outcome) => outcome.status === 'failed')
   if (blocked) {
