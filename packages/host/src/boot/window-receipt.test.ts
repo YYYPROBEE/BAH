@@ -75,6 +75,11 @@ describe('window-receipt', () => {
     expect(verifyWindowReceipt(KEY, PAYLOAD, 'not-base64-!!')).toBe(false)
   })
 
+  it('不可稳定序列化的 payload（BigInt）⇒ 返回 false，不把异常抛给调用方', () => {
+    const bad = { ...PAYLOAD, verifiedAt: 1n } as unknown as WindowReceiptPayload
+    expect(verifyWindowReceipt(KEY, bad, 'whatever')).toBe(false)
+  })
+
   it('密钥解析：空 / 过短一律视为未配置', () => {
     expect(resolveWindowReceiptKey(undefined)).toBeUndefined()
     expect(resolveWindowReceiptKey('   ')).toBeUndefined()

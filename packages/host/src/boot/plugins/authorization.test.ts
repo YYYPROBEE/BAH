@@ -106,6 +106,7 @@ async function bootHost(
   rows: readonly PluginRow[] = ROWS,
   restoreSession = false,
   receiptKey?: string,
+  warn?: (message: string) => void,
 ): Promise<Booted> {
   const ownDir = dir.startsWith(tmpdir())
   const bundle: Bundle = { name: 'base', rows }
@@ -121,6 +122,7 @@ async function bootHost(
       jsonlDir: dir,
       ...(restoreSession ? { restoreSession: true } : {}),
       ...(receiptKey === undefined ? {} : { receiptKey }),
+      ...(warn === undefined ? {} : { warn }),
     }),
   }
   void ownDir
@@ -358,6 +360,45 @@ describe('重启补跑（D1 的实测证据）', () => {
     await second.app.dispose('test-done')
     rmSync(dir, { recursive: true, force: true })
   }, 20_000)
+
+  it('回执密钥过短 ⇒ 启动期告警，且只签发不出来的回执（退回阶段 A）', async () => {
+    const warnings: string[] = []
+    const booted = await bootHost(undefined, ROWS, false, 'short-key', (message) =>
+      warnings.push(message),
+    )
+    try {
+      await callTool(booted.app, 'plan_arm', RED_PLAN_ARGS)
+      expect(warnings.some((message) => message.includes('BAH_WINDOW_RECEIPT_KEY'))).toBe(true)
+      // 不签一张"验证不了的"回执：宁可退回同进程路径
+      expect(planArmResult(booted.app).challenge?.receipt).toBeUndefined()
+    } finally {
+      await booted.app.dispose('test-done')
+      booted.cleanup()
+    }
+  })
+
+  it('没有回执密钥 ⇒ 同进程仍能代签（阶段 A）；跨重启才失效', async () => {
+    const booted = await bootHost() // 不传 receiptKey
+    try {
+      await callTool(booted.app, 'plan_arm', RED_PLAN_ARGS)
+      // 无密钥 = 不签回执（不是签一张假回执）
+      expect(planArmResult(booted.app).challenge?.receipt).toBeUndefined()
+
+      const report = await booted.app.ctx.get(PLAN_WAKE_SERVICE).wake({ at: NOW, source: 'cli' })
+      expect(report.entries[0]).toMatchObject({ status: 'executed' })
+      const completed = eventsOf(booted.app).filter((event) => event.type === 'plan/completed')
+      expect(completed.at(-1)?.data).toMatchObject({ status: 'succeeded', succeeded: 1, failed: 0 })
+      // 同进程路径的审计理由同样是 window-preauth（证据来源不因有无回执而变）
+      expect(
+        eventsOf(booted.app).filter(
+          (event) => event.type === 'approval/decided' && event.data['by'] === 'window-responder',
+        ).at(-1)?.data,
+      ).toMatchObject({ reason: 'window-preauth' })
+    } finally {
+      await booted.app.dispose('test-done')
+      booted.cleanup()
+    }
+  })
 })
 
 

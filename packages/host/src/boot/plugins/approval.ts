@@ -94,15 +94,13 @@ export const approvalPlugin: HostPlugin<ApprovalSettings> = {
         issue: (channel) => bankChallenge.issue(channel),
         verify: (challengeId, channel) => bankChallenge.verify(challengeId, channel),
         passed: (challengeId) => bankChallenge.passed(challengeId),
-        verifyPreauth: (preauth, expectation) => {
-          let verifier
-          try {
-            verifier = ctx.get(WINDOW_PREAUTH)
-          } catch {
-            return false
-          }
-          return verifier.verify(preauth, expectation)
-        },
+        /**
+         * 懒取 `plan:dag`（本行之后装配）。取不到就让异常穿出去：
+         * `ApprovalService.proofOf()` 把端口抛错统一按"没有证据"处理（challenge-required），
+         * 这里再包一层只会多一条永远测不到的死分支。
+         */
+        verifyPreauth: (preauth, expectation) =>
+          ctx.get(WINDOW_PREAUTH).verify(preauth, expectation),
       }
 
       const service = new ApprovalService({

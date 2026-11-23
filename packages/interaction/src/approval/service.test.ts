@@ -584,6 +584,69 @@ describe('窗口预授权（F-01）', () => {
     )
     expect(result.decision).toEqual({ decision: 'rejected', reason: 'challenge-required' })
   })
+
+  it('核验端口没有 verifyPreauth（旧装配）⇒ 预授权不成立', async () => {
+    const service = new ApprovalService({
+      sessionId,
+      now: clock().now,
+      challenges: {
+        issue: () => ({ ok: true, challengeId: 'vc-new' }),
+        verify: async () => ({ ok: true }),
+        passed: () => false,
+      },
+    })
+    service.attach(answerWith('window-responder', { decision: 'allowed-once' }))
+
+    const result = await service.handle(
+      request({ challenge: 'sms', authorization: windowAuth, preauth }),
+      async (value) => value,
+    )
+    expect(result.decision).toEqual({ decision: 'rejected', reason: 'challenge-required' })
+  })
+
+  it('窗口票但授权来源是人工（kind=human）⇒ 预授权不成立', async () => {
+    const service = new ApprovalService({
+      sessionId,
+      now: clock().now,
+      challenges: {
+        issue: () => ({ ok: true, challengeId: 'vc-new' }),
+        verify: async () => ({ ok: true }),
+        passed: () => false,
+        verifyPreauth: () => true,
+      },
+    })
+    service.attach(answerWith('window-responder', { decision: 'allowed-once' }))
+
+    const result = await service.handle(
+      request({
+        challenge: 'sms',
+        authorization: { kind: 'human', ref: 'ticket:t-1', digest: 'd-1' },
+        preauth,
+      }),
+      async (value) => value,
+    )
+    expect(result.decision).toEqual({ decision: 'rejected', reason: 'challenge-required' })
+  })
+
+  it('核验端口明确返回 false ⇒ challenge-required', async () => {
+    const service = new ApprovalService({
+      sessionId,
+      now: clock().now,
+      challenges: {
+        issue: () => ({ ok: true, challengeId: 'vc-new' }),
+        verify: async () => ({ ok: true }),
+        passed: () => false,
+        verifyPreauth: () => false,
+      },
+    })
+    service.attach(answerWith('window-responder', { decision: 'allowed-once' }))
+
+    const result = await service.handle(
+      request({ challenge: 'sms', authorization: windowAuth, preauth }),
+      async (value) => value,
+    )
+    expect(result.decision).toEqual({ decision: 'rejected', reason: 'challenge-required' })
+  })
 })
 
 describe('注册与销毁', () => {

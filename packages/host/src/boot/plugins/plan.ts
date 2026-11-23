@@ -1690,12 +1690,10 @@ export const planPlugin: HostPlugin<PlanSettings> = {
             return verifyWindowReceipt(receiptKey, payload, claim.receipt)
           }
 
-          // 阶段 A：武装时的挑战还在本进程的 `VerifyService` 里（重启即失）
-          try {
-            return ctx.get(BANK_CHALLENGE).passed(claim.challengeId)
-          } catch {
-            return false
-          }
+          // 阶段 A：武装时的挑战还在本进程的 `VerifyService` 里（重启即失）。
+          // `bank:tools` 不在时 `ctx.get` 会抛——由 `ApprovalService.proofOf()` 的
+          // try/catch 统一按"没有证据"处理，这里不再包一层死分支。
+          return ctx.get(BANK_CHALLENGE).passed(claim.challengeId)
         },
       }
 
