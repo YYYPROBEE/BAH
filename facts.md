@@ -20,7 +20,7 @@
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
 | `pnpm test:snapshot` | 14 文件 / 64 用例（**64 全绿**） | 新增 `scheduled-funds`（定时转账入口 + `fund_lock` 三动作 + 到期代签**成功**（武装预授权）+ 只扣一笔，4 例）；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 用夹具 overlay 显式放行审批（ADR-0010 后 profile 是 `responder: none`），重录只写快照产物，未改生产 profile |
 | `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
-| `pnpm test:coverage:all` | **行口径 98.32%**（60540/61576）/ **包口径 18/18** | 两个口径必须一起说；18 个包全部 ≥80%（最低 `saga` 90.34%），见台账注记 |
+| `pnpm test:coverage:all` | **行口径 98.34%**（60704/61728）/ **包口径 18/18** | 两个口径必须一起说；18 个包全部 ≥80%（最低 `saga` 90.34%），见台账注记。**2026-11-23 为"CI 台账 + 同树串行增量"推算值**（F-01 新增可执行行全部被覆盖），下一次 CI 跑批为唯一权威 |
 评测平面（`pnpm eval`）：
 
 | 指标 | 实测 |
