@@ -17,6 +17,13 @@
 
 ### 修复
 
+- 票据金额精度：治理面签发的 `binding.amountCents` 改用 `yuanToCents`，修掉 `1.005` 元时
+  `Math.round(amount * 100)` 少 1 分、导致核销以 `ticket-binding-mismatch` 拒绝转账的问题。
+- 定时窗口跨重启：`transfer_schedule` / `birthday_plan` 的 `tool/result` 增加带
+  `<!--bah:window-plan-->` 前缀的结构化边车块，`replayArmedPlans` 重启后可重建窗口；
+  手机号不再写进计划体（只留 `name` / `payeeId`），避免 PII 掩码破坏 `planDigest`。
+- 授权窗口回执：`.env.example` 补 `BAH_WINDOW_RECEIPT_KEY`；未配置时启动期告警（此前只在
+  密钥过短时告警）。ADR-0010 §7.3 的回执绑定粒度按实现订正为整张计划的 `nodeIds`。
 - 关闭 7 条必红或无法验证的依赖 PR，依赖停留在 v1.0.0 实测过的组合：
   tsdown 0.23（改产物布局，43 个测试文件 collect 失败）、jsdom 31、electron 45、pnpm/action-setup 6、
   trufflehog SHA 与两条被拆散的 codeql 升级（已由上面的同版本升级取代）。

@@ -129,11 +129,22 @@ challengeId, channel, verifiedAt, expiresAt}))`，写入
 密钥来自部署环境（`BAH_WINDOW_RECEIPT_KEY`，≥32 字节），**不进仓**；
 没有密钥时回执缺省不签发，启动期留告警，行为退回同进程路径。
 
-回执按 `(windowId, planId, nodeId)` 绑定：同一窗口的另一条腿不能复用；
-同一节点在 `resume` 里的重试可以复用（验证的是"人"，不是"第几次尝试"）。
+回执按 `(windowId, planId, nodeIds)` 绑定：`nodeIds` 是**整张计划的节点集合**，
+同一窗口的任意腿共用一张回执；`claim.nodeId` 只做"该节点属于本计划"的存在性检查，
+不参与签名（2026-11-23 按实现订正：原文写"按 nodeId 绑定、另一条腿不能复用"，与
+`plan.ts` 的签发/验签实现不符）。同一节点在 `resume` 里的重试可以复用
+（验证的是"人"，不是"第几次尝试"）。
 它不替代 `WindowSigner` 的世界复验（余额 / 条件 / 预算每次重算）。
 
 ### 7.4 未覆盖（显式登记）
+
+> **2026-11-23 补记：以下两条已修，原文保留作决策历史。**
+> - F-02：`transfer_schedule` / `birthday_plan` 的出参现在是"人话 + 带
+>   `<!--bah:window-plan-->` 前缀的 `ArmedPlan` 边车块"；`replayArmedPlans` 同时认
+>   边车块与旧版纯 JSON，重启后窗口可重建（`armed.test.ts` 新增两条回归）。
+> - F-03：`transfer_schedule` 的计划体不再写手机号，只引用 `name` +（可选）`payeeId`；
+>   手机号仍留在本次工具入参与审批明细里。计划体因此不含会被 `redact` 掩码的 PII，
+>   `planDigest` 在回放后可复算。带手机号的旧日志仍会 `plan-digest-mismatch`（正确拒绝）。
 
 - `transfer_schedule` / `birthday_plan` 的工具出参是**人话摘要**，
   不含完整 `ArmedPlan`；`replayArmedPlans` 只认 `plan_arm` / `plan_disarm` 的

@@ -135,7 +135,7 @@ docs/            管线、sentry、审计、策略、前端、部署等落地文
 facts.md         演示材料唯一数字来源
 ```
 
-实测（2026-11-23）：`pnpm test` 458 文件 / 5307 用例；`pnpm test:web` 610 用例；`pnpm eval:unit` 158 用例；
+实测（2026-11-23）：`pnpm test` 458 文件 / 5310 用例；`pnpm test:web` 610 用例；`pnpm eval:unit` 158 用例；
 `pnpm test:snapshot` 64 例；`pnpm gate` 全绿；行覆盖 98.34%。**三行测试数不能相加**，取值命令与原始输出
 见 [facts.md](facts.md) 与 [docs/facts-sources.md](docs/facts-sources.md)。
 

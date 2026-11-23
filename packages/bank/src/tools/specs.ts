@@ -7,7 +7,7 @@
  * - `verify-tool-catalog` 能把「文档 ↔ 源码」逐行比对；
  * - `tier` 声明不会散落到 `execute()` 里（`verify-tiers` 门禁 + 评审双保险）。
  *
- * 数量上限 28：新增先删旧的，`verify-tool-catalog` 强制。
+ * 数量上限 31（当前目录 30 个）：新增先改本节，`verify-tool-catalog` 强制。
  */
 
 import type { ToolSchema, ToolTier } from '@bah/core'
@@ -70,7 +70,7 @@ const ACCOUNT_ID_FIELD = {
   description: '账户 ID；缺省使用主账户（活期）',
 } as const
 
-/** 14 个 P0 工具（6 查询 + 2 转账 + 3 理财 + 3 强验证）。 */
+/** 目录起点：14 个 P0 工具（6 查询 + 2 转账 + 3 理财 + 3 强验证）；现目录 30 个（14 绿 / 10 黄 / 6 红）。 */
 export const BANK_TOOL_SPECS = [
   /* ── 账户 / 账单（6） ─────────────────────────────────────────────────── */
   {

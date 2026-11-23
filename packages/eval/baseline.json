@@ -1,12 +1,12 @@
 {
   "schemaVersion": "eval-baseline.v1",
-  "commit": "1c369b337413e54002a68c4e5da6b98cfb25d5eb",
+  "commit": "a37d278c54857fa8e221f13af33b1c1177e86b46",
   "seed": 20261026,
-  "recordedAt": "2026-10-29T17:07:41.785Z",
+  "recordedAt": "2026-11-23T14:27:54.816Z",
   "metrics": {
     "taskSuccess": {
-      "passed": 76,
-      "total": 76,
+      "passed": 78,
+      "total": 78,
       "rate": 1
     },
     "privilegeBlock": {
@@ -19,7 +19,7 @@
       "total": 7,
       "rate": 1
     },
-    "averageSteps": 1.45
+    "averageSteps": 1.44
   },
   "targets": {
     "taskSuccessRate": 0.95,
@@ -29,7 +29,6 @@
   },
   "notes": [
     "基线录制于 W15；目标值来自 W13 的出口（任务/拒答 ≥95%，越权 100%，平均步数 ≤2）。",
-    "比较口径：率下降超过 5 个百分点即红；平均步数超过基线 5% 即红；分母缩小即红。",
-    "2026-11-15 复核：当前 `pnpm eval:baseline` 仍为 78/78、6/6、7/7、1.44 步（分母 76→78，率 100%）；commit 字段指向历史重写前的对象，树等价（重写未改树），故未重录以免把脏工作树结果打上干净 commit。"
+    "比较口径：率下降超过 5 个百分点即红；平均步数超过基线 5% 即红；分母缩小即红。"
   ]
 }

@@ -101,7 +101,7 @@
 | 4 | **plan 内写工具的补偿** | `saga-bridge` 在 `profiles/plan` 显式关闭（否则 `transfer_create` 被再展开，一条 `plan/node-result` 对上两条 `tool/call`） | plan 里第 2 步扣款、第 3 步失败时**没有自动冲正**；正确做法是让 plan 编排一整笔 saga；已列入后续版本计划 |
 | 5 | **plan 动态 args 跨 `resume`** | 节点输出只存在内存里，续跑时无法还原上游 output；存进会话日志会把大对象写进审计面 | 需要“重做一笔已成功的转账”时，只能新 `planId` + 冲正原笔（两张计划用 `meta` 关联） |
 | 6 | **`incident` 状态的真实触发源** | 本仓全内存 mock，没有“外部不可用”的真实来源；可达性靠单测 + 宿主 stub 工具 | Web 的 DAG 视图按 `tool/call` 派生，**不区分** `incident` 与 `failed`；`incident` 的触发条件见 `docs/plan.md`，演示环境不提供该状态的可视化观测 |
-| 7 | **真定时调度的能力边界** | 定时走 `transfer_schedule` / `birthday_plan` 的**授权窗口** + `plan_wake`（复用 `saga/tick` 与启动补跑），没有独立的 `@bah/schedule` 包；`transfer_create.when` 仍只接受 `now`——防止绕过窗口直接发起“未来扣款” | 到期执行要求进程存活或下次启动补跑；注入钟不推进就不会凭空到点。能力边界是“授权窗口 + 到点条件复验 + 失守降级”；系统未实现独立调度器 |
+| 7 | **真定时调度的能力边界** | 定时走 `transfer_schedule` / `birthday_plan` 的**授权窗口** + `plan_wake`（复用 `saga/tick` 与启动补跑），没有独立的 `@bah/schedule` 包；`transfer_create.when` 仍只接受 `now`——防止绕过窗口直接发起“未来扣款” | 到期执行要求进程存活或下次启动补跑；注入钟不推进就不会凭空到点。窗口本体随 `tool/result` 的结构化边车块落盘，重启后可回放（计划体只引用 `name` / `payeeId`，不落手机号）。能力边界仍是“授权窗口 + 到点条件复验 + 失守降级”；未实现独立调度器 |
 | 8 | **外部商户真实通道** | 鲜花/蛋糕来自 `bank:merchant` 的 mock 目录：`merchant_search` 按品类/预算/时效搜，`merchant_order` 只接受**本会话搜过**的 offer（超预算换店、不擅自加价）；资金腿仍是 `transfer_create` 或卡消费 | 不存在真实商户 API 的配送/退款；对账只覆盖银行侧。下单与扣款均可审计；不含真实商户 API 的对接 |
 | 9 | **人工接管与分叉会话的持久化 / 多会话切换** | 接管状态在进程内（重启回 `active`）；`POST /api/session/fork` 产生的新会话也在进程内，HTTP 渠道仍服务原会话——把渠道切到新会话属多会话宿主 | 重启后接管状态丢失；“回到上一步”目前只给分叉元数据与提示，不切换对话流。两者都**不**影响旧会话的审计完整性（旧卷原样封存） |
 

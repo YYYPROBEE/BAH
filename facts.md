@@ -8,7 +8,7 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **458 文件 / 5307 用例**（2026-11-23 实测：较 2026-11-03 台账 455/5283 增 3 文件 / 24 例。**如实拆账**：其中 7 例 + 2 文件是台账日期之后已合入的存量漂移（`vitest list` 与台账的差，本轮复审登记），17 例 + 1 文件是本轮 F-01 修复新增——审批预授权 7、回执单测 6、跨重启集成 2、密钥配置 2。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑绿），与用例数无关**） |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **458 文件 / 5310 用例**（2026-11-23 实测：较 2026-11-03 台账 455/5283 增 3 文件 / 27 例。**如实拆账**：其中 7 例 + 2 文件是台账日期之后已合入的存量漂移（`vitest list` 与台账的差，本轮复审登记），20 例 + 1 文件是修复新增——F-01 审批预授权 7、回执单测 6、跨重启集成 2、密钥配置 2，复审回归 3（票据精度 1、窗口边车回放 2）。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑绿），与用例数无关**） |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **49 文件 / 610 用例**（全绿；2026-11-03 实测（清理线）：较 47/550 新增 `views/history.test.js` 27 例、`mobile/history-sheet.test.js` 14 例与批内 18 例） |
 
@@ -19,7 +19,7 @@
 | `pnpm gate` | **53/53** 项已发现（本次 **53 全绿**） | `scripts/run-gates.ts` 动态发现全部 `verify-*.ts`，任一失败退出码 1 |
 | `pnpm typecheck` | 通过 | `tsc -b` host + client 两套配置 |
 | `pnpm test:snapshot` | 14 文件 / 64 用例（**64 全绿**） | 新增 `scheduled-funds`（定时转账入口 + `fund_lock` 三动作 + 到期代签**成功**（武装预授权）+ 只扣一笔，4 例）；`plan` / `cross-scene` / `subscription-reminder` / `birthday-reminder` 用夹具 overlay 显式放行审批（ADR-0010 后 profile 是 `responder: none`），重录只写快照产物，未改生产 profile |
-| `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage → coverage:all → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
+| `pnpm check` | **十四步**总闸 | typecheck → lint → build → test → coverage:all → coverage → gate → eval:unit → eval:smoke → eval:baseline → e2e → snapshot → web → rag |
 | `pnpm test:coverage:all` | **行口径 98.34%**（60710/61734）/ **包口径 18/18** | 两个口径必须一起说；18 个包全部 ≥80%（最低 `saga` 90.34%），见台账注记；2026-11-23 CI 跑批实测（数值取自 CI 注解 `coverage 60710/61734`） |
 评测平面（`pnpm eval`）：
 
@@ -134,7 +134,7 @@
 - 供应链：Dependabot + `.github/workflows/security.yml`（npm audit 用官方源；pip-audit 先收集基线）。
 - 银行账本是内存仿真，进程重启回种子；不宣称持久。
 - 强验证渠道（短信/人脸/U 盾）语义位齐全，但全部是 mock，未接真实渠道。
-- **已知未做清单以 `docs/security-design.md` §4 的 6 条为准**（每条写了为什么不做 + 影响面）：
+- **已知未做清单以 `docs/security-design.md` §4 的 9 项为准**（每条写了为什么不做 + 影响面）；下面只列与赛题答辩最相关的 6 条：
   RAG 响应信封签名 / 强验证接真实渠道 /
   对抗集 H-14~H-15 幻觉族召回缺口 / plan 内写工具的补偿 / plan 动态 args 跨 `resume` /
   `incident` 状态的真实触发源。

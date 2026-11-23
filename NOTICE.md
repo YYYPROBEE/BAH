@@ -15,8 +15,17 @@ Copyright 2026 YYYPROBEE
 前端视觉体系 `design/bah-ds/`（BAH DS）为本工程自研设计系统：令牌定义、组件契约与
 图标资产均由本项目维护，`apps/web/styles/ds/` 是其逐字节分发副本，由 `verify-web` 门禁校验。
 
-若后续引入第三方 MIT/Apache 组件，在此逐项标注：
-（暂无）
+## npm 运行时依赖（2026-11-23 复核）
+
+主仓 workspace 的外部运行时依赖只有 4 项，各自随包携带许可文本；本工程不复制、不修改其源码：
+
+| 组件 | 版本 | 许可 | 使用位置 |
+|---|---|---|---|
+| schemastery | 3.18.0 | MIT | `packages/core`（配置 schema） |
+| yaml | 2.9.1 | ISC | `packages/cli` / `packages/policy` |
+| react / react-dom | 18.3.1 | MIT | `services/rag/web/evidence_panel`（私有面板，不随主包发布） |
+
+若后续复制或修改第三方 MIT/Apache 源码，再在此逐项标注归属与改动。
 
 ## 桌面端分发（Electron / Chromium，2026-10-30）
 

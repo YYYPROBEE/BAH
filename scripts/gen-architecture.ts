@@ -6,7 +6,7 @@
  * 架构图最常见的腐烂方式是"图里有、代码里没有"：组件改名、profile 少装一行，
  * 图还在。所以本脚本**只从代码取值**，一个组件名都不手写：
  *
- * - 组件清单 = `HOST_PLUGINS`（依赖清单，20 项）；
+ * - 组件清单 = `HOST_PLUGINS`（依赖清单，32 项）；
  * - 依赖边 = 每个插件的 `inject`（服务键）→ `SERVICE_OWNER`（服务键 → 提供方插件）；
  * - 装配状态 = **真实的 profile 装载器**（`readProfile` + `loadBundles` + `readLayers` + `mergeLayers`），
  *   不自己解析 YAML——否则"图里说装了"和"真的装了"会各说各话。
