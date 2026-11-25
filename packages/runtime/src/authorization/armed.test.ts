@@ -201,4 +201,36 @@ describe('窗口边车块（F-02 / F-03）', () => {
     ])
     expect(store.listArmed().map((item) => item.windowId)).toEqual(['w-lock', 'w-flower', 'w-cake'])
   })
+
+  function rawEdgeEvent(name: string, text: string, seq = 1): AnySessionEvent {
+    return {
+      seq,
+      at: seq,
+      formatVersion: 1,
+      type: 'tool/result',
+      data: {
+        callId: `call-${String(seq)}`,
+        name,
+        isError: false,
+        content: [{ type: 'text', text: `${WINDOW_PLAN_PREFIX}${text}` }],
+      },
+    } as AnySessionEvent
+  }
+
+  it('边车块不是 JSON / 不是对象 ⇒ fail-loud（与旧 plan_arm 同一口径）', () => {
+    expect(
+      captureThrown(() => replayArmedPlans([rawEdgeEvent('transfer_schedule', '{not-json')])).code,
+    ).toBe('window-replay-invalid')
+    expect(captureThrown(() => replayArmedPlans([rawEdgeEvent('birthday_plan', '[]')])).code).toBe(
+      'window-replay-invalid',
+    )
+    expect(captureThrown(() => replayArmedPlans([rawEdgeEvent('birthday_plan', 'null')])).code).toBe(
+      'window-replay-invalid',
+    )
+  })
+
+  it('非窗口工具即使带同样前缀也不进账本（前缀不是授权来源，工具名才是）', () => {
+    const store = replayArmedPlans([edgeEvent('goal_set', [plan()])])
+    expect(store.list()).toHaveLength(0)
+  })
 })

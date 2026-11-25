@@ -8,7 +8,7 @@
 
 | 命令 | 覆盖范围 | 实测 |
 |---|---|---|
-| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **458 文件 / 5312 用例**（2026-11-23 实测：较 2026-11-03 台账 455/5283 增 3 文件 / 29 例。**如实拆账**：其中 7 例 + 2 文件是台账日期之后已合入的存量漂移（`vitest list` 与台账的差，本轮复审登记），22 例 + 1 文件是修复新增——F-01 审批预授权 7、回执单测 6、跨重启集成 2、密钥配置 2，复审回归 5（票据精度 1、窗口边车回放 2、payeeId 与告警覆盖 2）。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑绿），与用例数无关**） |
+| `pnpm test` | 主仓 `packages/*/src/**/*.test.ts` + `scripts/**/*.test.ts` + `apps/desktop/src/**/*.test.ts` + `apps/im-gateway/{src,test}/**/*.test.ts`（不含 e2e / snapshot / eval / web） | **459 文件 / 5318 用例**（2026-11-25 实测：较 2026-11-03 台账 455/5283 增 4 文件 / 35 例。**如实拆账**：其中 7 例 + 2 文件是台账日期之后已合入的存量漂移（`vitest list` 与台账的差，本轮复审登记），22 例 + 1 文件是修复新增——F-01 审批预授权 7、回执单测 6、跨重启集成 2、密钥配置 2，复审回归 5（票据精度 1、窗口边车回放 2、payeeId 与告警覆盖 2）；2026-11-25 覆盖补丁 6 例 + 1 文件（渠道边车正文过滤 4、边车坏数据回放 2）。**Windows 全量跑时 `apps/im-gateway/test/supervisor.test.ts` 有偶发时序失败（单文件重跑绿），与用例数无关**） |
 | `pnpm eval:unit` | 评测包（不在根 vitest include 内） | **22 文件 / 158 用例** |
 | `pnpm test:web` | `apps/web`（DOM / 投影 / 弹窗 / 移动壳交互面） | **49 文件 / 610 用例**（全绿；2026-11-03 实测（清理线）：较 47/550 新增 `views/history.test.js` 27 例、`mobile/history-sheet.test.js` 14 例与批内 18 例） |
 
